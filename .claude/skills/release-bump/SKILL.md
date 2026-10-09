@@ -24,7 +24,7 @@ Replace the old version with the new one in:
 - `pyproject.toml` (`version = ...`)
 - `skforecast_ai/__init__.py` (`__version__`)
 - `plugin/.claude-plugin/plugin.json` (`version`)
-- `plugin/.mcp.json` (the `skforecast-ai[mcp]==X.Y.Z` pin)
+- `plugin/.mcp.json` (the `skforecast-ai-mcp==X.Y.Z` pin)
 - `.claude-plugin/marketplace.json` (`version`, twice)
 - `packages/skforecast-ai-mcp/pyproject.toml` (`version` and the
   `skforecast-ai[mcp]==X.Y.Z` pin)

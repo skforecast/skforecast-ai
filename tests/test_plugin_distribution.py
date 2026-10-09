@@ -59,14 +59,16 @@ def test_plugin_versions_match_pyproject():
     assert plugin["version"] == version
     assert marketplace["metadata"]["version"] == version
     assert [p["version"] for p in marketplace["plugins"]] == [version]
-    assert args[:2] == ["--from", f"skforecast-ai[mcp]=={version}"]
+    assert args[0] == f"skforecast-ai-mcp=={version}"
 
 
 def test_plugin_marketplace_and_server_command():
     """
     Test that the marketplace serves one plugin, named as the package, from
-    `./plugin`, and that the server starts with uvx, reading the project
-    the agent works in.
+    `./plugin`, and that the server starts with uvx, through the launcher,
+    reading the project the agent works in. The command carries no path:
+    the plugin directory of Anthropic rejects one written with a variable
+    other than `${CLAUDE_PLUGIN_ROOT}`.
     """
     marketplace = _json(ROOT / ".claude-plugin" / "marketplace.json")
     plugin = _json(PLUGIN / ".claude-plugin" / "plugin.json")
@@ -80,9 +82,7 @@ def test_plugin_marketplace_and_server_command():
     assert plugin["license"] == "Apache-2.0"
     assert list(server) == ["skforecast-ai"]
     assert server["skforecast-ai"]["command"] == "uvx"
-    assert server["skforecast-ai"]["args"][2:] == [
-        "skforecast-ai", "mcp", "--allow-dir", "${CLAUDE_PROJECT_DIR}",
-    ]
+    assert server["skforecast-ai"]["args"][1:] == ["--allow-project-dir"]
 
 
 def test_plugin_readme_meets_the_directory_requirements():
@@ -96,7 +96,7 @@ def test_plugin_readme_meets_the_directory_requirements():
     prose = re.sub(r"```.*?```", "", readme, flags=re.DOTALL)
 
     assert len(prose.split()) >= 40
-    assert 'uvx --from "skforecast-ai[mcp]==<version>" skforecast-ai mcp' in readme
+    assert "uvx skforecast-ai-mcp==<version> --allow-project-dir" in readme
 
 
 def test_plugin_icon_meets_the_directory_requirements():

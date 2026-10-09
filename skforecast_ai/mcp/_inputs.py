@@ -121,6 +121,44 @@ def _is_within(path: str, root: str) -> bool:
         return False
 
 
+def project_dir_from_environment() -> str:
+    """
+    Return the project directory the client set in `CLAUDE_PROJECT_DIR`,
+    for `--allow-project-dir`.
+
+    Claude Code starts the servers of a plugin with that variable set to the
+    directory of the session. The root of a file system and the home
+    directory are rejected: a session opened there would let the server
+    read every CSV file of the user, which is not a project.
+
+    Returns
+    -------
+    project_dir : str
+        Value of the variable, to be checked by `AllowedDir.from_path`.
+    """
+
+    given = os.environ.get("CLAUDE_PROJECT_DIR", "")
+    if not given:
+        raise InvalidInputError(
+            "`--allow-project-dir` needs the environment variable "
+            "`CLAUDE_PROJECT_DIR`, which Claude Code sets to the project of "
+            "the session, and it is not set. Give the directory with "
+            "`--allow-dir` instead.",
+            field = "allow_project_dir",
+        )
+    real = os.path.normcase(os.path.realpath(given))
+    home = os.path.normcase(os.path.realpath(os.path.expanduser("~")))
+    if os.path.isabs(given) and (real == home or os.path.dirname(real) == real):
+        raise InvalidInputError(
+            f"`--allow-project-dir` does not accept {given!r}, the home "
+            f"directory or the root of a file system: the server would read "
+            f"every CSV file in it. Start the agent in the directory of the "
+            f"project, or give a directory with `--allow-dir`.",
+            field = "allow_project_dir",
+        )
+    return given
+
+
 def has_control_characters(text: str) -> bool:
     """
     Whether a text holds a line break or another control character.

@@ -11,6 +11,26 @@ All significant changes to this project are documented in this release file.
 | <span class="badge text-bg-docs">Docs</span>               | Documentation improvement             |
 
 
+## 0.4.1 <small>In development</small> { id="0.4.1" }
+
+The main changes in this release are:
+
++ <span class="badge text-bg-enhancement">Enhancement</span> New option `--allow-project-dir` of `skforecast-ai mcp`, which the plugin of Claude Code now uses: the server reads the project of the session from the environment and does not start in the home directory. See [MCP server for coding agents][mcp-guide].
+
+
+**Added**
+
++ New option `--allow-project-dir` of `skforecast-ai mcp`, in place of `--allow-dir`: the allowed directory is the project of the session, read from the environment variable `CLAUDE_PROJECT_DIR` that Claude Code sets. The server stops if it is not set, or if it is the home directory or the root of a disk. See [MCP server for coding agents][mcp-guide].
+
+
+**Changed**
+
++ The plugin of Claude Code starts the server with `uvx skforecast-ai-mcp==<version> --allow-project-dir`. It reads the same project as before, but no longer starts when Claude Code is opened in the home directory or in the root of a disk: open it in the folder of the project.
+
+
+**Fixed**
+
+
 ## 0.4.0 <small>Oct 9, 2026</small> { id="0.4.0" }
 
 The main changes in this release are:
