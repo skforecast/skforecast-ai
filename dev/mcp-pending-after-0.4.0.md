@@ -120,13 +120,13 @@ Dónde está lo demás:
       desde un chat. De Claude Code, los comandos `/plugin` tecleados en
       una sesión interactiva (se usaron `claude plugin marketplace add` y
       `claude plugin install`).
-    - **Para la guía** (`docs/user-guides/mcp-server.md`), propuesto y sin
-      aplicar: el primer arranque son unos 30 s con buena conexión, no un
-      minuto, y en Claude Code cabe en el timeout por 2 s, así que conviene
-      nombrar `MCP_TIMEOUT` junto al warm up; tras el warm up, el primer
-      arranque del servidor tarda unos 9 s y los siguientes unos 2; Claude
-      Desktop arranca el servidor dos veces y mantiene los dos procesos
-      hasta que se cierra.
+    - **En la guía** (`docs/user-guides/mcp-server.md`), aplicado: el
+      primer arranque son unos 30 s con buena conexión, no un minuto, y en
+      Claude Code cabe en el timeout por 2 s, así que el warm up nombra
+      `MCP_TIMEOUT`, y Troubleshooting también; tras el warm up, el primer
+      arranque del servidor tarda hasta 10 s y los siguientes unos 2; una
+      fila de Troubleshooting dice que Claude Desktop arranca el servidor
+      dos veces y mantiene los dos procesos hasta que se cierra.
     - **Visto de paso**: `npx skills add skforecast/skforecast-ai --list`
       enseña también los 7 skills de `.claude/skills/`, que son de los
       mantenedores.
