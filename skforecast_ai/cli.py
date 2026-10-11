@@ -72,6 +72,8 @@ CalendarFeaturesOption = Annotated[str | None, typer.Option("--calendar-features
 TargetTransformerOption = Annotated[str | None, typer.Option("--target-transformer", help="Scaler of the target: 'StandardScaler', 'none', or 'auto' for the rule. Machine learning forecasters only.")]
 DropnaOption = Annotated[str | None, typer.Option("--dropna-from-series", help="Drop the training rows with missing values: 'true', 'false' or 'auto' for the rule. Machine learning forecasters only.")]
 ExogColumnsOption = Annotated[str | None, typer.Option("--exog-columns", help="Comma-separated columns to use as exogenous variables, 'none' for none, or 'auto' for every column that is not the target, the date or the series id. The other columns are not used.")]
+SepOption = Annotated[str | None, typer.Option("--sep", help="Separator of the CSV file: ',', ';' or 'tab'. Detected from the file when omitted.")]
+DecimalOption = Annotated[str | None, typer.Option("--decimal", help="Decimal mark of the CSV file: '.' or ',' (only when the separator is not ','). Detected from the file when omitted.")]
 FromPlanOption = Annotated[str | None, typer.Option("--from-plan", help="Load plan bundle from JSON file or '-' for stdin.")]
 FromProfileOption = Annotated[str | None, typer.Option("--from-profile", help="Load profile from JSON file or '-' for stdin.")]
 # CV options default to None so that only the flags actually passed reach
@@ -633,6 +635,26 @@ def _create_cv_to_backtest(assistant: ForecastingAssistant, **kwargs):
         return assistant.create_cv(**kwargs)
 
 
+def _parse_sep(value: str | None) -> str | None:
+    """
+    Parse the `--sep` option: a tabulator can be written as `tab` or as the
+    two characters of its escape, which a shell does not turn into one.
+
+    Parameters
+    ----------
+    value : str, None
+        Raw option value.
+
+    Returns
+    -------
+    sep : str, None
+        Separator, or None when the option was not given.
+    """
+    if value is not None and value.lower() in ("tab", "\\t"):
+        return "\t"
+    return value
+
+
 def _parse_exog_columns(value: str | None) -> list[str] | None:
     """
     Read `--exog-columns`: `'auto'` (or the option left out) maps to None,
@@ -975,6 +997,8 @@ def profile(
     date_column: DateColumnOption = None,
     series_id_column: SeriesIdColumnOption = None,
     exog_columns: ExogColumnsOption = None,
+    sep: SepOption = None,
+    decimal: DecimalOption = None,
     format: TableFormatOption = "table",
     output: OutputOption = None,
     quiet: QuietOption = False,
@@ -991,6 +1015,7 @@ def profile(
                 data=data, target=parsed_target, date_column=date_column,
                 series_id_column=series_id_column,
                 exog_columns=parsed_exog_columns,
+                sep=_parse_sep(sep), decimal=decimal,
             )
 
         if format == "json":
@@ -2204,7 +2229,7 @@ def mcp_server(
     output_dir: Annotated[Path | None, typer.Option("--output-dir", help="Directory of the files the server writes; also its working directory. Default: a new temporary directory.")] = None,
     max_objects: Annotated[int, typer.Option("--max-objects", min=1, help="Most objects the server keeps; the least recently used ones are removed beyond it.")] = 256,
     max_memory_mb: Annotated[int, typer.Option("--max-memory-mb", min=1, help="Memory, in MB, the objects may take; the least recently used ones are removed beyond it.")] = 1024,
-    max_file_mb: Annotated[int, typer.Option("--max-file-mb", min=0, help="Largest CSV file the server reads, in MB, checked before reading it; 0 for no limit.")] = 256,
+    max_file_mb: Annotated[int, typer.Option("--max-file-mb", min=0, help="Largest CSV file the server reads, in MB, checked before reading it (also on the content of a '.gz' file); 0 for no limit.")] = 256,
     allow_model: Annotated[list[str] | None, typer.Option("--allow-model", help="Model ID prefix of a foundation model that the server may run although its license restricts commercial use, its weights are gated, its provider requires an account or skforecast gives no license information, e.g. google/timesfm-3.0 (repeatable). Other models run without it.")] = None,
 ) -> None:
     """Serve the deterministic workflow to MCP clients (coding agents) over stdio."""

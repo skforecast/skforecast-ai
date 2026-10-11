@@ -41,7 +41,12 @@ skforecast-ai forecast "$DATA" --target y --date-column fecha --steps 12 --test-
 | `config` | Show, set and locate the configuration file | |
 | `mcp` | Serve the workflow to coding agents as an MCP server | |
 
-The commands that read data take a local CSV path or an `https://` URL as their first argument.
+The commands that read data take a local CSV path or an `https://` URL as their first argument. The file can be separated by `,`, `;` or tabulators, with `.` or `,` as decimal mark (what a spreadsheet exports in most of Europe), and compressed (`.csv.gz`); `.tsv` files are read too. The separator and the decimal mark are detected from the first lines of the file, and the generated script reads the file with them. When a file reads in more than one way, the command fails and asks for them: profile it with `--sep` and `--decimal` and pass the saved profile on.
+
+```bash
+skforecast-ai profile sales.csv --target revenue --sep ";" --decimal "," --format json -o profile.json
+skforecast-ai plan --from-profile profile.json --steps 30
+```
 
 ---
 
