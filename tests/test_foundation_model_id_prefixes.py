@@ -11,7 +11,9 @@ def test_foundation_model_id_prefixes_are_those_of_skforecast():
     written out so the MCP server builds the schemas of its tools without
     importing skforecast, holds the prefixes of `list_adapters()` of the
     installed skforecast, in its order. A new adapter of skforecast fails
-    here until the constant is updated.
+    here until the constant is updated. The expected value is read from
+    skforecast, not hardcoded, because keeping the two equal is what this
+    test is for.
     """
     expected = tuple(
         prefix for info in list_adapters() for prefix in info.model_id_prefixes

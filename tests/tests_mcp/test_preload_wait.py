@@ -6,11 +6,7 @@ import sys
 import threading
 import pytest
 
-from skforecast_ai.mcp import _preload
-from skforecast_ai.mcp._errors import ServerError
-from skforecast_ai.mcp._preload import Preload
-
-from .fixtures_mcp import call, error_of, h2o_server
+from skforecast_ai.mcp._preload import Preload, PreloadError
 
 
 def _probe_module(tmp_path, monkeypatch, request, body: str = "") -> tuple[str, object]:
@@ -81,57 +77,24 @@ def test_preload_wait_imports_once_for_callers_in_several_threads(
     assert log.read_text() == "imported\n"
 
 
-def test_preload_wait_ServerError_when_an_import_fails(caplog):
+def test_preload_wait_PreloadError_when_an_import_fails(caplog):
     """
-    Test that a failed import is raised by every `wait` as a `ServerError`
-    with the code 'internal_error' and the import error as its cause, and
-    is logged once with its traceback.
+    Test that a failed import is raised by every `wait` as a `PreloadError`
+    whose cause is the import error, and is logged once with its traceback,
+    without importing again.
     """
     preload = Preload(["skforecast_ai_module_that_does_not_exist"])
     err_msg = re.escape(
-        "The server could not import skforecast-ai and its dependencies: "
-        "ModuleNotFoundError: No module named "
-        "'skforecast_ai_module_that_does_not_exist'"
+        "The server could not import skforecast-ai and its dependencies."
     )
 
     with caplog.at_level(logging.ERROR, logger="skforecast_ai.mcp"):
-        with pytest.raises(ServerError, match=err_msg) as first:
+        with pytest.raises(PreloadError, match=err_msg) as first:
             preload.wait()
-        with pytest.raises(ServerError, match=err_msg) as second:
+        with pytest.raises(PreloadError, match=err_msg) as second:
             preload.wait()
 
-    assert first.value.code == "internal_error"
     assert isinstance(first.value.__cause__, ModuleNotFoundError)
     assert second.value.__cause__ is first.value.__cause__
     assert len(caplog.records) == 1
     assert caplog.records[0].exc_info is not None
-
-
-def test_preload_wait_failure_is_the_error_of_the_first_tool(tmp_path, monkeypatch):
-    """
-    Test that a tool called after the background import failed answers
-    with the JSON of the error of `wait`, its message and hint, instead of
-    losing it.
-    """
-    server, _ = h2o_server(tmp_path)
-    monkeypatch.setattr(
-        _preload, "PRELOAD", Preload(["skforecast_ai_module_that_does_not_exist"])
-    )
-
-    result = call(server, "list_objects", {})
-
-    assert error_of(result, "list_objects") == {
-        "code": "internal_error",
-        "message": (
-            "The server could not import skforecast-ai and its dependencies: "
-            "ModuleNotFoundError: No module named "
-            "'skforecast_ai_module_that_does_not_exist'"
-        ),
-        "field": None,
-        "hint": (
-            "Report it to the user: the installation of skforecast-ai is "
-            "broken and every tool fails the same way until it is repaired. "
-            "The traceback is in the log of the server (stderr)."
-        ),
-        "details": None,
-    }

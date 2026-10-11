@@ -845,10 +845,12 @@ class _StrictTool(Tool):
                 preload.wait()
             else:
                 await anyio.to_thread.run_sync(preload.wait, abandon_on_cancel=True)
-        except ServerError as exc:
-            # With the prefix the SDK gives to the errors of the tools.
+        except _preload.PreloadError as exc:
+            # Reported as any unexpected error (its type and an id; the
+            # message and the traceback go to the log), with the prefix the
+            # SDK gives to the errors of the tools.
             raise ToolError(
-                f"Error executing tool {self.name}: {tool_error(exc)}"
+                f"Error executing tool {self.name}: {tool_error(exc.__cause__)}"
             ) from exc
         try:
             return await super().run(arguments, context, convert_result=convert_result)

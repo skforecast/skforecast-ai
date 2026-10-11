@@ -1,4 +1,4 @@
-# Unit test skforecast_ai.__getattr__
+# Unit test skforecast_ai.__getattr__ and skforecast_ai.__dir__
 
 import importlib
 import re

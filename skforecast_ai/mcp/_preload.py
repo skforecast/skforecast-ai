@@ -11,7 +11,6 @@ import logging
 import threading
 from collections.abc import Iterable
 from typing import Any
-from ._errors import ServerError
 
 logger = logging.getLogger("skforecast_ai.mcp")
 
@@ -28,6 +27,14 @@ PRELOADED_MODULES = (
     "skforecast_ai._utils",
     "skforecast.foundation",
 )
+
+
+class PreloadError(Exception):
+    """
+    Raised by `Preload.wait` when the import failed; its cause is the error
+    of the import, which the tools report as an unexpected error (its type
+    and an id, with the message and the traceback in the log).
+    """
 
 
 class Preload:
@@ -118,26 +125,16 @@ class Preload:
 
         Raises
         ------
-        ServerError
-            With the code `'internal_error'`, when an import failed. The
-            original exception is its cause.
+        PreloadError
+            When an import failed. The original exception is its cause.
         """
 
         self.start()
         self._done.wait()
         if self._error is not None:
-            exc = self._error
-            raise ServerError(
-                f"The server could not import skforecast-ai and its "
-                f"dependencies: {type(exc).__name__}: {exc}",
-                code = "internal_error",
-                hint = (
-                    "Report it to the user: the installation of skforecast-ai "
-                    "is broken and every tool fails the same way until it is "
-                    "repaired. The traceback is in the log of the server "
-                    "(stderr)."
-                ),
-            ) from exc
+            raise PreloadError(
+                "The server could not import skforecast-ai and its dependencies."
+            ) from self._error
 
 
 PRELOAD = Preload(PRELOADED_MODULES)
