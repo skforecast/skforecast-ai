@@ -66,6 +66,24 @@ alcance:
   0.4.2 porque hoy fallan y el resto de ficheros no cambia.
 - Bases de datos y DuckDB.
 
+### Pendiente del CSV de una hoja de cálculo (antes de la 0.5.0)
+
+La 0.4.2 lee el separador y el decimal, pero un CSV exportado desde Excel en
+español suele traer dos cosas más que siguen fallando. Cada una en su PR:
+
+- **Fechas con el día primero (`dd/mm/yyyy`)**: hoy se leen mes primero, o se
+  rechazan cuando una fecha posterior no encaja. Los datos mensuales
+  (`01/02/2020`) valen en los dos órdenes en todas las filas: se perfilan
+  con frecuencia `None` y `forecast()` falla. Diseño como el del dialecto:
+  el formato de fecha en el perfil, emitido en el script solo cuando no es
+  el de hoy; detectado cuando es inequívoco (algún día mayor que 12) y, si
+  no, error con hint y un argumento explícito. Cambia los scripts generados.
+- **Codificación cp1252**: el "CSV (delimitado por comas)" de Excel en
+  Windows no es UTF-8 y una `ñ` o una tilde en una cabecera da
+  `data_unreadable`. Propuesta: si el fichero no es UTF-8, leerlo como
+  cp1252, guardarlo en el perfil, emitir `encoding=` en el script y avisar
+  en `warnings`, porque no se puede validar. UTF-16 queda fuera.
+
 ## 2. Otros candidatos de la 0.5.0
 
 - **Ajuste de hiperparámetros**: hoy `compare()` solo ordena configuraciones
