@@ -11,6 +11,32 @@ All significant changes to this project are documented in this release file.
 | <span class="badge text-bg-docs">Docs</span>               | Documentation improvement             |
 
 
+## 0.4.2 <small>In development</small> { id="0.4.2" }
+
+The main changes in this release are:
+
++ <span class="badge text-bg-danger">Fix</span> [<code>ForecastingAssistant.compare()</code>][assistant] without `candidates`, on the strategy of a refined plan, ranks that plan as the row `'Strategy plan'`, and its summary says how many configurations beat the baseline.
+
+!!! warning "Before upgrading"
+
+    Some results change with this version, without any change in your code:
+
+    + `compare()` without `candidates`, on a strategy created for a plan that is not the one the profile recommends, has one more row, `'Strategy plan'`, which runs that plan. Pass `candidates` to choose the rows.
+
+
+**Added**
+
+
+**Changed**
+
+
+**Fixed**
+
++ [<code>ForecastingAssistant.compare()</code>][assistant] without `candidates`, on the strategy of a plan refined with another estimator, lags or window features, did not run that plan. It now runs as the row `'Strategy plan'` (named in `strategy_plan_name` of the [`ComparisonResult`][results]), and the summary names that row and counts the configurations that beat the baseline, not those that do not.
+
++ The `cost` of `create_cv` in the MCP server counted, for a `compare` without `candidates`, forecasters that `compare` leaves out (the multivariate one with several series, a foundation model without its backend). It now counts the candidates that `compare` runs, the plan of the strategy included. See [MCP server for coding agents][mcp-guide].
+
+
 ## 0.4.1 <small>Oct 9, 2026</small> { id="0.4.1" }
 
 The main changes in this release are:

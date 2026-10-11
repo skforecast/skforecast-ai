@@ -3309,7 +3309,8 @@ class ForecastingAssistant:
             Cross-validation strategy applied identically to every
             candidate. The `steps` value is inferred from `cv.steps`.
             The `CVResult` returned by `create_cv()` is accepted as well;
-            its `cv` splitter is used.
+            its `cv` splitter is used and, when `candidates` is None, its
+            plan runs too (see `candidates`).
             Its profile must describe data of the same structure (format,
             target, series, frequency, exogenous columns), or `ValueError`
             is raised.
@@ -3349,7 +3350,13 @@ class ForecastingAssistant:
             the same family as the recommended forecaster (with several
             series, `ForecasterRecursiveMultiSeries` and
             `ForecasterFoundation`); when that leaves a single forecaster,
-            its estimator candidates are compared instead.
+            its estimator candidates are compared instead. When `cv` is a
+            `CVResult` created for a plan that makes other decisions than
+            all of those candidates (one refined with another estimator,
+            lags or window features, for example), that plan runs too, as
+            the row `'Strategy plan'`, with its decisions and the `metric`
+            and `interval` of the comparison; `strategy_plan_name` and the
+            explanation name the row of that plan.
         metric : str, list of str, default None
             Metric(s) computed per candidate. When a list is passed, the
             first metric is used to rank the table. When None, the plan
@@ -3372,7 +3379,8 @@ class ForecastingAssistant:
             Whether to add a `ForecasterEquivalentDate` baseline (seasonal
             naive, or naive when no seasonal period applies) as one more
             row, ranked like the other candidates. The explanation states
-            whether the best configuration beats it and by how much. It is
+            how many configurations beat it, which ones, and by how much
+            the best one does. It is
             not added for multi-series data, which it cannot forecast, nor
             when the target has missing values or missing timestamps, which
             it would repeat as missing predictions (the explanation says
@@ -3417,6 +3425,8 @@ class ForecastingAssistant:
             parameters that were not passed.
             - cv_defaults_explanation: why the strategy parameters that
             were not passed have their value, and which ones were passed.
+            - strategy_plan_name: name of the row that runs the plan of
+            the `CVResult`, or None.
             - best_name: name of the top-ranked candidate.
             - best_candidate: top-ranked candidate as a `BacktestResult`.
 
@@ -3439,6 +3449,11 @@ class ForecastingAssistant:
         -----
         CandidateFailedWarning
             Once per failed candidate.
+        UserWarning
+            When `candidates` is None and the plan of the `CVResult` is left
+            out (a forecaster family whose metrics cannot be ranked with the
+            candidates), or runs without values edited by hand that `plan()`
+            does not rebuild.
         MissingBackendWarning
             When `candidates` is None and the backend of the default
             foundation model is not installed, so `ForecasterFoundation`
