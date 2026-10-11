@@ -29,6 +29,14 @@ from .._dates import (
 )
 from ..schemas import DataProfile
 from ..exceptions import InvalidInputError, InvalidInputTypeError
+from .csv_dialect import (
+    DECOMPRESSION_ERRORS,
+    DEFAULT_CSV_DECIMAL,
+    DEFAULT_CSV_SEP,
+    check_csv_dialect,
+    detect_csv_dialect,
+    read_sample,
+)
 
 # TODO: Memory Optimization - Mask Filtering
 # Optimize `_extract_datetime_index` to avoid creating heavy boolean masks 
@@ -168,6 +176,8 @@ def create_data_profile(
     series_id_column: str | None = None,
     data_path: str = "data.csv",
     exog_columns: list[str] | None = None,
+    sep: str | None = None,
+    decimal: str | None = None,
 ) -> DataProfile:
     """
     Generate a deterministic data profile from a dataset.
@@ -195,6 +205,14 @@ def create_data_profile(
         them (an empty list for none), kept in the order of the data; the
         other columns are listed in `unused_columns`, with a note in
         `warnings`, and are not described by the profile.
+    sep : str, default None
+        Separator of the fields of the CSV file: `','`, `';'` or a
+        tabulator. If None, it is detected when `data` is a path, and `','`
+        is recorded for a DataFrame. The profile records it as `csv_sep`.
+    decimal : str, default None
+        Decimal mark of the CSV file: `'.'` or `','`. If None, it is
+        detected when `data` is a path, and `'.'` is recorded for a
+        DataFrame. The profile records it as `csv_decimal`.
 
     Returns
     -------
@@ -235,8 +253,9 @@ def create_data_profile(
     of a day or coarser and in UTC for a finer one, as pandas puts them on a
     grid.
     """
+    check_csv_dialect(sep, decimal)
     if isinstance(data, (str, Path)):
-        data = read_csv_file(data)
+        data, sep, decimal = read_csv_with_dialect(data, sep=sep, decimal=decimal)
         # Attempt to parse the first object-dtype column as datetime.
         # This handles CSVs exported with df.to_csv() where the date
         # index becomes a regular column.
@@ -468,6 +487,8 @@ def create_data_profile(
         unused_columns=unused_columns,
         # Source
         data_path=data_path,
+        csv_sep=DEFAULT_CSV_SEP if sep is None else sep,
+        csv_decimal=DEFAULT_CSV_DECIMAL if decimal is None else decimal,
         # Train/test split
         start_date=start_date,
         time_zone=time_zone,
@@ -3018,16 +3039,131 @@ _MAX_LISTED_COLUMNS = 20
 _MAX_QUOTED_VALUES = 5
 
 
-def read_csv_file(path: str | Path, field: str = "data") -> pd.DataFrame:
+def csv_read_kwargs(sep: str, decimal: str) -> dict[str, str]:
+    """
+    Return the arguments `pandas.read_csv` needs to read a CSV file written
+    with a separator and a decimal mark, as the generated script passes
+    them: none for `','` and `'.'`, both otherwise.
+
+    Parameters
+    ----------
+    sep : str
+        Separator of the fields.
+    decimal : str
+        Decimal mark.
+
+    Returns
+    -------
+    kwargs : dict
+        Empty, or `sep` and `decimal`.
+    """
+    if sep == DEFAULT_CSV_SEP and decimal == DEFAULT_CSV_DECIMAL:
+        return {}
+    return {"sep": sep, "decimal": decimal}
+
+
+def read_csv_with_dialect(
+    path: str | Path,
+    field: str = "data",
+    sep: str | None = None,
+    decimal: str | None = None,
+) -> tuple[pd.DataFrame, str, str]:
+    """
+    Read a CSV file with `pandas.read_csv`, as the generated script reads
+    it, and return how it is written.
+
+    The separator (`','`, `';'` or a tabulator) and the decimal mark (`'.'`
+    or `','`) are told from the first lines of the file unless they are
+    given (see `detect_csv_dialect`). A file written with `','` and `'.'`
+    is read with the same call as before.
+
+    Parameters
+    ----------
+    path : str, Path
+        Path of the CSV file.
+    field : str, default 'data'
+        Argument that named the file, reported with the error.
+    sep : str, default None
+        Separator of the fields. If None, it is detected.
+    decimal : str, default None
+        Decimal mark. If None, it is detected.
+
+    Returns
+    -------
+    data : pandas DataFrame
+        Content of the file.
+    sep : str
+        Separator the file was read with.
+    decimal : str
+        Decimal mark the file was read with.
+
+    Notes
+    -----
+    A file that pandas cannot read as a CSV (empty, binary, not UTF-8, with
+    rows of more fields than the others, or compressed and damaged) raises
+    `InvalidInputError` with code `'data_unreadable'`, still a `ValueError`
+    as the errors of pandas were, and so does a file whose separator or
+    decimal mark cannot be told.
+    """
+    check_csv_dialect(sep, decimal)
+    if sep is None or decimal is None:
+        sample = read_sample(path)
+        if sample is None:
+            # Left for pandas to report, or read as before.
+            sep = DEFAULT_CSV_SEP if sep is None else sep
+            decimal = DEFAULT_CSV_DECIMAL if decimal is None else decimal
+        else:
+            sep, decimal = detect_csv_dialect(
+                               sample  = sample,
+                               source  = str(path),
+                               field   = field,
+                               sep     = sep,
+                               decimal = decimal,
+                           )
+        check_csv_dialect(sep, decimal)
+    try:
+        data = pd.read_csv(path, **csv_read_kwargs(sep, decimal))
+    except (
+        pd.errors.EmptyDataError,
+        pd.errors.ParserError,
+        UnicodeDecodeError,
+        *DECOMPRESSION_ERRORS,
+    ) as exc:
+        reason = (str(exc).strip().splitlines() or [type(exc).__name__])[0]
+        raise InvalidInputError(
+            f"The CSV file '{path}' could not be read: {reason}",
+            code  = "data_unreadable",
+            field = field,
+            hint  = (
+                "Pass a text file in UTF-8 separated by ',', ';' or "
+                "tabulators, with a header row and the same number of "
+                "fields in every row."
+            ),
+        ) from exc
+
+    return data, sep, decimal
+
+
+def read_csv_file(
+    path: str | Path,
+    field: str = "data",
+    sep: str | None = None,
+    decimal: str | None = None,
+) -> pd.DataFrame:
     """
     Read a CSV file with `pandas.read_csv`, as the generated script reads it.
 
     Parameters
     ----------
     path : str, Path
-        Path or URL of the CSV file.
+        Path of the CSV file.
     field : str, default 'data'
         Argument that named the file, reported with the error.
+    sep : str, default None
+        Separator of the fields: `','`, `';'` or a tabulator. If None, it
+        is detected from the first lines of the file.
+    decimal : str, default None
+        Decimal mark: `'.'` or `','`. If None, it is detected.
 
     Returns
     -------
@@ -3036,24 +3172,9 @@ def read_csv_file(path: str | Path, field: str = "data") -> pd.DataFrame:
 
     Notes
     -----
-    A file that pandas cannot read as a CSV (empty, binary, not UTF-8 or
-    with rows of more fields than the others) raises `InvalidInputError`
-    with code `'data_unreadable'`, still a `ValueError` as the errors of
-    pandas were.
+    See `read_csv_with_dialect` for the errors.
     """
-    try:
-        return pd.read_csv(path)
-    except (pd.errors.EmptyDataError, pd.errors.ParserError, UnicodeDecodeError) as exc:
-        reason = (str(exc).strip().splitlines() or [type(exc).__name__])[0]
-        raise InvalidInputError(
-            f"The CSV file '{path}' could not be read: {reason}",
-            code  = "data_unreadable",
-            field = field,
-            hint  = (
-                "Pass a comma-separated text file in UTF-8 with a header "
-                "row, and the same number of fields in every row."
-            ),
-        ) from exc
+    return read_csv_with_dialect(path, field=field, sep=sep, decimal=decimal)[0]
 
 
 def _listed_columns(columns: list) -> str:

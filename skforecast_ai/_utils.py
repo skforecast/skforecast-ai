@@ -44,8 +44,17 @@ from ._dates import is_text, parse_text_dates, row_dates, training_end
 from .profiling.data_profile import (
     _read_date_column,
     _try_parse_first_date_column,
+    csv_read_kwargs,
     date_issue_hint,
-    read_csv_file,
+    read_csv_with_dialect,
+)
+from .profiling.csv_dialect import (
+    CSV_SEPARATORS,
+    DEFAULT_CSV_DECIMAL,
+    DEFAULT_CSV_SEP,
+    check_csv_dialect,
+    detect_csv_dialect,
+    read_url_sample,
 )
 from .schemas import CVResult, DataProfile, ForecastingProfile, ForecastPlan
 from .exceptions import (
@@ -792,10 +801,92 @@ def _validate_forecast_mode(
         )
 
 
+# How the last CSV file read in this context is written: the path recorded
+# for it, its separator and its decimal mark. The workflows read the file
+# first and record its path in the profile later (`_with_data_path`), which
+# takes the dialect from here instead of reading the file again.
+_READ_CSV_DIALECT: ContextVar[tuple[str, str, str] | None] = ContextVar(
+    "_READ_CSV_DIALECT", default=None
+)
+
+
+def _dialect_read(data_path: str) -> tuple[str | None, str | None]:
+    """
+    Return the separator and the decimal mark the file recorded as
+    `data_path` was read with, or None for both when the last CSV read in
+    this context is another one (or none, for data passed in memory).
+    """
+    read = _READ_CSV_DIALECT.get()
+    if read is None or read[0] != data_path or data_path == PLACEHOLDER_DATA_PATH:
+        return None, None
+    return read[1], read[2]
+
+
+def _read_csv_url(
+    url: str,
+    sep: str | None = None,
+    decimal: str | None = None,
+) -> tuple[pd.DataFrame, str, str]:
+    """
+    Read the CSV file of a URL and return how it is written.
+
+    The file is first read as before, with `','` and `'.'`. Only when a
+    column name then holds another separator is the start of the file
+    downloaded again to tell its dialect (see `detect_csv_dialect`), and
+    the file read with it, as the generated script reads it.
+
+    Parameters
+    ----------
+    url : str
+        URL of the file.
+    sep : str, default None
+        Separator of the fields. If None, it is detected.
+    decimal : str, default None
+        Decimal mark. If None, it is detected.
+
+    Returns
+    -------
+    data : pandas DataFrame
+        Content of the file.
+    sep : str
+        Separator the file was read with.
+    decimal : str
+        Decimal mark the file was read with.
+    """
+    if sep is None or decimal is None:
+        data = None
+        if sep is None and decimal is None:
+            data = pd.read_csv(url)
+            header = "".join(str(column) for column in data.columns)
+            if not any(
+                other in header for other in CSV_SEPARATORS
+                if other != DEFAULT_CSV_SEP
+            ):
+                return data, DEFAULT_CSV_SEP, DEFAULT_CSV_DECIMAL
+        sample = read_url_sample(url)
+        if sample is None:
+            sep = DEFAULT_CSV_SEP if sep is None else sep
+            decimal = DEFAULT_CSV_DECIMAL if decimal is None else decimal
+        else:
+            sep, decimal = detect_csv_dialect(
+                               sample  = sample,
+                               source  = url,
+                               sep     = sep,
+                               decimal = decimal,
+                           )
+        check_csv_dialect(sep, decimal)
+        if data is not None and not csv_read_kwargs(sep, decimal):
+            return data, sep, decimal
+
+    return pd.read_csv(url, **csv_read_kwargs(sep, decimal)), sep, decimal
+
+
 def _resolve_data_and_target(
     data: pd.Series | pd.DataFrame | str | Path,
     target: str | list[str] | None,
     date_column: str | None = None,
+    sep: str | None = None,
+    decimal: str | None = None,
 ) -> tuple[pd.DataFrame, str | list[str]]:
     """
     Coerce the input to a DataFrame and resolve the target column name.
@@ -806,7 +897,10 @@ def _resolve_data_and_target(
     paths and URLs are loaded with `pandas.read_csv` (without `parse_dates`,
     deprecated in pandas 2.2+); date columns are detected and parsed by
     `_try_parse_first_date_column` instead, leaving every column intact so
-    callers can reference a `date_column` by name.
+    callers can reference a `date_column` by name. The separator and the
+    decimal mark of the file are detected unless given (see
+    `read_csv_with_dialect`), and kept for `_with_data_path` to record them
+    in the profile.
 
     Parameters
     ----------
@@ -821,6 +915,12 @@ def _resolve_data_and_target(
         raises an error when it is this column, or when it is not given and
         no later column holds complete dates (see
         `_try_parse_first_date_column`).
+    sep : str, default None
+        Separator of the fields of a CSV file: `','`, `';'` or a tabulator.
+        If None, it is detected. Ignored for data passed in memory.
+    decimal : str, default None
+        Decimal mark of a CSV file: `'.'` or `','`. If None, it is
+        detected. Ignored for data passed in memory.
 
     Returns
     -------
@@ -838,7 +938,7 @@ def _resolve_data_and_target(
         match the Series name, when `data` is not a Series and `target` is
         None, when the dates of a CSV have empty cells, mixed time zones or
         more than one format (see `date_column`), or when a CSV file cannot
-        be read as one.
+        be read as one or its separator or decimal mark cannot be told.
     FileNotFoundError
         When `data` is a path or URL that cannot be read.
     """
@@ -876,10 +976,14 @@ def _resolve_data_and_target(
         )
 
     if isinstance(data, (str, Path)):
+        check_csv_dialect(sep, decimal)
         data_str = str(data)
         if data_str.startswith(("http://", "https://")):
             try:
-                df = pd.read_csv(data_str)
+                df, sep, decimal = _read_csv_url(data_str, sep, decimal)
+            except InvalidInputError:
+                # The dialect of the file cannot be told.
+                raise
             except Exception as e:
                 # An unreachable URL is an OSError (urllib's HTTPError and
                 # URLError); anything else was downloaded but is not a CSV.
@@ -888,6 +992,7 @@ def _resolve_data_and_target(
                     code  = None if isinstance(e, OSError) else "data_unreadable",
                     field = "data",
                 ) from e
+            _READ_CSV_DIALECT.set((recorded_data_path(data), sep, decimal))
             return _try_parse_first_date_column(df, date_column), target
         path = Path(data_str)
         if not path.is_file():
@@ -895,7 +1000,8 @@ def _resolve_data_and_target(
                 f"CSV file not found: '{path}'. Please provide a valid file path.",
                 field = "data",
             )
-        df = read_csv_file(path)
+        df, sep, decimal = read_csv_with_dialect(path, sep=sep, decimal=decimal)
+        _READ_CSV_DIALECT.set((recorded_data_path(data), sep, decimal))
         return _try_parse_first_date_column(df, date_column), target
 
     return data, target
@@ -944,6 +1050,8 @@ def load_exog(
     """
     Load the future exogenous variables from a CSV file.
 
+    The separator and the decimal mark of the file are detected as for the
+    data (see `read_csv_with_dialect`).
     The dates are read as the CSV loader of the data reads them, so empty
     date cells or UTC offsets that change raise an error that says so. They
     are the `date_column` when given. Otherwise they are the first column
@@ -986,7 +1094,7 @@ def load_exog(
             field = "exog",
         )
 
-    exog = read_csv_file(path, field="exog")
+    exog, sep, decimal = read_csv_with_dialect(path, field="exog")
     # Rows one field longer than the header shift every column; when the
     # last column is then empty, the extra field is a separator at the end
     # of each row, not the index of `to_csv(index_label=False)`.
@@ -1045,7 +1153,12 @@ def load_exog(
             # it before (integer dates such as 20080701).
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", UserWarning)
-                index = pd.read_csv(path, index_col=0, parse_dates=True).index
+                index = pd.read_csv(
+                    path,
+                    index_col   = 0,
+                    parse_dates = True,
+                    **csv_read_kwargs(sep, decimal),
+                ).index
             if isinstance(index, pd.DatetimeIndex) and len(index) == len(filled):
                 exog[first] = index[filled]
                 found = first
@@ -1170,10 +1283,16 @@ def _resolve_inputs_with_profile(
         target = dp.target
     # The CSV loader checks the date column of the profile, which the script
     # reads, and reports it when its dates cannot be used.
+    # A profile built from a file records how the file is written, and the
+    # data are read as the profile says; one built from data in memory
+    # records nothing about a file, whose dialect is then detected.
+    from_file = dp.data_path != PLACEHOLDER_DATA_PATH
     data_df, target = _resolve_data_and_target(
                           data        = data,
                           target      = target,
                           date_column = dp.date_column,
+                          sep         = dp.csv_sep if from_file else None,
+                          decimal     = dp.csv_decimal if from_file else None,
                       )
     if target != dp.target:
         raise InvalidInputError(
@@ -1270,7 +1389,10 @@ def _with_data_path(
     `'data.csv'`, so the script never loads the file a saved profile was
     built from instead of the data that ran (it fails loudly when the data
     is not saved there). The path is set with `model_copy`, without reading
-    the file again; it reaches the script through `repr()`.
+    the file again; it reaches the script through `repr()`. The separator
+    and the decimal mark the file was read with are recorded with it
+    (`','` and `'.'` for data passed in memory), so the script reads the
+    file as it was read.
 
     Parameters
     ----------
@@ -1291,10 +1413,18 @@ def _with_data_path(
     data_path = recorded_data_path(data)
     if data_path == PLACEHOLDER_DATA_PATH and _RUN_DATA_PATH.get() is not None:
         data_path = _RUN_DATA_PATH.get()
-    if profile.data_profile.data_path == data_path:
+    dp = profile.data_profile
+    sep, decimal = dp.csv_sep, dp.csv_decimal
+    if data_path == PLACEHOLDER_DATA_PATH:
+        sep, decimal = DEFAULT_CSV_SEP, DEFAULT_CSV_DECIMAL
+    elif isinstance(data, (str, Path)):
+        read_sep, read_decimal = _dialect_read(data_path)
+        if read_sep is not None:
+            sep, decimal = read_sep, read_decimal
+    update = {"data_path": data_path, "csv_sep": sep, "csv_decimal": decimal}
+    if all(getattr(dp, name) == value for name, value in update.items()):
         return profile
-    data_profile = profile.data_profile.model_copy(update={"data_path": data_path})
-    return profile.model_copy(update={"data_profile": data_profile})
+    return profile.model_copy(update={"data_profile": dp.model_copy(update=update)})
 
 
 def _check_feature_name_collisions(
