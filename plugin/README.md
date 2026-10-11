@@ -40,6 +40,8 @@ uvx skforecast-ai-mcp==<version> --help
 
 If the first connection times out anyway, open `/mcp`, select `skforecast-ai` and reconnect: everything is installed by then, and the second start connects in a few seconds.
 
+The server connects before it loads pandas, scikit-learn and skforecast, so the first tool call after an installation waits for them: some 6 seconds on Linux and about 30 on macOS. Later sessions do not wait.
+
 ## What the agent sees
 
 The responses of the tools carry summaries: statistics of the data, dates, column names, the decisions and their explanations, the metrics and the leaderboard. They never carry rows of your data or of the predictions, which stay in files on your machine. Error and warning messages can name columns and quote up to 5 values of the data.
