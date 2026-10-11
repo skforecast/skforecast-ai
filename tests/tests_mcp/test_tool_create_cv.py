@@ -751,3 +751,86 @@ def test_tool_create_cv_insufficient_data_with_hint_when_one_fold(tmp_path):
         "leave it out for the default), a smaller `fold_stride` or a plan with "
         "fewer `steps`."
     )
+
+
+def test_tool_create_cv_counts_the_strategy_plan_in_the_cost_of_a_default_compare(
+    tmp_path, monkeypatch
+):
+    """
+    Test that for the strategy of a refined plan the cost of a `compare`
+    without `candidates` includes the row 'Strategy plan' that `compare`
+    adds (Ridge 1, ForecasterDirect 12, ForecasterStats 6 and the plan 1),
+    without the foundation model whose backend is missing, and that the
+    `CompareCostNotice` lists the fits by the name of the row.
+    """
+    monkeypatch.setattr(
+        "skforecast_ai.execution.comparison.foundation_backend_installed",
+        lambda info: False,
+    )
+    monkeypatch.setattr("skforecast_ai.mcp.server.LONG_TRAINING_FITS", 19)
+    server, _, _, plan_id = _planned(tmp_path, steps=12)
+    refined_id = content_of(
+        call(
+            server,
+            "refine_plan",
+            {
+                "plan_id": plan_id,
+                "overrides": {"estimator": "LGBMRegressor", "lags": [1, 2, 3, 12]},
+            },
+        )
+    )["id"]
+
+    result = content_of(call(server, "create_cv", {"plan_id": refined_id}))
+
+    assert result["cost"]["estimator_fits"] == 1
+    assert result["cost"]["compare_estimator_fits"] == 20
+    assert result["cost"]["compare_inference_windows"] == 0
+    assert [ToolNotice(**n) for n in result["notices"]][-1] == ToolNotice(
+        source   = "runtime",
+        category = "CompareCostNotice",
+        message  = (
+            "`compare` without `candidates` on this strategy fits about 20 "
+            "estimators (ForecasterRecursive: 1, ForecasterDirect: 12, "
+            "ForecasterStats: 6, Strategy plan: 1), more than the 1 of this "
+            "plan. Pass `candidates` to choose what runs, or use `refit=false` "
+            "or fewer folds."
+        ),
+        count    = 1,
+    )
+
+
+def test_tool_create_cv_counts_the_strategy_plan_over_the_budget_of_compare(
+    tmp_path, monkeypatch
+):
+    """
+    Test that the plan of the strategy counts in the cost of a default
+    `compare` even when it is above the budget of `compare()`, which leaves
+    out the automatic ForecasterDirect (7 trainings x 12 estimators = 84
+    fits, above a budget patched to 50) but not the plan of the strategy
+    (a direct forecaster with other lags).
+    """
+    monkeypatch.setattr(
+        "skforecast_ai.execution.comparison.foundation_backend_installed",
+        lambda info: False,
+    )
+    monkeypatch.setattr("skforecast_ai.execution.comparison.COMPARE_FIT_BUDGET", 50)
+    server, _, _, plan_id = _planned(
+        tmp_path, steps=12, forecaster="ForecasterDirect", lags=3
+    )
+
+    result = content_of(
+        call(
+            server, "create_cv",
+            {"plan_id": plan_id, "initial_train_size": 120, "refit": True},
+        )
+    )
+
+    assert result["cost"]["estimator_fits"] == 84
+    assert result["cost"]["compare_estimator_fits"] == 98
+    notice = [n for n in result["notices"] if n["category"] == "CompareCostNotice"][0]
+    assert notice["message"] == (
+        "`compare` without `candidates` on this strategy fits about 98 "
+        "estimators (ForecasterRecursive: 7, ForecasterStats: 7, Strategy "
+        "plan: 84), more than the 84 of this plan. Pass `candidates` to "
+        "choose what runs, or use `refit=false` or fewer folds."
+    )
