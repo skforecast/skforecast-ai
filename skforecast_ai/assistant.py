@@ -60,7 +60,9 @@ from .exceptions import (
 from .execution import run_backtest, run_forecast
 from .execution.backtesting_runner import render_backtesting_script
 from .execution.comparison import (
+    STRATEGY_PLAN_NAME,
     add_baseline_candidate,
+    add_strategy_candidate,
     aggregate_metrics,
     build_comparison_explanation,
     build_comparison_table,
@@ -210,6 +212,7 @@ def _cv_provenance_fields(
     cv_config: dict,
     plan: ForecastPlan | None,
     profile: ForecastingProfile,
+    created_for_row: str | None = None,
 ) -> dict[str, object]:
     """
     Fields of a `BacktestResult` or a `ComparisonResult` that say where the
@@ -232,6 +235,9 @@ def _cv_provenance_fields(
     profile : ForecastingProfile
         Profile of the data that ran, which can have more observations
         than the ones the strategy was created on.
+    created_for_row : str, default None
+        Row of a comparison that runs the plan the strategy was created
+        for, named by the text. None when no row runs it.
 
     Returns
     -------
@@ -251,6 +257,7 @@ def _cv_provenance_fields(
         overridden      = list(cv_result.overridden_fields),
         llm_configured  = cv_result.llm_configured,
         n_observations  = profile.data_profile.span_index_length,
+        created_for_row = created_for_row,
     )
 
     return {
@@ -3510,13 +3517,6 @@ class ForecastingAssistant:
             cv           = cv,
         )
 
-        baseline_name = None
-        baseline_note = None
-        if baseline:
-            candidate_configs, baseline_name, baseline_note = (
-                add_baseline_candidate(candidate_configs, profile, interval)
-            )
-
         # Resolve the ranking metric and the metric columns once, so the
         # table is consistent across candidates regardless of which ones
         # succeed. When `metric` is None the deterministic plan default is
@@ -3533,6 +3533,46 @@ class ForecastingAssistant:
 
         steps = cv.steps
 
+        # The plan the strategy was created for is the one the user means
+        # to compare: without `candidates`, it runs as one more row unless
+        # it is one of the candidates of the profile, and the summary names
+        # its row. Explicit candidates are the user's choice and run as
+        # given.
+        strategy_plan = cv_result.plan if cv_result is not None else None
+        strategy_name = None
+        strategy_note = None
+        if candidates is None and strategy_plan is not None:
+
+            def build_plan(config: CandidateConfig) -> ForecastPlan:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    return self.plan(
+                        profile  = profile,
+                        steps    = steps,
+                        interval = interval,
+                        metric   = metric_override,
+                        **config,
+                    )
+
+            candidate_configs, strategy_name, strategy_note = add_strategy_candidate(
+                candidates    = candidate_configs,
+                strategy_plan = strategy_plan,
+                profile       = profile,
+                build_plan    = build_plan,
+            )
+            if strategy_note is not None:
+                warnings.warn(strategy_note, UserWarning, stacklevel=2)
+        # The row added for that plan, which the summary describes; a
+        # candidate of the profile that is that plan keeps its own name.
+        strategy_row = strategy_name if strategy_name == STRATEGY_PLAN_NAME else None
+
+        baseline_name = None
+        baseline_note = None
+        if baseline:
+            candidate_configs, baseline_name, baseline_note = (
+                add_baseline_candidate(candidate_configs, profile, interval)
+            )
+
         # Shared CV parameters (with the fold and training counts) and their
         # explanation. The folds are counted before any candidate runs, on
         # the untouched `cv`.
@@ -3544,12 +3584,14 @@ class ForecastingAssistant:
         # hours. Explicit candidates always run; they only get the warning.
         budget_note = None
         if candidates is None:
+            # The plan of the strategy always runs, as its backtest would.
             candidate_configs, budget_note = exclude_costly_candidates(
                 candidate_configs = candidate_configs,
                 preferred         = profile.forecaster,
                 n_fits            = n_fits,
                 steps             = steps,
                 n_folds           = cv_config["n_folds"],
+                keep              = frozenset({strategy_name} - {None}),
             )
             if budget_note is not None:
                 warnings.warn(budget_note, LongTrainingWarning, stacklevel=2)
@@ -3656,7 +3698,19 @@ class ForecastingAssistant:
                 # the user. The forecaster and the estimator of an automatic
                 # candidate and of the baseline are chosen here, by the rules:
                 # only the metric of the comparison is the user's.
-                if candidates is None or name == baseline_name:
+                # The row of the plan of the strategy keeps the decisions the
+                # user made in that plan, and the metric of the comparison.
+                if name == strategy_row and name != baseline_name:
+                    cand_plan.overridden_fields = [
+                        field for field in cand_plan.overridden_fields
+                        if field == "metric" or field in strategy_plan.overridden_fields
+                    ]
+                    cand_plan.llm_refined_fields = [
+                        field for field in strategy_plan.llm_refined_fields
+                        if cand_plan.forecaster_kwargs.get(field)
+                        == strategy_plan.forecaster_kwargs.get(field)
+                    ]
+                elif candidates is None or name == baseline_name:
                     cand_plan.overridden_fields = [
                         field for field in cand_plan.overridden_fields
                         if field == "metric"
@@ -3762,6 +3816,8 @@ class ForecastingAssistant:
                 f"{cv.differentiation}): {own_differentiation}."
                 if own_differentiation else None
             ),
+            strategy_row   = strategy_row,
+            strategy_note  = strategy_note,
         )
 
         return ComparisonResult(
@@ -3773,7 +3829,10 @@ class ForecastingAssistant:
             ranking_metric = ranking_metric,
             explanation    = explanation,
             baseline_name  = baseline_name,
-            **_cv_provenance_fields(cv_result, cv, cv_config, None, profile),
+            strategy_plan_name = strategy_name,
+            **_cv_provenance_fields(
+                cv_result, cv, cv_config, None, profile, created_for_row=strategy_name
+            ),
         )
 
     def ask(

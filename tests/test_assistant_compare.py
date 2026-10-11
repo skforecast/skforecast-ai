@@ -1336,8 +1336,9 @@ def test_compare_output_when_baseline_added_by_default():
         f"Compared 3 configurations, ranked ascending by mean_absolute_error. "
         f"Shared cross-validation strategy: {_CV_EXPLANATION} Best: "
         f"'recursive_default' (ForecasterRecursive / Ridge) = 0.3652, 22.5% "
-        f"ahead of 'direct_ridge' (0.4711). 'recursive_default' beats the "
-        f"baseline 'Baseline (seasonal naive)' (7.0000) by 94.8%."
+        f"ahead of 'direct_ridge' (0.4711). Both configurations beat the "
+        f"baseline 'Baseline (seasonal naive)' (7.0000). The best, "
+        f"'recursive_default', beats it by 94.8%."
     )
 
 
@@ -1372,8 +1373,8 @@ def test_compare_explanation_counts_candidates_behind_baseline():
         "strong_ridge",
     ]
     assert result.explanation.endswith(
-        "'recursive_default' beats the baseline 'Baseline (seasonal naive)' "
-        "(7.0000) by 94.8%. 1 configuration does not beat it."
+        "1 of 2 configurations beats the baseline 'Baseline (seasonal naive)' "
+        "(7.0000): 'recursive_default', by 94.8%."
     )
 
 
@@ -1639,8 +1640,8 @@ def test_build_comparison_explanation_counts_tied_candidate_as_not_beating():
     )
 
     assert explanation.endswith(
-        "'model_a' beats the baseline 'Baseline (naive)' (2.0000) by 50.0%. "
-        "1 configuration does not beat it."
+        "1 of 2 configurations beats the baseline 'Baseline (naive)' (2.0000): "
+        "'model_a', by 50.0%."
     )
 
 
