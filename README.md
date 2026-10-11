@@ -43,6 +43,8 @@ Requires Python 3.10 or newer. More options in the [installation guide](https://
 
 ## Quick example
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/skforecast/skforecast-ai/blob/main/docs/quick-start/first-forecast.ipynb) Try it without installing anything: [Your first forecast](https://ai.skforecast.org/stable/quick-start/first-forecast.html) runs in Google Colab, from the data to a validated forecast, with no API key.
+
 ```python
 from skforecast_ai import ForecastingAssistant
 from skforecast.datasets import load_demo_dataset
