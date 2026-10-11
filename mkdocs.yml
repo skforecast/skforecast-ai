@@ -99,6 +99,11 @@ plugins:
       # user guides are saved with widget outputs.
       include_requirejs: True
       include_source: True
+      # Cells tagged `remove-cell` run in Google Colab but are left out of the
+      # site, such as the `pip install` cell of Your first forecast.
+      remove_tag_config:
+        remove_cell_tags:
+          - remove-cell
   - mike:
       alias_type: copy
       canonical_version: stable
