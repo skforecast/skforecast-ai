@@ -2,6 +2,12 @@
 
 Coding agents such as Claude Code, Cursor or Claude Desktop can call **skforecast-ai** as a set of tools through the [Model Context Protocol](https://modelcontextprotocol.io) (MCP). The agent brings the language model: it reads your request, calls the tools and explains the results. skforecast-ai brings the forecasting: every decision (forecaster, estimator, lags, metric, cross-validation) is made by the same deterministic rules as in Python, and every result comes with the script that produced it.
 
+The animation follows one request from the installation to the answer. Click a step, or use the arrow keys, to go to it.
+
+<div class="skf-anim-embed" style="--skf-ratio: 0.5625">
+  <iframe src="../animations/mcp-overview.html" title="Animation: your agent asks, skforecast-ai decides" loading="lazy" allowfullscreen></iframe>
+</div>
+
 Once the server is connected, you ask in plain language:
 
 - *"Forecast the next 12 months of `data/sales.csv` and tell me how accurate it is."*
@@ -189,13 +195,7 @@ You ask, for example, *"Forecast the next 12 months of `/path/to/data/h2o.csv` a
 
 Each of these tools returns an id for the next ones, a plain-text summary (the one `describe()` gives in Python) and the warnings of the call. The summary of a backtest or a forecast carries its metrics and statistics of the predictions, and that of a comparison its leaderboard; the predictions themselves, row by row, go to CSV files in the output directory, listed in `files`. `get_code` returns the script that ran, which you can run yourself without the server. The [API reference](../api/mcp.md) lists every tool, its arguments and its errors.
 
-The animation replays a real session, recorded by the agent check of skforecast-ai 0.4.0: Claude Code with the server and its skill, asked to compare models for the next 12 months of a monthly series and to hand over the script of the best one. It calls `compare` instead of `backtest`, and `get_code` at the end.
-
-<div class="skf-anim-embed" style="--skf-ratio: 0.671875">
-  <iframe src="../animations/agent-session.html" title="Animation: a real agent session with the MCP server" loading="lazy" allowfullscreen></iframe>
-</div>
-
-The session is `compare_code__r1` of the run `0.4.0-final2`, in [`tools/mcp/agent_reports/`](https://github.com/skforecast/skforecast-ai/tree/main/tools/mcp/agent_reports). The responses of the server and the script are trimmed where an ellipsis marks it, and the folder of the session is shown as `~/project`; the request, the calls, the messages of the agent and its answer are as they were.
+To see it with a real agent, watch [a recorded session](../img/agent-session.gif) of the agent check of skforecast-ai 0.4.0: Claude Code with the server and its skill, asked to compare models for the next 12 months of a monthly series and to hand over the script of the best one. It is the session `compare_code__r1` of the run `0.4.0-final2`, in [`tools/mcp/agent_reports/`](https://github.com/skforecast/skforecast-ai/tree/main/tools/mcp/agent_reports); the responses of the server and the script are trimmed where an ellipsis marks it, and nothing else is edited.
 
 **Long calls.** `compare` sends a progress notification when each candidate starts and ends. Any long call (a backtest, a forecast, a candidate of `compare`) also sends one every 5 seconds while it runs, naming what runs and for how long ("ForecasterStats: running (35 s)"), so a client does not give up on a request that is still working, as long as it asked for progress. Cancelling a call waits for the candidate or the backtest in progress to end: a cancelled `compare` skips its remaining candidates, and a cancelled call registers nothing. Until it ends, only the read tools (`get_code`, `get_failure`, `list_objects`, `describe_object`) answer; the others wait their turn.
 
