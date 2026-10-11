@@ -17,7 +17,7 @@ candidates).
 ## Workflow
 
 1. `profile(data_path, target, date_column?, series_id_column?,
-   exog_columns?)`: the absolute path of a CSV file inside the directory
+   exog_columns?, sep?, decimal?)`: the absolute path of a CSV file inside the directory
    the server may read, which its instructions name: build the path from
    it when the user gives a relative one, without searching the file
    system. `target` is one column, or a list of columns for
@@ -192,7 +192,11 @@ that is for the user to ask once they know.
 
 ## Inputs
 
-- Paths: absolute paths of `.csv` files inside the allowed directory,
+- Files: `.csv`, `.tsv`, `.csv.gz` or `.tsv.gz`, separated by `,`, `;`
+  or tabulators, with `.` or `,` as decimal mark. `profile` detects both
+  and the profile records them; pass `sep` and `decimal` only when an
+  error says they cannot be told.
+- Paths: absolute paths of those files inside the allowed directory,
   which the instructions of the server name (also `details.allowed_dir`
   of a path error). No URLs: download the file first. No relative paths
   and no `~`. Never copy or move a file of the user into that directory
@@ -282,9 +286,9 @@ and follow `hint` when there is one:
 |---|---|
 | `invalid_argument` | Fix the argument named in `field`, as the message says. |
 | `insufficient_data` | Ask for less, as the message says: a shorter horizon, fewer lags, or a first training set that leaves room for the folds (smaller) or for the window of the forecaster (a later `initial_train_size`). A target column without any value, or a series too short for the forecaster (the message names it), is also reported this way. |
-| `data_not_found`, `invalid_path`, `url_not_allowed` | Pass the absolute path of a CSV file inside the allowed directory. |
+| `data_not_found`, `invalid_path`, `url_not_allowed` | Pass the absolute path of a CSV file (`.csv`, `.tsv`, `.csv.gz` or `.tsv.gz`) inside the allowed directory. |
 | `path_not_allowed` | The file is outside the allowed directory (`details.allowed_dir`). Do not copy or move it yourself: tell the user, who can copy it there or restart the server with another `--allow-dir`. |
-| `data_unreadable` | The file is not a CSV the server can read (empty, binary, not UTF-8, or rows with more fields than the header). Tell the user, as for the data problems above. |
+| `data_unreadable` | The file is not a CSV the server can read (empty, binary, not UTF-8, or rows with more fields than the header): tell the user, as for the data problems above. When the message says the separator or the decimal mark cannot be told, call `profile` again with `sep` and `decimal`, asking the user if you do not know them. |
 | `file_too_large` | The file is larger than the server reads (`--max-file-mb`, 256 MB by default): pass a smaller file, or ask the user to raise the limit. |
 | `data_changed` | The file changed: call `profile` again (or the tool again for an exogenous file). |
 | `unknown_id` | Use an id from `list_objects`, or create the object again. |
