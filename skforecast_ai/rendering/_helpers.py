@@ -12,6 +12,7 @@ import unicodedata
 from ..schemas import DataProfile, ForecastPlan
 from .._constants import (
     BLOCKING_PREPROCESSING_TEMPLATES,
+    COMMENT_ESCAPED_CATEGORIES,
     PLACEHOLDER_DATA_PATH,
     SUPPORTED_ESTIMATORS,
     SUPPORTED_TRANSFORMERS,
@@ -63,11 +64,6 @@ _INTERVAL_METHOD_LITERALS: dict[str, str] = {
     "bootstrapping": "'bootstrapping'",
     "conformal": "'conformal'",
 }
-
-# Unicode categories escaped in comments: control characters (newlines,
-# carriage return, NUL) and the line and paragraph separators. Any of them
-# would end the comment and turn the rest of the text into code.
-_COMMENT_ESCAPED_CATEGORIES = frozenset({"Cc", "Zl", "Zp"})
 
 # Default kwargs injected into estimator constructors (silencing + reproducibility)
 _ESTIMATOR_DEFAULTS: dict[str, dict[str, object]] = {
@@ -206,7 +202,7 @@ def _comment_text(text: str) -> str:
     """
     return "".join(
         char.encode("unicode_escape").decode("ascii")
-        if unicodedata.category(char) in _COMMENT_ESCAPED_CATEGORIES
+        if unicodedata.category(char) in COMMENT_ESCAPED_CATEGORIES
         else char
         for char in text
     )

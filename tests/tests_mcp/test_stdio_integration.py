@@ -6,11 +6,12 @@ import subprocess
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 import sys
 import time
+from pathlib import Path
 import anyio
 import pytest
 from mcp import Client, StdioServerParameters
 
-from skforecast_ai import ForecastingAssistant
+from skforecast_ai import ForecastingAssistant, __version__
 from skforecast_ai._constants import DEFAULT_FOUNDATION_MODEL_ID
 from skforecast_ai._foundation import (
     foundation_backend_installed,
@@ -393,3 +394,61 @@ def test_stdio_server_exits_cleanly_when_the_client_disconnects_during_a_call(
         f"writes files to {tmp_path / 'out'}."
     )
     assert lines[1].endswith("The client disconnected; the server stops.")
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize(
+    "mode",
+    ["legacy", "auto"],
+    ids=["initialize", "server_discover"],
+)
+def test_stdio_launcher_answers_the_handshake_and_waits_for_the_core(
+    tmp_path, mode
+):
+    """
+    Test the start of the server as the plugin runs it: the launcher
+    `skforecast-ai-mcp` with `--allow-project-dir` and the project in
+    `CLAUDE_PROJECT_DIR`. It answers the handshake (`initialize`, or
+    `server/discover` as Claude Code 2.1.296 opens) as skforecast-ai, lists
+    the 11 tools, and a `profile` sent right after `tools/list`, while the
+    core may still be importing in the background, waits for it and returns
+    the profile of the Python API.
+    """
+    data = tmp_path / "data"
+    data.mkdir()
+    path = write_csv(data, "h2o.csv", df_h2o_csv)
+    launcher = Path(__file__).resolve().parents[2] / "packages" / "skforecast-ai-mcp"
+    python_path = [str(launcher), os.environ.get("PYTHONPATH")]
+    parameters = StdioServerParameters(
+        command=sys.executable,
+        args=[
+            "-c",
+            "import sys; from skforecast_ai_mcp import main; sys.exit(main())",
+            "--allow-project-dir",
+            "--output-dir",
+            str(tmp_path / "out"),
+        ],
+        env={
+            **os.environ,
+            "CLAUDE_PROJECT_DIR": str(data),
+            "PYTHONPATH": os.pathsep.join(filter(None, python_path)),
+        },
+        cwd=str(data),
+    )
+
+    async def main():
+        async with Client(parameters, mode=mode) as client:
+            server = client.server_info
+            tools = await client.list_tools()
+            profile = content_of(
+                await client.call_tool("profile", {"data_path": path, "target": "x"})
+            )
+            return server, tools, profile
+
+    server, tools, profile = anyio.run(main)
+
+    expected = ForecastingAssistant().profile(path, target="x")
+
+    assert (server.name, server.version) == ("skforecast-ai", __version__)
+    assert len(tools.tools) == 11
+    assert profile["summary"] == expected.describe()

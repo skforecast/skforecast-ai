@@ -12,11 +12,13 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
-from .._future_exog import _shown
+from typing import TYPE_CHECKING
+from .._constants import COMMENT_ESCAPED_CATEGORIES
 from ..exceptions import InvalidInputError
-from ..rendering._helpers import _COMMENT_ESCAPED_CATEGORIES
-from ..schemas.profiles import ForecastingProfile
 from ._errors import ServerError
+
+if TYPE_CHECKING:
+    from ..schemas.profiles import ForecastingProfile
 
 # Any `scheme://` prefix: pandas would download it. URLs are not accepted
 # (section 10.7 of the design); the agent downloads the file and passes its
@@ -30,7 +32,7 @@ _NUMBER_PATTERN = re.compile(r"\s*[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?\s*")
 
 # Unicode categories of the characters that break a line or control the
 # terminal: the ones `_comment_text` escapes in the scripts.
-_CONTROL_CATEGORIES = _COMMENT_ESCAPED_CATEGORIES
+_CONTROL_CATEGORIES = COMMENT_ESCAPED_CATEGORIES
 
 
 @dataclass(frozen=True)
@@ -455,6 +457,8 @@ def check_text_argument(value: str | list[str] | None, field: str) -> None:
     None
     """
 
+    from .._future_exog import _shown
+
     values = [value] if isinstance(value, str) else list(value or [])
     bad = [text for text in values if has_control_characters(text)]
     if bad:
@@ -485,6 +489,8 @@ def check_profile_names(profile: ForecastingProfile) -> None:
     -------
     None
     """
+
+    from .._future_exog import _shown
 
     data_profile = profile.data_profile
     targets = data_profile.target

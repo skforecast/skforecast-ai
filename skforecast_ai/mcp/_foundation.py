@@ -10,12 +10,16 @@ import os
 import threading
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from skforecast.foundation import FoundationModelInfo, list_adapters
+from typing import TYPE_CHECKING
 from .._constants import DEFAULT_FOUNDATION_MODEL_ID, FORECASTER_TASK_TYPES
-from .._foundation import missing_foundation_backend, resolve_foundation_model
 from ..exceptions import InvalidInputError
 from ._errors import ServerError
 from .models import ToolNotice
+
+# `skforecast.foundation` loads pandas, scikit-learn and scipy: every
+# function imports it when it runs, so the server starts without it.
+if TYPE_CHECKING:
+    from skforecast.foundation import FoundationModelInfo
 
 # Category of the notice that a model will download its weights: a notice of
 # the server, not a Python warning.
@@ -79,6 +83,8 @@ def permissive_adapters() -> list[FoundationModelInfo]:
         skforecast.
     """
 
+    from skforecast.foundation import list_adapters
+
     return [info for info in list_adapters() if is_permissive(info)]
 
 
@@ -92,6 +98,8 @@ def restricted_adapters() -> list[FoundationModelInfo]:
         Adapters for which `is_permissive` does not hold, in the order of
         skforecast.
     """
+
+    from skforecast.foundation import list_adapters
 
     return [info for info in list_adapters() if not is_permissive(info)]
 
@@ -114,6 +122,12 @@ def check_allow_models(prefixes: Iterable[str]) -> tuple[str, ...]:
     prefixes : tuple of str
         The same prefixes, without repetitions, in the order given.
     """
+
+    prefixes = list(prefixes)
+    if not prefixes:
+        # Without `--allow-model` the server starts without skforecast.
+        return ()
+    from skforecast.foundation import list_adapters
 
     known = [
         prefix for info in list_adapters() for prefix in info.model_id_prefixes
@@ -147,6 +161,8 @@ def _default_license() -> str:
     to follow its name in a text; empty when skforecast gives none. An agent
     told only the name of the model adds its license from memory.
     """
+
+    from .._foundation import resolve_foundation_model
 
     try:
         info = resolve_foundation_model(DEFAULT_FOUNDATION_MODEL_ID)
@@ -343,6 +359,8 @@ class ModelPolicy:
         None
         """
 
+        from .._foundation import resolve_foundation_model
+
         if model_id is None:
             return
         try:
@@ -404,6 +422,8 @@ class ModelPolicy:
         None
         """
 
+        from .._foundation import missing_foundation_backend
+
         # The rule of the core, with a message and a hint for the server.
         package = missing_foundation_backend(model_id)
         if package is None:
@@ -444,6 +464,8 @@ class ModelPolicy:
             looked up, in order, without repetitions. A model ID that
             skforecast does not serve is skipped.
         """
+
+        from .._foundation import resolve_foundation_model
 
         with self.lock:
             announced = set(self.announced)
@@ -487,6 +509,8 @@ class ModelPolicy:
         notices : list of ToolNotice
             One notice (source `'plan'`) per model not announced before.
         """
+
+        from .._foundation import resolve_foundation_model
 
         notices = []
         offline = os.getenv("HF_HUB_OFFLINE", "").strip().lower() in _TRUE_VALUES
@@ -574,6 +598,8 @@ class ModelPolicy:
             One notice (source `'plan'`) per model that skforecast serves,
             without repetitions, in order.
         """
+
+        from .._foundation import resolve_foundation_model
 
         uncached = set(uncached)
         notices = []
