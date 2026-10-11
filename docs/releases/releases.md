@@ -11,6 +11,22 @@ All significant changes to this project are documented in this release file.
 | <span class="badge text-bg-docs">Docs</span>               | Documentation improvement             |
 
 
+## 0.4.2 <small>In development</small> { id="0.4.2" }
+
+The main changes in this release are:
+
+
+**Added**
+
+
+**Changed**
+
++ The first start of the MCP server is faster, so it fits better in the 30 seconds Claude Code waits: the server connects before loading pandas, scikit-learn and skforecast, which it loads in the background (4 seconds instead of 9 with nothing compiled yet, on Linux). `import skforecast_ai` no longer loads them either. See [MCP server for coding agents][mcp-guide].
+
+
+**Fixed**
+
+
 ## 0.4.1 <small>Oct 9, 2026</small> { id="0.4.1" }
 
 The main changes in this release are:
