@@ -43,6 +43,7 @@ from skforecast_ai import (
     PlanEditsDiscardedWarning,
 )
 
+from tests.fixtures_csv_dialect import df_dialect, write_dialect
 from tests.fixtures_compare import (
     cv_h2o_refined,
     cv_multivariate,
@@ -3605,3 +3606,56 @@ def test_compare_PlanEditsDiscardedWarning_when_strategy_plan_was_edited_by_hand
     strategy_plan = result.candidates["Strategy plan"].plan
     assert "differentiation" not in strategy_plan.forecaster_kwargs
     assert note in result.explanation
+
+
+def test_compare_candidate_scripts_read_csv_with_the_dialect_of_the_file(tmp_path):
+    """
+    Test that compare() on a CSV with ';' and a decimal comma records the
+    dialect in the shared profile, so the script of every candidate reads the
+    file with `sep=';', decimal=','`.
+    """
+    path = write_dialect(tmp_path, df_dialect, "semicolon_comma")
+    cv = TimeSeriesFold(steps=5, initial_train_size=40, verbose=False)
+
+    result = assistant.compare(
+        data          = path,
+        cv            = cv,
+        target        = "y",
+        candidates    = [("ridge", {"estimator": "Ridge"})],
+        show_progress = False,
+    )
+
+    assert result.profile.data_profile.csv_sep == ";"
+    assert result.profile.data_profile.csv_decimal == ","
+    assert len(result.candidates) == 2
+    for backtest in result.candidates.values():
+        assert f"data = pd.read_csv({path!r}, sep=';', decimal=',')\n" in backtest.code
+
+
+def test_compare_candidate_scripts_keep_the_dialect_when_saved_profile_is_stale(
+    tmp_path,
+):
+    """
+    Test that compare() on a ';' file with a saved profile built when the file
+    had fewer rows still gives candidate scripts that read it with
+    `sep=';', decimal=','`.
+    """
+    path = write_dialect(tmp_path, df_dialect, "semicolon_comma")
+    old_path = tmp_path / "old.csv"
+    df_dialect.iloc[:50].to_csv(old_path, sep=";", decimal=",", index=False)
+    profile = assistant.profile(data=old_path, target="y")
+    cv = TimeSeriesFold(steps=5, initial_train_size=40, verbose=False)
+
+    result = assistant.compare(
+        data          = path,
+        cv            = cv,
+        profile       = profile,
+        candidates    = [("ridge", {"estimator": "Ridge"})],
+        baseline      = False,
+        show_progress = False,
+    )
+
+    assert result.profile.data_profile.data_path == path
+    assert result.profile.data_profile.csv_sep == ";"
+    for backtest in result.candidates.values():
+        assert f"data = pd.read_csv({path!r}, sep=';', decimal=',')\n" in backtest.code

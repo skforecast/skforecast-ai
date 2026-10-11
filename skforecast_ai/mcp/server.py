@@ -195,8 +195,9 @@ Deterministic time series forecasting with skforecast. Every decision \
 (forecaster, estimator, lags, metric, cross-validation) comes from rules, \
 never from a language model, and is reproducible.
 
-The server reads CSV files only inside '{allowed_dir}' (subdirectories \
-included). Tools take absolute paths: a file the user names by a relative \
+The server reads CSV files ('.csv', '.tsv', '.csv.gz', '.tsv.gz'; \
+separated by ',', ';' or tabulators, which `profile` detects) only inside \
+'{allowed_dir}' (subdirectories included). Tools take absolute paths: a file the user names by a relative \
 path or by its name is looked for there, so build the path from that \
 directory instead of searching the file system. When the file is outside \
 it, stop and answer the user: only they can copy it there or restart the \
@@ -1607,8 +1608,9 @@ def _build_tools(state: _ServerState) -> list[Tool]:
     @_reported
     async def profile(
         data_path: Annotated[str, Field(description=(
-            "Absolute path of a CSV file inside the directory the server may "
-            "read. URLs are not accepted."
+            "Absolute path of a CSV file ('.csv', '.tsv', '.csv.gz' or "
+            "'.tsv.gz') inside the directory the server may read. URLs are "
+            "not accepted."
         ))],
         target: Annotated[str | list[str] | None, Field(description=(
             "Column to forecast, or a list of columns (one series each) for "
@@ -1627,6 +1629,15 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             "When null, every column that is not the target, the date or the "
             "series ids. The other columns are not used."
         ))] = None,
+        sep: Annotated[Literal[",", ";", "\t"] | None, Field(description=(
+            "Separator of the fields of the file: ',', ';' or a tabulator. "
+            "When null, it is detected from the file; pass it only when an "
+            "error says it cannot be told."
+        ))] = None,
+        decimal: Annotated[Literal[".", ","] | None, Field(description=(
+            "Decimal mark of the file: '.' or ',' (only when the separator "
+            "is not ','). When null, it is detected from the file."
+        ))] = None,
         ctx: Context = None,
     ) -> ToolResult:
         _inputs.check_text_argument(target, "target")
@@ -1642,7 +1653,8 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             if target is None:
                 # Agents called `profile` with a made up target to read the
                 # columns in its error: the same answer, without guessing.
-                columns = [str(column) for column in read_csv_file(path).columns]
+                frame = read_csv_file(path, sep=sep, decimal=decimal)
+                columns = [str(column) for column in frame.columns]
                 raise ServerError(
                     f"`target` was not given. Columns of the file: "
                     f"{_listed_columns(columns)}.",
@@ -1661,6 +1673,8 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                     date_column      = date_column,
                     series_id_column = series_id_column,
                     exog_columns     = exog_columns,
+                    sep              = sep,
+                    decimal          = decimal,
                 )
             except SkforecastAIError as exc:
                 # Every error of a profile on `data` is about the file:

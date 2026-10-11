@@ -480,6 +480,10 @@ def _emit_data_loading(
     read is then turned into a RangeIndex, which skforecast requires. A
     CSV read by path without dates holds no index, so it is read as is.
 
+    A file written with another separator than `','` or with `','` as
+    decimal mark is read with the `sep` and `decimal` of the profile
+    (`csv_sep`, `csv_decimal`); otherwise the call does not name them.
+
     Parameters
     ----------
     lines : list
@@ -520,12 +524,24 @@ def _emit_data_loading(
         or profile.data_path == PLACEHOLDER_DATA_PATH
     )
 
+    # A file written with another separator or decimal mark is read with
+    # the ones recorded when it was profiled. Data passed in memory and the
+    # future exogenous variables are the frames saved with `to_csv()`.
+    dialect = ""
+    if (
+        path is None
+        and profile.data_path != PLACEHOLDER_DATA_PATH
+        and (profile.csv_sep, profile.csv_decimal) != (",", ".")
+    ):
+        dialect = f", sep={profile.csv_sep!r}, decimal={profile.csv_decimal!r}"
+
     lines.append(comment)
     if long_format or not index_read:
-        lines.append(f"{var} = pd.read_csv({repr(data_path)})")
+        lines.append(f"{var} = pd.read_csv({repr(data_path)}{dialect})")
     else:
         lines.append(
-            f"{var} = pd.read_csv({repr(data_path)}, index_col=0, parse_dates=True)"
+            f"{var} = pd.read_csv({repr(data_path)}{dialect}, "
+            f"index_col=0, parse_dates=True)"
         )
         if profile.index_type == "range":
             # A row index saved with `to_csv()` is read back as integers,

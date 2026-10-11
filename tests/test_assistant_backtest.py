@@ -21,6 +21,7 @@ from skforecast_ai.exceptions import (
     InvalidInputTypeError,
 )
 
+from tests.fixtures_csv_dialect import df_dialect, write_dialect
 from tests.fixtures_assistant import (
     df_categorical_exog,
     df_multi_wide,
@@ -1651,3 +1652,29 @@ def test_backtest_cv_defaults_explanation_when_data_have_more_rows_than_the_stra
         "to 2023-02-25. It was computed when the strategy was created, on 80 "
         "observations; the data it runs on have 100."
     )
+
+
+def test_backtest_output_when_csv_has_semicolon_and_decimal_comma(tmp_path):
+    """
+    Test that backtest() on a CSV with ';' and a decimal comma gives the
+    same metrics as on the same data written with commas, and a script that
+    reads the file with `sep=';', decimal=','`.
+    """
+    path = write_dialect(tmp_path, df_dialect, "semicolon_comma")
+    comma_path = tmp_path / "us.csv"
+    df_dialect.to_csv(comma_path, index=False)
+    cv = TimeSeriesFold(steps=5, initial_train_size=40, verbose=False)
+
+    result = assistant.backtest(
+        data=path, cv=cv, target="y", estimator="Ridge", show_progress=False
+    )
+    expected = assistant.backtest(
+        data=comma_path, cv=cv, target="y", estimator="Ridge", show_progress=False
+    )
+
+    assert f"data = pd.read_csv({path!r}, sep=';', decimal=',')\n" in result.code
+    assert "sep=" not in expected.code
+    assert result.profile.data_profile.csv_sep == ";"
+    assert result.profile.data_profile.csv_decimal == ","
+    pd.testing.assert_frame_equal(result.metrics, expected.metrics)
+    pd.testing.assert_frame_equal(result.predictions, expected.predictions)

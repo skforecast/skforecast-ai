@@ -214,7 +214,7 @@ skforecast-ai mcp --allow-dir /path/to/data
 | `--output-dir` | a new temporary directory | Where the server writes predictions, metrics, leaderboards and long texts. It is also the working directory of the server, and it is kept when the server stops. Its path is logged when the server starts. |
 | `--max-objects` | 256 | Most objects (profiles, plans, results) the server keeps. |
 | `--max-memory-mb` | 1024 | Memory the objects may take. Beyond either limit, the least recently used objects are removed. |
-| `--max-file-mb` | 256 | Largest CSV file (data or future exogenous values) the server reads, checked on the size of the file before reading it. 0 for no limit. |
+| `--max-file-mb` | 256 | Largest CSV file (data or future exogenous values) the server reads, checked on the size of the file before reading it, and on the size of its content when it is compressed (`.gz`). 0 for no limit. |
 | `--allow-model` | (none) | Model ID prefix of a foundation model that the server does not run by default, for example `google/timesfm-3.0`. Repeat it for several. The server checks it against skforecast before it answers its client, which makes its start a few seconds slower. See [Foundation models and licenses](#foundation-models-and-licenses). |
 
 When it starts, the server checks that it can write to the output directory and stops with an error otherwise. It writes its log to the standard error, one line per event: the directories it uses when it starts, the message and traceback of an unexpected error with its id, and one line when the client disconnects (it then exits with code 0, also in the middle of a call).
@@ -306,7 +306,7 @@ In the checks of this release a small model tried to copy a file from outside th
 | The client cannot find `uvx` or `skforecast-ai` | The client starts the server with a `PATH` that is not the one of your terminal | Give the absolute path of the command (`which uvx`, `which skforecast-ai`) |
 | The server stops as soon as it starts | `--allow-dir` is missing, relative or not a directory, the output directory is not writable, or, with the plugin of Claude Code, the session was opened in the home directory or in the root of a disk | Give an absolute path, or open Claude Code in the folder of the project; the log of the server (stderr, shown by the client) says which |
 | `path_not_allowed` | The file is outside `--allow-dir` | Copy the file there yourself, or restart the server with another `--allow-dir` |
-| `invalid_path` or `url_not_allowed` | The path is relative, is not a `.csv` file or is a URL | Give the absolute path of a CSV file; download a URL first |
+| `invalid_path` or `url_not_allowed` | The path is relative, does not end in `.csv`, `.tsv`, `.csv.gz` or `.tsv.gz`, or is a URL | Give the absolute path of a CSV file; download a URL first |
 | `model_not_allowed` | The license of the foundation model restricts its use | Read its license and add `--allow-model` with its prefix |
 | `missing_dependency` | The backend of a foundation model is not installed where the server runs | Install the package the hint names, or add it with `--with` to `uvx` |
 | `unknown_id` | The server restarted, or removed the object to stay within its limits | Ask the agent to profile the data again |
@@ -327,7 +327,8 @@ A failed call returns an error whose text is `Error executing tool <name>: ` fol
 ## Limits
 
 - Calls run one at a time; a call waits for the previous one to end.
-- The server reads CSV files of at most `--max-file-mb` (256 MB by default), and a horizon (`steps`) longer than the longest series is rejected when the plan is built.
+- The server reads `.csv`, `.tsv`, `.csv.gz` and `.tsv.gz` files, separated by `,`, `;` or tabulators and with `.` or `,` as decimal mark (what a spreadsheet exports in most of Europe). `profile` detects the separator and the decimal mark, and takes them as `sep` and `decimal` when a file reads in more than one way. Parquet and Excel files are not read. The file must be UTF-8 (in Excel, "CSV UTF-8"), and dates written day first (`31/01/2024`) are read month first or rejected: write them in ISO 8601 (`2024-01-31`).
+- The server reads files of at most `--max-file-mb` (256 MB by default), counted also on the content of a `.gz` file, and a horizon (`steps`) longer than the longest series is rejected when the plan is built.
 - Ids live while the server runs. An id of a previous run, or of an object removed to stay within `--max-objects` and `--max-memory-mb`, gives `unknown_id` saying which.
 - A summary, a script or a failure longer than 20,000 characters is cut in the response; the full text is written to the output directory.
 - Foundation models (`ForecasterFoundation`) need their backend package where the server runs: Chronos-2, the default, needs `chronos-forecasting` (the `foundation` extra). Without it, `backtest` and `forecast` answer `missing_dependency`, whose hint gives the `pip install` command and the `--with` option of `uvx`.

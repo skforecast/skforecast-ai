@@ -15,7 +15,7 @@ Every tool that creates an object returns a [`ToolResult`][skforecast_ai.mcp.mod
 
 | Tool | Takes | Returns |
 |:--|:--|:--|
-| `profile` | `data_path`, `target` (without it, the error lists the columns of the file), `date_column`, `series_id_column`, `exog_columns` (the exogenous columns to use, `[]` for none; null for every other column) | a profile id |
+| `profile` | `data_path`, `target` (without it, the error lists the columns of the file), `date_column`, `series_id_column`, `exog_columns` (the exogenous columns to use, `[]` for none; null for every other column), `sep` and `decimal` (the separator and the decimal mark of the file; null to detect them) | a profile id |
 | `plan` | `profile_id`, `steps`, `interval`, `forecaster`, `estimator`, `estimator_kwargs`, `lags`, `window_features`, `metric`, `use_exog`, `differentiation`, `calendar_features`, `target_transformer`, `dropna_from_series` | a plan id |
 | `refine_plan` | `plan_id`, `overrides` (the keys of `refine_plan()`; an omitted key keeps the value of the plan, and every key but `forecaster`, `estimator` and `steps` set to null asks for the default) | a new plan id |
 | `create_cv` | `plan_id` and the arguments of `create_cv()` | a cv id, with its cost: folds, trainings, estimator fits and the inference windows of a foundation model (at most one per series and fold), for its plan and for a `compare` without candidates |
@@ -58,10 +58,10 @@ A failure of a tool reaches the agent as an error result whose text is `Error ex
 |:--|:--|
 | `unknown_id` | The id does not exist, was removed to stay within the limits of the server (`details.removed`), or comes from a previous run of the server. |
 | `inconsistent_ids` | The plan and the cross-validation strategy passed to `backtest` come from different profiles. |
-| `invalid_path` | The path is not absolute, does not end in `.csv` or holds a control character. |
+| `invalid_path` | The path is not absolute, does not end in `.csv`, `.tsv`, `.csv.gz` or `.tsv.gz`, or holds a control character. |
 | `path_not_allowed` | The path is outside the directory given to `--allow-dir`, also after resolving symbolic links. It is checked before looking at the file, so the error does not say whether a file outside exists. Its hint names the directory and tells the agent to ask the user to copy the file there or to change `--allow-dir`, not to copy it itself. |
 | `url_not_allowed` | The path is a URL. Download the file into the allowed directory. |
-| `file_too_large` | The CSV file (data or future exogenous values) is larger than `--max-file-mb` (256 MB by default; 0 for no limit). Its size is checked before reading it; `details` has the size and the limit. |
+| `file_too_large` | The CSV file (data or future exogenous values) is larger than `--max-file-mb` (256 MB by default; 0 for no limit). Its size is checked before reading it, and so is the size of the content of a `.gz` file; `details` has the size and the limit. |
 | `model_not_allowed` | A foundation model that `--allow-model` does not allow: its license restricts commercial use, its weights are gated, its provider requires an account, or skforecast gives no license information for it. `details` has its license and those facts; `hint` names the option to ask the user for. |
 | `data_changed` | The CSV file changed since it was profiled, or the data or the exogenous file changed while the server was reading it. Nothing is registered; call `profile` again (or the tool again, for the exogenous file). The Python API profiles such data again and runs; the server asks for a new `profile`, so that every id keeps describing the file it was built from. |
 

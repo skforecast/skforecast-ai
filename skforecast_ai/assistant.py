@@ -178,6 +178,7 @@ from ._utils import (
     _apply_interval_to_plan,
     _check_plan_overrides,
     _data_path_of_run,
+    _dialect_read,
     _revalidate_plan,
     discarded_plan_edits,
     plan_override_value,
@@ -415,7 +416,8 @@ def _profile_values(data_profile: DataProfile) -> dict[str, str]:
     Return the fields of a data profile that describe the values of the
     data, each as text, to tell whether two profiles describe the same data.
 
-    `data_path`, `warnings` and `unused_columns` are left out: the path is
+    `data_path`, `csv_sep`, `csv_decimal`, `warnings` and `unused_columns`
+    are left out: the path and how its file is written are
     set by the caller, the warnings derive from the values (and hold the
     note of an earlier refresh), and the columns the data holds besides
     those of the profile are compared by `_refresh_profile` itself. The
@@ -435,7 +437,9 @@ def _profile_values(data_profile: DataProfile) -> dict[str, str]:
     """
 
     values = data_profile.model_dump(
-        exclude={"data_path", "warnings", "unused_columns"}
+        exclude={
+            "data_path", "csv_sep", "csv_decimal", "warnings", "unused_columns"
+        }
     )
     for name in ("exog_columns", "categorical_exog"):
         values[name] = sorted(values[name])
@@ -660,6 +664,8 @@ class ForecastingAssistant:
         series_id_column: str | None = None,
         *,
         exog_columns: list[str] | None = None,
+        sep: str | None = None,
+        decimal: str | None = None,
     ) -> ForecastingProfile:
         """
         Profile a dataset and select the recommended forecaster and estimator.
@@ -692,16 +698,44 @@ class ForecastingAssistant:
             the generated script uses them. A plan built from this profile
             records the selection (`ForecastPlan.exog_columns`), so it runs
             on the same columns when it is given without its profile.
+        sep : str, default None
+            Separator of the fields of a CSV file: `','`, `';'` or a
+            tabulator (`'\\t'`). If None, it is detected from the first
+            lines of the file. Ignored for data passed in memory.
+        decimal : str, default None
+            Decimal mark of a CSV file: `'.'` or `','` (only when the
+            separator is not `','`). If None, it is detected from the
+            first lines of the file. Ignored for data passed in memory.
 
         Returns
         -------
         profile : ForecastingProfile
             Dataset profile + recommended forecaster + estimator
             (with alternative candidates) + analysis context.
+
+        Notes
+        -----
+        The separator and the decimal mark of a CSV file are recorded in
+        the profile (`DataProfile.csv_sep` and `DataProfile.csv_decimal`):
+        the generated script reads the file with them. A file that reads
+        with more than one separator, or that holds numbers written with
+        both decimal marks, raises `InvalidInputError` (code
+        `'data_unreadable'`) instead of guessing: pass `sep` and `decimal`.
+        The other methods detect how the file they receive is written, and
+        read such a file as the profile passed with it says.
         """
 
         data_path = recorded_data_path(data)
-        data, target = _resolve_data_and_target(data, target, date_column)
+        data, target = _resolve_data_and_target(
+                           data        = data,
+                           target      = target,
+                           date_column = date_column,
+                           sep         = sep,
+                           decimal     = decimal,
+                       )
+        # How the file was read, which the script repeats; nothing for data
+        # passed in memory.
+        sep, decimal = _dialect_read(data_path)
 
         data_profile = create_data_profile(
             data             = data,
@@ -710,6 +744,8 @@ class ForecastingAssistant:
             series_id_column = series_id_column,
             data_path        = data_path,
             exog_columns     = exog_columns,
+            sep              = sep,
+            decimal          = decimal,
         )
         validate_target_numeric(data, data_profile.target)
 

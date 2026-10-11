@@ -56,7 +56,7 @@ def test_resolve_csv_path_output_when_file_inside_allowed_dir(tmp_path):
         ("/tmp/da\x00ta.csv", "invalid_path"),
         ("/tmp/da\nta.csv", "invalid_path"),
         ("/tmp/data.txt", "invalid_path"),
-        ("/tmp/data.csv.gz", "invalid_path"),
+        ("/tmp/data.csv.bz2", "invalid_path"),
     ],
     ids=lambda dt: f"raw: {dt!r}",
 )
@@ -168,3 +168,95 @@ def test_resolve_csv_path_ServerError_when_file_not_found(tmp_path):
             f"the server with `--allow-dir`. Copying or rewriting it yourself "
             f"is not allowed, even if you can."
         )
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["a.csv", "a.tsv", "a.csv.gz", "a.tsv.gz", "A.TSV", "B.Csv.GZ", "c.TSV.gz"],
+    ids=lambda dt: f"name: {dt}",
+)
+def test_resolve_csv_path_output_when_suffix_is_csv_tsv_or_gzip(tmp_path, name):
+    """
+    Test that a file ending in '.csv', '.tsv', '.csv.gz' or '.tsv.gz', in any
+    case, inside the allowed directory is accepted and returned with its
+    links resolved.
+    """
+    allowed, _ = _layout(tmp_path)
+    (allowed / name).write_text("date,y\n2020-01-01,1\n")
+
+    result = resolve_csv_path(
+        str(allowed / name), AllowedDir.from_path(allowed), "data_path"
+    )
+
+    assert result == os.path.realpath(allowed / name)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "data.txt",
+        "data.parquet",
+        "data.xlsx",
+        "data.gz",
+        "data.csv.bz2",
+        "data.csv.zip",
+        "data.tsv.xz",
+        "data.csv.gz.bak",
+        "data.gz.csv.txt",
+        ".csv",
+        ".tsv",
+        ".csv.gz",
+        ".tsv.gz",
+    ],
+    ids=lambda dt: f"name: {dt}",
+)
+def test_resolve_csv_path_ServerError_when_suffix_is_not_csv_tsv_or_gzip(
+    tmp_path, name
+):
+    """
+    Test that other extensions, a '.gz' that is not of a CSV or TSV, other
+    compressions, and a file whose whole name is an extension are rejected
+    with `invalid_path` and a message that lists the four suffixes.
+    """
+    allowed, _ = _layout(tmp_path)
+    (allowed / name).write_text("date,y\n2020-01-01,1\n")
+    raw = str(allowed / name)
+
+    with pytest.raises(ServerError) as excinfo:
+        resolve_csv_path(raw, AllowedDir.from_path(allowed), "data_path")
+
+    assert excinfo.value.code == "invalid_path"
+    assert excinfo.value.field == "data_path"
+    assert str(excinfo.value) == (
+        f"The path {raw!r} is not a CSV file: it must end in '.csv', '.tsv', "
+        f"'.csv.gz' or '.tsv.gz'."
+    )
+    assert excinfo.value.details == {"path": raw}
+
+
+def test_resolve_csv_path_checks_the_real_path_of_a_link_to_a_compressed_file(
+    tmp_path,
+):
+    """
+    Test that a link named '.csv.gz' to a file that is not a CSV, or outside
+    the allowed directory, is `path_not_allowed`, and that a link to a
+    '.csv.gz' file inside is accepted and resolved.
+    """
+    allowed, outside = _layout(tmp_path)
+    (allowed / "notes.txt").write_text("date,y\n2020-01-01,1\n")
+    (allowed / "real.csv.gz").write_bytes(b"")
+    (outside / "secret.csv.gz").write_bytes(b"")
+    os.symlink(allowed / "notes.txt", allowed / "text.csv.gz")
+    os.symlink(outside / "secret.csv.gz", allowed / "link.csv.gz")
+    os.symlink(outside / "secret.csv", allowed / "link.tsv")
+    os.symlink(allowed / "real.csv.gz", allowed / "alias.csv")
+    allowed_dir = AllowedDir.from_path(allowed)
+
+    for name in ("text.csv.gz", "link.csv.gz", "link.tsv"):
+        with pytest.raises(ServerError) as excinfo:
+            resolve_csv_path(str(allowed / name), allowed_dir, "data_path")
+        assert excinfo.value.code == "path_not_allowed"
+    result = resolve_csv_path(str(allowed / "alias.csv"), allowed_dir, "data_path")
+
+    assert result == os.path.realpath(allowed / "real.csv.gz")
+

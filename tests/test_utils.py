@@ -28,6 +28,7 @@ from skforecast_ai._utils import (
     same_period,
     structure_differences,
 )
+from skforecast_ai import _utils as utils_module
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai.exceptions import (
     DataContentError,
@@ -1692,3 +1693,207 @@ def test_check_cv_matches_profile_InvalidInputError_when_structure_differs():
 
     assert exc_info.value.code == "invalid_argument"
     assert exc_info.value.field == "cv"
+
+
+def _fake_read_csv(monkeypatch, frames: list) -> list:
+    """
+    Replace `pd.read_csv` by a fake that returns the next frame of `frames`
+    for each call and records its arguments.
+    """
+    calls = []
+
+    def read_csv(*args, **kwargs):
+        calls.append((args, kwargs))
+        return frames[len(calls) - 1].copy()
+
+    monkeypatch.setattr(pd, "read_csv", read_csv)
+
+    return calls
+
+
+def test_resolve_data_and_target_reads_url_with_semicolon_in_two_steps(monkeypatch):
+    """
+    Test that a URL whose default read has a ';' in a column name downloads
+    the start of the file to tell its dialect and is read again with
+    `sep=';'` and `decimal=','`.
+    """
+    url = "https://example.com/eu.csv"
+    one_column = pd.DataFrame({"date;y": ["2020-01-01;1,5", "2020-01-02;2,5"]})
+    two_columns = pd.DataFrame({"date": ["2020-01-01", "2020-01-02"], "y": [1.5, 2.5]})
+    calls = _fake_read_csv(monkeypatch, [one_column, two_columns])
+    sampled = []
+
+    def read_url_sample(value):
+        sampled.append(value)
+        return "date;y\n2020-01-01;1,5\n2020-01-02;2,5\n"
+
+    monkeypatch.setattr(utils_module, "read_url_sample", read_url_sample)
+
+    data, target = _resolve_data_and_target(url, "y")
+
+    assert sampled == [url]
+    assert calls == [((url,), {}), ((url,), {"sep": ";", "decimal": ","})]
+    assert list(data.columns) == ["date", "y"]
+    assert data["y"].tolist() == [1.5, 2.5]
+    assert target == "y"
+
+
+def test_resolve_data_and_target_reads_url_once_when_it_is_a_comma_file(monkeypatch):
+    """
+    Test that a URL whose columns hold no ';' or tabulator is read once with
+    `pd.read_csv(url)` and its start is not downloaded again.
+    """
+    url = "https://example.com/us.csv"
+    frame = pd.DataFrame({"date": ["2020-01-01", "2020-01-02"], "y": [1.5, 2.5]})
+    calls = _fake_read_csv(monkeypatch, [frame])
+
+    def read_url_sample(value):
+        raise AssertionError("the start of the file must not be downloaded")
+
+    monkeypatch.setattr(utils_module, "read_url_sample", read_url_sample)
+
+    data, _ = _resolve_data_and_target(url, "y")
+
+    assert calls == [((url,), {})]
+    assert data["y"].tolist() == [1.5, 2.5]
+
+
+def test_resolve_data_and_target_reads_url_once_when_start_cannot_be_downloaded(
+    monkeypatch,
+):
+    """
+    Test that a URL with a ';' in a column name whose start cannot be
+    downloaded keeps the first read, as before.
+    """
+    url = "https://example.com/eu.csv"
+    frame = pd.DataFrame({"date;y": ["2020-01-01;1,5"]})
+    calls = _fake_read_csv(monkeypatch, [frame])
+    monkeypatch.setattr(utils_module, "read_url_sample", lambda value: None)
+
+    data, _ = _resolve_data_and_target(url, "date;y")
+
+    assert calls == [((url,), {})]
+    assert list(data.columns) == ["date;y"]
+
+
+def test_resolve_data_and_target_reads_url_with_given_sep(monkeypatch):
+    """
+    Test that a URL read with a `sep` given reads once with the dialect, the
+    decimal mark being detected from the start of the file.
+    """
+    url = "https://example.com/eu.csv"
+    frame = pd.DataFrame({"date": ["2020-01-01"], "y": [1.5]})
+    calls = _fake_read_csv(monkeypatch, [frame])
+    monkeypatch.setattr(
+        utils_module, "read_url_sample", lambda value: "date;y\n2020-01-01;1,5\n"
+    )
+
+    _resolve_data_and_target(url, "y", sep=";")
+
+    assert calls == [((url,), {"sep": ";", "decimal": ","})]
+
+
+def test_resolve_data_and_target_InvalidInputError_when_url_dialect_is_ambiguous(
+    monkeypatch,
+):
+    """
+    Test that a URL whose dialect cannot be told raises the InvalidInputError
+    of the dialect with the code 'data_unreadable' and the field 'data', not
+    the error of a URL that cannot be read.
+    """
+    url = "https://example.com/eu.csv"
+    frame = pd.DataFrame({"date;y,x": ["2020-01-01;1,5"]})
+    _fake_read_csv(monkeypatch, [frame])
+    monkeypatch.setattr(
+        utils_module,
+        "read_url_sample",
+        lambda value: "date;y,x\n2020-01-01;1,5\n2020-01-02;2,5\n",
+    )
+
+    err_msg = re.escape(
+        f"The separator of the CSV file '{url}' cannot be told: its header "
+        f"reads with ',' (2 columns) and ';' (2 columns)."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg + "$") as exc_info:
+        _resolve_data_and_target(url, "y")
+
+    assert not isinstance(exc_info.value, DataNotFoundError)
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.field == "data"
+
+
+@pytest.mark.parametrize(
+    "sep, decimal, field",
+    [("x", None, "sep"), (None, "x", "decimal"), (",", ",", "decimal")],
+)
+def test_resolve_data_and_target_InvalidInputError_when_sep_or_decimal_not_valid(
+    sep, decimal, field
+):
+    """
+    Test that an invalid `sep` or `decimal` raises before any file is read,
+    for a path, a URL and data in memory.
+    """
+    for data in ("data.csv", "https://example.com/a.csv", df_h2o_text):
+        with pytest.raises(InvalidInputError) as exc_info:
+            _resolve_data_and_target(data, "x", sep=sep, decimal=decimal)
+        assert exc_info.value.field == field
+
+
+
+def test_resolve_data_and_target_reads_url_when_comma_read_cannot_parse(monkeypatch):
+    """
+    Test that a URL whose rows cannot be read with ',' (a ';' file with
+    different numbers of decimal commas per row) downloads the start of the
+    file to tell its dialect and is read with `sep=';'` and `decimal=','`.
+    """
+    url = "https://example.com/ragged.csv"
+    frame = pd.DataFrame({"date": ["2020-01-01", "2020-01-02"], "y": [1.5, 2.0]})
+    calls = []
+
+    def read_csv(*args, **kwargs):
+        calls.append((args, kwargs))
+        if not kwargs:
+            raise pd.errors.ParserError("Expected 2 fields in line 4, saw 3")
+        return frame.copy()
+
+    monkeypatch.setattr(pd, "read_csv", read_csv)
+    monkeypatch.setattr(
+        utils_module,
+        "read_url_sample",
+        lambda value: "date;y;x\n2020-01-01;1,5;2\n2020-01-02;2;2,5\n",
+    )
+
+    data, _ = _resolve_data_and_target(url, "y")
+
+    assert calls == [((url,), {}), ((url,), {"sep": ";", "decimal": ","})]
+    assert data["y"].tolist() == [1.5, 2.0]
+
+
+def test_resolve_data_and_target_DataNotFoundError_when_comma_url_cannot_parse(
+    monkeypatch,
+):
+    """
+    Test that a URL of a ',' file that pandas cannot read still raises a
+    DataNotFoundError with the code 'data_unreadable' and the reason of
+    pandas, after its start told no other dialect.
+    """
+    url = "https://example.com/bad.csv"
+
+    def read_csv(*args, **kwargs):
+        raise pd.errors.ParserError("Expected 2 fields in line 3, saw 4")
+
+    monkeypatch.setattr(pd, "read_csv", read_csv)
+    monkeypatch.setattr(
+        utils_module,
+        "read_url_sample",
+        lambda value: "date,y\n2020-01-01,1\n2020-01-02,2,3,4\n",
+    )
+
+    err_msg = re.escape(
+        f"Could not read CSV from URL: '{url}'. Expected 2 fields in line 3, "
+        f"saw 4"
+    )
+    with pytest.raises(DataNotFoundError, match="^" + err_msg + "$") as exc_info:
+        _resolve_data_and_target(url, "y")
+
+    assert exc_info.value.code == "data_unreadable"
