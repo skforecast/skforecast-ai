@@ -21,7 +21,7 @@ The main changes in this release are:
 
 **Changed**
 
-+ The first start of the MCP server is faster, so it fits better in the 30 seconds Claude Code waits: the server connects before loading pandas, scikit-learn and skforecast, which it loads in the background (4 seconds instead of 9 with nothing compiled yet, on Linux). `import skforecast_ai` no longer loads them either. See [MCP server for coding agents][mcp-guide].
++ The first start of the MCP server is faster, so it fits better in the 30 seconds Claude Code waits: the server connects before loading pandas, scikit-learn and skforecast, which it loads in the background (4 seconds instead of 9 with nothing compiled yet, on Linux). `import skforecast_ai` no longer loads them either. See [MCP server for coding agents][mcp-guide] ([#72](https://github.com/skforecast/skforecast-ai/pull/72)).
 
 
 **Fixed**
