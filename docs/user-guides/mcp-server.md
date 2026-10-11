@@ -25,7 +25,13 @@ Pick the tab of your agent. Every setup gives the server one directory, `--allow
     /plugin install skforecast-ai@skforecast-ai
     ```
 
-    The plugin starts `uvx skforecast-ai-mcp==<version> --allow-project-dir`, where `<version>` is the version of the plugin (`claude plugin list` shows it).
+    The plugin starts `uvx skforecast-ai-mcp==<version> --allow-project-dir`, where `<version>` is the version of the plugin (`claude plugin list` shows it). The first start downloads the server and its dependencies, and Claude Code waits 30 seconds for it to connect and list its tools. To install them before, run this once in a terminal, with that version:
+
+    ```bash
+    uvx skforecast-ai-mcp==<version> --help
+    ```
+
+    **If the first connection times out**, `/mcp` shows the server as failed or pending: open `/mcp`, select `skforecast-ai` and reconnect. Everything is installed by then, and the second start connects in a few seconds.
 
     !!! warning "The plugin can read every CSV file of your project"
         The allowed directory is the project you open in Claude Code, the directory you start it in: `--allow-project-dir` reads it from the environment variable `CLAUDE_PROJECT_DIR`, which Claude Code sets. That includes an export of credentials or of personal data saved as `.csv`, whose values an error or a summary can quote. The server does not start in your home directory or in the root of a disk: open Claude Code in the folder of the project.
@@ -143,13 +149,13 @@ The path of `--allow-dir` must be absolute: the client starts the server from a 
     In the configurations above, that is `"args": ["skforecast-ai-mcp", "--allow-dir", "/absolute/path/to/project"]`; pin a version with `skforecast-ai-mcp==<version>`.
 
 !!! tip "Warm up uvx before the first start"
-    **The first start is slow.** `uvx` downloads and installs the package and its dependencies the first time, and Python loads them for the first time: about 30 seconds with a fast connection, more with a slow one. A client may give up on a server that takes that long to start: Claude Code waits 30 seconds by default. Run this once before connecting the agent, so later starts take a few seconds (the first one up to 10, the next ones about 2). With the plugin of Claude Code, use `"skforecast-ai[mcp]==<version>"`:
+    **The first start is slow.** `uvx` downloads and installs the package and its dependencies the first time (about 900 MB: a few seconds with a fast connection, a minute or more with a slow one), and Python compiles every module the first time it loads it. The server answers its client before it loads pandas, scikit-learn and skforecast, which it does in the background: that loading no longer delays the connection, and the first tool waits for it instead, some 6 seconds after an installation. A client may give up on a server that takes long to start: Claude Code waits 30 seconds by default for it to connect and list its tools. Run this once before connecting the agent, so later starts take a few seconds. With the plugin of Claude Code, use the command of its tab, `uvx skforecast-ai-mcp==<version> --help`:
 
     ```bash
     uvx --from "skforecast-ai[mcp]" skforecast-ai --version
     ```
 
-    In Claude Code, the `MCP_TIMEOUT` environment variable, in milliseconds, makes it wait longer instead: `MCP_TIMEOUT=120000 claude`.
+    If the first connection fails anyway, reconnect the server once the download has ended (in Claude Code, `/mcp`, select the server and reconnect). In Claude Code, the `MCP_TIMEOUT` environment variable, in milliseconds, makes it wait longer instead: `MCP_TIMEOUT=120000 claude`; a plugin cannot set it.
 
 **Install the skill.** [The skill](#the-skill) teaches the agent how to use the tools. The plugin of Claude Code already includes it. For Cursor, VS Code, Codex and other agents, install it with the [skills](https://github.com/vercel-labs/skills) command:
 
@@ -209,7 +215,7 @@ skforecast-ai mcp --allow-dir /path/to/data
 | `--max-objects` | 256 | Most objects (profiles, plans, results) the server keeps. |
 | `--max-memory-mb` | 1024 | Memory the objects may take. Beyond either limit, the least recently used objects are removed. |
 | `--max-file-mb` | 256 | Largest CSV file (data or future exogenous values) the server reads, checked on the size of the file before reading it. 0 for no limit. |
-| `--allow-model` | (none) | Model ID prefix of a foundation model that the server does not run by default, for example `google/timesfm-3.0`. Repeat it for several. See [Foundation models and licenses](#foundation-models-and-licenses). |
+| `--allow-model` | (none) | Model ID prefix of a foundation model that the server does not run by default, for example `google/timesfm-3.0`. Repeat it for several. The server checks it against skforecast before it answers its client, which makes its start a few seconds slower. See [Foundation models and licenses](#foundation-models-and-licenses). |
 
 When it starts, the server checks that it can write to the output directory and stops with an error otherwise. It writes its log to the standard error, one line per event: the directories it uses when it starts, the message and traceback of an unexpected error with its id, and one line when the client disconnects (it then exits with code 0, also in the middle of a call).
 
@@ -296,7 +302,7 @@ In the checks of this release a small model tried to copy a file from outside th
 
 | Symptom | Cause | Fix |
 |:--|:--|:--|
-| The server does not appear, or fails to start the first time | `uvx` is still downloading the package when the client gives up | Run the warm up command of [Install](#install) once, then restart the client. In Claude Code, `MCP_TIMEOUT=120000 claude` also gives it time. In Codex, set `startup_timeout_sec` |
+| The server does not appear, or fails to start the first time | `uvx` is still downloading the package when the client gives up | Reconnect it (in Claude Code, `/mcp`, select the server and reconnect), or run the warm up command of [Install](#install) once and restart the client. In Claude Code, `MCP_TIMEOUT=120000 claude` also gives it time. In Codex, set `startup_timeout_sec` |
 | The client cannot find `uvx` or `skforecast-ai` | The client starts the server with a `PATH` that is not the one of your terminal | Give the absolute path of the command (`which uvx`, `which skforecast-ai`) |
 | The server stops as soon as it starts | `--allow-dir` is missing, relative or not a directory, the output directory is not writable, or, with the plugin of Claude Code, the session was opened in the home directory or in the root of a disk | Give an absolute path, or open Claude Code in the folder of the project; the log of the server (stderr, shown by the client) says which |
 | `path_not_allowed` | The file is outside `--allow-dir` | Copy the file there yourself, or restart the server with another `--allow-dir` |
