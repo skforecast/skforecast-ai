@@ -36,11 +36,11 @@ def test_preload_wait_imports_the_modules(tmp_path, monkeypatch, request):
     name, log = _probe_module(tmp_path, monkeypatch, request)
     preload = Preload(["json", name])
 
-    assert not preload.done
+    assert (preload.started, preload.done) == (False, False)
 
     preload.wait()
 
-    assert preload.done
+    assert (preload.started, preload.done) == (True, True)
     assert name in sys.modules
     assert log.read_text() == "imported\n"
 

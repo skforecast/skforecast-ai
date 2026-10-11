@@ -1,7 +1,7 @@
 ################################################################################
 #                              MCP server preload                              #
 #                                                                              #
-# Imports the core in a background thread once the client is connected        #
+# Imports the core in a background thread while the server answers its client #
 # This work by skforecast team is licensed under the Apache License 2.0        #
 ################################################################################
 
@@ -10,7 +10,6 @@ import importlib
 import logging
 import threading
 from collections.abc import Iterable
-from typing import Any
 
 logger = logging.getLogger("skforecast_ai.mcp")
 
@@ -43,8 +42,8 @@ class Preload:
     the tools wait for.
 
     The modules are imported once per process, so one instance serves every
-    server of the process (`PRELOAD`), started by
-    `start_preload_after_answer`. `start` runs the import in a daemon
+    server of the process (`PRELOAD`), which `run_server` starts as it
+    starts serving. `start` runs the import in a daemon
     thread, so a client that closes the server during the import does not
     keep the process alive; `wait` starts it if nothing did and blocks until
     it ends. An import that fails is kept, logged once and raised by every
@@ -108,6 +107,14 @@ class Preload:
             self._done.set()
 
     @property
+    def started(self) -> bool:
+        """
+        Whether the import was started, by `start` or by `wait`.
+        """
+
+        return self._thread is not None
+
+    @property
     def done(self) -> bool:
         """
         Whether the import ended, with or without an error.
@@ -138,35 +145,3 @@ class Preload:
 
 
 PRELOAD = Preload(PRELOADED_MODULES)
-
-
-async def start_preload_after_answer(ctx: Any, call_next: Any) -> Any:
-    """
-    Middleware of the server that starts `PRELOAD` once the server has
-    handled the first message of its client, so the answer to the handshake
-    is ready before the import starts competing with it.
-
-    The first message is `initialize` with the protocol of 2025 and
-    `server/discover` with the one of 2026-07-28, which sends no
-    `notifications/initialized` (Claude Code 2.1.296 does so). A client that
-    sends neither starts it with its first request; `PRELOAD.start` does
-    nothing after the first time.
-
-    Parameters
-    ----------
-    ctx : ServerRequestContext
-        Context of the incoming message.
-    call_next : Callable
-        Rest of the chain of the SDK.
-
-    Returns
-    -------
-    result : object
-        What the chain returns.
-    """
-
-    result = await call_next(ctx)
-    # Read here, not bound at import, so a test can replace it.
-    PRELOAD.start()
-
-    return result

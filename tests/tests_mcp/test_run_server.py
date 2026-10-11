@@ -3,12 +3,14 @@
 import os
 import subprocess
 import sys
+import time
 import anyio
 import pytest
 from mcp.server.mcpserver import MCPServer
 
-from skforecast_ai.mcp import run_server
+from skforecast_ai.mcp import _preload, run_server
 from skforecast_ai.mcp import server as server_module
+from skforecast_ai.mcp._preload import Preload
 
 if sys.version_info < (3, 11):
     from exceptiongroup import ExceptionGroup
@@ -31,6 +33,37 @@ def test_run_server_serves_stdio_from_the_output_dir(tmp_path, monkeypatch):
     run_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
 
     assert calls == [("stdio", str(tmp_path / "out"), "skforecast-ai")]
+
+
+def test_run_server_starts_the_background_import_before_serving(
+    tmp_path, monkeypatch, request
+):
+    """
+    Test that `run_server` starts the background import of the core before
+    it serves, with no tool call: the import is running or done when the
+    server starts reading its client, and it ends on its own.
+    """
+    name = f"skforecast_ai_serve_probe_{tmp_path.name.replace('-', '_')}"
+    (tmp_path / f"{name}.py").write_text("")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    request.addfinalizer(lambda: sys.modules.pop(name, None))
+    preload = Preload([name])
+    monkeypatch.setattr(_preload, "PRELOAD", preload)
+    started = []
+
+    def fake_run(self, transport="stdio", **kwargs):
+        started.append(preload.started)
+
+    monkeypatch.setattr(MCPServer, "run", fake_run)
+
+    run_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    deadline = time.monotonic() + 30
+    while not preload.done and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    assert started == [True]
+    assert preload.done
+    assert name in sys.modules
 
 
 @pytest.mark.parametrize(

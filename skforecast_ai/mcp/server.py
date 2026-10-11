@@ -87,8 +87,9 @@ from .models import (
 # The core (the assistant, the recommendation, the execution) loads pandas,
 # scikit-learn, scipy and skforecast, most of the start of the server: every
 # function imports what it needs from it, so the server answers `initialize`
-# and `tools/list` without them, and `_preload` imports them in the
-# background once the client is connected. Every tool waits for it.
+# and `tools/list` without them, and `_preload` imports them in a background
+# thread that `run_server` starts as it starts serving. Every tool waits for
+# it, and starts it when nothing did (`create_server`).
 if TYPE_CHECKING:
     from ..assistant import ForecastingAssistant
 
@@ -835,8 +836,8 @@ class _StrictTool(Tool):
         its schema with the JSON of the other errors.
 
         It first waits for the core, imported in the background since the
-        handshake (`_preload.PRELOAD`), so no part of a call runs during that import
-        and an import that failed is the error of the call.
+        server started (`_preload.PRELOAD`), so no part of a call runs during
+        that import and an import that failed is the error of the call.
         """
 
         preload = _preload.PRELOAD
@@ -909,8 +910,8 @@ class _ServerState:
     assistant : ForecastingAssistant
         Assistant without LLM that runs every call, built by the first call
         that needs it: importing it loads pandas, scikit-learn, scipy and
-        skforecast, which the server does in the background after the
-        handshake.
+        skforecast, which the server does in the background while it
+        answers the handshake.
     failures : OrderedDict
         Failures of runs by id: their text cut to `MAX_FAILURE_CHARS` and the
         file with the full text, if any. `get_failure` returns them.
@@ -2850,7 +2851,6 @@ def _build_server(state: _ServerState) -> MCPServer:
         instructions = _instructions(state.allowed),
         version      = __version__,
         tools        = _build_tools(state),
-        middleware   = [_preload.start_preload_after_answer],
     )
 
 
@@ -2923,7 +2923,10 @@ def run_server(
 
     The working directory of the process becomes `output_dir`, so a library
     that writes files next to it (CatBoost writes `catboost_info/`) does not
-    write them into the project of the user. While it serves, the logger
+    write them into the project of the user. As it starts serving, it starts
+    importing pandas, scikit-learn, scipy and skforecast in a background
+    thread, which the handshake does not need and every tool waits for.
+    While it serves, the logger
     `skforecast_ai.mcp` writes one plain line per record to the standard
     error and does not pass its records to the root logger; both are
     restored when it returns. When the client disconnects, also during a
@@ -2979,6 +2982,11 @@ def run_server(
             state.allowed.path,
             state.output_dir,
         )
+        # The core is imported in the background while the server answers
+        # its client: the handshake and `tools/list` do not need it, and
+        # starting it here instead of after the first answer costs the
+        # handshake nothing measurable.
+        _preload.PRELOAD.start()
         try:
             server.run("stdio")
         except BaseException as exc:
