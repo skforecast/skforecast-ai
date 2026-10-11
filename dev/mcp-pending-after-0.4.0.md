@@ -28,7 +28,7 @@ Dónde está lo demás:
 | H7 | MAPE leído 100 veces más pequeño | arreglado |
 | H8 | Horizonte acortado sin preguntar | arreglado |
 | H9 | `profile` con un target falso para leer las columnas | arreglado |
-| H10 | El resumen de `compare` y el baseline | pendiente, punto 2 |
+| H10 | El resumen de `compare` y el baseline | arreglado en la 0.4.2 (`345510f`), punto 2 |
 | H11 | La precisión de un plan dada para el forecast de otro | pendiente, punto 4 |
 | C1 a C5 | Mejoras del propio check | hechas |
 
@@ -36,7 +36,14 @@ Dónde está lo demás:
 
 ### Bloquea la versión siguiente
 
-1. **`compare` sobre la estrategia de un plan refinado no evalúa ese plan.**
+1. **Hecho en la 0.4.2** (`345510f`, el coste del servidor en `ebdbe4c`):
+   sin `candidates`, el plan de la estrategia entra como la fila
+   `Strategy plan` cuando no coincide con ningún candidato del perfil
+   (`ComparisonResult.strategy_plan_name` nombra su fila) y el resumen la
+   nombra con su posición. Queda el check de pago de `/llm-context-change`
+   (escenario `compare_refined_plan`) y repetir el check con agentes en
+   `dirty_data` y `dirty_data_keep_gaps`.
+   **`compare` sobre la estrategia de un plan refinado no evalúa ese plan.**
    Aceptado para la 0.4.0 con su fila en el log. Caso mínimo y causa, abajo.
    Lo correcto: que el plan de la estrategia entre como candidato cuando
    difiere del recomendado. Cambia qué ejecuta `compare`, su coste (los
@@ -44,7 +51,10 @@ Dónde está lo demás:
    lee `ask()`: lleva `/llm-context-change` y su check de pago. Alternativa
    más ligera, solo en el servidor: un aviso en `compare` que diga que ese
    plan no entra y cómo incluirlo.
-2. **H10, el resumen de `compare` y el baseline.** Dice cuántas
+2. **Hecho en la 0.4.2** (`345510f`): el resumen dice cuántas
+   configuraciones baten al baseline y nombra la lista más corta (las que
+   lo baten o las que no), y el SKILL.md pide citar esa cuenta.
+   **H10, el resumen de `compare` y el baseline.** Dice cuántas
    configuraciones no baten al baseline, no cuántas sí, y algún agente escribe
    que el ganador es "el único que lo bate". Mismo fichero
    (`execution/comparison.py`) y mismo check de pago que el punto 1: hacerlos
@@ -172,3 +182,9 @@ así tras cambiar a LGBMRegressor por los valores ausentes; 3 de esas 6 dan una
 fila ajena por la suya y 1 lo lee bien. Ninguna da un ganador equivocado: el
 daño es una comparación que no contiene el plan que el usuario cree comparar.
 Mientras no se arregle, pasar el plan refinado en `candidates` funciona.
+
+Con el arreglo (`345510f`), la misma llamada da: ForecasterRecursive (Ridge)
+0.061982, ForecasterStats 0.063817, baseline 0.066072, ForecasterDirect
+0.076281 y `Strategy plan` (LGBMRegressor, lags [1, 2, 3, 12]) 0.082949, la
+cifra del `backtest` (sin el backend de Chronos-2, así que sin
+ForecasterFoundation).
