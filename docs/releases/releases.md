@@ -37,6 +37,8 @@ The main changes in this release are:
 
 **Fixed**
 
++ CSV files separated by `;` or tabulators, with `,` as decimal mark (what a spreadsheet exports in most of Europe), failed with a target column not found. The Python API, the CLI and the MCP server now detect the separator and the decimal mark (or take them as `sep` and `decimal` of [<code>ForecastingAssistant.profile()</code>][assistant]), the generated script reads the file with them, and the MCP server also accepts `.tsv` and `.csv.gz` files. See the [CLI guide][cli-guide].
+
 + [<code>ForecastingAssistant.compare()</code>][assistant] without `candidates`, on the strategy of a plan refined with another estimator, lags or window features, did not run that plan. It now runs as the row `'Strategy plan'`, and the summary names that row and counts the configurations that beat the baseline, not those that do not ([#71](https://github.com/skforecast/skforecast-ai/pull/71)).
 
 + [<code>ForecastingAssistant.compare()</code>][assistant]: when the two best configurations have the same value of the ranking metric, the summary says they are tied instead of "0.0% ahead" ([#71](https://github.com/skforecast/skforecast-ai/pull/71)).
