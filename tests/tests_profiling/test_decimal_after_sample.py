@@ -77,7 +77,8 @@ def test_decimal_after_sample_InvalidInputError_when_both_marks(field, hint):
 def test_decimal_after_sample_InvalidInputError_when_only_thousands():
     """
     Test that numbers with a ',' that all read as thousands too raise an
-    InvalidInputError with the code 'data_unreadable'.
+    InvalidInputError with the code 'data_unreadable' when the file is
+    separated by tabulators.
     """
     frame = pd.DataFrame({"y": [1, 2, 3], "x": ["1", "1,234", "20,500"]})
 
@@ -87,8 +88,20 @@ def test_decimal_after_sample_InvalidInputError_when_only_thousands():
         "numbers with three decimals."
     )
     with pytest.raises(InvalidInputError, match="^" + err_msg + "$") as exc_info:
-        decimal_after_sample(frame, "data.csv", "data")
+        decimal_after_sample(frame, "data.csv", "data", sep="\t")
 
     assert exc_info.value.code == "data_unreadable"
     assert exc_info.value.field == "data"
     assert exc_info.value.hint == DIALECT_HINT
+
+
+def test_decimal_after_sample_output_comma_when_semicolon_and_only_thousands():
+    """
+    Test that in a file separated by ';' numbers with a ',' that all read as
+    thousands too are numbers with three decimals: the decimal mark is ','.
+    """
+    frame = pd.DataFrame({"y": [1, 2, 3], "x": ["1", "1,234", "20,500"]})
+
+    result = decimal_after_sample(frame, "data.csv", "data", sep=";")
+
+    assert result == ","

@@ -800,6 +800,29 @@ def test_forecast_code_reads_file_with_the_dialect_of_a_saved_profile(tmp_path):
     assert result.profile.data_profile.csv_decimal == ","
 
 
+def test_forecast_code_detects_the_dialect_when_saved_profile_is_of_a_comma_file(
+    tmp_path,
+):
+    """
+    Test that a profile built from a file written with ',' (as every profile
+    saved with 0.4.1) used with the same data written with ';' and decimal
+    ',' detects the dialect of the file given, and the script reads that
+    file with it.
+    """
+    comma_path = tmp_path / "comma.csv"
+    df_dialect.to_csv(comma_path, index=False)
+    path = write_dialect(tmp_path, df_dialect, "semicolon_comma")
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=comma_path, target="y")
+
+    result = assistant.forecast_code(data=path, profile=profile, steps=3)
+
+    assert f"data = pd.read_csv({str(path)!r}, sep=';', decimal=',')\n" in result.code
+    assert profile.data_profile.csv_sep == ","
+    assert result.profile.data_profile.csv_sep == ";"
+    assert result.profile.data_profile.csv_decimal == ","
+
+
 def test_forecast_code_detects_the_dialect_when_profile_was_built_from_a_dataframe(
     tmp_path,
 ):

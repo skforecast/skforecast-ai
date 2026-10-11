@@ -48,7 +48,9 @@ DECIMAL_NUMBERS = {
 }
 
 # A number that reads both as thousands separated by ',' and as a number
-# with three decimals ('1,234'): alone, it does not tell the decimal mark.
+# with three decimals ('1,234'): alone, it does not tell the decimal mark
+# of a file separated by tabulators. With ';' the ',' is the decimal mark:
+# a spreadsheet separates with ';' where ',' is the decimal mark.
 THOUSANDS = re.compile(r"[+-]?[1-9]\d{0,2}(?:,\d{3})+")
 
 DIALECT_HINT = (
@@ -65,6 +67,15 @@ EXOG_DIALECT_HINT = (
 )
 
 
+class CsvDialectError(InvalidInputError):
+    """
+    Raised when the separator or the decimal mark of a CSV file cannot be
+    told. An `InvalidInputError` with code `'data_unreadable'` for the
+    caller; its own class so a workflow that holds a profile of the file
+    can read it as the profile says instead.
+    """
+
+
 def decimal_in_both_error(
     source: str,
     field: str,
@@ -75,7 +86,7 @@ def decimal_in_both_error(
     Return the error of a CSV file that holds numbers written with both
     decimal marks, quoting one of each.
     """
-    return InvalidInputError(
+    return CsvDialectError(
         f"The decimal mark of the CSV file '{source}' cannot be told: it "
         f"holds numbers written with ',' (such as {with_comma[:20]!r}) and "
         f"with '.' (such as {with_point[:20]!r}).",
@@ -90,7 +101,7 @@ def only_thousands_error(source: str, field: str, example: str) -> InvalidInputE
     Return the error of a CSV file whose only numbers with a `','` also
     read as thousands, quoting one.
     """
-    return InvalidInputError(
+    return CsvDialectError(
         f"The decimal mark of the CSV file '{source}' cannot be told: its "
         f"numbers with a ',' (such as {example[:20]!r}) read both as "
         f"thousands and as numbers with three decimals.",
@@ -258,8 +269,9 @@ def detect_csv_dialect(
     the header, and `','` when the header holds none, as before. The decimal
     mark is `','` only when the separator is not `','` and the sample holds
     numbers written as `'1,5'` and none written as `'1.5'`.
-    Numbers such as `'1,234'`, which also read as thousands, do not tell the
-    decimal mark when no other number has a `','`.
+    In a file separated by tabulators, numbers such as `'1,234'`, which also
+    read as thousands, do not tell the decimal mark when no other number has
+    a `','`; with `';'` they are numbers with three decimals.
 
     Parameters
     ----------
@@ -284,8 +296,8 @@ def detect_csv_dialect(
     Notes
     -----
     A file that reads with more than one separator, that holds numbers
-    written with both decimal marks, or whose only numbers with a `','`
-    also read as thousands, raises `InvalidInputError` with code
+    written with both decimal marks, or that is separated by tabulators and
+    whose only numbers with a `','` also read as thousands, raises `InvalidInputError` with code
     `'data_unreadable'` and a hint that says how to give them: the dialect
     is never guessed.
     """
@@ -320,7 +332,7 @@ def detect_csv_dialect(
                     f"({len(records[candidate][0])} columns)"
                     for candidate in found
                 )
-                raise InvalidInputError(
+                raise CsvDialectError(
                     f"The separator of the CSV file '{source}' cannot be told: "
                     f"its header reads with {readings}.",
                     code  = "data_unreadable",
@@ -351,7 +363,7 @@ def detect_csv_dialect(
                 raise decimal_in_both_error(
                     source, field, examples[","], examples["."]
                 )
-            if counts[","] and only_thousands:
+            if counts[","] and only_thousands and sep == "\t":
                 raise only_thousands_error(source, field, examples[","])
             if counts[","]:
                 decimal = ","

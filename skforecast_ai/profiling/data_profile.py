@@ -3066,7 +3066,12 @@ def csv_read_kwargs(sep: str, decimal: str) -> dict[str, str]:
     return {"sep": sep, "decimal": decimal}
 
 
-def decimal_after_sample(data: pd.DataFrame, source: str, field: str) -> str:
+def decimal_after_sample(
+    data: pd.DataFrame,
+    source: str,
+    field: str,
+    sep: str = ";",
+) -> str:
     """
     Tell the decimal mark of a CSV file read with `'.'` and another
     separator than `','`, from every value and not only from its first
@@ -3086,6 +3091,8 @@ def decimal_after_sample(data: pd.DataFrame, source: str, field: str) -> str:
         Path or URL of the file, named by the error.
     field : str
         Argument that named the file, reported with the error.
+    sep : str, default ';'
+        Separator the file was read with.
 
     Returns
     -------
@@ -3095,8 +3102,9 @@ def decimal_after_sample(data: pd.DataFrame, source: str, field: str) -> str:
 
     Notes
     -----
-    As in `detect_csv_dialect`, numbers written with both marks, or
-    numbers with a `','` that all read as thousands too, raise
+    As in `detect_csv_dialect`, numbers written with both marks, or (in a
+    file separated by tabulators) numbers with a `','` that all read as
+    thousands too, raise
     `InvalidInputError` with code `'data_unreadable'`.
     """
     with_comma = None
@@ -3125,7 +3133,7 @@ def decimal_after_sample(data: pd.DataFrame, source: str, field: str) -> str:
             raise decimal_in_both_error(
                 source, field, with_comma, repr(float(with_point.iloc[0]))
             )
-    if only_thousands:
+    if only_thousands and sep == "\t":
         raise only_thousands_error(source, field, with_comma)
 
     return ","
@@ -3199,7 +3207,7 @@ def read_csv_with_dialect(
             not decimal_given
             and sep != DEFAULT_CSV_SEP
             and decimal == DEFAULT_CSV_DECIMAL
-            and decimal_after_sample(data, str(path), field) != decimal
+            and decimal_after_sample(data, str(path), field, sep) != decimal
         ):
             # Numbers with ',' beyond the lines the dialect was told from.
             decimal = ","

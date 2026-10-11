@@ -717,11 +717,12 @@ class ForecastingAssistant:
         -----
         The separator and the decimal mark of a CSV file are recorded in
         the profile (`DataProfile.csv_sep` and `DataProfile.csv_decimal`):
-        the generated script reads the file with them, and so does every
-        method that receives the file with this profile. A file that reads
+        the generated script reads the file with them. A file that reads
         with more than one separator, or that holds numbers written with
         both decimal marks, raises `InvalidInputError` (code
         `'data_unreadable'`) instead of guessing: pass `sep` and `decimal`.
+        The other methods detect how the file they receive is written, and
+        read such a file as the profile passed with it says.
         """
 
         data_path = recorded_data_path(data)

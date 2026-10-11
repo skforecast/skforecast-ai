@@ -51,6 +51,7 @@ from .profiling.data_profile import (
 )
 from .profiling.csv_dialect import (
     CSV_SEPARATORS,
+    CsvDialectError,
     DEFAULT_CSV_DECIMAL,
     DEFAULT_CSV_SEP,
     check_csv_dialect,
@@ -895,7 +896,7 @@ def _read_csv_url(
         not decimal_given
         and sep != DEFAULT_CSV_SEP
         and decimal == DEFAULT_CSV_DECIMAL
-        and decimal_after_sample(data, url, "data") != decimal
+        and decimal_after_sample(data, url, "data", sep) != decimal
     ):
         decimal = ","
         data = pd.read_csv(url, **csv_read_kwargs(sep, decimal))
@@ -1305,17 +1306,27 @@ def _resolve_inputs_with_profile(
         target = dp.target
     # The CSV loader checks the date column of the profile, which the script
     # reads, and reports it when its dates cannot be used.
-    # A profile built from a file records how the file is written, and the
-    # data are read as the profile says; one built from data in memory
-    # records nothing about a file, whose dialect is then detected.
-    from_file = dp.data_path != PLACEHOLDER_DATA_PATH
-    data_df, target = _resolve_data_and_target(
-                          data        = data,
-                          target      = target,
-                          date_column = dp.date_column,
-                          sep         = dp.csv_sep if from_file else None,
-                          decimal     = dp.csv_decimal if from_file else None,
-                      )
+    # How a file is written belongs to the file, not to the data: the same
+    # data exported again with another separator still fit the profile, so
+    # the dialect of the file given is detected. Only when it cannot be
+    # told is the file read as a profile built from a file says, which is
+    # how `sep` and `decimal` of `profile()` reach the other methods.
+    try:
+        data_df, target = _resolve_data_and_target(
+                              data        = data,
+                              target      = target,
+                              date_column = dp.date_column,
+                          )
+    except CsvDialectError:
+        if dp.data_path == PLACEHOLDER_DATA_PATH:
+            raise
+        data_df, target = _resolve_data_and_target(
+                              data        = data,
+                              target      = target,
+                              date_column = dp.date_column,
+                              sep         = dp.csv_sep,
+                              decimal     = dp.csv_decimal,
+                          )
     if target != dp.target:
         raise InvalidInputError(
             f"`target` {target!r} does not match the target recorded in "

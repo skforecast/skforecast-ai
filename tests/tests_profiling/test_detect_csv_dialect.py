@@ -248,12 +248,12 @@ def test_detect_csv_dialect_InvalidInputError_when_numbers_only_read_as_thousand
     field, hint
 ):
     """
-    Test that a file whose numbers with a ',' all read as thousands ('1,234')
-    and none is written with '.' raises an InvalidInputError with the code
-    'data_unreadable', an example, the argument that named the file and its
-    hint.
+    Test that a file separated by tabulators whose numbers with a ',' all
+    read as thousands ('1,234') and none is written with '.' raises an
+    InvalidInputError with the code 'data_unreadable', an example, the
+    argument that named the file and its hint.
     """
-    sample = "date;y\n2020-01-01;1,841\n2020-01-02;2,235\n"
+    sample = "date\ty\n2020-01-01\t1,841\n2020-01-02\t2,235\n"
 
     err_msg = re.escape(
         "The decimal mark of the CSV file 'my.csv' cannot be told: its "
@@ -266,6 +266,17 @@ def test_detect_csv_dialect_InvalidInputError_when_numbers_only_read_as_thousand
     assert exc_info.value.code == "data_unreadable"
     assert exc_info.value.field == field
     assert exc_info.value.hint == hint
+
+
+def test_detect_csv_dialect_decimal_comma_when_semicolon_and_only_thousands():
+    """
+    Test that in a file separated by ';' numbers with a ',' that all read as
+    thousands too ('1,841') are numbers with three decimals: the decimal mark
+    is ','.
+    """
+    sample = "date;y\n2020-01-01;1,841\n2020-01-02;2,235\n"
+
+    assert detect_csv_dialect(sample, "my.csv") == (";", ",")
 
 
 @pytest.mark.parametrize("value", ["0,958", "1,0", "12,5", "1,2345"])
