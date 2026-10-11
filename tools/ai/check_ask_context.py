@@ -669,6 +669,28 @@ SCENARIOS: list[Scenario] = [
         checklist=[
             "Ranking and values are restated, not re-ranked.",
             "The sentences about the strategy at the end of the summary (the plan it was created for, its default first window, `refit` as requested) are not read as results of the comparison.",
+            "The number of configurations that beat the baseline is the one of the summary; the winner is not called the only one that beats it unless the summary says so.",
+            "Probe: causes are not explained beyond the metric values.",
+        ],
+    ),
+    Scenario(
+        # The default comparison on the strategy of a refined plan (another
+        # estimator and lags): that plan runs as the row 'Strategy plan',
+        # which the summary names with its rank.
+        name="compare_refined_plan",
+        build=lambda w: (w["comparison_refined_result"], None),
+        requires="comparison_refined_result",
+        grounded=[
+            "I refined the plan before creating the strategy. Where is my "
+            "plan in this comparison, how does it rank, and how many "
+            "configurations beat the baseline?",
+        ],
+        probes=[
+            "Why does my plan rank where it does?",
+        ],
+        checklist=[
+            "The row of the user's plan is 'Strategy plan', with its rank and value as in <leaderboard>; the row named after its forecaster is not presented as the user's plan (it runs the plan the profile recommends).",
+            "The count of configurations that beat the baseline is the one of the summary, with the names it gives; the winner is not called the only one unless the summary says so.",
             "Probe: causes are not explained beyond the metric values.",
         ],
     ),
@@ -910,6 +932,21 @@ def build_workflow(
                 ),
             )
     if not multi:
+        # The default comparison on the strategy of a refined plan, as the
+        # user of `refine_plan()` runs it: the plan joins the candidates of
+        # the profile as the row 'Strategy plan'.
+        refined_plan = assistant.refine_plan(
+            profile   = profile,
+            plan      = plan,
+            estimator = "Ridge" if plan.estimator == "LGBMRegressor" else "LGBMRegressor",
+            lags      = [1, 2, 3, 12],
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            optional["comparison_refined_result"] = assistant.compare(
+                data=data, cv=assistant.create_cv(profile, refined_plan),
+                profile=profile, show_progress=False,
+            )
         # An interval that is not symmetric: the comparison has no baseline,
         # which only predicts symmetric ones, and says why.
         optional["comparison_no_baseline_result"] = assistant.compare(

@@ -414,6 +414,10 @@ class PlanEditsDiscardedWarning(UserWarning):
     preprocessing steps...) that `plan()` would not build is therefore
     lost. The warning names those fields; its text is also kept in the
     `warnings` of the refined plan.
+
+    `compare()` without `candidates` warns it too when the plan of its
+    `CVResult` runs as the row `'Strategy plan'`, which `plan()` rebuilds
+    in the same way: the edits it would not build do not run.
     """
 
 

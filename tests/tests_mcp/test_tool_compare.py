@@ -16,6 +16,7 @@ from skforecast_ai import (
 )
 from skforecast_ai.mcp import _runtime, create_server
 
+from ..fixtures_assistant import df_no_exog
 from ..fixtures_datasets import df_items_sales_long
 
 from .fixtures_mcp import (
@@ -619,3 +620,145 @@ def test_tool_compare_invalid_argument_with_hint_when_the_target_has_missing_val
         "evaluate on dates without missing values."
     )
     assert error["hint"] == DATA_VALUES_HINT
+
+
+def _refined_cv_ids(server, path, overrides, profile_arguments=None, **plan_arguments):
+    """
+    Profile `path`, build a plan, refine it with `overrides` and create the
+    strategy of the refined plan in the server; return the id of the
+    strategy.
+    """
+    plan_arguments.setdefault("steps", 12)
+
+    async def steps(client):
+        profile = content_of(
+            await client.call_tool(
+                "profile", {"data_path": path, **(profile_arguments or {})}
+            )
+        )
+        plan = content_of(
+            await client.call_tool(
+                "plan", {"profile_id": profile["id"], **plan_arguments}
+            )
+        )
+        refined = content_of(
+            await client.call_tool(
+                "refine_plan", {"plan_id": plan["id"], "overrides": overrides}
+            )
+        )
+        cv = content_of(
+            await client.call_tool("create_cv", {"plan_id": refined["id"]})
+        )
+        return cv["id"]
+
+    return run_session(server, steps)
+
+
+def test_tool_compare_runs_the_refined_plan_of_the_strategy_as_a_row(
+    tmp_path, monkeypatch
+):
+    """
+    Test that `compare` without `candidates` on the strategy of a refined
+    plan runs that plan as the row 'Strategy plan', as the Python API does
+    (same summary and leaderboard), and that the summary names the row, its
+    rank and the configurations that beat the baseline. The foundation
+    backend is reported as missing, so the table does not depend on whether
+    it is installed.
+    """
+    monkeypatch.setattr(
+        "skforecast_ai.execution.comparison.foundation_backend_installed",
+        lambda info: False,
+    )
+    path = write_csv(tmp_path, "sales.csv", df_no_exog)
+    arguments = {"target": "sales", "date_column": "date"}
+    overrides = {"estimator": "LGBMRegressor", "lags": [1, 2, 3]}
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    cv_id = _refined_cv_ids(
+        server, path, overrides, profile_arguments=arguments, steps=5
+    )
+
+    result = content_of(call(server, "compare", {"cv_id": cv_id}))
+
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(path, **arguments)
+    refined = assistant.refine_plan(
+        profile=profile, plan=assistant.plan(profile=profile, steps=5), **overrides
+    )
+    cv = assistant.create_cv(profile=profile, plan=refined)
+    with pytest.warns(MissingBackendWarning):
+        expected = assistant.compare(
+            data=path, cv=cv, profile=profile, show_progress=False
+        )
+    leaderboard = text_of(result["files"]["leaderboard"])
+
+    assert expected.strategy_plan_name == "Strategy plan"
+    assert result["summary"] == expected.describe()
+    assert leaderboard == csv_of(expected.results)
+    assert [line.split(",")[2] for line in leaderboard.splitlines()[1:]] == [
+        "ForecasterStats",
+        "ForecasterDirect",
+        "ForecasterRecursive",
+        "Baseline (seasonal naive)",
+        "Strategy plan",
+    ]
+    assert (
+        "'Strategy plan' runs the plan the strategy was created for "
+        "(ForecasterRecursive / LGBMRegressor), ranked 5 of 5 (26.0997); the "
+        "rows named after a forecaster run the configurations the profile "
+        "recommends, not that plan."
+    ) in result["summary"]
+    assert (
+        "3 of 4 configurations beat the baseline 'Baseline (seasonal naive)' "
+        "(7.0000); 'Strategy plan' does not. The best, 'ForecasterStats', "
+        "beats it by 100.0%."
+    ) in result["summary"]
+    assert (
+        "The strategy was created for the plan of row 'Strategy plan' "
+        "(ForecasterRecursive + LGBMRegressor)."
+    ) in result["summary"]
+    # Direct 5, stats 6 (one per fold), recursive 1 and the plan of the
+    # strategy 1.
+    assert result["cost"] == {
+        "n_folds": 6, "n_fits": 1, "estimator_fits": 13, "inference_windows": 0
+    }
+
+
+@pytest.mark.slow
+def test_tool_compare_refined_plan_of_h2o_is_the_last_row_below_the_baseline(
+    tmp_path, monkeypatch
+):
+    """
+    Test the minimal case of the plan refined to LGBMRegressor with lags
+    [1, 2, 3, 12] on h2o through the tools: the row 'Strategy plan' scores
+    the MAE of its backtest (0.082949), ranks below the baseline, and the
+    summary counts the configurations that beat the baseline (2 of 4).
+    """
+    monkeypatch.setattr(
+        "skforecast_ai.execution.comparison.foundation_backend_installed",
+        lambda info: False,
+    )
+    server, path = h2o_server(tmp_path)
+    cv_id = _refined_cv_ids(
+        server, path, {"estimator": "LGBMRegressor", "lags": [1, 2, 3, 12]},
+        profile_arguments={"target": "x"},
+    )
+
+    result = content_of(call(server, "compare", {"cv_id": cv_id}))
+
+    rows = [
+        line.split(",")
+        for line in text_of(result["files"]["leaderboard"]).splitlines()
+    ]
+    assert [(row[2], row[4]) for row in rows[1:]] == [
+        ("ForecasterRecursive", "Ridge"),
+        ("ForecasterStats", "Arima"),
+        ("Baseline (seasonal naive)", ""),
+        ("ForecasterDirect", "Ridge"),
+        ("Strategy plan", "LGBMRegressor"),
+    ]
+    assert round(float(rows[5][5]), 6) == 0.082949
+    assert (
+        "2 of 4 configurations beat the baseline 'Baseline (seasonal naive)' "
+        "(0.0661): 'ForecasterRecursive' and 'ForecasterStats'. The best, "
+        "'ForecasterRecursive', beats it by 6.2%."
+    ) in result["summary"]

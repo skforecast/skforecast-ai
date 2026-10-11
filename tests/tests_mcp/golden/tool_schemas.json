@@ -1417,7 +1417,7 @@
             }
           ],
           "default": null,
-          "description": "Configurations to compare, each {'name': ..., 'config': {...}}, e.g. [{'name': 'ridge', 'config': {'estimator': 'Ridge'}}]. Null for the candidates recommended by the profile: the forecasters of its family (with several series, ForecasterRecursiveMultiSeries and ForecasterFoundation), or the estimators of the recommended forecaster when that leaves one, without those above 500 estimator fits. A candidate that fails is ranked last with its error."
+          "description": "Configurations to compare, each {'name': ..., 'config': {...}}, e.g. [{'name': 'ridge', 'config': {'estimator': 'Ridge'}}]. Null for the candidates recommended by the profile: the forecasters of its family (with several series, ForecasterRecursiveMultiSeries and ForecasterFoundation), or the estimators of the recommended forecaster when that leaves one, without those above 500 estimator fits; plus the plan the strategy was built for, in the row 'Strategy plan', when it is none of them. The summary names the row of that plan. A candidate that fails is ranked last with its error."
         },
         "interval": {
           "anyOf": [

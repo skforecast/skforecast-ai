@@ -17,6 +17,7 @@ import os
 import sys
 import tempfile
 import threading
+import warnings
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
@@ -33,7 +34,6 @@ from mcp.types import ToolAnnotations
 from pydantic import ConfigDict, Field, ValidationError
 from .. import __version__
 from .._constants import (
-    COMPARE_FIT_BUDGET,
     FORECASTER_TASK_TYPES,
     LONG_INFERENCE_WINDOWS,
     LONG_TRAINING_FITS,
@@ -49,8 +49,8 @@ from .._utils import (
 from ..assistant import ForecastingAssistant
 from ..exceptions import DataContentError, InvalidInputError, SkforecastAIError
 from ..execution.comparison import (
-    missing_foundation_backend,
-    resolve_compare_candidates,
+    STRATEGY_PLAN_NAME,
+    resolve_default_candidates,
 )
 from ..profiling.data_profile import _listed_columns, read_csv_file
 from ..recommendation import (
@@ -1405,53 +1405,82 @@ def _cost(cv_config: dict, forecaster: str, steps: int) -> dict[str, int]:
     }
 
 
-def _default_compare_fits(profile: Any, cv: Any, steps: int) -> dict:
+def _default_compare_cost(
+    assistant: ForecastingAssistant,
+    profile: Any,
+    cv_result: Any,
+) -> tuple[dict[str, int], int]:
     """
-    Estimator fits of each forecaster that a `compare` without candidates
-    runs with a strategy: the candidates of the profile, leaving out the
-    alternatives above the budget of `compare()`, which it never runs (the
-    recommended forecaster always runs). The fits are those of the strategy
-    as `compare()` shares it, not as the forecaster of the plan runs it
-    (ForecasterStats is refitted in every fold).
+    Cost of the candidates that a `compare` without candidates runs with a
+    strategy, resolved by `resolve_default_candidates()`, as `compare()`
+    resolves them: the candidates of the profile (without a foundation model
+    whose backend is not installed), the plan the strategy was created for
+    when it is none of them, and without the alternatives above the budget
+    of `compare()` (the recommended forecaster and the plan of the strategy
+    always run). The
+    interval and the metric are those the `compare` tool takes from that
+    plan. The baseline fits nothing and is not counted. The fits are those
+    of the strategy as `compare()` shares it, not as the forecaster of the
+    plan runs it (ForecasterStats is refitted in every fold).
+
+    Returns
+    -------
+    fits : dict
+        Estimator fits of each candidate, by the name of its row.
+    inference_windows : int
+        Inference windows of the foundation candidates (one per series and
+        fold).
     """
 
-    shared, _ = resolve_cv_config(cv, profile.data_profile)
+    plan = cv_result.plan
+    interval = list(plan.interval) if plan.interval is not None else None
+    metric = (
+        plan_override_value(plan, "metric")
+        if "metric" in plan.overridden_fields
+        else None
+    )
+
+    def build_plan(config: dict) -> Any:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return assistant.plan(
+                profile  = profile,
+                steps    = plan.steps,
+                interval = interval,
+                metric   = metric,
+                **config,
+            )
+
+    shared, _ = resolve_cv_config(cv_result.cv, profile.data_profile)
+    n_fits, n_folds = int(shared["n_fits"]), int(shared["n_folds"])
+    candidates = resolve_default_candidates(
+                     profile       = profile,
+                     strategy_plan = plan,
+                     build_plan    = build_plan,
+                     n_fits        = n_fits,
+                     steps         = plan.steps,
+                     n_folds       = n_folds,
+                 ).candidates
+
     fits = {}
-    for forecaster in profile.forecaster_candidates:
-        count = int(
+    inference_windows = 0
+    for name, config in candidates:
+        forecaster = config.get("forecaster") or profile.forecaster
+        fits[name] = int(
             count_estimator_fits(
-                n_fits     = int(shared["n_fits"]),
+                n_fits     = n_fits,
                 forecaster = forecaster,
-                steps      = steps,
-                n_folds    = int(shared["n_folds"]),
+                steps      = plan.steps,
+                n_folds    = n_folds,
             )
         )
-        if count > COMPARE_FIT_BUDGET and forecaster != profile.forecaster:
-            continue
-        fits[forecaster] = count
-
-    return fits
-
-
-def _default_compare_windows(profile: Any, cv: Any) -> int:
-    """
-    Inference windows of the foundation candidate that a `compare` without
-    candidates runs with a strategy (one per series and fold), 0 when the
-    profile has no such candidate or `compare()` leaves it out because its
-    backend is not installed.
-    """
-
-    excluded, _ = missing_foundation_backend(profile)
-    shared, _ = resolve_cv_config(cv, profile.data_profile)
-
-    return sum(
-        count_inference_windows(
-            n_folds    = int(shared["n_folds"]),
+        inference_windows += count_inference_windows(
+            n_folds    = n_folds,
             n_series   = profile.data_profile.n_series,
-            forecaster = config.get("forecaster") or profile.forecaster,
+            forecaster = forecaster,
         )
-        for _, config in resolve_compare_candidates(None, profile, exclude=excluded)
-    )
+
+    return fits, int(inference_windows)
 
 
 def _register(
@@ -1913,13 +1942,11 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 n_series          = plan_entry.profile.data_profile.n_series,
                 n_folds           = cost["n_folds"],
             )
-            compare_fits = _default_compare_fits(
-                plan_entry.profile, result.cv, result.plan.steps
+            compare_fits, compare_windows = _default_compare_cost(
+                assistant, plan_entry.profile, result
             )
             cost["compare_estimator_fits"] = sum(compare_fits.values())
-            cost["compare_inference_windows"] = _default_compare_windows(
-                plan_entry.profile, result.cv
-            )
+            cost["compare_inference_windows"] = compare_windows
             object_id = store.new_id("cv")
             summary = state.summary(object_id, result.describe())
             code_file = state.code_file(object_id, result.code)
@@ -2149,8 +2176,10 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 "profile: the forecasters of its family (with several series, "
                 "ForecasterRecursiveMultiSeries and ForecasterFoundation), or "
                 "the estimators of the recommended forecaster when that leaves "
-                "one, without those above 500 estimator fits. A candidate that "
-                "fails is ranked last with its error."
+                "one, without those above 500 estimator fits; plus the plan "
+                "the strategy was built for, in the row 'Strategy plan', when "
+                "it is none of them. The summary names the row of that plan. "
+                "A candidate that fails is ranked last with its error."
             ),
         )] = None,
         interval: Annotated[Interval | None, Field(description=(
@@ -2183,11 +2212,15 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         configs = None
         if candidates is None:
             # The default candidates are named by their forecaster and run
-            # the default foundation model, if any.
+            # the default foundation model, if any; the plan of the strategy
+            # runs as one more row when it is none of them.
             models = {
                 name: state.models.model_of(name, None)
                 for name in profile_obj.forecaster_candidates
             }
+            models[STRATEGY_PLAN_NAME] = state.models.model_of(
+                cv_entry.obj.plan.forecaster, cv_entry.obj.plan.estimator
+            )
         else:
             configs, models = [], {}
             for position, candidate in enumerate(candidates):
