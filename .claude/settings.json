@@ -62,6 +62,15 @@
             "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre_bash_guard.py\""
           }
         ]
+      },
+      {
+        "matcher": "mcp__.*__(create|update)_pull_request",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre_pr_guard.py\""
+          }
+        ]
       }
     ],
     "PostToolUse": [
