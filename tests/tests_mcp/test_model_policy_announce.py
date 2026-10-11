@@ -3,7 +3,6 @@
 import dataclasses
 from skforecast.foundation import get_model_info
 
-from skforecast_ai.mcp import _foundation
 from skforecast_ai.mcp._foundation import MODEL_DOWNLOAD_NOTICE, ModelPolicy
 
 
@@ -168,7 +167,10 @@ def test_model_policy_announce_when_skforecast_does_not_say_where(
     info = dataclasses.replace(
         get_model_info("autogluon/chronos-2-small"), weights_in_hf_cache=None
     )
-    monkeypatch.setattr(_foundation, "resolve_foundation_model", lambda _: info)
+    # The server imports it from the core when it runs.
+    monkeypatch.setattr(
+        "skforecast_ai._foundation.resolve_foundation_model", lambda _: info
+    )
     _cache(tmp_path, monkeypatch, "autogluon/chronos-2-small")
     policy = ModelPolicy()
 

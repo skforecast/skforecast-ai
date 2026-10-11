@@ -13,7 +13,6 @@ import threading
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any, Literal
-import pandas as pd
 from pydantic import BaseModel
 from ._errors import ServerError
 from .models import ObjectKind, ToolResult
@@ -293,6 +292,8 @@ def estimate_nbytes(obj: Any, _seen: set[int] | None = None) -> int:
     nbytes : int
         Estimated size in bytes.
     """
+
+    import pandas as pd
 
     seen = set() if _seen is None else _seen
     if id(obj) in seen:

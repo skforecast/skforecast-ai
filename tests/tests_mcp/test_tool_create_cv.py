@@ -4,7 +4,6 @@ import pytest
 
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai.mcp import create_server
-from skforecast_ai.mcp import server as server_module
 from skforecast_ai.mcp.models import ToolNotice
 from skforecast_ai.schemas import CV_OVERRIDE_NAMES
 
@@ -693,14 +692,18 @@ def test_tool_create_cv_inference_windows_with_several_series_and_at_the_thresho
     )
 
 
-def test_tool_create_cv_arguments_are_the_names_a_strategy_records():
+def test_tool_create_cv_arguments_are_the_names_a_strategy_records(tmp_path):
     """
     Test that the arguments of `create_cv` that the server lists as
     changeable are the names a strategy records when the user passes them
     (`CV_OVERRIDE_NAMES`), in the same order.
     """
-    assert server_module.CV_ARGUMENTS == CV_OVERRIDE_NAMES
-    assert list(server_module.CV_ARGUMENTS) == CV_ARGUMENTS
+    server, _, _, plan_id = _planned(tmp_path, steps=12)
+
+    result = content_of(call(server, "create_cv", {"plan_id": plan_id}))
+
+    assert result["changeable"] == list(CV_OVERRIDE_NAMES)
+    assert list(CV_OVERRIDE_NAMES) == CV_ARGUMENTS
 
 
 def test_tool_create_cv_summary_names_the_arguments_passed(tmp_path):

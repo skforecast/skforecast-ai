@@ -32,6 +32,8 @@ The main changes in this release are:
 
 **Changed**
 
++ The first start of the MCP server fits in the 30 seconds Claude Code waits: the server connects before loading pandas, scikit-learn and skforecast, which it loads in the background (7 seconds instead of 39 on macOS with an empty `uvx` cache; the first tool waits for that loading, about 30 seconds the first time). `import skforecast_ai` no longer loads them either. See [MCP server for coding agents][mcp-guide] ([#72](https://github.com/skforecast/skforecast-ai/pull/72)).
+
 
 **Fixed**
 
