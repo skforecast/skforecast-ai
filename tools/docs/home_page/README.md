@@ -30,13 +30,18 @@ docs/
 │   ├── backtesting-scenario.html      # Animation of the Backtesting section of the guide
 │   ├── backtesting-scenario-data.js   # GENERATED: its data
 │   ├── compare-candidates.html        # Animation of the comparison section of the guide
-│   └── compare-candidates-data.js     # GENERATED: its data
+│   ├── compare-candidates-data.js     # GENERATED: its data
+│   ├── agent-session.html             # Replay of a real agent session, in the MCP server guide
+│   └── agent-session-data.js          # GENERATED: its data, from a report of the agent check
 └── img/
     ├── social-card-home.png           # GENERATED: preview image when the page is shared
-    └── skforecast-ai-forecast-ask.png # GENERATED: image for the GitHub README
+    ├── skforecast-ai-forecast-ask.png # GENERATED: image for the GitHub README
+    └── agent-session.gif              # GENERATED: the agent session, for the GitHub README
 tools/docs/home_page/
 ├── README.md                          # This file
 ├── generate_home_data.py              # Writes home-data.json and the data of the animations
+├── generate_agent_session_data.py     # Writes agent-session-data.js from a report of the agent check
+├── make_agent_session_video.py        # Exports agent-session.html as the GIF above and an MP4
 ├── make_social_card.mjs               # Writes the two images of docs/img/ above
 └── social_card.html                   # Layout of the social preview card
 ```
@@ -216,6 +221,46 @@ page, which uses other candidates and another strategy. It needs Chronos-2
 (`chronos-forecasting`, with `torch`), downloads its checkpoint the first time
 and adds about a minute to the script; its results are deterministic.
 
+### The animation "A real agent session"
+
+`docs/animations/agent-session.html` is embedded in "What a session looks like"
+of the MCP server guide, and exported as `docs/img/agent-session.gif` for the
+"From your coding agent" section of the GitHub README. It replays a session of
+the MCP agent check (`tools/mcp/README.md`), not an example: the request of
+the user, every call of the agent to the server, its messages and its final
+answer come from the `report.md` of the run, read by
+`generate_agent_session_data.py`. The animation draws them as a terminal
+(orange for the calls of the server, violet for the agent, as in the rest of
+the site) and imitates no product: the panel is labelled only with the
+project folder and the server.
+
+The session is `compare_code__r1` of `0.4.0-final2` (`RUN` and `SESSION` in
+the script): the user asks to compare models for the next 12 months of
+`data/h2o.csv` and for the script of the best one, and the agent calls
+`profile`, `plan`, `create_cv`, `compare`, `forecast` and `get_code`. It was
+chosen because it covers the whole flow, its verdict is `correct` and the
+report finds no number without a source in its answer; the script stops if
+the session it reads has one, since a caption of the animation says that
+every figure comes from a response of the server.
+
+What the script changes, and nothing else:
+
+- **Trims**, declared in the script and marked in the animation: the responses
+  of the server become the fragments of `EXCERPTS`, joined by `…`; the calls
+  of `Skill` and `ToolSearch` end in `…)` (`CALL_PREFIXES`); and the lines of
+  the final answer between the anchors of `ANSWER_TRIMS` (the middle of the
+  script) become a line `⋯ N lines of the script trimmed ⋯`. Every fragment,
+  prefix and anchor is checked against the trace, so the script stops instead
+  of showing a text the session did not produce.
+- **Paths**: the report already writes the temporary workspace of the session
+  as `<ws>`; the script shows it as `~/project` and stops if a home directory
+  or a user path is left (item 15 of `dev/mcp-pending-after-0.4.0.md`: a
+  report can carry one in the output of a command).
+
+The captions under the title, the footer and the timing are written in the
+animation. The GIF has no sound, no logo but the skforecast mark of the other
+animations, and loops.
+
 Written by hand in `home.html`, review them when the results change: the facts
 and the decisions of the side panes, the metric labels, the question and answer
 of step 4 and the note under the stage; and in `partials/ask-window.html`, the
@@ -238,6 +283,30 @@ python tools/docs/home_page/generate_home_data.py
 If it stops on the check of the quoted numbers, edit the example answers
 (step 4 in `home.html`, the tabs of `partials/ask-window.html`) so they state
 the new results, and update `QUOTED` or `QUOTED_LAGS`. No LLM is needed.
+
+### Regenerate the agent session and its GIF
+
+Needed when the session changes (another run of the agent check, another
+session) or when the animation changes. No network and no LLM: the data comes
+from the report.
+
+```bash
+python tools/docs/home_page/generate_agent_session_data.py
+python tools/docs/home_page/make_agent_session_video.py                        # docs/img/agent-session.gif
+python tools/docs/home_page/make_agent_session_video.py --mp4 /tmp/agent-session.mp4   # plus an MP4
+```
+
+To use another session, change `RUN` and `SESSION` and write its `EXCERPTS`,
+`CALL_PREFIXES` and `ANSWER_TRIMS`: the script names the first fragment it does
+not find. The export needs `pip install playwright` and ffmpeg; it opens the
+page with Playwright's Chromium (`playwright install chromium`, or `--chrome`
+and `CHROME_PATH` for another one), renders every frame in the export mode of
+`skf-anim.js` and encodes them: a GIF 800 px wide at 10 frames per second
+(about 2.7 MB for 53 s; keep it under 5 MB for the README) and, with `--mp4`,
+an H.264 video of 1280 x 860 px at 30 frames per second, to share where a GIF
+does not fit (GitHub releases, LinkedIn). Keep the MP4 out of the repository.
+`--theme dark` exports the dark scheme. The README links the GIF with an
+absolute URL to `main`, so a new GIF shows there once it is merged.
 
 ### Update the social preview card and the README image
 
