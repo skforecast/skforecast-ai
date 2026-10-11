@@ -38,7 +38,7 @@ The first start downloads about 900 MB, and Claude Code waits 30 seconds for the
 uvx skforecast-ai-mcp==<version> --help
 ```
 
-If the first connection times out anyway, open `/mcp`, select `skforecast-ai` and reconnect: everything is installed by then, and the second start connects in a few seconds.
+If the first connection times out anyway, open `/mcp`, select `skforecast-ai` and reconnect: everything is installed by then, and the second start connects in a few seconds. Restarting Claude Code is not enough: it does not try a server that failed again for 15 minutes.
 
 The server connects before it loads pandas, scikit-learn and skforecast, so the first tool call after an installation waits for them: some 6 seconds on Linux and about 30 on macOS. Later sessions do not wait.
 

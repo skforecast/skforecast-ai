@@ -31,7 +31,7 @@ Pick the tab of your agent. Every setup gives the server one directory, `--allow
     uvx skforecast-ai-mcp==<version> --help
     ```
 
-    **If the first connection times out**, `/mcp` shows the server as failed or pending: open `/mcp`, select `skforecast-ai` and reconnect. Everything is installed by then, and the second start connects in a few seconds.
+    **If the first connection times out**, `/mcp` shows the server as failed or pending: open `/mcp`, select `skforecast-ai` and reconnect. Everything is installed by then, and the second start connects in a few seconds. Restarting Claude Code is not enough: it does not try a server that failed again for 15 minutes, and the reconnection from `/mcp` does.
 
     !!! warning "The plugin can read every CSV file of your project"
         The allowed directory is the project you open in Claude Code, the directory you start it in: `--allow-project-dir` reads it from the environment variable `CLAUDE_PROJECT_DIR`, which Claude Code sets. That includes an export of credentials or of personal data saved as `.csv`, whose values an error or a summary can quote. The server does not start in your home directory or in the root of a disk: open Claude Code in the folder of the project.
