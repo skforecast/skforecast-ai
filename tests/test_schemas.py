@@ -1206,3 +1206,108 @@ def test_backtest_and_comparison_result_provenance_fields_in_model_dump_json(
     assert dumped_known["cv_fields_without_effect"] == ["refit"]
     assert dumped_known["cv_llm_configured"] is True
     assert dumped_known["cv_defaults_explanation"] == "`gap` as requested."
+
+
+def test_data_profile_output_when_json_has_no_csv_dialect():
+    """
+    Test that a profile saved by 0.4.1, before `csv_sep` and `csv_decimal`
+    existed, loads with ',' and '.', and that both fields survive a JSON
+    round trip.
+    """
+    profile = DataProfile(
+        n_series       = 1,
+        series_lengths = {"y": 100},
+        target         = "y",
+        index_type     = "datetime",
+        data_path      = "eu.csv",
+        csv_sep        = ";",
+        csv_decimal    = ",",
+    )
+    saved = profile.model_dump(mode="json")
+    del saved["csv_sep"], saved["csv_decimal"]
+
+    old = DataProfile.model_validate_json(json.dumps(saved))
+    restored = DataProfile.model_validate_json(profile.model_dump_json())
+
+    assert (old.csv_sep, old.csv_decimal) == (",", ".")
+    assert old.data_path == "eu.csv"
+    assert (restored.csv_sep, restored.csv_decimal) == (";", ",")
+    assert restored == profile
+
+
+def test_data_profile_csv_dialect_defaults():
+    """
+    Test that the dialect of a profile is ',' and '.' unless given.
+    """
+    profile = DataProfile(
+        n_series=1, series_lengths={"y": 100}, target="y", index_type="datetime"
+    )
+
+    assert profile.csv_sep == ","
+    assert profile.csv_decimal == "."
+
+
+def test_forecasting_profile_output_when_json_has_no_csv_dialect():
+    """
+    Test that a `ForecastingProfile` saved by 0.4.1, whose data profile has
+    no `csv_sep` and `csv_decimal`, loads with ',' and '.' and keeps the rest
+    of the profile, and that one with a dialect round trips.
+    """
+    from skforecast_ai import ForecastingAssistant
+
+    data = pd.DataFrame(
+        {"y": np.arange(60, dtype=float) % 7},
+        index=pd.date_range("2023-01-01", periods=60, freq="D"),
+    )
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=data, target="y")
+    with_dialect = profile.model_copy(
+        update={
+            "data_profile": profile.data_profile.model_copy(
+                update={"csv_sep": "\t", "csv_decimal": ","}
+            )
+        }
+    )
+    saved = json.loads(profile.model_dump_json())
+    del saved["data_profile"]["csv_sep"], saved["data_profile"]["csv_decimal"]
+
+    old = type(profile).model_validate_json(json.dumps(saved))
+    restored = type(profile).model_validate_json(with_dialect.model_dump_json())
+
+    assert old == profile
+    assert old.data_profile.csv_sep == ","
+    assert old.data_profile.csv_decimal == "."
+    assert restored.data_profile.csv_sep == "\t"
+    assert restored.data_profile.csv_decimal == ","
+    assert assistant.plan(old, steps=3).model_dump() == assistant.plan(
+        profile, steps=3
+    ).model_dump()
+
+
+@pytest.mark.parametrize(
+    "sep, decimal, message",
+    [
+        (",", ",", "`csv_decimal` cannot be ',' when `csv_sep` is ','."),
+        ("|", ".", "Input should be ',', ';' or '\\t'"),
+        (";", ":", "Input should be '.' or ','"),
+    ],
+    ids=["decimal comma with sep comma", "invalid sep", "invalid decimal"],
+)
+def test_data_profile_ValidationError_when_csv_dialect_not_valid(
+    sep, decimal, message
+):
+    """
+    Test that a profile whose decimal mark is its separator, or whose
+    separator or decimal mark is not one of the accepted, raises a
+    ValidationError.
+    """
+    with pytest.raises(ValidationError, match=re.escape(message)):
+        DataProfile(
+            n_series       = 1,
+            series_lengths = {"y": 100},
+            target         = "y",
+            index_type     = "datetime",
+            csv_sep        = sep,
+            csv_decimal    = decimal,
+        )
+

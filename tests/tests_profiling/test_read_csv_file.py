@@ -9,8 +9,8 @@ from skforecast_ai.exceptions import InvalidInputError
 from skforecast_ai.profiling.data_profile import read_csv_file
 
 _HINT = (
-    "Pass a comma-separated text file in UTF-8 with a header row, and the "
-    "same number of fields in every row."
+    "Pass a text file in UTF-8 separated by ',', ';' or tabulators, with a "
+    "header row and the same number of fields in every row."
 )
 
 

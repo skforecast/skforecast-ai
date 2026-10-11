@@ -24,6 +24,11 @@ from tests.fixtures_datasets import (
     df_madrid_hourly_text,
     df_mixed_date_formats,
 )
+from tests.fixtures_csv_dialect import (
+    df_dialect,
+    df_dialect_monthly,
+    write_dialect,
+)
 from tests.fixtures_assistant import (
     df_categorical_exog,
     df_single,
@@ -766,8 +771,8 @@ def test_profile_InvalidInputError_when_csv_unreadable(tmp_path, content, reason
     assert exc_info.value.code == "data_unreadable"
     assert exc_info.value.field == "data"
     assert exc_info.value.hint == (
-        "Pass a comma-separated text file in UTF-8 with a header row, and the "
-        "same number of fields in every row."
+        "Pass a text file in UTF-8 separated by ',', ';' or tabulators, with a "
+        "header row and the same number of fields in every row."
     )
 
 
@@ -1146,3 +1151,244 @@ def test_profile_output_time_zone_of_the_dates():
     assert profile.data_profile.time_zone == "Europe/Madrid"
     assert result.profile.data_profile.time_zone == "Europe/Madrid"
     assert result.profile.data_profile.warnings == []
+
+
+# =============================================================================
+# Tests: CSV dialects (separator and decimal mark)
+# =============================================================================
+def test_profile_reads_csv_with_semicolon_and_decimal_comma(tmp_path):
+    """
+    Test that a CSV written with `to_csv(sep=';', decimal=',')` (what Excel
+    writes in Spanish, German or French) is profiled instead of raising,
+    records its dialect, and gives the same profile as the same frame written
+    with the default `to_csv`, but for the path and the dialect. The day first
+    dates are read month first in both files, so the frequency is None with a
+    warning in the profile in both.
+    """
+    semicolon_path = tmp_path / "eu.csv"
+    comma_path = tmp_path / "us.csv"
+    df_dialect_monthly.to_csv(semicolon_path, sep=";", decimal=",", index=False)
+    df_dialect_monthly.to_csv(comma_path, index=False)
+    assistant = ForecastingAssistant()
+
+    result = assistant.profile(semicolon_path, target="y")
+    expected = assistant.profile(comma_path, target="y")
+
+    dp = result.data_profile
+    assert dp.csv_sep == ";"
+    assert dp.csv_decimal == ","
+    assert dp.data_path == str(semicolon_path)
+    assert dp.frequency is None
+    assert dp.n_total_observations == 48
+    assert expected.data_profile.csv_sep == ","
+    assert expected.data_profile.csv_decimal == "."
+    left = result.data_profile.model_dump()
+    right = expected.data_profile.model_dump()
+    for name in ("data_path", "csv_sep", "csv_decimal"):
+        del left[name], right[name]
+    assert left == right
+    assert result.model_dump(exclude={"data_profile"}) == expected.model_dump(
+        exclude={"data_profile"}
+    )
+
+
+@pytest.mark.parametrize(
+    "name, expected",
+    [
+        ("semicolon_dot", (";", ".")),
+        ("semicolon_comma", (";", ",")),
+        ("tab_dot", ("\t", ".")),
+        ("tab_comma", ("\t", ",")),
+        ("tsv", ("\t", ".")),
+        ("gz_comma_dot", (",", ".")),
+        ("gz_semicolon_comma", (";", ",")),
+    ],
+    ids=lambda dt: f"{dt!r}",
+)
+def test_profile_records_the_dialect_of_the_csv_file(tmp_path, name, expected):
+    """
+    Test that profile() detects and records the separator and the decimal
+    mark of ';', tab, '.tsv' and gzip files, and gives the same description
+    of the data in every dialect.
+    """
+    path = write_dialect(tmp_path, df_dialect, name)
+    assistant = ForecastingAssistant()
+
+    result = assistant.profile(path, target="y")
+
+    assert (result.data_profile.csv_sep, result.data_profile.csv_decimal) == expected
+    assert result.data_profile.data_path == path
+    assert result.data_profile.n_total_observations == 60
+    assert result.data_profile.frequency == "D"
+    assert result.data_profile.start_date == "2023-01-01"
+    assert result.data_profile.target_stats["y"]["mean"] == pytest.approx(
+        df_dialect["y"].mean(), abs=1e-9
+    )
+
+
+@pytest.mark.parametrize(
+    "sep, decimal, expected",
+    [(";", None, (";", ",")), (None, ",", (";", ",")), (";", ",", (";", ","))],
+    ids=["sep", "decimal", "both"],
+)
+def test_profile_output_when_sep_or_decimal_given(tmp_path, sep, decimal, expected):
+    """
+    Test that the `sep` and `decimal` of profile() are recorded, and the one
+    not given is detected.
+    """
+    path = write_dialect(tmp_path, df_dialect, "semicolon_comma")
+
+    result = ForecastingAssistant().profile(path, target="y", sep=sep, decimal=decimal)
+
+    assert (result.data_profile.csv_sep, result.data_profile.csv_decimal) == expected
+
+
+def test_profile_sep_and_decimal_are_ignored_for_data_in_memory():
+    """
+    Test that a DataFrame is profiled with the default dialect whatever
+    `sep` and `decimal` say, because there is no file to read.
+    """
+    result = ForecastingAssistant().profile(
+        df_dialect.assign(date=pd.to_datetime(df_dialect["date"])),
+        target="y",
+        sep=";",
+        decimal=",",
+    )
+
+    assert result.data_profile.csv_sep == ","
+    assert result.data_profile.csv_decimal == "."
+    assert result.data_profile.data_path == "data.csv"
+
+
+@pytest.mark.parametrize(
+    "sep, decimal, message, field",
+    [
+        (
+            "|",
+            None,
+            "`sep` must be ',', ';' or a tabulator ('\\t'), got '|'.",
+            "sep",
+        ),
+        (None, "x", "`decimal` must be '.' or ',', got 'x'.", "decimal"),
+        (
+            ",",
+            ",",
+            "`decimal` cannot be ',' when `sep` is ',': the same character "
+            "would separate the fields and the decimals.",
+            "decimal",
+        ),
+    ],
+    ids=["sep", "decimal", "decimal comma with sep comma"],
+)
+def test_profile_InvalidInputError_when_sep_or_decimal_not_valid(
+    tmp_path, sep, decimal, message, field
+):
+    """
+    Test that profile() raises InvalidInputError naming the argument when
+    `sep` or `decimal` is not valid, or when the decimal mark is the
+    separator.
+    """
+    path = write_dialect(tmp_path, df_dialect, "semicolon_comma")
+
+    with pytest.raises(InvalidInputError, match=re.escape(message)) as exc_info:
+        ForecastingAssistant().profile(path, target="y", sep=sep, decimal=decimal)
+
+    assert exc_info.value.field == field
+
+
+def test_profile_InvalidInputError_when_separator_of_the_file_is_ambiguous(tmp_path):
+    """
+    Test that a file whose separator cannot be told raises an
+    InvalidInputError with the code 'data_unreadable', the field 'data' and a
+    hint that names `sep` and `decimal`; giving `sep` reads it.
+    """
+    path = tmp_path / "ambiguous.csv"
+    df_dialect.rename(columns={"y": "y,x"}).to_csv(
+        path, sep=";", decimal=",", index=False
+    )
+    assistant = ForecastingAssistant()
+
+    err_msg = re.escape(
+        f"The separator of the CSV file '{path}' cannot be told: its header "
+        f"reads with ',' (2 columns) and ';' (2 columns)."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg + "$") as exc_info:
+        assistant.profile(path, target="y,x")
+    result = assistant.profile(path, target="y,x", sep=";")
+
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.field == "data"
+    assert exc_info.value.hint == (
+        "Profile the file saying how it is written, with `sep` (',', ';' or "
+        "a tabulator) and `decimal` ('.' or ',') in `profile()`, `--sep` and "
+        "`--decimal` in the `profile` command, or `sep` and `decimal` in the "
+        "`profile` tool of the MCP server, and use that profile."
+    )
+    assert result.data_profile.csv_sep == ";"
+    assert result.data_profile.csv_decimal == ","
+
+
+def test_profile_InvalidInputError_when_decimal_of_the_file_is_ambiguous(tmp_path):
+    """
+    Test that numbers written with ',' and with '.' raise an
+    InvalidInputError with the code 'data_unreadable', and that giving
+    `decimal` reads the file.
+    """
+    path = tmp_path / "ambiguous.csv"
+    path.write_text(
+        "date;y;z\n"
+        + "".join(f"2023-01-{day:02d};{day},5;{day}.25\n" for day in range(1, 29))
+    )
+    assistant = ForecastingAssistant()
+
+    err_msg = re.escape(
+        f"The decimal mark of the CSV file '{path}' cannot be told: it holds "
+        f"numbers written with ',' (such as '1,5') and with '.' (such as "
+        f"'1.25')."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg + "$") as exc_info:
+        assistant.profile(path, target="z")
+    result = assistant.profile(path, target="z", decimal=".")
+
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.field == "data"
+    assert result.data_profile.csv_decimal == "."
+
+
+def test_profile_output_of_a_comma_csv_is_unchanged_by_the_dialect_fields(tmp_path):
+    """
+    Test that a comma CSV records the default dialect and that the profile
+    of its file dumps as the profile of the same frame in memory does but for
+    the path: the dialect fields are the only addition.
+    """
+    path = tmp_path / "us.csv"
+    df_dialect.to_csv(path, index=False)
+    in_memory = df_dialect.assign(date=pd.to_datetime(df_dialect["date"]))
+    assistant = ForecastingAssistant()
+
+    from_file = assistant.profile(path, target="y").data_profile.model_dump()
+    expected = assistant.profile(in_memory, target="y").data_profile.model_dump()
+
+    assert from_file["csv_sep"] == ","
+    assert from_file["csv_decimal"] == "."
+    assert from_file["data_path"] == str(path)
+    assert expected["data_path"] == "data.csv"
+    assert expected["csv_sep"] == ","
+    assert expected["csv_decimal"] == "."
+    for name in ("data_path", "index_type", "date_column"):
+        del from_file[name], expected[name]
+    assert from_file == expected
+
+
+def test_profile_InvalidInputError_when_sep_not_valid_for_data_in_memory():
+    """
+    Test that an invalid `sep` or `decimal` raises also for a DataFrame,
+    where valid values are ignored.
+    """
+    data = df_dialect.assign(date=pd.to_datetime(df_dialect["date"]))
+
+    err_msg = re.escape("`sep` must be ',', ';' or a tabulator ('\\t'), got 'x'.")
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        ForecastingAssistant().profile(data, target="y", sep="x")
+
+    assert exc_info.value.field == "sep"

@@ -11,6 +11,7 @@ from skforecast_ai import ForecastingAssistant
 from skforecast_ai.exceptions import InvalidInputError
 from skforecast_ai.schemas import CodeGenerationResult, PreprocessingStep
 
+from tests.fixtures_csv_dialect import df_dialect, write_dialect
 from tests.fixtures_assistant import (
     df_multi_long,
     df_multi_wide,
@@ -753,3 +754,70 @@ def test_forecast_code_output_when_use_exog_false():
 
     assert result.plan.use_exog is False
     assert "exog_future.csv" not in result.code
+
+
+def test_forecast_code_reads_csv_with_the_dialect_of_the_file(tmp_path):
+    """
+    Test that forecast_code() on a CSV with ';' and a decimal comma returns a
+    script that reads it with `sep=';', decimal=','`, and one that names no
+    `sep` for a comma CSV.
+    """
+    path = write_dialect(tmp_path, df_dialect, "semicolon_comma")
+    comma_path = tmp_path / "us.csv"
+    df_dialect.to_csv(comma_path, index=False)
+    assistant = ForecastingAssistant()
+
+    result = assistant.forecast_code(data=path, target="y", steps=3)
+    comma = assistant.forecast_code(data=comma_path, target="y", steps=3)
+
+    assert f"data = pd.read_csv({path!r}, sep=';', decimal=',')\n" in result.code
+    assert f"data = pd.read_csv({str(comma_path)!r})\n" in comma.code
+    assert "sep=" not in comma.code
+    assert "decimal=" not in comma.code
+    assert result.profile.data_profile.csv_sep == ";"
+    assert result.profile.data_profile.csv_decimal == ","
+
+
+def test_forecast_code_reads_file_with_the_dialect_of_a_saved_profile(tmp_path):
+    """
+    Test that a profile built with an explicit `sep` is used to read a file
+    whose separator cannot be told otherwise (a header that reads with ','
+    and with ';'), and the script reads it with that dialect.
+    """
+    path = tmp_path / "ambiguous.csv"
+    df_dialect.rename(columns={"y": "y,x"}).to_csv(
+        path, sep=";", decimal=",", index=False
+    )
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=path, target="y,x", sep=";")
+
+    with pytest.raises(InvalidInputError, match="cannot be told"):
+        assistant.forecast_code(data=path, target="y,x", steps=3)
+    result = assistant.forecast_code(data=path, profile=profile, steps=3)
+
+    assert f"data = pd.read_csv({str(path)!r}, sep=';', decimal=',')\n" in result.code
+    assert result.profile.data_profile.csv_sep == ";"
+    assert result.profile.data_profile.csv_decimal == ","
+
+
+def test_forecast_code_detects_the_dialect_when_profile_was_built_from_a_dataframe(
+    tmp_path,
+):
+    """
+    Test that a profile built from a DataFrame (no file, default dialect)
+    used with a ';' file detects the dialect of the file and the script
+    reads it with it.
+    """
+    path = write_dialect(tmp_path, df_dialect, "semicolon_comma")
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_dialect.assign(date=pd.to_datetime(df_dialect["date"])),
+        target="y",
+    )
+
+    result = assistant.forecast_code(data=path, profile=profile, steps=3)
+
+    assert profile.data_profile.csv_sep == ","
+    assert f"data = pd.read_csv({path!r}, sep=';', decimal=',')\n" in result.code
+    assert result.profile.data_profile.csv_sep == ";"
+    assert result.profile.data_profile.csv_decimal == ","

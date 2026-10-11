@@ -7,6 +7,7 @@ from skforecast_ai._utils import load_exog
 from skforecast_ai.mcp import create_server
 
 from ..fixtures_assistant import df_single
+from ..fixtures_csv_dialect import df_dialect, write_dialect
 from ..fixtures_datasets import df_items_sales_long
 from .fixtures_mcp import (
     DATA_VALUES_HINT,
@@ -476,3 +477,71 @@ def test_tool_forecast_invalid_argument_without_hint_when_exog_path_and_test_siz
         "train/test split, so `exog` must not be provided."
     )
     assert error["hint"] is None
+
+
+def test_tool_forecast_on_semicolon_file_matches_the_comma_file(tmp_path):
+    """
+    Test that `plan` and `forecast` on a ';' file with a decimal comma give
+    the predictions of the same data in a comma file, and that the script of
+    the forecast reads the file with its dialect.
+    """
+    path = write_dialect(tmp_path, df_dialect, "semicolon_comma")
+    comma_path = write_csv(tmp_path, "us.csv", df_dialect)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, plan_id = profile_and_plan(server, path, target="y", steps=3)
+    _, comma_plan_id = profile_and_plan(server, comma_path, target="y", steps=3)
+
+    result = content_of(call(server, "forecast", {"plan_id": plan_id}))
+    expected = content_of(call(server, "forecast", {"plan_id": comma_plan_id}))
+    code = content_of(call(server, "get_code", {"object_id": result["id"]}))
+
+    assert text_of(result["files"]["predictions"]) == text_of(
+        expected["files"]["predictions"]
+    )
+    assert f"data = pd.read_csv({path!r}, sep=';', decimal=',')\n" in code["code"]
+
+
+def test_tool_forecast_with_future_exog_in_a_semicolon_file(tmp_path):
+    """
+    Test that the future exogenous values are read from an `exog_path` with
+    ';' and a decimal comma, giving the predictions of the comma file.
+    """
+    path = write_csv(tmp_path, "sales.csv", df_single)
+    exog_path = write_csv(tmp_path, "future.csv", df_single_future_exog)
+    semicolon_path = str(tmp_path / "future_eu.csv")
+    df_single_future_exog.to_csv(semicolon_path, sep=";", decimal=",", index=False)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, plan_id = profile_and_plan(server, path, target="sales", steps=10)
+
+    result = content_of(
+        call(server, "forecast", {"plan_id": plan_id, "exog_path": semicolon_path})
+    )
+    expected = content_of(
+        call(server, "forecast", {"plan_id": plan_id, "exog_path": exog_path})
+    )
+
+    assert text_of(result["files"]["predictions"]) == text_of(
+        expected["files"]["predictions"]
+    )
+
+
+def test_tool_forecast_data_changed_when_gzip_file_was_modified(tmp_path):
+    """
+    Test that a '.csv.gz' file rewritten after it was profiled is
+    `data_changed` and nothing runs.
+    """
+    path = write_dialect(tmp_path, df_dialect, "gz_semicolon_comma")
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, plan_id = profile_and_plan(server, path, target="y", steps=3)
+    df_dialect.assign(y=df_dialect["y"] + 1).to_csv(
+        path, sep=";", decimal=",", index=False
+    )
+
+    error = error_of(call(server, "forecast", {"plan_id": plan_id}), "forecast")
+
+    assert error["code"] == "data_changed"
+    assert error["field"] == "data_path"
+    assert error["message"] == (
+        f"The file {path!r} changed since it was profiled, so its profile and "
+        f"the objects built from it no longer describe it. Nothing was run."
+    )

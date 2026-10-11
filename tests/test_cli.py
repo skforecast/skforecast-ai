@@ -21,12 +21,14 @@ from skforecast_ai.cli import (
     _parse_exog_columns,
     _parse_initial_train_size,
     _parse_lags,
+    _parse_sep,
     _report_error,
     _showwarning_to_stderr,
 )
 from skforecast_ai.exceptions import ForecastExecutionError
 from skforecast_ai.assistant import ForecastingAssistant
 
+from .fixtures_csv_dialect import df_dialect, write_dialect
 from .fixtures_assistant import (
     df_categorical_exog,
     df_multi_long,
@@ -1844,8 +1846,8 @@ class TestErrorContract:
                 ),
                 "field": "data",
                 "hint": (
-                    "Pass a comma-separated text file in UTF-8 with a header "
-                    "row, and the same number of fields in every row."
+                    "Pass a text file in UTF-8 separated by ',', ';' or tabulators, "
+                    "with a header row and the same number of fields in every row."
                 ),
             }
         }
@@ -1862,8 +1864,8 @@ class TestErrorContract:
         assert result.exit_code == 1
         assert result.stdout == ""
         assert (
-            "Tip: Pass a comma-separated text file in UTF-8 with a header "
-            "row, and the same number of fields in every row."
+            "Tip: Pass a text file in UTF-8 separated by ',', ';' or tabulators, "
+            "with a header row and the same number of fields in every row."
         ) in " ".join(result.stderr.split())
 
     def test_report_error_execution_tip(self, capsys):
@@ -2343,3 +2345,185 @@ class TestExogColumnsOption:
             "--from-profile: run `skforecast-ai profile` with --exog-columns "
             "instead."
         ) in " ".join(result.output.split())
+
+
+# ---------------------------------------------------------------------------
+# CSV dialects (--sep and --decimal)
+# ---------------------------------------------------------------------------
+
+
+class TestParseSep:
+    """Tests for the `_parse_sep` CLI helper."""
+
+    @pytest.mark.parametrize(
+        "value, expected",
+        [
+            (None, None),
+            (",", ","),
+            (";", ";"),
+            ("tab", "\t"),
+            ("TAB", "\t"),
+            ("\\t", "\t"),
+            ("|", "|"),
+        ],
+    )
+    def test_parse_sep_output(self, value, expected):
+        """
+        A tabulator is written as `tab` or as the two characters of its
+        escape; any other value is returned as is, for the library to check.
+        """
+        assert _parse_sep(value) == expected
+
+
+class TestCsvDialects:
+    """Tests of the CSV dialects in the `profile` and `forecast` commands."""
+
+    @pytest.mark.parametrize(
+        "extra",
+        [[], ["--sep", ";", "--decimal", ","], ["--sep", ";"], ["--decimal", ","]],
+        ids=["detected", "both given", "sep given", "decimal given"],
+    )
+    def test_profile_on_semicolon_file(self, tmp_path, extra):
+        """
+        `profile` on a ';' file with a decimal comma works with and without
+        `--sep` and `--decimal`, and the JSON records the dialect.
+        """
+        csv_path = write_dialect(tmp_path, df_dialect, "semicolon_comma")
+        result = runner.invoke(
+            app,
+            ["profile", csv_path, "--target", "y", "--format", "json", "--quiet",
+             *extra],
+        )
+        assert result.exit_code == 0, result.stderr
+        data_profile = json.loads(result.stdout)["data_profile"]
+        assert data_profile["csv_sep"] == ";"
+        assert data_profile["csv_decimal"] == ","
+        assert data_profile["data_path"] == csv_path
+
+    @pytest.mark.parametrize("sep", ["tab", "\\t"])
+    def test_profile_sep_tab(self, tmp_path, sep):
+        """
+        `--sep tab` (and the two characters backslash t) reads a file
+        separated by tabulators.
+        """
+        csv_path = write_dialect(tmp_path, df_dialect, "tab_dot")
+        result = runner.invoke(
+            app,
+            ["profile", csv_path, "--target", "y", "--sep", sep, "--format",
+             "json", "--quiet"],
+        )
+        assert result.exit_code == 0, result.stderr
+        data_profile = json.loads(result.stdout)["data_profile"]
+        assert data_profile["csv_sep"] == "\t"
+        assert data_profile["csv_decimal"] == "."
+
+    def test_profile_on_comma_file_records_the_default_dialect(self, tmp_path):
+        """
+        `profile` on a comma file records ',' and '.'.
+        """
+        csv_path = tmp_path / "us.csv"
+        df_dialect.to_csv(csv_path, index=False)
+        result = runner.invoke(
+            app,
+            ["profile", str(csv_path), "--target", "y", "--format", "json",
+             "--quiet"],
+        )
+        assert result.exit_code == 0, result.stderr
+        data_profile = json.loads(result.stdout)["data_profile"]
+        assert data_profile["csv_sep"] == ","
+        assert data_profile["csv_decimal"] == "."
+
+    def test_profile_error_json_when_separator_is_ambiguous(self, tmp_path):
+        """
+        A file whose separator cannot be told exits with code 1 and, with
+        --format json, reports the code 'data_unreadable', the field 'data'
+        and the hint that names `--sep` on stderr.
+        """
+        csv_path = tmp_path / "ambiguous.csv"
+        df_dialect.rename(columns={"y": "y,x"}).to_csv(
+            csv_path, sep=";", decimal=",", index=False
+        )
+        result = runner.invoke(
+            app,
+            ["profile", str(csv_path), "--target", "y,x", "--format", "json",
+             "--quiet"],
+        )
+        assert result.exit_code == 1
+        assert result.stdout == ""
+        assert json.loads(result.stderr) == {
+            "error": {
+                "code": "data_unreadable",
+                "message": (
+                    f"The separator of the CSV file '{csv_path}' cannot be "
+                    f"told: its header reads with ',' (2 columns) and ';' "
+                    f"(2 columns)."
+                ),
+                "field": "data",
+                "hint": (
+                    "Profile the file saying how it is written, with `sep` "
+                    "(',', ';' or a tabulator) and `decimal` ('.' or ',') in "
+                    "`profile()`, `--sep` and `--decimal` in the `profile` "
+                    "command, or `sep` and `decimal` in the `profile` tool of "
+                    "the MCP server, and use that profile."
+                ),
+            }
+        }
+
+    def test_profile_with_sep_reads_the_ambiguous_file(self, tmp_path):
+        """
+        Giving `--sep ';'` reads a file whose separator cannot be told (its
+        header reads with ',' in 2 columns and with ';' in 3, as every row).
+        """
+        csv_path = tmp_path / "ambiguous.csv"
+        csv_path.write_text(
+            "date;y;a,b\n"
+            + "".join(f"2023-01-{day:02d};{day},5;{day}\n" for day in range(1, 29))
+        )
+        failed = runner.invoke(
+            app, ["profile", str(csv_path), "--target", "y", "--quiet"]
+        )
+        result = runner.invoke(
+            app,
+            ["profile", str(csv_path), "--target", "y", "--sep", ";",
+             "--format", "json", "--quiet"],
+        )
+        assert failed.exit_code == 1
+        assert result.exit_code == 0, result.stderr
+        data_profile = json.loads(result.stdout)["data_profile"]
+        assert data_profile["csv_sep"] == ";"
+        assert data_profile["csv_decimal"] == ","
+
+    def test_profile_error_when_sep_is_not_valid(self, tmp_path):
+        """
+        An invalid `--sep` exits with code 1 and the field 'sep'.
+        """
+        csv_path = write_dialect(tmp_path, df_dialect, "semicolon_comma")
+        result = runner.invoke(
+            app,
+            ["profile", csv_path, "--target", "y", "--sep", "|", "--format",
+             "json", "--quiet"],
+        )
+        assert result.exit_code == 1
+        error = json.loads(result.stderr)["error"]
+        assert error["field"] == "sep"
+        assert error["message"] == (
+            "`sep` must be ',', ';' or a tabulator ('\\t'), got '|'."
+        )
+
+    def test_forecast_output_code_on_semicolon_file(self, tmp_path):
+        """
+        `forecast --output-code` on a ';' file with a decimal comma writes a
+        script that reads it with `sep=';'` and `decimal=','`.
+        """
+        csv_path = write_dialect(tmp_path, df_dialect, "semicolon_comma")
+        code_path = tmp_path / "script.py"
+        result = runner.invoke(
+            app,
+            ["forecast", csv_path, "--target", "y", "--steps", "5",
+             "--test-size", "5", "--output-code", str(code_path), "--quiet"],
+        )
+        assert result.exit_code == 0, result.stderr
+        code = code_path.read_text()
+        assert f"data = pd.read_csv({csv_path!r}, sep=';', decimal=',')\n" in code
+        ast.parse(code)
+

@@ -50,8 +50,15 @@ def _saved_without(obj, names):
         ),
         (plan, ["overridden_fields", "exog_columns"], [[], None]),
         (profile.data_profile, ["time_zone", "unused_columns"], [None, []]),
+        (profile.data_profile, ["csv_sep", "csv_decimal"], [",", "."]),
     ],
-    ids=["CVResult", "BacktestResult", "ForecastPlan", "DataProfile"],
+    ids=[
+        "CVResult",
+        "BacktestResult",
+        "ForecastPlan",
+        "DataProfile",
+        "DataProfile CSV dialect",
+    ],
 )
 def test_pickle_defaults_output_fields_added_after_the_object_was_saved(
     obj, names, expected
