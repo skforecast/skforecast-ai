@@ -1838,3 +1838,62 @@ def test_resolve_data_and_target_InvalidInputError_when_sep_or_decimal_not_valid
             _resolve_data_and_target(data, "x", sep=sep, decimal=decimal)
         assert exc_info.value.field == field
 
+
+
+def test_resolve_data_and_target_reads_url_when_comma_read_cannot_parse(monkeypatch):
+    """
+    Test that a URL whose rows cannot be read with ',' (a ';' file with
+    different numbers of decimal commas per row) downloads the start of the
+    file to tell its dialect and is read with `sep=';'` and `decimal=','`.
+    """
+    url = "https://example.com/ragged.csv"
+    frame = pd.DataFrame({"date": ["2020-01-01", "2020-01-02"], "y": [1.5, 2.0]})
+    calls = []
+
+    def read_csv(*args, **kwargs):
+        calls.append((args, kwargs))
+        if not kwargs:
+            raise pd.errors.ParserError("Expected 2 fields in line 4, saw 3")
+        return frame.copy()
+
+    monkeypatch.setattr(pd, "read_csv", read_csv)
+    monkeypatch.setattr(
+        utils_module,
+        "read_url_sample",
+        lambda value: "date;y;x\n2020-01-01;1,5;2\n2020-01-02;2;2,5\n",
+    )
+
+    data, _ = _resolve_data_and_target(url, "y")
+
+    assert calls == [((url,), {}), ((url,), {"sep": ";", "decimal": ","})]
+    assert data["y"].tolist() == [1.5, 2.0]
+
+
+def test_resolve_data_and_target_DataNotFoundError_when_comma_url_cannot_parse(
+    monkeypatch,
+):
+    """
+    Test that a URL of a ',' file that pandas cannot read still raises a
+    DataNotFoundError with the code 'data_unreadable' and the reason of
+    pandas, after its start told no other dialect.
+    """
+    url = "https://example.com/bad.csv"
+
+    def read_csv(*args, **kwargs):
+        raise pd.errors.ParserError("Expected 2 fields in line 3, saw 4")
+
+    monkeypatch.setattr(pd, "read_csv", read_csv)
+    monkeypatch.setattr(
+        utils_module,
+        "read_url_sample",
+        lambda value: "date,y\n2020-01-01,1\n2020-01-02,2,3,4\n",
+    )
+
+    err_msg = re.escape(
+        f"Could not read CSV from URL: '{url}'. Expected 2 fields in line 3, "
+        f"saw 4"
+    )
+    with pytest.raises(DataNotFoundError, match="^" + err_msg + "$") as exc_info:
+        _resolve_data_and_target(url, "y")
+
+    assert exc_info.value.code == "data_unreadable"

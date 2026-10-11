@@ -46,6 +46,7 @@ from .profiling.data_profile import (
     _try_parse_first_date_column,
     csv_read_kwargs,
     date_issue_hint,
+    decimal_after_sample,
     read_csv_with_dialect,
 )
 from .profiling.csv_dialect import (
@@ -831,9 +832,11 @@ def _read_csv_url(
     Read the CSV file of a URL and return how it is written.
 
     The file is first read as before, with `','` and `'.'`. Only when a
-    column name then holds another separator is the start of the file
-    downloaded again to tell its dialect (see `detect_csv_dialect`), and
-    the file read with it, as the generated script reads it.
+    column name then holds another separator, or pandas cannot read the
+    rows with `','` (rows with different numbers of decimal commas), is the
+    start of the file downloaded again to tell its dialect (see
+    `detect_csv_dialect`), and the file read with it, as the generated
+    script reads it.
 
     Parameters
     ----------
@@ -853,16 +856,22 @@ def _read_csv_url(
     decimal : str
         Decimal mark the file was read with.
     """
+    decimal_given = decimal is not None
     if sep is None or decimal is None:
-        data = None
+        data, unread = None, None
         if sep is None and decimal is None:
-            data = pd.read_csv(url)
-            header = "".join(str(column) for column in data.columns)
-            if not any(
-                other in header for other in CSV_SEPARATORS
-                if other != DEFAULT_CSV_SEP
-            ):
-                return data, DEFAULT_CSV_SEP, DEFAULT_CSV_DECIMAL
+            try:
+                data = pd.read_csv(url)
+            except pd.errors.ParserError as exc:
+                # Raised again below unless the file has another dialect.
+                unread = exc
+            else:
+                header = "".join(str(column) for column in data.columns)
+                if not any(
+                    other in header for other in CSV_SEPARATORS
+                    if other != DEFAULT_CSV_SEP
+                ):
+                    return data, DEFAULT_CSV_SEP, DEFAULT_CSV_DECIMAL
         sample = read_url_sample(url)
         if sample is None:
             sep = DEFAULT_CSV_SEP if sep is None else sep
@@ -875,10 +884,23 @@ def _read_csv_url(
                                decimal = decimal,
                            )
         check_csv_dialect(sep, decimal)
-        if data is not None and not csv_read_kwargs(sep, decimal):
-            return data, sep, decimal
+        if not csv_read_kwargs(sep, decimal):
+            if unread is not None:
+                raise unread
+            if data is not None:
+                return data, sep, decimal
 
-    return pd.read_csv(url, **csv_read_kwargs(sep, decimal)), sep, decimal
+    data = pd.read_csv(url, **csv_read_kwargs(sep, decimal))
+    if (
+        not decimal_given
+        and sep != DEFAULT_CSV_SEP
+        and decimal == DEFAULT_CSV_DECIMAL
+        and decimal_after_sample(data, url, "data") != decimal
+    ):
+        decimal = ","
+        data = pd.read_csv(url, **csv_read_kwargs(sep, decimal))
+
+    return data, sep, decimal
 
 
 def _resolve_data_and_target(

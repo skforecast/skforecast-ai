@@ -30,11 +30,15 @@ from .._dates import (
 from ..schemas import DataProfile
 from ..exceptions import InvalidInputError, InvalidInputTypeError
 from .csv_dialect import (
+    DECIMAL_NUMBERS,
     DECOMPRESSION_ERRORS,
     DEFAULT_CSV_DECIMAL,
     DEFAULT_CSV_SEP,
+    THOUSANDS,
     check_csv_dialect,
+    decimal_in_both_error,
     detect_csv_dialect,
+    only_thousands_error,
     read_sample,
 )
 
@@ -3062,6 +3066,71 @@ def csv_read_kwargs(sep: str, decimal: str) -> dict[str, str]:
     return {"sep": sep, "decimal": decimal}
 
 
+def decimal_after_sample(data: pd.DataFrame, source: str, field: str) -> str:
+    """
+    Tell the decimal mark of a CSV file read with `'.'` and another
+    separator than `','`, from every value and not only from its first
+    lines.
+
+    The decimal mark is detected from the start of the file. A column
+    that holds whole numbers there and `'2,5'` further down is read as
+    text, and would be taken for a categorical variable without a word.
+    The columns read as text are looked up for numbers written with `','`:
+    when there are some, the file is to be read again with `','`.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Content of the file, read with `'.'` as decimal mark.
+    source : str
+        Path or URL of the file, named by the error.
+    field : str
+        Argument that named the file, reported with the error.
+
+    Returns
+    -------
+    decimal : str
+        `','` when a column holds numbers written with it, `'.'`
+        otherwise.
+
+    Notes
+    -----
+    As in `detect_csv_dialect`, numbers written with both marks, or
+    numbers with a `','` that all read as thousands too, raise
+    `InvalidInputError` with code `'data_unreadable'`.
+    """
+    with_comma = None
+    only_thousands = True
+    for column in data.columns:
+        values = data[column]
+        if not is_text(values):
+            continue
+        values = values.dropna().astype(str).str.strip()
+        found = values[values.str.fullmatch(DECIMAL_NUMBERS[","].pattern)]
+        if found.empty:
+            continue
+        if with_comma is None:
+            with_comma = found.iloc[0]
+        if not found.str.fullmatch(THOUSANDS.pattern).all():
+            only_thousands = False
+    if with_comma is None:
+        return DEFAULT_CSV_DECIMAL
+    for column in data.columns:
+        values = data[column]
+        if not pd.api.types.is_float_dtype(values):
+            continue
+        values = values[np.isfinite(values)]
+        with_point = values[values % 1 != 0]
+        if not with_point.empty:
+            raise decimal_in_both_error(
+                source, field, with_comma, repr(float(with_point.iloc[0]))
+            )
+    if only_thousands:
+        raise only_thousands_error(source, field, with_comma)
+
+    return ","
+
+
 def read_csv_with_dialect(
     path: str | Path,
     field: str = "data",
@@ -3075,7 +3144,9 @@ def read_csv_with_dialect(
     The separator (`','`, `';'` or a tabulator) and the decimal mark (`'.'`
     or `','`) are told from the first lines of the file unless they are
     given (see `detect_csv_dialect`). A file written with `','` and `'.'`
-    is read with the same call as before.
+    is read with the same call as before. A file with another separator
+    whose numbers with `','` only come after those lines is read again with
+    `','` as decimal mark (see `decimal_after_sample`).
 
     Parameters
     ----------
@@ -3106,6 +3177,7 @@ def read_csv_with_dialect(
     decimal mark cannot be told.
     """
     check_csv_dialect(sep, decimal)
+    decimal_given = decimal is not None
     if sep is None or decimal is None:
         sample = read_sample(path)
         if sample is None:
@@ -3123,6 +3195,15 @@ def read_csv_with_dialect(
         check_csv_dialect(sep, decimal)
     try:
         data = pd.read_csv(path, **csv_read_kwargs(sep, decimal))
+        if (
+            not decimal_given
+            and sep != DEFAULT_CSV_SEP
+            and decimal == DEFAULT_CSV_DECIMAL
+            and decimal_after_sample(data, str(path), field) != decimal
+        ):
+            # Numbers with ',' beyond the lines the dialect was told from.
+            decimal = ","
+            data = pd.read_csv(path, **csv_read_kwargs(sep, decimal))
     except (
         pd.errors.EmptyDataError,
         pd.errors.ParserError,

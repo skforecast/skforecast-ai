@@ -42,14 +42,14 @@ _SEPARATOR_NAMES = {",": "','", ";": "';'", "\t": "a tabulator"}
 
 # A number with decimals written with each mark, and nothing else in the
 # field.
-_DECIMAL_NUMBERS = {
+DECIMAL_NUMBERS = {
     ",": re.compile(r"[+-]?\d+,\d+(?:[eE][+-]?\d+)?"),
     ".": re.compile(r"[+-]?(?:\d+\.\d*|\.\d+)(?:[eE][+-]?\d+)?"),
 }
 
 # A number that reads both as thousands separated by ',' and as a number
 # with three decimals ('1,234'): alone, it does not tell the decimal mark.
-_THOUSANDS = re.compile(r"[+-]?[1-9]\d{0,2}(?:,\d{3})+")
+THOUSANDS = re.compile(r"[+-]?[1-9]\d{0,2}(?:,\d{3})+")
 
 DIALECT_HINT = (
     "Profile the file saying how it is written, with `sep` (',', ';' or a "
@@ -63,6 +63,41 @@ EXOG_DIALECT_HINT = (
     "`DataFrame.to_csv()` writes it, without ';' or tabulators in the column "
     "names."
 )
+
+
+def decimal_in_both_error(
+    source: str,
+    field: str,
+    with_comma: str,
+    with_point: str,
+) -> InvalidInputError:
+    """
+    Return the error of a CSV file that holds numbers written with both
+    decimal marks, quoting one of each.
+    """
+    return InvalidInputError(
+        f"The decimal mark of the CSV file '{source}' cannot be told: it "
+        f"holds numbers written with ',' (such as {with_comma[:20]!r}) and "
+        f"with '.' (such as {with_point[:20]!r}).",
+        code  = "data_unreadable",
+        field = field,
+        hint  = DIALECT_HINT if field == "data" else EXOG_DIALECT_HINT,
+    )
+
+
+def only_thousands_error(source: str, field: str, example: str) -> InvalidInputError:
+    """
+    Return the error of a CSV file whose only numbers with a `','` also
+    read as thousands, quoting one.
+    """
+    return InvalidInputError(
+        f"The decimal mark of the CSV file '{source}' cannot be told: its "
+        f"numbers with a ',' (such as {example[:20]!r}) read both as "
+        f"thousands and as numbers with three decimals.",
+        code  = "data_unreadable",
+        field = field,
+        hint  = DIALECT_HINT if field == "data" else EXOG_DIALECT_HINT,
+    )
 
 
 def check_csv_dialect(sep: str | None, decimal: str | None) -> None:
@@ -306,32 +341,18 @@ def detect_csv_dialect(
             for row in rows[1:]:
                 for value in row:
                     value = value.strip()
-                    for mark, pattern in _DECIMAL_NUMBERS.items():
+                    for mark, pattern in DECIMAL_NUMBERS.items():
                         if pattern.fullmatch(value):
                             counts[mark] += 1
-                            examples.setdefault(mark, value[:20])
-                            if mark == "," and not _THOUSANDS.fullmatch(value):
+                            examples.setdefault(mark, value)
+                            if mark == "," and not THOUSANDS.fullmatch(value):
                                 only_thousands = False
             if counts[","] and counts["."]:
-                raise InvalidInputError(
-                    f"The decimal mark of the CSV file '{source}' cannot be "
-                    f"told: it holds numbers written with ',' (such as "
-                    f"{examples[',']!r}) and with '.' (such as "
-                    f"{examples['.']!r}).",
-                    code  = "data_unreadable",
-                    field = field,
-                    hint  = hint,
+                raise decimal_in_both_error(
+                    source, field, examples[","], examples["."]
                 )
             if counts[","] and only_thousands:
-                raise InvalidInputError(
-                    f"The decimal mark of the CSV file '{source}' cannot be "
-                    f"told: its numbers with a ',' (such as {examples[',']!r}) "
-                    f"read both as thousands and as numbers with three "
-                    f"decimals.",
-                    code  = "data_unreadable",
-                    field = field,
-                    hint  = hint,
-                )
+                raise only_thousands_error(source, field, examples[","])
             if counts[","]:
                 decimal = ","
 

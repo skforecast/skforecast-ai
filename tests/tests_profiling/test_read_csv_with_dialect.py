@@ -411,3 +411,44 @@ def test_read_csv_with_dialect_InvalidInputError_when_file_unreadable(
     assert exc_info.value.code == "data_unreadable"
     assert exc_info.value.field == field
     assert exc_info.value.hint == _UNREADABLE_HINT
+
+
+def test_read_csv_with_dialect_decimal_comma_after_the_sample(tmp_path, monkeypatch):
+    """
+    Test that a ';' file whose numbers with ',' only come after the lines the
+    dialect is told from is read with ',' as decimal mark, so the column is
+    numeric and not text.
+    """
+    monkeypatch.setattr(
+        "skforecast_ai.profiling.csv_dialect.SAMPLE_BYTES", 40
+    )
+    path = tmp_path / "late.csv"
+    path.write_text(
+        "date;y;x\n2020-01-01;1;10\n2020-01-02;2;20\n2020-01-03;3;2,5\n"
+    )
+
+    data, sep, decimal = read_csv_with_dialect(path)
+
+    expected = pd.DataFrame(
+        {
+            "date": ["2020-01-01", "2020-01-02", "2020-01-03"],
+            "y": [1, 2, 3],
+            "x": [10.0, 20.0, 2.5],
+        }
+    )
+    pd.testing.assert_frame_equal(data, expected)
+    assert (sep, decimal) == (";", ",")
+
+
+def test_read_csv_with_dialect_keeps_decimal_given_after_the_sample(tmp_path):
+    """
+    Test that a decimal mark given by the caller is kept when a column read
+    as text holds numbers written with ','.
+    """
+    path = tmp_path / "given.csv"
+    path.write_text("date;y;x\n2020-01-01;1;10\n2020-01-02;2;2,5\n")
+
+    data, sep, decimal = read_csv_with_dialect(path, decimal=".")
+
+    assert (sep, decimal) == (";", ".")
+    assert data["x"].tolist() == ["10", "2,5"]
