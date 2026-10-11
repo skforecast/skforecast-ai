@@ -189,6 +189,14 @@ You ask, for example, *"Forecast the next 12 months of `/path/to/data/h2o.csv` a
 
 Each of these tools returns an id for the next ones, a plain-text summary (the one `describe()` gives in Python) and the warnings of the call. The summary of a backtest or a forecast carries its metrics and statistics of the predictions, and that of a comparison its leaderboard; the predictions themselves, row by row, go to CSV files in the output directory, listed in `files`. `get_code` returns the script that ran, which you can run yourself without the server. The [API reference](../api/mcp.md) lists every tool, its arguments and its errors.
 
+The animation replays a real session, recorded by the agent check of skforecast-ai 0.4.0: Claude Code with the server and its skill, asked to compare models for the next 12 months of a monthly series and to hand over the script of the best one. It calls `compare` instead of `backtest`, and `get_code` at the end.
+
+<div class="skf-anim-embed" style="--skf-ratio: 0.671875">
+  <iframe src="../animations/agent-session.html" title="Animation: a real agent session with the MCP server" loading="lazy" allowfullscreen></iframe>
+</div>
+
+The session is `compare_code__r1` of the run `0.4.0-final2`, in [`tools/mcp/agent_reports/`](https://github.com/skforecast/skforecast-ai/tree/main/tools/mcp/agent_reports). The responses of the server and the script are trimmed where an ellipsis marks it, and the folder of the session is shown as `~/project`; the request, the calls, the messages of the agent and its answer are as they were.
+
 **Long calls.** `compare` sends a progress notification when each candidate starts and ends. Any long call (a backtest, a forecast, a candidate of `compare`) also sends one every 5 seconds while it runs, naming what runs and for how long ("ForecasterStats: running (35 s)"), so a client does not give up on a request that is still working, as long as it asked for progress. Cancelling a call waits for the candidate or the backtest in progress to end: a cancelled `compare` skips its remaining candidates, and a cancelled call registers nothing. Until it ends, only the read tools (`get_code`, `get_failure`, `list_objects`, `describe_object`) answer; the others wait their turn.
 
 ---

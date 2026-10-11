@@ -106,7 +106,7 @@ answer = assistant.ask(
 
 </details>
 
-<details>
+<details open>
 <summary><b>From your coding agent (MCP server)</b></summary>
 
 In Claude Code, install the server and its skill as a plugin:
@@ -117,6 +117,12 @@ In Claude Code, install the server and its skill as a plugin:
 ```
 
 Then ask in plain language: *"Forecast the next 12 months of `data/sales.csv` and tell me how accurate it is."* The agent brings the language model and calls skforecast-ai as tools; every decision still comes from the same deterministic rules, every result comes with the script that produced it, and responses never carry rows of your data. The setups for Cursor, VS Code, Codex and Claude Desktop are in [MCP server for coding agents](https://ai.skforecast.org/stable/user-guides/mcp-server.html).
+
+<p align="center">
+  <img src="https://github.com/skforecast/skforecast-ai/blob/main/docs/img/agent-session.gif?raw=true" alt="A coding agent asked to compare models for the next 12 months of a monthly series calls the skforecast-ai MCP server (profile, plan, create_cv, compare, forecast, get_code) and answers with the leaderboard against a seasonal naive baseline, the file of predictions and the script" width="100%">
+</p>
+
+<sub>A real Claude Code session with the server and its skill, from the agent check of skforecast-ai 0.4.0. The responses of the server and the script are trimmed where an ellipsis marks it; nothing else is edited.</sub>
 
 In VS Code, this button adds the server and asks for the directory with your data (it needs [uv](https://docs.astral.sh/uv/)):
 
