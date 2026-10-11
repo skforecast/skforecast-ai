@@ -68,9 +68,14 @@ candidates).
    family of the data (with several series, ForecasterRecursiveMultiSeries
    and ForecasterFoundation), or the estimators of the recommended
    forecaster when that leaves one, without those above 500 estimator
-   fits. Without `interval` it uses the interval of the plan of the
-   strategy, so the winner keeps it (with an asymmetric interval there
-   is no baseline: it only takes symmetric ones, such as `[0.1, 0.9]`).
+   fits. When the strategy was created for another plan (one from
+   `refine_plan`, say), that plan runs too, in the row `Strategy plan`;
+   the summary names the row of the plan of the strategy. The row named
+   after a forecaster is the plan the profile recommends for it, not
+   yours: report the row the summary names. Without `interval` it uses
+   the interval of the plan of the strategy, so the winner keeps it (with
+   an asymmetric interval there is no baseline: it only takes symmetric
+   ones, such as `[0.1, 0.9]`).
    The candidates do not take `use_exog` from that plan: to compare
    without exogenous variables, `profile` with `exog_columns: []`.
 7. `forecast(plan_id, test_size?, exog_path?)`: the future. `exog_path` is
@@ -96,9 +101,11 @@ again; `list_objects()` lists the ids.
 From most to least reliable:
 
 1. A `compare` in which the winner beats the baseline: measured over the
-   `n_folds` of the strategy (at least 2) against a reference. If the
-   baseline wins, say so: the data may not be forecastable better than
-   repeating the last season. There is no baseline with several series,
+   `n_folds` of the strategy (at least 2) against a reference. The
+   summary says how many configurations beat the baseline: quote that
+   count, and never call the winner the only one unless it says so. If
+   the baseline wins, say so: the data may not be forecastable better
+   than repeating the last season. There is no baseline with several series,
    when the target has missing values or dates, or with an asymmetric
    interval (the summary says why):
    then read the rows per series of `files.best_metrics` (`files.metrics`
