@@ -31,7 +31,9 @@ docs/
 │   ├── backtesting-scenario-data.js   # GENERATED: its data
 │   ├── compare-candidates.html        # Animation of the comparison section of the guide
 │   ├── compare-candidates-data.js     # GENERATED: its data
-│   ├── agent-session.html             # Replay of a real agent session, in the MCP server guide
+│   ├── mcp-overview.html              # How the MCP server works, at the top of its guide
+│   ├── mcp-overview-data.js           # GENERATED: its data, from the tools of the server
+│   ├── agent-session.html             # Replay of a real agent session, exported as the GIF below
 │   └── agent-session-data.js          # GENERATED: its data, from a report of the agent check
 └── img/
     ├── social-card-home.png           # GENERATED: preview image when the page is shared
@@ -40,6 +42,7 @@ docs/
 tools/docs/home_page/
 ├── README.md                          # This file
 ├── generate_home_data.py              # Writes home-data.json and the data of the animations
+├── generate_mcp_overview_data.py      # Writes mcp-overview-data.js through an in-memory MCP client
 ├── generate_agent_session_data.py     # Writes agent-session-data.js from a report of the agent check
 ├── make_agent_session_video.py        # Exports agent-session.html as the GIF above and an MP4
 ├── make_social_card.mjs               # Writes the two images of docs/img/ above
@@ -221,11 +224,57 @@ page, which uses other candidates and another strategy. It needs Chronos-2
 (`chronos-forecasting`, with `torch`), downloads its checkpoint the first time
 and adds about a minute to the script; its results are deterministic.
 
+### The animation "Your agent asks, skforecast-ai decides"
+
+`docs/animations/mcp-overview.html` opens the MCP server guide, right after
+the paragraph that names the agent, its language model and the tools. It is
+the only animation of that page, and it answers, in order, what a reader of
+the guide asks: how to connect the server, what to do then, who decides what,
+what the language model sees of the data and what comes back. Its five
+chapters (Connect, Ask, Rules decide, Validate, Answer) are the steps of the
+header: each one ends in a still, complete state, and the reader can jump
+between them (see "Chapters" below).
+
+The layout follows "Deterministic first, LLM second": your machine in a
+dashed frame with the server (orange, deterministic rules), the agent and two
+folders, the project folder (`--allow-dir`, the only one the server reads,
+where the rows of the data stay) and the output folder (temporary unless
+`--output-dir`, where the predictions are written), and the language model of
+the agent outside, in violet. Only the part that acts in a chapter is at full
+opacity, and one thing moves at a time.
+
+The figures are real. `generate_mcp_overview_data.py` starts the server of
+this checkout, opens an in-memory MCP client against it (as
+`tests/tests_mcp/` does) and calls `profile`, `plan` (12 steps), `create_cv`,
+`compare`, `forecast` of the winning plan and `get_code` on the monthly `h2o`
+series, with no LLM: the summaries shown, the leaderboard, the improvement
+over the baseline, the files, the predictions and the script come from those
+responses. The script stops if a response says it carries values of the data,
+if the baseline wins (the answer of the animation would be wrong) or if a
+private path is left. The request of the user and the answer of the agent are
+written in the animation (`PROMPT`, `ANSWER`), the answer from the figures of
+the data. The installation commands are those of the Install section.
+
+What the animation must not claim: that the data never reaches the language
+model. The agent can open a file with its own tools; what is true, and what
+the animation says, is that the responses of the server never carry rows, and
+that the model sees what the agent reads.
+
+### Chapters
+
+`skf-anim.js` and `skf-anim.css` of this repository add chapters to the
+engine of skforecast: every step passed to `header()` can be clicked, has a
+mark on the progress bar, and the left and right arrow keys go to the previous
+and next one (the space bar plays or pauses). Every animation with a stepper
+gets them. They are not in skforecast yet: port them there, or the next copy
+of the engine from skforecast removes them.
+
 ### The animation "A real agent session"
 
-`docs/animations/agent-session.html` is embedded in "What a session looks like"
-of the MCP server guide, and exported as `docs/img/agent-session.gif` for the
-"From your coding agent" section of the GitHub README. It replays a session of
+`docs/animations/agent-session.html` is exported as
+`docs/img/agent-session.gif` for the "From your coding agent" section of the
+GitHub README, which "What a session looks like" of the MCP server guide links
+to; it is not embedded in the site, so that the guide keeps one animation. It replays a session of
 the MCP agent check (`tools/mcp/README.md`), not an example: the request of
 the user, every call of the agent to the server, its messages and its final
 answer come from the `report.md` of the run, read by
@@ -283,6 +332,17 @@ python tools/docs/home_page/generate_home_data.py
 If it stops on the check of the quoted numbers, edit the example answers
 (step 4 in `home.html`, the tabs of `partials/ask-window.html`) so they state
 the new results, and update `QUOTED` or `QUOTED_LAGS`. No LLM is needed.
+
+### Regenerate the MCP overview
+
+Needed when the tools, their summaries or the rules change what the workflow
+on `h2o` returns. It needs the `foundation` extra (Chronos-2 runs in
+`compare`) and network access the first time, for the dataset and the
+weights; no LLM.
+
+```bash
+python tools/docs/home_page/generate_mcp_overview_data.py
+```
 
 ### Regenerate the agent session and its GIF
 
