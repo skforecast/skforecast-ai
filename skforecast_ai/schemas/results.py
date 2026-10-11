@@ -981,6 +981,15 @@ class ComparisonResult(
         value, and which ones the user passed. Shown after `explanation`
         by `describe()`, `ask()` and the rich display. Empty when
         `cv_overridden_fields` is None.
+    strategy_plan_name : str, default None
+        Name of the row that runs the plan the strategy was created for
+        (`CVResult.plan`) in a comparison without explicit `candidates`:
+        `'Strategy plan'` when that plan is none of the candidates the
+        profile recommends and runs as one more row, else the name of the
+        candidate that makes the same decisions. None when `compare()`
+        received a `TimeSeriesFold` or explicit `candidates`, or when the
+        plan belongs to a forecaster family that cannot be ranked with the
+        candidates.
     best_name : str
         Name of the top-ranked candidate.
     best_candidate : BacktestResult
@@ -1018,6 +1027,7 @@ class ComparisonResult(
     cv_fields_without_effect: list[CVOverrideName] = Field(default_factory=list)
     cv_llm_configured: bool = False
     cv_defaults_explanation: str = ""
+    strategy_plan_name: str | None = None
 
     _explanation_title: ClassVar[str] = "Comparison Explanation"
 

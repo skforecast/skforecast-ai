@@ -40,8 +40,25 @@ from skforecast_ai import (
     InvalidInputError,
     InvalidInputTypeError,
     MissingBackendWarning,
+    PlanEditsDiscardedWarning,
 )
 
+from tests.fixtures_compare import (
+    cv_h2o_refined,
+    cv_multivariate,
+    cv_sales,
+    cv_sales_direct,
+    cv_sales_direct_default_refit,
+    cv_sales_direct_refit,
+    cv_sales_forest,
+    cv_sales_refined,
+    plan_h2o_refined,
+    plan_sales_edited,
+    profile_h2o,
+    profile_multi,
+    profile_sales,
+    profile_sales_one_forecaster,
+)
 from tests.fixtures_datasets import (
     df_h2o,
     df_h2o_daily,
@@ -408,6 +425,36 @@ def test_compare_explanation_content_when_single_series():
         in explanation
     )
     assert "failed to run" not in explanation
+
+
+def test_compare_explanation_says_tied_when_best_and_runner_up_have_same_value():
+    """
+    Test that the compare() explanation says the best candidate is tied
+    with the runner-up when both have the same value of the ranking
+    metric, instead of quoting a margin of 0.0%.
+    """
+    result = assistant.compare(
+        data=df_single,
+        cv=_single_cv(),
+        target="sales",
+        date_column="date",
+        candidates=[
+            ("first", {"forecaster": "ForecasterRecursive"}),
+            ("second", {"forecaster": "ForecasterRecursive"}),
+        ],
+        show_progress=False,
+        baseline=False,
+    )
+
+    value = result.results["mean_absolute_error"].iloc[0]
+
+    assert result.results["mean_absolute_error"].iloc[1] == value
+    assert (
+        f"Best: 'first' (ForecasterRecursive / Ridge) = {value:.4f}, "
+        f"tied with 'second' ({value:.4f})."
+        in result.explanation
+    )
+    assert "ahead of" not in result.explanation
 
 
 def test_compare_explanation_reports_averaged_metric_when_multi_series():
@@ -1336,8 +1383,9 @@ def test_compare_output_when_baseline_added_by_default():
         f"Compared 3 configurations, ranked ascending by mean_absolute_error. "
         f"Shared cross-validation strategy: {_CV_EXPLANATION} Best: "
         f"'recursive_default' (ForecasterRecursive / Ridge) = 0.3652, 22.5% "
-        f"ahead of 'direct_ridge' (0.4711). 'recursive_default' beats the "
-        f"baseline 'Baseline (seasonal naive)' (7.0000) by 94.8%."
+        f"ahead of 'direct_ridge' (0.4711). Both configurations beat the "
+        f"baseline 'Baseline (seasonal naive)' (7.0000). The best, "
+        f"'recursive_default', beats it by 94.8%."
     )
 
 
@@ -1372,8 +1420,8 @@ def test_compare_explanation_counts_candidates_behind_baseline():
         "strong_ridge",
     ]
     assert result.explanation.endswith(
-        "'recursive_default' beats the baseline 'Baseline (seasonal naive)' "
-        "(7.0000) by 94.8%. 1 configuration does not beat it."
+        "1 of 2 configurations beats the baseline 'Baseline (seasonal naive)' "
+        "(7.0000): 'recursive_default', by 94.8%."
     )
 
 
@@ -1639,8 +1687,8 @@ def test_build_comparison_explanation_counts_tied_candidate_as_not_beating():
     )
 
     assert explanation.endswith(
-        "'model_a' beats the baseline 'Baseline (naive)' (2.0000) by 50.0%. "
-        "1 configuration does not beat it."
+        "1 of 2 configurations beats the baseline 'Baseline (naive)' (2.0000): "
+        "'model_a', by 50.0%."
     )
 
 
@@ -2946,3 +2994,614 @@ def test_compare_cv_provenance_when_cv_is_a_time_series_fold():
     assert from_fold.cv_config == from_result.cv_config
     assert from_fold.explanation == from_result.explanation
     assert from_result.cv_defaults_explanation not in from_result.explanation
+
+
+# =============================================================================
+# Tests: the plan the strategy was created for
+# =============================================================================
+_STRATEGY_TAIL = (
+    "Initial training size by default: 70% of the 100 observations (70), up to "
+    "2023-03-11. The shared strategy trains once by default: refitting in every "
+    "fold would multiply the training cost by the 6 folds."
+)
+
+
+@pytest.mark.slow
+def test_compare_strategy_plan_row_when_plan_was_refined(monkeypatch):
+    """
+    Test the minimal case of the refined plan on h2o: `compare()` without
+    `candidates` on the strategy created for the plan refined to
+    LGBMRegressor and lags [1, 2, 3, 12] runs that plan as the row
+    'Strategy plan', with the metric `backtest()` gives it, and the summary
+    names the row, its rank and the configurations that beat the baseline.
+    The foundation backend is reported as missing, so the table does not
+    depend on whether it is installed.
+    """
+    monkeypatch.setattr(
+        comparison_module, "foundation_backend_installed", lambda info: False
+    )
+    with pytest.warns(MissingBackendWarning, match=re.escape(_MISSING_BACKEND_NOTE)):
+        result = assistant.compare(
+            data          = df_h2o,
+            cv            = cv_h2o_refined,
+            profile       = profile_h2o,
+            show_progress = False,
+        )
+    backtest = assistant.backtest(
+        data    = df_h2o,
+        cv      = cv_h2o_refined,
+        profile = profile_h2o,
+        plan    = plan_h2o_refined,
+    )
+
+    assert list(result.results["name"]) == [
+        "ForecasterRecursive",
+        "ForecasterStats",
+        "Baseline (seasonal naive)",
+        "ForecasterDirect",
+        "Strategy plan",
+    ]
+    assert list(result.results["estimator"]) == [
+        "Ridge", "Arima", None, "Ridge", "LGBMRegressor"
+    ]
+    np.testing.assert_array_almost_equal(
+        result.results["mean_absolute_error"].to_numpy(),
+        np.array([0.061982, 0.063817, 0.066072, 0.076281, 0.082949]),
+        decimal=6,
+    )
+    assert result.strategy_plan_name == "Strategy plan"
+    strategy_row = result.candidates["Strategy plan"]
+    assert np.isclose(
+        strategy_row.metrics["mean_absolute_error"].iloc[0], 0.082949, atol=1e-6
+    )
+    assert np.isclose(
+        strategy_row.metrics["mean_absolute_error"].iloc[0],
+        backtest.metrics["mean_absolute_error"].iloc[0],
+    )
+    assert strategy_row.plan.forecaster == "ForecasterRecursive"
+    assert strategy_row.plan.estimator == "LGBMRegressor"
+    assert strategy_row.plan.forecaster_kwargs["lags"] == [1, 2, 3, 12]
+    assert strategy_row.plan.overridden_fields == ["estimator", "lags"]
+    assert strategy_row.plan.overridden_fields == plan_h2o_refined.overridden_fields
+    # The row of the forecaster is the plan the profile recommends.
+    assert result.candidates["ForecasterRecursive"].plan.estimator == "Ridge"
+    assert result.candidates["ForecasterRecursive"].plan.overridden_fields == []
+    assert result.explanation == (
+        "Compared 5 configurations, ranked ascending by mean_absolute_error. "
+        "'Strategy plan' runs the plan the strategy was created for "
+        "(ForecasterRecursive / LGBMRegressor), ranked 5 of 5 (0.0829); the "
+        "rows named after a forecaster run the configurations the profile "
+        "recommends, not that plan. Shared cross-validation strategy: Initial "
+        "training up to 2003-04-01, trained once (no refit), 12-step horizon, "
+        "6 folds. ForecasterStats is refitted in every fold on a fixed window "
+        "(6 trainings): skforecast requires it for ARIMA models. Best: "
+        "'ForecasterRecursive' (ForecasterRecursive / Ridge) = 0.0620, 2.9% "
+        "ahead of 'ForecasterStats' (0.0638). 2 of 4 configurations beat the "
+        "baseline 'Baseline (seasonal naive)' (0.0661): 'ForecasterRecursive' "
+        "and 'ForecasterStats'. The best, 'ForecasterRecursive', beats it by "
+        "6.2%. " + _MISSING_BACKEND_NOTE
+    )
+    assert result.cv_defaults_explanation == (
+        "The strategy was created for the plan of row 'Strategy plan' "
+        "(ForecasterRecursive + LGBMRegressor). Initial training size by "
+        "default: 70% of the 204 observations (142), up to 2003-04-01. The "
+        "shared strategy trains once by default: refitting in every fold would "
+        "multiply the training cost by the 6 folds."
+    )
+
+
+@pytest.mark.parametrize(
+    "profile, cv, names, expected_name, plan_label",
+    [
+        (
+            profile_sales,
+            cv_sales,
+            ["ForecasterDirect", "ForecasterRecursive"],
+            "ForecasterRecursive",
+            "ForecasterRecursive + Ridge",
+        ),
+        (
+            profile_sales,
+            cv_sales_direct,
+            ["ForecasterDirect", "ForecasterRecursive"],
+            "ForecasterDirect",
+            "ForecasterDirect + Ridge",
+        ),
+        (
+            profile_sales_one_forecaster,
+            cv_sales_forest,
+            [
+                "ForecasterRecursive+Ridge",
+                "ForecasterRecursive+RandomForestRegressor",
+            ],
+            "ForecasterRecursive+RandomForestRegressor",
+            "ForecasterRecursive + RandomForestRegressor",
+        ),
+    ],
+    ids=["recursive", "direct", "estimator variant"],
+)
+def test_compare_strategy_plan_is_a_candidate_when_plan_is_the_recommended_one(
+    profile, cv, names, expected_name, plan_label
+):
+    """
+    Test that when the plan the strategy was created for makes the same
+    decisions as one of the automatic candidates (a forecaster, or a
+    forecaster with an estimator when only one forecaster is left), no row
+    is added: `strategy_plan_name` is the name of that candidate, the text of
+    the strategy names its row and the summary has no sentence about a
+    'Strategy plan'.
+    """
+    result = assistant.compare(
+        data          = df_no_exog,
+        cv            = cv,
+        profile       = profile,
+        target        = "sales",
+        date_column   = "date",
+        show_progress = False,
+        baseline      = False,
+    )
+
+    assert list(result.results["name"]) == names
+    assert result.strategy_plan_name == expected_name
+    assert "Strategy plan" not in result.explanation
+    assert "runs the plan the strategy was created for" not in result.explanation
+    assert result.cv_defaults_explanation == (
+        f"The strategy was created for the plan of row '{expected_name}' "
+        f"({plan_label}). {_STRATEGY_TAIL}"
+    )
+
+
+def test_compare_strategy_plan_row_without_overridden_metric_unless_passed():
+    """
+    Test that the row 'Strategy plan' keeps the decisions the user made in
+    that plan (`estimator`, `lags`) and gets `metric` only when `compare()`
+    received one, while the other rows name no decision of the user but that
+    metric.
+    """
+    default = assistant.compare(
+        data          = df_no_exog,
+        cv            = cv_sales_refined,
+        profile       = profile_sales,
+        target        = "sales",
+        date_column   = "date",
+        show_progress = False,
+    )
+    with_metric = assistant.compare(
+        data          = df_no_exog,
+        cv            = cv_sales_refined,
+        profile       = profile_sales,
+        target        = "sales",
+        date_column   = "date",
+        metric        = "mean_squared_error",
+        show_progress = False,
+    )
+
+    assert {
+        name: candidate.plan.overridden_fields
+        for name, candidate in default.candidates.items()
+    } == {
+        "ForecasterDirect": [],
+        "ForecasterRecursive": [],
+        "Baseline (seasonal naive)": [],
+        "Strategy plan": ["estimator", "lags"],
+    }
+    assert {
+        name: candidate.plan.overridden_fields
+        for name, candidate in with_metric.candidates.items()
+    } == {
+        "ForecasterDirect": ["metric"],
+        "ForecasterRecursive": ["metric"],
+        "Baseline (seasonal naive)": ["metric"],
+        "Strategy plan": ["estimator", "lags", "metric"],
+    }
+    assert with_metric.ranking_metric == "mean_squared_error"
+
+
+def test_compare_strategy_plan_row_is_in_the_explanation_when_it_ran_last():
+    """
+    Test that the summary of a comparison with the row 'Strategy plan' says
+    that it is the plan the strategy was created for, where it ranks and
+    that the rows named after a forecaster are the recommended
+    configurations, and that the baseline sentence names the row that does
+    not beat the baseline.
+    """
+    result = assistant.compare(
+        data          = df_no_exog,
+        cv            = cv_sales_refined,
+        profile       = profile_sales,
+        target        = "sales",
+        date_column   = "date",
+        show_progress = False,
+    )
+
+    assert list(result.results["name"]) == [
+        "ForecasterDirect",
+        "ForecasterRecursive",
+        "Baseline (seasonal naive)",
+        "Strategy plan",
+    ]
+    assert result.strategy_plan_name == "Strategy plan"
+    assert result.explanation == (
+        "Compared 4 configurations, ranked ascending by mean_absolute_error. "
+        "'Strategy plan' runs the plan the strategy was created for "
+        "(ForecasterRecursive / RandomForestRegressor), ranked 4 of 4 "
+        "(16.2383); the rows named after a forecaster run the configurations "
+        "the profile recommends, not that plan. Shared cross-validation "
+        "strategy: Initial training up to 2023-03-11, trained once (no "
+        "refit), 5-step horizon, 6 folds. Best: 'ForecasterDirect' "
+        "(ForecasterDirect / Ridge) = 0.3163, 13.4% ahead of "
+        "'ForecasterRecursive' (0.3652). 2 of 3 configurations beat the "
+        "baseline 'Baseline (seasonal naive)' (7.0000); 'Strategy plan' does "
+        "not. The best, 'ForecasterDirect', beats it by 95.5%."
+    )
+
+
+def test_compare_candidates_explicit_ignore_the_plan_of_the_strategy():
+    """
+    Test that with explicit `candidates` and the CVResult of a refined plan
+    the rows are the candidates and the baseline, no row is added for the
+    plan of the strategy (`strategy_plan_name` is None) and the text of the
+    strategy keeps the sentence "created for the plan".
+    """
+    result = assistant.compare(
+        data          = df_no_exog,
+        cv            = cv_sales_refined,
+        profile       = profile_sales,
+        target        = "sales",
+        date_column   = "date",
+        candidates    = [
+            ("ridge", {"forecaster": "ForecasterRecursive"}),
+            ("direct", {"forecaster": "ForecasterDirect", "lags": [1, 2, 3]}),
+        ],
+        show_progress = False,
+    )
+
+    assert list(result.results["name"]) == [
+        "ridge", "direct", "Baseline (seasonal naive)"
+    ]
+    assert result.strategy_plan_name is None
+    assert "Strategy plan" not in result.explanation
+    assert "runs the plan the strategy was created for" not in result.explanation
+    assert result.cv_defaults_explanation == (
+        "The strategy was created for the plan (ForecasterRecursive + "
+        f"RandomForestRegressor). {_STRATEGY_TAIL}"
+    )
+
+
+def test_compare_strategy_plan_name_is_none_when_cv_is_a_time_series_fold():
+    """
+    Test that a bare `TimeSeriesFold` carries no plan, so the comparison
+    runs the candidates of the profile and `strategy_plan_name` is None.
+    """
+    result = assistant.compare(
+        data          = df_no_exog,
+        cv            = cv_sales_refined.cv,
+        profile       = profile_sales,
+        target        = "sales",
+        date_column   = "date",
+        show_progress = False,
+        baseline      = False,
+    )
+
+    assert list(result.results["name"]) == ["ForecasterDirect", "ForecasterRecursive"]
+    assert result.strategy_plan_name is None
+    assert result.cv_defaults_explanation == ""
+
+
+def test_compare_strategy_plan_left_out_with_UserWarning_when_other_family(
+    monkeypatch,
+):
+    """
+    Test that a multivariate plan of the strategy, when the data have
+    several series (the candidates are multi-series), is left out of the
+    comparison with a UserWarning, and that the summary says so and does not
+    name a row for it.
+    """
+    monkeypatch.setattr(
+        comparison_module, "foundation_backend_installed", lambda info: False
+    )
+    note = (
+        "The plan the strategy was created for (ForecasterDirectMultiVariate) "
+        "is not in the comparison: its metrics are not comparable with those "
+        "of the candidates the profile recommends (a multivariate forecaster "
+        "is scored on the single series it predicts, a multi-series "
+        "forecaster on the average across all series). Backtest it, or "
+        "compare it with `candidates` of its family."
+    )
+
+    with pytest.warns(MissingBackendWarning, match=re.escape(_MISSING_BACKEND_NOTE)):
+        with pytest.warns(UserWarning, match=re.escape(note)):
+            result = assistant.compare(
+                data          = df_multi_wide,
+                cv            = cv_multivariate,
+                profile       = profile_multi,
+                target        = ["series_a", "series_b"],
+                date_column   = "date",
+                show_progress = False,
+            )
+
+    assert result.strategy_plan_name is None
+    assert "Strategy plan" not in list(result.results["name"])
+    assert note in result.explanation
+    assert "runs the plan the strategy was created for" not in result.explanation
+    assert result.cv_defaults_explanation.startswith(
+        "The strategy was created for the plan (ForecasterDirectMultiVariate "
+        "+ Ridge)."
+    )
+
+
+def test_compare_strategy_plan_runs_when_it_exceeds_the_budget(monkeypatch):
+    """
+    Test that the plan of the strategy always runs, as its backtest would:
+    with a budget of 10 estimator fits, a ForecasterDirect plan with other
+    lags that refits in 6 folds (30 fits) is the row 'Strategy plan', while
+    the automatic 'ForecasterDirect' is left out and is the only one the
+    warning and the explanation name.
+    """
+    monkeypatch.setattr(comparison_module, "COMPARE_FIT_BUDGET", 10)
+    budget_note = (
+        "Left out of the automatic candidates because this cross-validation "
+        "strategy exceeds the budget of 10 estimator fits: 'ForecasterDirect': "
+        "ForecasterDirect will be fit 30 times (6 trainings x 5 estimators). "
+        "Pass them in `candidates` to include them."
+    )
+
+    with pytest.warns(LongTrainingWarning, match=re.escape(budget_note)):
+        result = assistant.compare(
+            data          = df_no_exog,
+            cv            = cv_sales_direct_refit,
+            profile       = profile_sales,
+            target        = "sales",
+            date_column   = "date",
+            show_progress = False,
+            baseline      = False,
+        )
+
+    assert list(result.results["name"]) == ["ForecasterRecursive", "Strategy plan"]
+    assert result.failures == {}
+    assert result.strategy_plan_name == "Strategy plan"
+    assert result.candidates["Strategy plan"].plan.forecaster == "ForecasterDirect"
+    assert result.explanation.endswith(budget_note)
+    assert result.explanation.count("'Strategy plan'") == 2
+
+
+def test_compare_automatic_candidate_of_the_strategy_plan_is_kept_over_the_budget(
+    monkeypatch,
+):
+    """
+    Test that the automatic candidate that is the plan of the strategy is
+    never left out for its cost: a ForecasterDirect plan refitted in 6 folds
+    (30 fits, above a budget patched to 10) runs as 'ForecasterDirect', no
+    LongTrainingWarning is raised and the explanation has no budget note.
+    """
+    monkeypatch.setattr(comparison_module, "COMPARE_FIT_BUDGET", 10)
+    result = assistant.compare(
+        data          = df_no_exog,
+        cv            = cv_sales_direct_default_refit,
+        profile       = profile_sales,
+        target        = "sales",
+        date_column   = "date",
+        show_progress = False,
+        baseline      = False,
+    )
+
+    assert list(result.results["name"]) == ["ForecasterDirect", "ForecasterRecursive"]
+    assert result.strategy_plan_name == "ForecasterDirect"
+    assert "Left out of the automatic candidates" not in result.explanation
+
+
+# =============================================================================
+# Tests: the baseline sentence of the explanation
+# =============================================================================
+def _explanation_with_baseline(values: dict[str, float], baseline_value: float) -> str:
+    """Explanation of a comparison whose baseline scored `baseline_value`."""
+    entries = [
+        _ranked_entry(name, "ForecasterRecursive", value)
+        for name, value in values.items()
+    ]
+    entries.append(
+        _ranked_entry("Baseline (naive)", "ForecasterEquivalentDate", baseline_value)
+    )
+    entries.sort(key=lambda entry: entry[2])
+
+    return build_comparison_explanation(
+        n_candidates   = len(entries),
+        ranked         = entries,
+        ranking_metric = "mean_absolute_error",
+        any_error      = False,
+        cv_explanation = "Folds.",
+        baseline_name  = "Baseline (naive)",
+    )
+
+
+@pytest.mark.parametrize(
+    "values, sentence",
+    [
+        (
+            {"a": 3.0},
+            "No configuration beats the baseline 'Baseline (naive)' (2.0000): "
+            "the added complexity is not justified on this data.",
+        ),
+        (
+            {"a": 3.0, "b": 4.0},
+            "No configuration beats the baseline 'Baseline (naive)' (2.0000): "
+            "the added complexity is not justified on this data.",
+        ),
+        (
+            {"a": 1.0},
+            "'a' beats the baseline 'Baseline (naive)' (2.0000) by 50.0%.",
+        ),
+        (
+            {"a": 1.0, "b": 3.0, "c": 4.0},
+            "1 of 3 configurations beats the baseline 'Baseline (naive)' "
+            "(2.0000): 'a', by 50.0%.",
+        ),
+        (
+            {"a": 0.5, "b": 1.0, "c": 3.0, "d": 4.0, "e": 5.0},
+            "2 of 5 configurations beat the baseline 'Baseline (naive)' "
+            "(2.0000): 'a' and 'b'. The best, 'a', beats it by 75.0%.",
+        ),
+        (
+            {"a": 0.5, "b": 1.0, "c": 1.5, "d": 3.0, "e": 4.0, "f": 5.0, "g": 6.0},
+            "3 of 7 configurations beat the baseline 'Baseline (naive)' "
+            "(2.0000): 'a', 'b' and 'c'. The best, 'a', beats it by 75.0%.",
+        ),
+        (
+            {"a": 0.5, "b": 1.0, "c": 1.5, "d": 3.0, "e": 4.0},
+            "3 of 5 configurations beat the baseline 'Baseline (naive)' "
+            "(2.0000); 'd' and 'e' do not. The best, 'a', beats it by 75.0%.",
+        ),
+        (
+            {"a": 0.5, "b": 1.0, "c": 3.0},
+            "2 of 3 configurations beat the baseline 'Baseline (naive)' "
+            "(2.0000); 'c' does not. The best, 'a', beats it by 75.0%.",
+        ),
+        (
+            {"a": 0.5, "b": 1.0, "c": 1.5, "d": 3.0, "e": 4.0, "f": 5.0, "g": 6.0,
+             "h": 0.6, "i": 0.7, "j": 0.8},
+            "6 of 10 configurations beat the baseline 'Baseline (naive)' "
+            "(2.0000); 'd', 'e', 'f' and 'g' do not. The best, 'a', beats it "
+            "by 75.0%.",
+        ),
+        (
+            {"a": 1.0, "b": 1.5},
+            "Both configurations beat the baseline 'Baseline (naive)' "
+            "(2.0000). The best, 'a', beats it by 50.0%.",
+        ),
+        (
+            {"a": 1.0, "b": 1.5, "c": 1.8},
+            "All 3 configurations beat the baseline 'Baseline (naive)' "
+            "(2.0000). The best, 'a', beats it by 50.0%.",
+        ),
+    ],
+    ids=[
+        "none of one", "none of two", "single model", "one of three",
+        "two of five", "three of seven", "three of five", "two of three",
+        "six of ten", "both", "all three",
+    ],
+)
+def test_build_comparison_explanation_states_how_many_configurations_beat_baseline(
+    values, sentence
+):
+    """
+    Test that the baseline sentence says how many configurations beat the
+    baseline and names the shorter list: those that beat it (up to half of
+    them) or those that do not (more than half), with the best one and its
+    margin when more than one beats it; 'Both' and 'All n' when every one
+    does and the plain sentence for a single model.
+    """
+    explanation = _explanation_with_baseline(values, baseline_value=2.0)
+
+    assert explanation.endswith(sentence)
+
+
+def test_build_comparison_explanation_names_the_row_of_the_strategy_plan():
+    """
+    Test that the explanation says which row runs the plan the strategy was
+    created for, with its forecaster and estimator, its rank among the
+    candidates and its value, before the shared strategy, and that the note
+    of a plan with edits that `plan()` does not rebuild is appended after
+    the baseline sentence.
+    """
+    strategy_entry = _ranked_entry("Strategy plan", "ForecasterRecursive", 3.0)
+    strategy_entry[1].plan.estimator = "LGBMRegressor"
+    explanation = build_comparison_explanation(
+        n_candidates   = 3,
+        ranked         = [
+            _ranked_entry("model", "ForecasterRecursive", 1.0),
+            _ranked_entry("Baseline (naive)", "ForecasterEquivalentDate", 2.0),
+            strategy_entry,
+        ],
+        ranking_metric = "mean_absolute_error",
+        any_error      = False,
+        cv_explanation = "Folds.",
+        baseline_name  = "Baseline (naive)",
+        strategy_row   = "Strategy plan",
+        strategy_note  = "Edited values.",
+    )
+
+    assert explanation == (
+        "Compared 3 configurations, ranked ascending by mean_absolute_error. "
+        "'Strategy plan' runs the plan the strategy was created for "
+        "(ForecasterRecursive / LGBMRegressor), ranked 3 of 3 (3.0000); the "
+        "rows named after a forecaster run the configurations the profile "
+        "recommends, not that plan. Shared cross-validation strategy: Folds. "
+        "Best: 'model' (ForecasterRecursive) = 1.0000. 1 of 2 configurations "
+        "beats the baseline 'Baseline (naive)' (2.0000): 'model', by 50.0%. "
+        "Edited values."
+    )
+
+
+def test_build_comparison_explanation_when_strategy_plan_failed():
+    """
+    Test that the explanation says the row of the plan the strategy was
+    created for failed to run when it is not among the ranked results, and
+    that a forecaster without estimator is named alone when it ran.
+    """
+    failed = build_comparison_explanation(
+        n_candidates   = 2,
+        ranked         = [_ranked_entry("model", "ForecasterRecursive", 1.0)],
+        ranking_metric = "mean_absolute_error",
+        any_error      = True,
+        cv_explanation = "Folds.",
+        strategy_row   = "Strategy plan",
+    )
+    ran = build_comparison_explanation(
+        n_candidates   = 2,
+        ranked         = [
+            _ranked_entry("model", "ForecasterRecursive", 1.0),
+            _ranked_entry("Strategy plan", "ForecasterDirect", 2.0),
+        ],
+        ranking_metric = "mean_absolute_error",
+        any_error      = False,
+        cv_explanation = "Folds.",
+        strategy_row   = "Strategy plan",
+    )
+
+    assert failed == (
+        "Compared 2 configurations, ranked ascending by mean_absolute_error. "
+        "'Strategy plan' runs the plan the strategy was created for and "
+        "failed to run; the rows named after a forecaster run the "
+        "configurations the profile recommends, not that plan. Shared "
+        "cross-validation strategy: Folds. Best: 'model' "
+        "(ForecasterRecursive) = 1.0000. 1 configuration failed to run and "
+        "is ranked last."
+    )
+    assert ran.startswith(
+        "Compared 2 configurations, ranked ascending by mean_absolute_error. "
+        "'Strategy plan' runs the plan the strategy was created for "
+        "(ForecasterDirect), ranked 2 of 2 (2.0000); the rows named after a "
+        "forecaster run the configurations the profile recommends, not that "
+        "plan. Shared cross-validation strategy: Folds."
+    )
+
+
+def test_compare_PlanEditsDiscardedWarning_when_strategy_plan_was_edited_by_hand():
+    """
+    Test that compare() without candidates warns with
+    PlanEditsDiscardedWarning when the plan of the strategy holds a value
+    edited by hand that `plan()` does not rebuild: its row still runs, as
+    the plan rebuilt without that value, and the summary carries the note.
+    """
+    cv = cv_sales.model_copy(update={"plan": plan_sales_edited})
+    note = (
+        "The row 'Strategy plan' runs the plan the strategy was created for "
+        "as `plan()` rebuilds it, which changes these values of that plan: "
+        "[\"forecaster_kwargs['differentiation']\"]. Pass the plan to "
+        "`backtest()` to measure it as it is."
+    )
+
+    with pytest.warns(PlanEditsDiscardedWarning, match=re.escape(note)):
+        result = assistant.compare(
+            data          = df_no_exog,
+            cv            = cv,
+            profile       = profile_sales,
+            target        = "sales",
+            date_column   = "date",
+            show_progress = False,
+        )
+
+    assert result.strategy_plan_name == "Strategy plan"
+    strategy_plan = result.candidates["Strategy plan"].plan
+    assert "differentiation" not in strategy_plan.forecaster_kwargs
+    assert note in result.explanation
