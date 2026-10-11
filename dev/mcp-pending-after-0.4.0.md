@@ -41,9 +41,12 @@ Dónde está lo demás:
    sin `candidates`, el plan de la estrategia entra como la fila
    `Strategy plan` cuando no coincide con ningún candidato del perfil
    (`ComparisonResult.strategy_plan_name` nombra su fila) y el resumen la
-   nombra con su posición. Queda el check de pago de `/llm-context-change`
-   (escenario `compare_refined_plan`) y repetir el check con agentes en
-   `dirty_data` y `dirty_data_keep_gaps`.
+   nombra con su posición. Comprobado el 2026-10-11 con el check de pago
+   de `ask()` (escenario `compare_refined_plan`, fila 0.4.2 del log de
+   `tools/ai/ask_context_reports/README.md`) y con el check con agentes
+   (`tools/mcp/agent_reports/0.4.2/`): ninguna sesión da la fila de otro
+   candidato por su plan (0 de 7, antes 3 de 6), y ninguna llama al
+   ganador el único que bate al baseline (0 de 15).
    **`compare` sobre la estrategia de un plan refinado no evalúa ese plan.**
    Aceptado para la 0.4.0 con su fila en el log. Caso mínimo y causa, abajo.
    Lo correcto: que el plan de la estrategia entre como candidato cuando
