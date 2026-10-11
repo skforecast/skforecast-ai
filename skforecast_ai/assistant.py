@@ -3353,8 +3353,11 @@ class ForecastingAssistant:
             all of those candidates (one refined with another estimator,
             lags or window features, for example), that plan runs too, as
             the row `'Strategy plan'`, with its decisions and the `metric`
-            and `interval` of the comparison; `strategy_plan_name` and the
-            explanation name the row of that plan.
+            and `interval` of the comparison, and the explanation says
+            where it ranks. `strategy_plan_name` names the row that runs
+            that plan, which is one of the candidates when it makes the
+            same decisions. A plan of a forecaster family that cannot be
+            ranked with the candidates is left out with a warning.
         metric : str, list of str, default None
             Metric(s) computed per candidate. When a list is passed, the
             first metric is used to rank the table. When None, the plan
@@ -3449,7 +3452,8 @@ class ForecastingAssistant:
             Once per failed candidate.
         PlanEditsDiscardedWarning
             When `candidates` is None and the plan of the `CVResult` runs
-            without values edited by hand that `plan()` does not rebuild.
+            without values that `plan()` does not rebuild from its
+            decisions (values edited by hand, for example).
         UserWarning
             When `candidates` is None and the plan of the `CVResult` is left
             out: a forecaster family whose metrics cannot be ranked with the

@@ -69,15 +69,16 @@ candidates).
    and ForecasterFoundation), or the estimators of the recommended
    forecaster when that leaves one, without those above 500 estimator
    fits. When the strategy was created for another plan (one from
-   `refine_plan`, say), that plan runs too, in the row `Strategy plan`;
-   the summary names the row of the plan of the strategy. The row named
-   after a forecaster is the plan the profile recommends for it, not
-   yours: report the row the summary names. Without `interval` it uses
-   the interval of the plan of the strategy, so the winner keeps it (with
-   an asymmetric interval there is no baseline: it only takes symmetric
-   ones, such as `[0.1, 0.9]`).
-   The candidates do not take `use_exog` from that plan: to compare
-   without exogenous variables, `profile` with `exog_columns: []`.
+   `refine_plan`, say), that plan runs too, with its own decisions, in
+   the row `Strategy plan`. The summary names the row of the plan of the
+   strategy: report that row as the user's plan. A row named after a
+   forecaster runs the plan the profile recommends for it, which is the
+   user's plan only when the summary names that row. Without `interval`
+   it uses the interval of the plan of the strategy, so the winner keeps
+   it (with an asymmetric interval there is no baseline: it only takes
+   symmetric ones, such as `[0.1, 0.9]`).
+   The other candidates do not take `use_exog` from that plan: to compare
+   them without exogenous variables, `profile` with `exog_columns: []`.
 7. `forecast(plan_id, test_size?, exog_path?)`: the future. `exog_path` is
    required when the plan uses exogenous variables: without a file of
    future values from the user, ask for it, or build the plan again with
@@ -156,7 +157,8 @@ upper bound: a series without data in a fold is not forecast in it. Above
 50 estimator fits, or 2000 inference windows (added up over the foundation
 candidates of a `compare`), a run gets a `LongTrainingWarning` notice and
 can take minutes on a CPU; `compare` without `candidates` leaves out the
-candidates above 500 estimator fits. Before an expensive run (a `backtest` or a `compare` above those
+candidates above 500 estimator fits, never the recommended forecaster
+nor the plan of the strategy. Before an expensive run (a `backtest` or a `compare` above those
 thresholds), stop and do not run it: tell the user the number of fits and
 the cheaper strategies, an integer `refit` (retrain every n folds), fewer
 folds (a larger `fold_stride` or a later `initial_train_size`) or

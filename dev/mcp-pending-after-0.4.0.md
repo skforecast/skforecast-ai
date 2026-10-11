@@ -36,7 +36,8 @@ Dónde está lo demás:
 
 ### Bloquea la versión siguiente
 
-1. **Hecho en la 0.4.2** (`345510f`, el coste del servidor en `ebdbe4c`):
+1. **Hecho en la 0.4.2** (`345510f`; el coste del servidor en `ebdbe4c` y
+   `9020ce7`, que comparte con `compare()` la resolución de candidatos):
    sin `candidates`, el plan de la estrategia entra como la fila
    `Strategy plan` cuando no coincide con ningún candidato del perfil
    (`ComparisonResult.strategy_plan_name` nombra su fila) y el resumen la

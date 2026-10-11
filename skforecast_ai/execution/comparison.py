@@ -818,8 +818,9 @@ def build_comparison_explanation(
     cv_explanation : str
         Description of the shared cross-validation strategy.
     baseline_name : str, default None
-        Name of the baseline candidate. When given, the summary says
-        whether the best configuration beats it and by how much.
+        Name of the baseline candidate. When given, the summary says how
+        many configurations beat it, which ones, and by how much the best
+        one does (see `_baseline_sentence()`).
     baseline_note : str, default None
         Sentence explaining why no baseline was added, appended as is.
     backend_note : str, default None
