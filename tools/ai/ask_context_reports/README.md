@@ -47,10 +47,12 @@ strategy of those dates (`time_zone_cv`), the profile of the same data
 with flaws the profiler warns about (`data_warnings`) and a plan whose
 explanation has paragraphs and tags (`free_text_plan`), and a plan with a
 foundation model whose license restricts commercial use
-(`restricted_license_plan`, plan only, no weights loaded). Three more run
+(`restricted_license_plan`, plan only, no weights loaded). Four more run
 on one kind of data: a multivariate plan on the wide dataset
 (`multivariate_plan`), a comparison without a baseline because of an
-asymmetric interval on the single series (`compare_no_baseline`), and a
+asymmetric interval on the single series (`compare_no_baseline`), the
+default comparison on the strategy of a refined plan, whose row is
+`Strategy plan`, on the single series (`compare_refined_plan`), and a
 foundation backtest with a series that ends early on the long dataset
 (`foundation_incomplete`, which needs the backend too). The strategy is
 asked about twice: with `refit` passed by the user (`cv`, the one the

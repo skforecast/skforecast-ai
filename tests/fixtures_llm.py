@@ -18,6 +18,10 @@ from skforecast_ai.schemas import (
 )
 
 from skforecast_ai.execution.backtesting_runner import _build_backtest_explanation
+from skforecast_ai.execution.comparison import (
+    STRATEGY_PLAN_NAME,
+    build_comparison_explanation,
+)
 
 from .fixtures_assistant import (
     df_categorical_exog,
@@ -516,6 +520,7 @@ def make_comparison_result(
     with_failure: bool = False,
     with_baseline: bool = False,
     with_stats: bool = False,
+    with_strategy_plan: bool = False,
 ):
     """
     Build a `ComparisonResult` without backtesting any candidate.
@@ -538,6 +543,12 @@ def make_comparison_result(
         Whether to append a `ForecasterStats` candidate, ranked after the
         other successful candidates, with the strategy skforecast runs for
         it (a refit in every fold, unlike the shared strategy).
+    with_strategy_plan : bool, default False
+        Whether to append the row `'Strategy plan'` that `compare()` adds
+        for the plan the strategy was created for (with LGBMRegressor),
+        ranked after the other successful candidates, set
+        `strategy_plan_name` and write the explanation with
+        `build_comparison_explanation`, as `compare()` does.
 
     Returns
     -------
@@ -589,6 +600,26 @@ def make_comparison_result(
         })
         n_candidates += 1
 
+    if with_strategy_plan:
+        mae = 1.5 + n_candidates
+        candidates[STRATEGY_PLAN_NAME] = BacktestResult(
+            profile     = profile_single,
+            plan        = plan_single.model_copy(update={"estimator": "LGBMRegressor"}),
+            code        = "# strategy plan code",
+            predictions = pd.DataFrame({"pred": [1.0, 2.0, 3.0, 4.0, 5.0]}),
+            metrics     = pd.DataFrame({"MAE": [mae]}),
+            cv_config   = cv_config,
+            explanation = "Backtest of the plan of the strategy.",
+        )
+        rows.append({
+            "rank":       n_candidates + 1,
+            "name":       STRATEGY_PLAN_NAME,
+            "forecaster": "ForecasterRecursive",
+            "estimator":  "LGBMRegressor",
+            "MAE":        mae,
+        })
+        n_candidates += 1
+
     if with_stats:
         mae = 1.5 + n_candidates
         candidates["arima"] = BacktestResult(
@@ -630,6 +661,23 @@ def make_comparison_result(
             "error":      "ImportError: No module named 'lightgbm'",
         })
 
+    explanation = (
+        f"Compared {n_candidates} configurations, ranked ascending by MAE."
+    )
+    if with_strategy_plan:
+        explanation = build_comparison_explanation(
+            n_candidates   = n_candidates + len(failures),
+            ranked         = [
+                (row["name"], candidates[row["name"]], row["MAE"])
+                for row in rows if row["name"] in candidates
+            ],
+            ranking_metric = "MAE",
+            any_error      = bool(failures),
+            cv_explanation = "Initial training of 70 observations, 6 folds.",
+            baseline_name  = baseline_name,
+            strategy_row   = STRATEGY_PLAN_NAME,
+        )
+
     return ComparisonResult(
         profile        = profile_single,
         cv_config      = cv_config,
@@ -637,10 +685,9 @@ def make_comparison_result(
         candidates     = candidates,
         failures       = failures,
         ranking_metric = "MAE",
-        explanation    = (
-            f"Compared {n_candidates} configurations, ranked ascending by MAE."
-        ),
+        explanation    = explanation,
         baseline_name  = baseline_name,
+        strategy_plan_name = STRATEGY_PLAN_NAME if with_strategy_plan else None,
     )
 
 
@@ -712,6 +759,13 @@ GOLDEN_SCENARIOS = {
         with_baseline=True
     ),
     "comparison_with_stats": lambda: make_comparison_result(with_stats=True),
+    # The row of the plan the strategy was created for, ranked below the
+    # baseline, so the summary counts the configurations that beat it.
+    "comparison_with_strategy_plan": lambda: make_comparison_result(
+        n_candidates       = 3,
+        with_baseline      = True,
+        with_strategy_plan = True,
+    ),
     "code_generation_stats_backtest": lambda: make_code_generation_result(
         profile = profile_h2o,
         plan    = plan_stats,

@@ -1194,7 +1194,7 @@ def render_comparison_overview_section(
     if result.strategy_plan_name is not None:
         parts.append(
             f"- Plan the strategy was created for: the row "
-            f"{_one_line(result.strategy_plan_name)}. The rows named after a "
+            f"'{_one_line(result.strategy_plan_name)}'. The rows named after a "
             f"forecaster run the configurations the profile recommends."
         )
     ranking = (
