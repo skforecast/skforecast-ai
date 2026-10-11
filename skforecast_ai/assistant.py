@@ -62,14 +62,12 @@ from .execution.backtesting_runner import render_backtesting_script
 from .execution.comparison import (
     STRATEGY_PLAN_NAME,
     add_baseline_candidate,
-    add_strategy_candidate,
     aggregate_metrics,
     build_comparison_explanation,
     build_comparison_table,
     compare_sort_key,
-    exclude_costly_candidates,
-    missing_foundation_backend,
     resolve_compare_candidates,
+    resolve_default_candidates,
 )
 from .execution.forecast_runner import render_forecast_script
 from .rendering.backtesting import _emit_cv_configuration
@@ -3449,11 +3447,13 @@ class ForecastingAssistant:
         -----
         CandidateFailedWarning
             Once per failed candidate.
+        PlanEditsDiscardedWarning
+            When `candidates` is None and the plan of the `CVResult` runs
+            without values edited by hand that `plan()` does not rebuild.
         UserWarning
             When `candidates` is None and the plan of the `CVResult` is left
-            out (a forecaster family whose metrics cannot be ranked with the
-            candidates), or runs without values edited by hand that `plan()`
-            does not rebuild.
+            out: a forecaster family whose metrics cannot be ranked with the
+            candidates.
         MissingBackendWarning
             When `candidates` is None and the backend of the default
             foundation model is not installed, so `ForecasterFoundation`
@@ -3507,18 +3507,10 @@ class ForecastingAssistant:
             profile.data_profile.data_path if isinstance(data, (str, Path)) else None
         )
 
-        # Automatic candidates leave out a foundation model whose backend
-        # is not installed, rather than fail on every call; the warning and
-        # the explanation say which package to install.
-        excluded: frozenset[str] = frozenset()
-        backend_note = None
-        if candidates is None:
-            excluded, backend_note = missing_foundation_backend(profile)
-            if backend_note is not None:
-                warnings.warn(backend_note, MissingBackendWarning, stacklevel=2)
-        candidate_configs = resolve_compare_candidates(
-            candidates, profile, exclude=excluded
-        )
+        # Explicit candidates are the user's choice and run as given; they
+        # are checked before anything else.
+        if candidates is not None:
+            candidate_configs = resolve_compare_candidates(candidates, profile)
 
         # Checked once here: an invalid interval would make every candidate
         # fail. Whether a method needs a symmetric interval is checked per
@@ -3548,15 +3540,25 @@ class ForecastingAssistant:
 
         steps = cv.steps
 
-        # The plan the strategy was created for is the one the user means
-        # to compare: without `candidates`, it runs as one more row unless
-        # it is one of the candidates of the profile, and the summary names
-        # its row. Explicit candidates are the user's choice and run as
-        # given.
+        # Shared CV parameters (with the fold and training counts) and their
+        # explanation. The folds are counted before any candidate runs, on
+        # the untouched `cv`.
+        cv_config, cv_explanation = resolve_cv_config(cv, profile.data_profile)
+        n_fits = cv_config["n_fits"]
+
+        # Automatic candidates leave out a foundation model whose backend is
+        # not installed, rather than fail on every call, and the
+        # alternatives above a fit budget (with a strategy that refits in
+        # every fold a direct forecaster can take hours). The plan the
+        # strategy was created for is the one the user means to compare: it
+        # runs as one more row unless it is one of the candidates of the
+        # profile, and the summary names its row. Each note is warned.
         strategy_plan = cv_result.plan if cv_result is not None else None
         strategy_name = None
+        backend_note = None
         strategy_note = None
-        if candidates is None and strategy_plan is not None:
+        budget_note = None
+        if candidates is None:
 
             def build_plan(config: CandidateConfig) -> ForecastPlan:
                 with warnings.catch_warnings():
@@ -3569,14 +3571,30 @@ class ForecastingAssistant:
                         **config,
                     )
 
-            candidate_configs, strategy_name, strategy_note = add_strategy_candidate(
-                candidates    = candidate_configs,
-                strategy_plan = strategy_plan,
-                profile       = profile,
-                build_plan    = build_plan,
-            )
+            default = resolve_default_candidates(
+                          profile       = profile,
+                          strategy_plan = strategy_plan,
+                          build_plan    = build_plan,
+                          n_fits        = n_fits,
+                          steps         = steps,
+                          n_folds       = cv_config["n_folds"],
+                      )
+            candidate_configs = default.candidates
+            strategy_name = default.strategy_name
+            backend_note = default.backend_note
+            strategy_note = default.strategy_note
+            budget_note = default.budget_note
+            if backend_note is not None:
+                warnings.warn(backend_note, MissingBackendWarning, stacklevel=2)
             if strategy_note is not None:
-                warnings.warn(strategy_note, UserWarning, stacklevel=2)
+                # Left out (no row), or run without values edited by hand.
+                category = (
+                    UserWarning if strategy_name is None
+                    else PlanEditsDiscardedWarning
+                )
+                warnings.warn(strategy_note, category, stacklevel=2)
+            if budget_note is not None:
+                warnings.warn(budget_note, LongTrainingWarning, stacklevel=2)
         # The row added for that plan, which the summary describes; a
         # candidate of the profile that is that plan keeps its own name.
         strategy_row = strategy_name if strategy_name == STRATEGY_PLAN_NAME else None
@@ -3587,29 +3605,6 @@ class ForecastingAssistant:
             candidate_configs, baseline_name, baseline_note = (
                 add_baseline_candidate(candidate_configs, profile, interval)
             )
-
-        # Shared CV parameters (with the fold and training counts) and their
-        # explanation. The folds are counted before any candidate runs, on
-        # the untouched `cv`.
-        cv_config, cv_explanation = resolve_cv_config(cv, profile.data_profile)
-        n_fits = cv_config["n_fits"]
-
-        # Automatic candidates are also kept within a fit budget: with a
-        # strategy that refits in every fold a direct forecaster can take
-        # hours. Explicit candidates always run; they only get the warning.
-        budget_note = None
-        if candidates is None:
-            # The plan of the strategy always runs, as its backtest would.
-            candidate_configs, budget_note = exclude_costly_candidates(
-                candidate_configs = candidate_configs,
-                preferred         = profile.forecaster,
-                n_fits            = n_fits,
-                steps             = steps,
-                n_folds           = cv_config["n_folds"],
-                keep              = frozenset({strategy_name} - {None}),
-            )
-            if budget_note is not None:
-                warnings.warn(budget_note, LongTrainingWarning, stacklevel=2)
 
         # Warned once per costly candidate here; the warning of each
         # backtest() call is silenced in the loop so it is not repeated.
@@ -3831,19 +3826,19 @@ class ForecastingAssistant:
                 f"{cv.differentiation}): {own_differentiation}."
                 if own_differentiation else None
             ),
-            strategy_row   = strategy_row,
-            strategy_note  = strategy_note,
+            strategy_row         = strategy_row,
+            strategy_note        = strategy_note,
         )
 
         return ComparisonResult(
-            profile        = profile,
-            cv_config      = cv_config,
-            results        = results,
-            candidates     = candidate_results,
-            failures       = failures,
-            ranking_metric = ranking_metric,
-            explanation    = explanation,
-            baseline_name  = baseline_name,
+            profile            = profile,
+            cv_config          = cv_config,
+            results            = results,
+            candidates         = candidate_results,
+            failures           = failures,
+            ranking_metric     = ranking_metric,
+            explanation        = explanation,
+            baseline_name      = baseline_name,
             strategy_plan_name = strategy_name,
             **_cv_provenance_fields(
                 cv_result, cv, cv_config, None, profile, created_for_row=strategy_name

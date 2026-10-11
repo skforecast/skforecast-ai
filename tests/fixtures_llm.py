@@ -679,14 +679,14 @@ def make_comparison_result(
         )
 
     return ComparisonResult(
-        profile        = profile_single,
-        cv_config      = cv_config,
-        results        = pd.DataFrame(rows),
-        candidates     = candidates,
-        failures       = failures,
-        ranking_metric = "MAE",
-        explanation    = explanation,
-        baseline_name  = baseline_name,
+        profile            = profile_single,
+        cv_config          = cv_config,
+        results            = pd.DataFrame(rows),
+        candidates         = candidates,
+        failures           = failures,
+        ranking_metric     = "MAE",
+        explanation        = explanation,
+        baseline_name      = baseline_name,
         strategy_plan_name = STRATEGY_PLAN_NAME if with_strategy_plan else None,
     )
 

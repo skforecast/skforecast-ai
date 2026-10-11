@@ -26,13 +26,15 @@ The main changes in this release are:
 
 **Added**
 
++ New field `strategy_plan_name` of [`ComparisonResult`][results]: the row of the comparison that runs the plan the strategy of `create_cv()` was created for, or None.
+
 
 **Changed**
 
 
 **Fixed**
 
-+ [<code>ForecastingAssistant.compare()</code>][assistant] without `candidates`, on the strategy of a plan refined with another estimator, lags or window features, did not run that plan. It now runs as the row `'Strategy plan'` (named in `strategy_plan_name` of the [`ComparisonResult`][results]), and the summary names that row and counts the configurations that beat the baseline, not those that do not.
++ [<code>ForecastingAssistant.compare()</code>][assistant] without `candidates`, on the strategy of a plan refined with another estimator, lags or window features, did not run that plan. It now runs as the row `'Strategy plan'`, and the summary names that row and counts the configurations that beat the baseline, not those that do not.
 
 + The `cost` of `create_cv` in the MCP server counted, for a `compare` without `candidates`, forecasters that `compare` leaves out (the multivariate one with several series, a foundation model without its backend). It now counts the candidates that `compare` runs, the plan of the strategy included. See [MCP server for coding agents][mcp-guide].
 

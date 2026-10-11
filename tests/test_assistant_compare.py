@@ -40,6 +40,7 @@ from skforecast_ai import (
     InvalidInputError,
     InvalidInputTypeError,
     MissingBackendWarning,
+    PlanEditsDiscardedWarning,
 )
 
 from tests.fixtures_compare import (
@@ -52,6 +53,7 @@ from tests.fixtures_compare import (
     cv_sales_forest,
     cv_sales_refined,
     plan_h2o_refined,
+    plan_sales_edited,
     profile_h2o,
     profile_multi,
     profile_sales,
@@ -3542,3 +3544,34 @@ def test_build_comparison_explanation_when_strategy_plan_failed():
         "forecaster run the configurations the profile recommends, not that "
         "plan. Shared cross-validation strategy: Folds."
     )
+
+
+def test_compare_PlanEditsDiscardedWarning_when_strategy_plan_was_edited_by_hand():
+    """
+    Test that compare() without candidates warns with
+    PlanEditsDiscardedWarning when the plan of the strategy holds a value
+    edited by hand that `plan()` does not rebuild: its row still runs, as
+    the plan rebuilt without that value, and the summary carries the note.
+    """
+    cv = cv_sales.model_copy(update={"plan": plan_sales_edited})
+    note = (
+        "The row 'Strategy plan' runs the plan the strategy was created for "
+        "as `plan()` rebuilds it, which changes these values of that plan: "
+        "[\"forecaster_kwargs['differentiation']\"]. Pass the plan to "
+        "`backtest()` to measure it as it is."
+    )
+
+    with pytest.warns(PlanEditsDiscardedWarning, match=re.escape(note)):
+        result = assistant.compare(
+            data          = df_no_exog,
+            cv            = cv,
+            profile       = profile_sales,
+            target        = "sales",
+            date_column   = "date",
+            show_progress = False,
+        )
+
+    assert result.strategy_plan_name == "Strategy plan"
+    strategy_plan = result.candidates["Strategy plan"].plan
+    assert "differentiation" not in strategy_plan.forecaster_kwargs
+    assert note in result.explanation

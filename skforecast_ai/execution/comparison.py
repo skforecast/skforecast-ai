@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 from collections.abc import Callable
-from typing import Any
+from typing import Any, NamedTuple
 import numpy as np
 import pandas as pd
 from .._constants import (
@@ -247,6 +247,7 @@ def resolve_compare_candidates(
 
     return resolved
 
+
 def strategy_candidate_config(plan: ForecastPlan) -> CandidateConfig:
     """
     Configuration of a candidate whose plan holds the decisions of `plan`.
@@ -404,6 +405,109 @@ def add_strategy_candidate(
             return candidates, name, None
 
     return [*candidates, (STRATEGY_PLAN_NAME, config)], STRATEGY_PLAN_NAME, None
+
+
+class DefaultCandidates(NamedTuple):
+    """
+    Candidates that `compare()` without `candidates` runs, before the
+    baseline, as returned by `resolve_default_candidates()`.
+
+    Attributes
+    ----------
+    candidates : list of tuple of (str, CandidateConfig)
+        `(name, config)` pairs, in the order they run.
+    strategy_name : str, None
+        Name of the row that runs the plan the strategy was created for,
+        or None when no row runs it.
+    backend_note : str, None
+        Why a foundation candidate was left out, see
+        `missing_foundation_backend()`.
+    strategy_note : str, None
+        Why the plan of the strategy was left out, or which of its values
+        its row does not run, see `add_strategy_candidate()`.
+    budget_note : str, None
+        Which candidates were left out for exceeding the fit budget, see
+        `exclude_costly_candidates()`.
+    """
+
+    candidates: list[tuple[str, CandidateConfig]]
+    strategy_name: str | None
+    backend_note: str | None
+    strategy_note: str | None
+    budget_note: str | None
+
+
+def resolve_default_candidates(
+    profile: ForecastingProfile,
+    strategy_plan: ForecastPlan | None,
+    build_plan: Callable[[CandidateConfig], ForecastPlan],
+    n_fits: int,
+    steps: int,
+    n_folds: int,
+) -> DefaultCandidates:
+    """
+    Resolve the candidates of `compare()` without `candidates`.
+
+    The one sequence that decides what such a comparison runs, shared by
+    `compare()` and by the cost the MCP server announces in `create_cv`, so
+    the two never disagree: the candidates of the profile without a
+    foundation model whose backend is not installed, the plan of the
+    strategy when it is none of them, and without the alternatives above
+    the fit budget (the recommended forecaster and the plan of the strategy
+    always run). The baseline is added afterwards.
+
+    Parameters
+    ----------
+    profile : ForecastingProfile
+        Shared profile used for every candidate.
+    strategy_plan : ForecastPlan, None
+        Plan the strategy was created for (`CVResult.plan`), or None when
+        the strategy is a `TimeSeriesFold`.
+    build_plan : Callable
+        Function that builds the plan of a candidate configuration as the
+        comparison does, see `add_strategy_candidate()`.
+    n_fits : int
+        Number of folds in which a forecaster is trained under the shared
+        strategy, see `count_cv_fits`.
+    steps : int
+        Forecast horizon of each fold.
+    n_folds : int
+        Number of folds of the shared strategy.
+
+    Returns
+    -------
+    resolved : DefaultCandidates
+        Candidates, the row of the plan of the strategy and the notes of
+        what was left out.
+    """
+
+    excluded, backend_note = missing_foundation_backend(profile)
+    candidates = resolve_compare_candidates(None, profile, exclude=excluded)
+    strategy_name = None
+    strategy_note = None
+    if strategy_plan is not None:
+        candidates, strategy_name, strategy_note = add_strategy_candidate(
+            candidates    = candidates,
+            strategy_plan = strategy_plan,
+            profile       = profile,
+            build_plan    = build_plan,
+        )
+    candidates, budget_note = exclude_costly_candidates(
+        candidate_configs = candidates,
+        preferred         = profile.forecaster,
+        n_fits            = n_fits,
+        steps             = steps,
+        n_folds           = n_folds,
+        keep              = frozenset({strategy_name} - {None}),
+    )
+
+    return DefaultCandidates(
+        candidates    = candidates,
+        strategy_name = strategy_name,
+        backend_note  = backend_note,
+        strategy_note = strategy_note,
+        budget_note   = budget_note,
+    )
 
 
 def aggregate_metrics(metrics: pd.DataFrame | None) -> dict[str, Any]:

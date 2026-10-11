@@ -50,10 +50,7 @@ from ..assistant import ForecastingAssistant
 from ..exceptions import DataContentError, InvalidInputError, SkforecastAIError
 from ..execution.comparison import (
     STRATEGY_PLAN_NAME,
-    add_strategy_candidate,
-    exclude_costly_candidates,
-    missing_foundation_backend,
-    resolve_compare_candidates,
+    resolve_default_candidates,
 )
 from ..profiling.data_profile import _listed_columns, read_csv_file
 from ..recommendation import (
@@ -1415,11 +1412,12 @@ def _default_compare_cost(
 ) -> tuple[dict[str, int], int]:
     """
     Cost of the candidates that a `compare` without candidates runs with a
-    strategy, resolved as `compare()` resolves them: the candidates of the
-    profile (without a foundation model whose backend is not installed),
-    the plan the strategy was created for when it is none of them, and
-    without the alternatives above the budget of `compare()` (the
-    recommended forecaster and the plan of the strategy always run). The
+    strategy, resolved by `resolve_default_candidates()`, as `compare()`
+    resolves them: the candidates of the profile (without a foundation model
+    whose backend is not installed), the plan the strategy was created for
+    when it is none of them, and without the alternatives above the budget
+    of `compare()` (the recommended forecaster and the plan of the strategy
+    always run). The
     interval and the metric are those the `compare` tool takes from that
     plan. The baseline fits nothing and is not counted. The fits are those
     of the strategy as `compare()` shares it, not as the forecaster of the
@@ -1453,24 +1451,16 @@ def _default_compare_cost(
                 **config,
             )
 
-    excluded, _ = missing_foundation_backend(profile)
-    candidates = resolve_compare_candidates(None, profile, exclude=excluded)
-    candidates, strategy_name, _ = add_strategy_candidate(
-        candidates    = candidates,
-        strategy_plan = plan,
-        profile       = profile,
-        build_plan    = build_plan,
-    )
     shared, _ = resolve_cv_config(cv_result.cv, profile.data_profile)
     n_fits, n_folds = int(shared["n_fits"]), int(shared["n_folds"])
-    candidates, _ = exclude_costly_candidates(
-        candidate_configs = candidates,
-        preferred         = profile.forecaster,
-        n_fits            = n_fits,
-        steps             = plan.steps,
-        n_folds           = n_folds,
-        keep              = frozenset({strategy_name} - {None}),
-    )
+    candidates = resolve_default_candidates(
+                     profile       = profile,
+                     strategy_plan = plan,
+                     build_plan    = build_plan,
+                     n_fits        = n_fits,
+                     steps         = plan.steps,
+                     n_folds       = n_folds,
+                 ).candidates
 
     fits = {}
     inference_windows = 0
