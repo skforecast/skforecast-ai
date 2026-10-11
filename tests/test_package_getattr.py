@@ -124,3 +124,39 @@ def test_getattr_imports_the_names_on_first_access_in_a_new_interpreter():
         "True",
         "[]",
     ]
+
+
+def test_getattr_imports_the_submodules_the_package_used_to_load():
+    """
+    Test in a fresh interpreter that, after `import skforecast_ai` alone, the
+    submodules that importing the package used to load can be read as its
+    attributes (`skforecast_ai.schemas.ForecastPlan`), and that the ones it
+    never loaded (`mcp`, `cli`) still need their own import.
+    """
+    code = (
+        "import skforecast_ai\n"
+        "for name in ('assistant', 'execution', 'llm', 'profiling', "
+        "'recommendation', 'rendering', 'schemas', '_utils'):\n"
+        "    print(name, getattr(skforecast_ai, name).__name__)\n"
+        "print(skforecast_ai.schemas.ForecastPlan.__name__)\n"
+        "print(hasattr(skforecast_ai, 'mcp'), hasattr(skforecast_ai, 'cli'))\n"
+    )
+
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=REPO_ROOT, capture_output=True, text=True, timeout=120,
+    )
+
+    assert proc.returncode == 0, proc.stderr[-2000:]
+    assert proc.stdout.splitlines() == [
+        "assistant skforecast_ai.assistant",
+        "execution skforecast_ai.execution",
+        "llm skforecast_ai.llm",
+        "profiling skforecast_ai.profiling",
+        "recommendation skforecast_ai.recommendation",
+        "rendering skforecast_ai.rendering",
+        "schemas skforecast_ai.schemas",
+        "_utils skforecast_ai._utils",
+        "ForecastPlan",
+        "False False",
+    ]

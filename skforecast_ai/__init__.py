@@ -64,6 +64,16 @@ if _typing.TYPE_CHECKING:
         SingleRunResult,
     )
 
+# Submodules that importing the package loaded before the names were
+# imported on first access, so `import skforecast_ai` followed by
+# `skforecast_ai.schemas.ForecastPlan` still works. Others (`mcp`, `cli`)
+# need their own import, as before.
+_LAZY_SUBMODULES = frozenset({
+    "_constants", "_dates", "_display", "_foundation", "_future_exog",
+    "_last_window", "_utils", "_validation", "assistant", "execution", "llm",
+    "profiling", "recommendation", "rendering", "schemas",
+})
+
 # Module of each name imported on first access, relative to this package.
 _LAZY_NAMES = {
     "ForecastingAssistant": ".assistant",
@@ -129,8 +139,9 @@ __all__ = [
 
 def __getattr__(name: str) -> object:
     """
-    Import a public name on first access and keep it in the namespace of the
-    package, so later accesses do not come back here.
+    Import a public name, or a submodule the package used to load with it,
+    on first access and keep it in the namespace of the package, so later
+    accesses do not come back here.
 
     Parameters
     ----------
@@ -140,9 +151,12 @@ def __getattr__(name: str) -> object:
     Returns
     -------
     value : object
-        The class or object of that name.
+        The class, object or submodule of that name.
     """
 
+    if name in _LAZY_SUBMODULES:
+        # Importing a submodule also sets it as an attribute of the package.
+        return _importlib.import_module(f".{name}", __name__)
     module = _LAZY_NAMES.get(name)
     if module is None:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
