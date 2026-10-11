@@ -427,6 +427,36 @@ def test_compare_explanation_content_when_single_series():
     assert "failed to run" not in explanation
 
 
+def test_compare_explanation_says_tied_when_best_and_runner_up_have_same_value():
+    """
+    Test that the compare() explanation says the best candidate is tied
+    with the runner-up when both have the same value of the ranking
+    metric, instead of quoting a margin of 0.0%.
+    """
+    result = assistant.compare(
+        data=df_single,
+        cv=_single_cv(),
+        target="sales",
+        date_column="date",
+        candidates=[
+            ("first", {"forecaster": "ForecasterRecursive"}),
+            ("second", {"forecaster": "ForecasterRecursive"}),
+        ],
+        show_progress=False,
+        baseline=False,
+    )
+
+    value = result.results["mean_absolute_error"].iloc[0]
+
+    assert result.results["mean_absolute_error"].iloc[1] == value
+    assert (
+        f"Best: 'first' (ForecasterRecursive / Ridge) = {value:.4f}, "
+        f"tied with 'second' ({value:.4f})."
+        in result.explanation
+    )
+    assert "ahead of" not in result.explanation
+
+
 def test_compare_explanation_reports_averaged_metric_when_multi_series():
     """
     Test that the compare() explanation flags the ranking metric as

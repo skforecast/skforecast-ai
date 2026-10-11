@@ -875,7 +875,13 @@ def build_comparison_explanation(
         # the baseline sentence, which quotes the same margin.
         runner_name, _, runner_value = ranked[1]
         if np.isfinite(runner_value) and runner_name != baseline_name:
-            if np.isfinite(best_value) and runner_value != 0:
+            if best_value == runner_value:
+                # Two candidates with the same value are a tie: "0.0%
+                # ahead" would present the first of them as better.
+                best_sentence += (
+                    f", tied with '{runner_name}' ({runner_value:.4f})"
+                )
+            elif np.isfinite(best_value) and runner_value != 0:
                 margin = 100 * (runner_value - best_value) / abs(runner_value)
                 best_sentence += (
                     f", {margin:.1f}% ahead of '{runner_name}' "

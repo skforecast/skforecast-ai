@@ -37,6 +37,8 @@ The main changes in this release are:
 
 + [<code>ForecastingAssistant.compare()</code>][assistant] without `candidates`, on the strategy of a plan refined with another estimator, lags or window features, did not run that plan. It now runs as the row `'Strategy plan'`, and the summary names that row and counts the configurations that beat the baseline, not those that do not ([#71](https://github.com/skforecast/skforecast-ai/pull/71)).
 
++ [<code>ForecastingAssistant.compare()</code>][assistant]: when the two best configurations have the same value of the ranking metric, the summary says they are tied instead of "0.0% ahead" ([#71](https://github.com/skforecast/skforecast-ai/pull/71)).
+
 + The `cost` of `create_cv` in the MCP server, for a `compare` without `candidates`, counted forecasters that `compare` does not run (the multivariate one with several series) and only one of the estimators it compares when a single forecaster is left. It now counts the candidates that `compare` runs, the plan of the strategy included. See [MCP server for coding agents][mcp-guide] ([#71](https://github.com/skforecast/skforecast-ai/pull/71)).
 
 
