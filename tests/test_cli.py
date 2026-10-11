@@ -4,6 +4,8 @@ import ast
 import io
 import json
 import re
+import subprocess
+import sys
 import warnings
 
 import numpy as np
@@ -1630,6 +1632,27 @@ class TestWarningsToStderr:
         assert "LongTrainingWarning" in result.stderr
         assert "LongTrainingWarning" not in result.stdout
         assert handler_after is rich_warning_handler
+
+    def test_backtest_json_stdout_parseable_in_a_new_interpreter(self, tmp_path):
+        """
+        In a new interpreter, where skforecast is first imported when the
+        command runs (after the CLI installed its handler), a skforecast
+        warning still goes to stderr and the JSON document on stdout stays
+        parseable.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        proc = subprocess.run(
+            [sys.executable, "-W", "always", "-m", "skforecast_ai.cli",
+             "backtest", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "1", "--initial-train-size", "40", "--refit",
+             "--format", "json", "--quiet"],
+            capture_output=True, text=True, timeout=300, cwd=tmp_path,
+        )
+        assert proc.returncode == 0, proc.stderr[-2000:]
+        payload = json.loads(proc.stdout)
+        assert "metrics" in payload
+        assert "LongTrainingWarning" in proc.stderr
+        assert "LongTrainingWarning" not in proc.stdout
 
     def test_showwarning_to_stderr_keeps_explicit_file(self, capsys):
         """

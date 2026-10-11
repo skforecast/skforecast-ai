@@ -13,7 +13,7 @@ import os
 import sys
 import warnings
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 import typer
 from rich.console import Console
 from rich.markup import escape
@@ -21,17 +21,6 @@ from rich.table import Table
 from pydantic import ValidationError
 
 from . import __version__
-from ._display import (
-    render_code,
-    render_cv_config,
-    render_dataframe,
-    render_explanation,
-    render_llm_check,
-    render_metrics,
-    render_plan,
-    render_profile,
-)
-from .assistant import ForecastingAssistant
 from .config import (
     CONFIG_FILE,
     VALID_KEYS,
@@ -48,10 +37,15 @@ from .exceptions import (
     LLMRequiredError,
     SkforecastAIError,
 )
-from ._utils import _validate_lags, load_exog
-from .schemas.errors import ErrorInfo
-from .schemas.plans import ForecastPlan
-from .schemas.profiles import ForecastingProfile
+
+# The assistant, the schemas and the rendering load pandas, scikit-learn,
+# scipy and skforecast: each command imports them when it runs, so `mcp`
+# starts the server without them (it loads them in the background once its
+# client is connected).
+if TYPE_CHECKING:
+    from .assistant import ForecastingAssistant
+    from .schemas.plans import ForecastPlan
+    from .schemas.profiles import ForecastingProfile
 
 # Literal a CLI option accepts to ask for the deterministic default instead
 # of an explicit value (`--lags auto` re-runs the PACF-based selection).
@@ -183,6 +177,11 @@ def main(
     # `redirect_stdout` is not thread safe.
     if ctx.invoked_subcommand == "mcp":
         return
+    # skforecast installs its handler when `skforecast.exceptions` is first
+    # imported, and the commands import skforecast when they run: import it
+    # now (it loads no pandas), so the handler wrapped here is that one.
+    import skforecast.exceptions  # noqa: F401
+
     previous = warnings.showwarning
     if not getattr(previous, "_skforecast_ai_stderr", False):
         warnings.showwarning = _showwarning_to_stderr(previous)
@@ -402,6 +401,8 @@ def _read_plan_bundle(source: str) -> tuple[ForecastingProfile, ForecastPlan]:
     plan : ForecastPlan
         Plan of the bundle.
     """
+    from .schemas.plans import ForecastPlan
+    from .schemas.profiles import ForecastingProfile
     bundle = _read_json_input(source)
     missing = [
         key for key in ("profile", "plan")
@@ -833,6 +834,7 @@ def _report_error(exc: Exception, json_errors: bool) -> None:
     -------
     None
     """
+    from .schemas.errors import ErrorInfo
     label = "Error"
     message = str(exc)
     tip = exc.hint if isinstance(exc, SkforecastAIError) else None
@@ -942,6 +944,7 @@ def _render_profile_table(profile) -> None:
     -------
     None
     """
+    from ._display import render_profile
     console.print(render_profile(profile))
 
 
@@ -961,6 +964,7 @@ def _render_plan_panel(plan) -> None:
     -------
     None
     """
+    from ._display import render_plan
     console.print(render_plan(plan, show_warnings=False))
 
 
@@ -976,6 +980,7 @@ def profile(
     quiet: QuietOption = False,
 ) -> None:
     """Profile a dataset and recommend a forecaster and an estimator."""
+    from .assistant import ForecastingAssistant
     with _error_handler(json_errors=format == "json"):
         assistant = ForecastingAssistant()
         parsed_target = _parse_target(target)
@@ -1032,6 +1037,7 @@ def _parse_lags(lags_str: str | None) -> int | list[int] | None:
     lags : int, list of int, None
         Parsed lags or None.
     """
+    from ._utils import _validate_lags
     if lags_str is None or _is_auto(lags_str):
         return None
     try:
@@ -1132,6 +1138,8 @@ def plan(
     quiet: QuietOption = False,
 ) -> None:
     """Generate a detailed forecasting plan from a dataset."""
+    from .assistant import ForecastingAssistant
+    from .schemas.profiles import ForecastingProfile
     with _error_handler(json_errors=format == "json"):
         if steps is None:
             raise InvalidInputError(
@@ -1225,6 +1233,9 @@ def refine_plan(
     quiet: QuietOption = False,
 ) -> None:
     """Refine an existing forecasting plan by overriding specific fields or using LLM guidance."""
+    from .assistant import ForecastingAssistant
+    from .schemas.plans import ForecastPlan
+    from .schemas.profiles import ForecastingProfile
     with _error_handler(json_errors=format == "json"):
         bundle_data = _read_json_input(from_plan)
         prof = ForecastingProfile.model_validate(bundle_data.get("profile", {}))
@@ -1306,6 +1317,8 @@ def forecast_code(
     quiet: QuietOption = False,
 ) -> None:
     """Generate a complete Python forecasting script."""
+    from ._display import render_code
+    from .assistant import ForecastingAssistant
     with _error_handler(json_errors=format == "json"):
         assistant = ForecastingAssistant()
         parsed_interval = _parse_interval(interval)
@@ -1409,6 +1422,8 @@ def backtest_code(
     quiet: QuietOption = False,
 ) -> None:
     """Generate a complete Python backtesting script without executing it."""
+    from ._display import render_code
+    from .assistant import ForecastingAssistant
     with _error_handler(json_errors=format == "json"):
         assistant = ForecastingAssistant()
 
@@ -1541,6 +1556,7 @@ def _render_forecast_results(result) -> None:
     -------
     None
     """
+    from ._display import render_dataframe, render_metrics
     if result.metrics is not None:
         console.print(render_metrics(result.metrics, title="Forecast Metrics"))
         console.print()
@@ -1595,6 +1611,8 @@ def forecast(
     quiet: QuietOption = False,
 ) -> None:
     """Run end-to-end forecasting and report predictions, plus metrics with --test-size."""
+    from .assistant import ForecastingAssistant
+    from ._utils import load_exog
     with _error_handler(json_errors=format == "json"):
         assistant = ForecastingAssistant()
         parsed_interval = _parse_interval(interval)
@@ -1705,6 +1723,7 @@ def _render_backtest_results(result) -> None:
     -------
     None
     """
+    from ._display import render_cv_config, render_dataframe, render_metrics
     console.print(render_cv_config(result.cv_config))
     console.print()
     console.print(render_metrics(result.metrics, title="Backtest Metrics"))
@@ -1748,6 +1767,7 @@ def backtest(
     quiet: QuietOption = False,
 ) -> None:
     """Run backtesting evaluation and report metrics and predictions."""
+    from .assistant import ForecastingAssistant
     with _error_handler(json_errors=format == "json"):
         llm_value = _resolve(llm, "SKFORECAST_AI_LLM", "llm.provider")
         base_url_value = _resolve(base_url, "SKFORECAST_AI_BASE_URL", "llm.base_url")
@@ -1935,6 +1955,7 @@ def _render_comparison_results(result) -> None:
     -------
     None
     """
+    from ._display import render_cv_config, render_dataframe, render_explanation
     console.print(render_explanation(result.explanation, title="Comparison Explanation"))
     console.print()
     console.print(render_dataframe(result.results, title="Comparison Results"))
@@ -1965,6 +1986,8 @@ def compare(
     quiet: QuietOption = False,
 ) -> None:
     """Compare several forecasters and report a ranked leaderboard."""
+    from .assistant import ForecastingAssistant
+    from .schemas.profiles import ForecastingProfile
     with _error_handler(json_errors=format == "json"):
         assistant = ForecastingAssistant()
         parsed_interval = _parse_interval(interval)
@@ -2073,6 +2096,9 @@ def ask(
     quiet: QuietOption = False,
 ) -> None:
     """Ask a forecasting question using an LLM."""
+    from ._display import render_explanation
+    from .assistant import ForecastingAssistant
+    from .schemas.profiles import ForecastingProfile
     with _error_handler(json_errors=format == "json"):
         llm_value = _resolve(llm, "SKFORECAST_AI_LLM", "llm.provider")
         base_url_value = _resolve(base_url, "SKFORECAST_AI_BASE_URL", "llm.base_url")
@@ -2143,6 +2169,8 @@ def check_llm(
     quiet: QuietOption = False,
 ) -> None:
     """Check how the LLM configuration resolves and whether it can be used."""
+    from ._display import render_llm_check
+    from .assistant import ForecastingAssistant
     with _error_handler(json_errors=format == "json"):
         llm_value = _resolve(llm, "SKFORECAST_AI_LLM", "llm.provider")
         base_url_value = _resolve(base_url, "SKFORECAST_AI_BASE_URL", "llm.base_url")
