@@ -209,8 +209,12 @@ _SUFFIXES_TEXT = "'.csv', '.tsv', '.csv.gz' or '.tsv.gz'"
 
 
 def _is_csv_name(path: str) -> bool:
-    """Return whether the name of a file has one of `CSV_SUFFIXES`."""
-    return os.path.basename(path).lower().endswith(CSV_SUFFIXES)
+    """
+    Return whether the name of a file has one of `CSV_SUFFIXES` after a
+    name: a file called just '.csv' has no extension, as before.
+    """
+    name = os.path.basename(path).lower()
+    return name.endswith(CSV_SUFFIXES) and name not in CSV_SUFFIXES
 
 
 def resolve_csv_path(raw: str, allowed: AllowedDir, field: str) -> str:

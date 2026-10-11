@@ -41,11 +41,15 @@ DECOMPRESSION_ERRORS = (gzip.BadGzipFile, EOFError, zlib.error, lzma.LZMAError)
 _SEPARATOR_NAMES = {",": "','", ";": "';'", "\t": "a tabulator"}
 
 # A number with decimals written with each mark, and nothing else in the
-# field. Thousands separators are not read: pandas would not read them.
+# field.
 _DECIMAL_NUMBERS = {
     ",": re.compile(r"[+-]?\d+,\d+(?:[eE][+-]?\d+)?"),
     ".": re.compile(r"[+-]?(?:\d+\.\d*|\.\d+)(?:[eE][+-]?\d+)?"),
 }
+
+# A number that reads both as thousands separated by ',' and as a number
+# with three decimals ('1,234'): alone, it does not tell the decimal mark.
+_THOUSANDS = re.compile(r"[+-]?[1-9]\d{0,2}(?:,\d{3})+")
 
 DIALECT_HINT = (
     "Profile the file saying how it is written, with `sep` (',', ';' or a "
@@ -219,6 +223,8 @@ def detect_csv_dialect(
     the header, and `','` when the header holds none, as before. The decimal
     mark is `','` only when the separator is not `','` and the sample holds
     numbers written as `'1,5'` and none written as `'1.5'`.
+    Numbers such as `'1,234'`, which also read as thousands, do not tell the
+    decimal mark when no other number has a `','`.
 
     Parameters
     ----------
@@ -242,8 +248,9 @@ def detect_csv_dialect(
 
     Notes
     -----
-    A file that reads with more than one separator, or that holds numbers
-    written with both decimal marks, raises `InvalidInputError` with code
+    A file that reads with more than one separator, that holds numbers
+    written with both decimal marks, or whose only numbers with a `','`
+    also read as thousands, raises `InvalidInputError` with code
     `'data_unreadable'` and a hint that says how to give them: the dialect
     is never guessed.
     """
@@ -295,19 +302,32 @@ def detect_csv_dialect(
             rows = records.get(sep) or _records(sample, sep) or []
             counts = {mark: 0 for mark in CSV_DECIMALS}
             examples = {}
+            only_thousands = True
             for row in rows[1:]:
                 for value in row:
                     value = value.strip()
                     for mark, pattern in _DECIMAL_NUMBERS.items():
                         if pattern.fullmatch(value):
                             counts[mark] += 1
-                            examples.setdefault(mark, value)
+                            examples.setdefault(mark, value[:20])
+                            if mark == "," and not _THOUSANDS.fullmatch(value):
+                                only_thousands = False
             if counts[","] and counts["."]:
                 raise InvalidInputError(
                     f"The decimal mark of the CSV file '{source}' cannot be "
                     f"told: it holds numbers written with ',' (such as "
                     f"{examples[',']!r}) and with '.' (such as "
                     f"{examples['.']!r}).",
+                    code  = "data_unreadable",
+                    field = field,
+                    hint  = hint,
+                )
+            if counts[","] and only_thousands:
+                raise InvalidInputError(
+                    f"The decimal mark of the CSV file '{source}' cannot be "
+                    f"told: its numbers with a ',' (such as {examples[',']!r}) "
+                    f"read both as thousands and as numbers with three "
+                    f"decimals.",
                     code  = "data_unreadable",
                     field = field,
                     hint  = hint,

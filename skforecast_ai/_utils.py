@@ -975,8 +975,8 @@ def _resolve_data_and_target(
             field = "target",
         )
 
+    check_csv_dialect(sep, decimal)
     if isinstance(data, (str, Path)):
-        check_csv_dialect(sep, decimal)
         data_str = str(data)
         if data_str.startswith(("http://", "https://")):
             try:
@@ -1417,7 +1417,9 @@ def _with_data_path(
     sep, decimal = dp.csv_sep, dp.csv_decimal
     if data_path == PLACEHOLDER_DATA_PATH:
         sep, decimal = DEFAULT_CSV_SEP, DEFAULT_CSV_DECIMAL
-    elif isinstance(data, (str, Path)):
+    else:
+        # Also for the DataFrame of a comparison, whose path is the one of
+        # the file it was read from.
         read_sep, read_decimal = _dialect_read(data_path)
         if read_sep is not None:
             sep, decimal = read_sep, read_decimal
