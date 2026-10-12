@@ -10,6 +10,22 @@ name: Publish to PyPI
 #
 # Each index trusts this workflow for both projects, with the environment
 # `pypi` or `testpypi` (see packages/README.md).
+#
+# A release, step by step:
+#
+# 1. Run /release-bump and merge everything into the release branch X.Y.x.
+# 2. Open the pull request X.Y.x to main and wait for the tests and the
+#    coverage to pass. Do not merge it yet: the plugin is served from main
+#    and pins a version of skforecast-ai-mcp that is not on PyPI.
+# 3. Create the GitHub release vX.Y.Z on X.Y.x and publish it. This
+#    workflow starts by itself; approve the two deployments, first
+#    skforecast-ai and then skforecast-ai-mcp.
+# 4. Publish the entry of the MCP registry with mcp-publisher.
+# 5. Merge the pull request into main.
+# 6. Select Publish for the new version in the plugin directory of
+#    Anthropic.
+#
+# Steps 4 and 6 are detailed in packages/README.md.
 
 on:
   release:
