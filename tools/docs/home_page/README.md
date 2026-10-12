@@ -236,22 +236,30 @@ chapters (Connect, Ask, Rules decide, Validate, Answer) are the steps of the
 header: each one ends in a still, complete state, and the reader can jump
 between them (see "Chapters" below).
 
-The layout follows "Deterministic first, LLM second": your machine in a
-dashed frame with the agent, the server (orange, deterministic rules) and two
-folders, the project folder (`--allow-dir`, the only one the server reads,
-where the rows of the data stay) and the output folder (temporary unless
-`--output-dir`, where the predictions are written). It reads from left to
-right, as the title does: the agent asks, the server decides, and the server
-stands over the output folder it writes to. One thing moves at a time, and in
-Ask the server and the folders fade, since they take no part in it.
+The layout follows "Deterministic first, LLM second": the agent, the server
+(orange, deterministic rules) and two folders, the project folder
+(`--allow-dir`, the only one the server reads, where the rows of the data
+stay) and the output folder (temporary unless `--output-dir`, where the
+predictions are written). It reads from left to right, as the title does: the
+agent asks, the server decides, and the server stands over the output folder
+it writes to. One thing moves at a time, and in Ask the server and the
+folders fade, since they take no part in it. In Connect the server and the
+two folders come in one by one, more than a second apart.
+
+There is no frame for "your machine": once the model moved into the agent, a
+frame around everything separated nothing and suggested that the model runs
+locally. That the server is local is said in its subtitle, "runs on your
+machine".
 
 The language model lives in the agent: a violet strip at the foot of its
 card, not a box of its own. Nothing travels to it. It is lit while it reads
-or picks (`MODEL`: "reads your request", "picks profile", "reads the
-summary", "writes the answer") and off, "waits for the server", while a tool
-runs, so violet and orange alternate as the title says: the model asks, the
-rules decide. The strip is inside the frame of the machine, but the model may
-not run there, hence its label "local or cloud".
+or chooses (`MODEL`: "reads your request", "next in the workflow: profile",
+"reads the summary", "writes the answer") and off, "waits for the server",
+while a tool runs, so violet and orange alternate as the title says: the
+model asks, the rules decide. It says "next in the workflow" and not "picks":
+the model does not guess the order, the instructions of the server give it
+(`profile` -> `plan` -> `create_cv` -> `compare` -> `forecast`), and the
+caption of Ask says so.
 
 The four cards form a grid: the project folder under the agent and the output
 folder under the server. Both charts share the vertical scale and the rows of
@@ -269,9 +277,17 @@ server with its "no rows" tag, the strip says "reads the summary, not the
 file", and "204 rows: they stay in the file" turns green in the project
 folder. The gap between `profile` and `plan` is longer than the others to
 give it time. That the model reads each response is said only there: before
-the other calls the strip shows "picks plan", "picks compare" and so on,
-since a second text in a gap of one second could not be read. After the
-answer the strip is off and says "wrote the answer".
+the other calls the strip only names the next tool, since a second text in a
+gap of one second could not be read. After the answer the strip is off and
+says "wrote the answer". The log of calls stays two seconds after `get_code`
+returns, so its last line can be read before the answer replaces it.
+
+The files of the output folder are shown without the counter and the session
+suffix of their id (`comparison-leaderboard.csv` for
+`comparison-4-d0bc74-leaderboard.csv`): the only names of the animation that
+are not literal. Each one travels as a chip from the server to the folder
+when it is written. Under the leaderboard, the verdict names the winner and
+counts the candidates that beat the baseline, since one of them does not.
 
 The figures are real. `generate_mcp_overview_data.py` starts the server of
 this checkout, opens an in-memory MCP client against it (as
