@@ -905,6 +905,9 @@ def test_resolve_data_and_target_code_when_url_cannot_be_read(
         raise error
 
     monkeypatch.setattr(pd, "read_csv", _read_csv)
+    # A ParserError makes the start of the file be downloaded to tell its
+    # dialect; the test must not reach the network.
+    monkeypatch.setattr(utils_module, "read_url_sample", lambda url: None)
 
     err_msg = re.escape(
         f"Could not read CSV from URL: 'https://example.com/a.csv'. {error}"

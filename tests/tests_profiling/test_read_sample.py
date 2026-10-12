@@ -8,6 +8,8 @@ import pytest
 
 from skforecast_ai.profiling.csv_dialect import SAMPLE_BYTES, read_sample
 
+# The files are written as bytes: in text mode Windows turns each '\n' into
+# '\r\n', and `read_sample` returns the bytes of the file as they are.
 _TEXT = "date;y\n2020-01-01;1,5\n2020-01-02;2,5\n"
 
 
@@ -17,7 +19,7 @@ def test_read_sample_output_when_plain_file(tmp_path):
     than the limit, without the BOM of a UTF-8 file.
     """
     plain = tmp_path / "plain.csv"
-    plain.write_text(_TEXT, encoding="utf-8")
+    plain.write_bytes(_TEXT.encode("utf-8"))
     bom = tmp_path / "bom.csv"
     bom.write_bytes(b"\xef\xbb\xbf" + _TEXT.encode("utf-8"))
 
@@ -43,8 +45,8 @@ def test_read_sample_output_when_file_is_compressed(tmp_path, name, opener):
     the format told from the extension without regard to its case.
     """
     path = tmp_path / name
-    with opener(path, "wt", encoding="utf-8") as handle:
-        handle.write(_TEXT)
+    with opener(path, "wb") as handle:
+        handle.write(_TEXT.encode("utf-8"))
 
     assert read_sample(path) == _TEXT
 
@@ -55,7 +57,7 @@ def test_read_sample_output_when_file_is_longer_than_the_limit(tmp_path):
     are returned: 17475 rows of 15 bytes after a header of 7 bytes.
     """
     path = tmp_path / "long.csv"
-    path.write_text("date;y\n" + "2020-01-01;1,5\n" * 20000, encoding="utf-8")
+    path.write_bytes(("date;y\n" + "2020-01-01;1,5\n" * 20000).encode("utf-8"))
 
     result = read_sample(path)
 
@@ -71,7 +73,7 @@ def test_read_sample_output_when_the_limit_cuts_a_character(tmp_path):
     making the sample unreadable: 43690 lines of 6 bytes are kept.
     """
     path = tmp_path / "accents.csv"
-    path.write_text("é;é\n" * 50000, encoding="utf-8")
+    path.write_bytes(("é;é\n" * 50000).encode("utf-8"))
 
     result = read_sample(path)
 
