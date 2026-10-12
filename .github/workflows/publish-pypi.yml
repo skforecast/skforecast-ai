@@ -1,4 +1,4 @@
-name: Publish
+name: Publish to PyPI
 
 # Publishes skforecast-ai and its launcher skforecast-ai-mcp with Trusted
 # Publishing (OIDC): no token is stored anywhere.
@@ -23,7 +23,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: publish-${{ github.ref }}
+  group: publish-pypi-${{ github.ref }}
   cancel-in-progress: false
 
 env:

@@ -17,7 +17,7 @@ updates them.
 
 ## Publishing with GitHub Actions (on trial)
 
-`.github/workflows/publish.yml` builds `skforecast-ai` and
+`.github/workflows/publish-pypi.yml` builds `skforecast-ai` and
 `skforecast-ai-mcp`, installs the wheels to run them, uploads both with
 Trusted Publishing (no token) and installs the launcher back from the
 index. Until a release has gone through it, the steps by hand below stay
@@ -31,7 +31,7 @@ the reference.
 Setup, once per index (<https://pypi.org> and <https://test.pypi.org> are
 separate accounts): in each of the two projects, **Settings**,
 **Publishing**, add a GitHub publisher with owner `skforecast`, repository
-`skforecast-ai`, workflow `publish.yml` and the environment of the table.
+`skforecast-ai`, workflow `publish-pypi.yml` and the environment of the table.
 A project that the index does not have yet takes a pending publisher, from
 **Publishing** in the settings of the account. In GitHub, the environment
 `pypi` has a required reviewer, so that a release waits for an approval
