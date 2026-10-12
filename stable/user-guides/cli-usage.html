@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Python time series forecasting assistant built on skforecast: deterministic decisions, the script that ran, and an optional LLM that explains them.">
+        <meta name="description" content="Python time series forecasting assistant built on skforecast: deterministic decisions, the script that ran, an optional LLM that explains them, and an MCP server for AI agents.">
       
       
         <meta name="author" content="Joaquin Amat Rodrigo and Javier Escobar Ortiz">
@@ -111,7 +111,8 @@
             
             
   New in the skforecast ecosystem:
-<a href="https://studio.skforecast.org" target="_blank" rel="noopener noreferrer"><strong>Skforecast Studio</strong></a> (train and evaluate models visually, no coding required).
+<a href="https://studio.skforecast.org" target="_blank" rel="noopener noreferrer"><strong>skforecast studio</strong></a> (train and evaluate models visually, no coding required) and the
+<a href="mcp-server.html"><strong>MCP server</strong></a> of skforecast-ai (forecasting tools for coding agents).
 Every forecast of skforecast-ai runs on
 <a href="https://skforecast.org" target="_blank" rel="noopener noreferrer"><strong>skforecast</strong></a>.
 
@@ -1706,7 +1707,10 @@ skforecast-ai<span class="w"> </span>forecast<span class="w"> </span><span class
 </tr>
 </tbody>
 </table>
-<p>The commands that read data take a local CSV path or an <code>https://</code> URL as their first argument.</p>
+<p>The commands that read data take a local CSV path or an <code>https://</code> URL as their first argument. The file can be separated by <code>,</code>, <code>;</code> or tabulators, with <code>.</code> or <code>,</code> as decimal mark (what a spreadsheet exports in most of Europe), and compressed (<code>.csv.gz</code>); <code>.tsv</code> files are read too. The separator and the decimal mark are detected from the first lines of the file, and the generated script reads the file with them. When a file reads in more than one way, the command fails and asks for them: profile it with <code>--sep</code> and <code>--decimal</code> and pass the saved profile on. Two things a spreadsheet often exports are not read yet: the file must be UTF-8 (in Excel, save as "CSV UTF-8", not "CSV"), and dates written day first (<code>31/01/2024</code>) are read month first or rejected, so write them in ISO 8601 (<code>2024-01-31</code>).</p>
+<div class="language-bash highlight"><pre><span></span><code>skforecast-ai<span class="w"> </span>profile<span class="w"> </span>sales.csv<span class="w"> </span>--target<span class="w"> </span>revenue<span class="w"> </span>--sep<span class="w"> </span><span class="s2">";"</span><span class="w"> </span>--decimal<span class="w"> </span><span class="s2">","</span><span class="w"> </span>--format<span class="w"> </span>json<span class="w"> </span>-o<span class="w"> </span>profile.json
+skforecast-ai<span class="w"> </span>plan<span class="w"> </span>--from-profile<span class="w"> </span>profile.json<span class="w"> </span>--steps<span class="w"> </span><span class="m">30</span>
+</code></pre></div>
 <hr />
 <h2 id="your-data">Your data<a class="headerlink" href="#your-data" title="Permanent link">&para;</a></h2>
 <p>The combination of <code>--target</code>, <code>--date-column</code> and <code>--series-id-column</code> tells the CLI which layout the CSV has.</p>

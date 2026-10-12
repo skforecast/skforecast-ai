@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Python time series forecasting assistant built on skforecast: deterministic decisions, the script that ran, and an optional LLM that explains them.">
+        <meta name="description" content="Python time series forecasting assistant built on skforecast: deterministic decisions, the script that ran, an optional LLM that explains them, and an MCP server for AI agents.">
       
       
         <meta name="author" content="Joaquin Amat Rodrigo and Javier Escobar Ortiz">
@@ -111,7 +111,8 @@
             
             
   New in the skforecast ecosystem:
-<a href="https://studio.skforecast.org" target="_blank" rel="noopener noreferrer"><strong>Skforecast Studio</strong></a> (train and evaluate models visually, no coding required).
+<a href="https://studio.skforecast.org" target="_blank" rel="noopener noreferrer"><strong>skforecast studio</strong></a> (train and evaluate models visually, no coding required) and the
+<a href="../user-guides/mcp-server.html"><strong>MCP server</strong></a> of skforecast-ai (forecasting tools for coding agents).
 Every forecast of skforecast-ai runs on
 <a href="https://skforecast.org" target="_blank" rel="noopener noreferrer"><strong>skforecast</strong></a>.
 
@@ -1545,6 +1546,7 @@ Every forecast of skforecast-ai runs on
 <h1 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">&para;</a></h1>
 <p><strong>skforecast-ai</strong> needs Python 3.10 or newer and is available on PyPI. The core package runs the whole forecasting pipeline offline, with no API key; the LLM reasoning layer and the foundation model backend are optional extras.</p>
 <p><img alt="Python" src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue"> <a href="https://pypi.org/project/skforecast-ai"><img alt="PyPI" src="https://img.shields.io/pypi/v/skforecast-ai"></a></p>
+<p>To try it before installing anything, open <a href="first-forecast.html">Your first forecast</a> in Google Colab: its first cell installs the package. <a href="https://colab.research.google.com/github/skforecast/skforecast-ai/blob/main/docs/quick-start/first-forecast.ipynb"><img alt="Open In Colab" src="../assets/external/colab.research.google.com/assets/colab-badge.svg"></a></p>
 <h2 id="install">Install<a class="headerlink" href="#install" title="Permanent link">&para;</a></h2>
 <div class="tabbed-set tabbed-alternate" data-tabs="1:4"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><input id="__tabbed_1_3" name="__tabbed_1" type="radio" /><input id="__tabbed_1_4" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Core</label><label for="__tabbed_1_2">With the LLM layer</label><label for="__tabbed_1_3">Amazon Bedrock</label><label for="__tabbed_1_4">Foundation models</label></div>
 <div class="tabbed-content">
@@ -1570,7 +1572,7 @@ Every forecast of skforecast-ai runs on
 </div>
 </div>
 </div>
-<p>To install a specific version, pin it (<code>pip install skforecast-ai==0.4.1</code>). The development version, which may be unstable, installs from GitHub:</p>
+<p>To install a specific version, pin it (<code>pip install skforecast-ai==0.4.2</code>). The development version, which may be unstable, installs from GitHub:</p>
 <div class="language-bash highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span>git+https://github.com/skforecast/skforecast-ai@main
 </code></pre></div>
 <p>To work on the code, see the <a href="https://github.com/skforecast/skforecast-ai/blob/main/CONTRIBUTING.md">Contribution Guide</a>.</p>

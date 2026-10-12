@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Python time series forecasting assistant built on skforecast: deterministic decisions, the script that ran, and an optional LLM that explains them.">
+        <meta name="description" content="Python time series forecasting assistant built on skforecast: deterministic decisions, the script that ran, an optional LLM that explains them, and an MCP server for AI agents.">
       
       
         <meta name="author" content="Joaquin Amat Rodrigo and Javier Escobar Ortiz">
@@ -111,7 +111,8 @@
             
             
   New in the skforecast ecosystem:
-<a href="https://studio.skforecast.org" target="_blank" rel="noopener noreferrer"><strong>Skforecast Studio</strong></a> (train and evaluate models visually, no coding required).
+<a href="https://studio.skforecast.org" target="_blank" rel="noopener noreferrer"><strong>skforecast studio</strong></a> (train and evaluate models visually, no coding required) and the
+<a href="../user-guides/mcp-server.html"><strong>MCP server</strong></a> of skforecast-ai (forecasting tools for coding agents).
 Every forecast of skforecast-ai runs on
 <a href="https://skforecast.org" target="_blank" rel="noopener noreferrer"><strong>skforecast</strong></a>.
 
@@ -2233,7 +2234,7 @@ skforecast-ai<span class="w"> </span>mcp<span class="w"> </span>--allow-dir<span
 <tbody>
 <tr>
 <td style="text-align: left;"><code>profile</code></td>
-<td style="text-align: left;"><code>data_path</code>, <code>target</code> (without it, the error lists the columns of the file), <code>date_column</code>, <code>series_id_column</code>, <code>exog_columns</code> (the exogenous columns to use, <code>[]</code> for none; null for every other column)</td>
+<td style="text-align: left;"><code>data_path</code>, <code>target</code> (without it, the error lists the columns of the file), <code>date_column</code>, <code>series_id_column</code>, <code>exog_columns</code> (the exogenous columns to use, <code>[]</code> for none; null for every other column), <code>sep</code> and <code>decimal</code> (the separator and the decimal mark of the file; null to detect them)</td>
 <td style="text-align: left;">a profile id</td>
 </tr>
 <tr>
@@ -2258,7 +2259,7 @@ skforecast-ai<span class="w"> </span>mcp<span class="w"> </span>--allow-dir<span
 </tr>
 <tr>
 <td style="text-align: left;"><code>compare</code></td>
-<td style="text-align: left;"><code>cv_id</code>, <code>candidates</code> (<code>[{name, config}]</code>, null for those of the profile), <code>interval</code>, <code>metric</code>, <code>baseline</code></td>
+<td style="text-align: left;"><code>cv_id</code>, <code>candidates</code> (<code>[{name, config}]</code>, null for those of the profile and the plan of the strategy), <code>interval</code>, <code>metric</code>, <code>baseline</code></td>
 <td style="text-align: left;">a comparison id, the plan of the winner in <code>links.best_plan_id</code>; the leaderboard and the predictions and metrics of the winner in CSV files</td>
 </tr>
 <tr>
@@ -2293,7 +2294,7 @@ skforecast-ai<span class="w"> </span>mcp<span class="w"> </span>--allow-dir<span
 <p>Arguments are checked strictly: an unknown argument, a number written as text or a float for an integer is an error. Dates are ISO 8601 text.</p>
 <p>The files of a response are CSV files with the index of the data: <code>predictions</code> and <code>metrics</code> of a backtest or a forecast, <code>leaderboard</code>, <code>best_predictions</code> and <code>best_metrics</code> of a comparison. A summary, a script or a failure too long for a response is written to a file as well.</p>
 <p>The <code>notices</code> of a response are the warnings the call emitted, deduplicated, with their source: <code>data</code> (reading or profiling the data), <code>plan</code> (a warning the plan carries in <code>plan.warnings</code>) or <code>runtime</code>. Deprecation warnings go to the log of the server (stderr) instead. Besides those, a profile carries <code>data_profile.warnings</code> (category <code>DataProfileWarning</code>, source <code>data</code>), a plan carries them too, with any text of <code>plan.warnings</code> not emitted in the call (category <code>PlanWarning</code>), and <code>create_cv</code> carries the <code>LongTrainingWarning</code> that a backtest of the strategy will emit (above 50 estimator fits, or 2000 inference windows of a foundation model, one per series and fold). The server adds notices of its own, besides the <code>ModelDownloadNotice</code> and the <code>ModelLicenseNotice</code> of a foundation model: <code>create_cv</code> carries a <code>CostNotice</code> (source <code>runtime</code>) when the backtest of the strategy, or a <code>compare</code> without <code>candidates</code> on it, is above those thresholds, next to the warning of the library that states the cost: the notice tells the agent to stop, to tell the user the numbers and the cheaper strategies, and to run the expensive one only if they choose it; <code>create_cv</code> also carries a <code>CompareCostNotice</code> (source <code>runtime</code>) when a <code>compare</code> without <code>candidates</code> on the strategy would cost more than its plan; <code>create_cv</code> also carries a <code>MissingValuesNotice</code> (source <code>data</code>) when the backtest of its plan can fail on missing values of the target, next to the warning of the library that says so: the notice tells the agent that those values are the user's (ask before filling, dropping or writing any, also in a copy), that an estimator that accepts missing values avoids the error without touching the data, and to say it when it switches or when it forecasts without a backtest; a backtest or a forecast whose metrics include MASE or RMSSE carries a <code>MetricReferenceNotice</code> (source <code>runtime</code>) saying that they are scaled by the one-step naive forecast on the training data, not by a seasonal naive forecast nor by the baseline of <code>compare</code>; a backtest, a forecast or a comparison that computes MAPE carries a <code>MetricUnitNotice</code> saying that it is a fraction (1.245 is 124.5 %); a forecast run with <code>test_size</code> carries a <code>HoldoutEvaluationNotice</code> (source <code>runtime</code>) with the dates it predicts, which are already in the data, so it is not presented as the forecast of the future; a plan that uses exogenous variables carries a <code>FutureExogNotice</code> (source <code>plan</code>) saying that <code>forecast</code> needs their future values from the user, and a forecast of a plan that leaves the exogenous columns of the data out carries an <code>ExogLeftOutNotice</code>. An error of the library about the content of a file (a problem of the CSV in <code>profile</code>; missing values that a prediction reads, or final rows without a target, in <code>backtest</code>, <code>compare</code> and <code>forecast</code>; the file of future exogenous values, or its absence, in <code>forecast</code>) has a hint of the server that leaves the values to the user: the agent tells them and asks, and never writes, fills in or drops values on its own.</p>
-<p><code>compare</code> without <code>interval</code> computes the interval of the plan the strategy was built for (unlike <code>compare()</code> in Python, whose default is no interval), so the plan of the winner keeps it; to compare without one, build the strategy from a plan without interval. Other decisions of that plan (<code>lags</code>, <code>use_exog</code>...) do not reach the candidates: each one is planned from the profile with its own <code>config</code>. A candidate with a <code>differentiation</code> other than the one of the strategy runs on a copy of the strategy with its own order, and the summary says so. <code>backtest</code> with a <code>plan_id</code> whose differentiation order is not the one of the strategy is an <code>invalid_argument</code>. The seasonal naive baseline and <code>ForecasterStats</code> only compute symmetric intervals (lower + upper = 1): with an asymmetric one the comparison has no baseline (its summary says why), and a <code>ForecasterStats</code> candidate fails and is ranked last. <code>backtest</code> and <code>forecast</code> of a <code>ForecasterFoundation</code> plan whose backend package is not installed where the server runs raise <code>missing_dependency</code> before running anything; a candidate of <code>compare</code> with that model fails and is ranked last, as in Python.</p>
+<p><code>compare</code> without <code>interval</code> computes the interval of the plan the strategy was built for (unlike <code>compare()</code> in Python, whose default is no interval), so the plan of the winner keeps it; to compare without one, build the strategy from a plan without interval. Other decisions of that plan (<code>lags</code>, <code>use_exog</code>...) do not reach the other candidates: each one is planned from the profile with its own <code>config</code>. Without <code>candidates</code>, that plan also runs, with its decisions, as the row <code>Strategy plan</code> when it is none of the candidates of the profile (as <code>compare()</code> in Python does with a <code>CVResult</code>), and the summary names the row of that plan. A candidate with a <code>differentiation</code> other than the one of the strategy runs on a copy of the strategy with its own order, and the summary says so. <code>backtest</code> with a <code>plan_id</code> whose differentiation order is not the one of the strategy is an <code>invalid_argument</code>. The seasonal naive baseline and <code>ForecasterStats</code> only compute symmetric intervals (lower + upper = 1): with an asymmetric one the comparison has no baseline (its summary says why), and a <code>ForecasterStats</code> candidate fails and is ranked last. <code>backtest</code> and <code>forecast</code> of a <code>ForecasterFoundation</code> plan whose backend package is not installed where the server runs raise <code>missing_dependency</code> before running anything; a candidate of <code>compare</code> with that model fails and is ranked last, as in Python.</p>
 <h2 id="limits">Limits<a class="headerlink" href="#limits" title="Permanent link">&para;</a></h2>
 <ul>
 <li>The server keeps at most 256 objects and about 1 GB of them (<code>--max-objects</code>, <code>--max-memory-mb</code>); beyond that, the least recently used ones are removed and their ids raise <code>unknown_id</code> saying so. Objects built from a removed one keep working.</li>
@@ -2325,7 +2326,7 @@ skforecast-ai<span class="w"> </span>mcp<span class="w"> </span>--allow-dir<span
 </tr>
 <tr>
 <td style="text-align: left;"><code>invalid_path</code></td>
-<td style="text-align: left;">The path is not absolute, does not end in <code>.csv</code> or holds a control character.</td>
+<td style="text-align: left;">The path is not absolute, does not end in <code>.csv</code>, <code>.tsv</code>, <code>.csv.gz</code> or <code>.tsv.gz</code>, or holds a control character.</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>path_not_allowed</code></td>
@@ -2337,7 +2338,7 @@ skforecast-ai<span class="w"> </span>mcp<span class="w"> </span>--allow-dir<span
 </tr>
 <tr>
 <td style="text-align: left;"><code>file_too_large</code></td>
-<td style="text-align: left;">The CSV file (data or future exogenous values) is larger than <code>--max-file-mb</code> (256 MB by default; 0 for no limit). Its size is checked before reading it; <code>details</code> has the size and the limit.</td>
+<td style="text-align: left;">The CSV file (data or future exogenous values) is larger than <code>--max-file-mb</code> (256 MB by default; 0 for no limit). Its size is checked before reading it, and so is the size of the content of a <code>.gz</code> file; <code>details</code> has the size and the limit.</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>model_not_allowed</code></td>
@@ -2528,60 +2529,60 @@ limit.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>skforecast_ai/mcp/server.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">2807</span>
-<span class="normal">2808</span>
-<span class="normal">2809</span>
-<span class="normal">2810</span>
-<span class="normal">2811</span>
-<span class="normal">2812</span>
-<span class="normal">2813</span>
-<span class="normal">2814</span>
-<span class="normal">2815</span>
-<span class="normal">2816</span>
-<span class="normal">2817</span>
-<span class="normal">2818</span>
-<span class="normal">2819</span>
-<span class="normal">2820</span>
-<span class="normal">2821</span>
-<span class="normal">2822</span>
-<span class="normal">2823</span>
-<span class="normal">2824</span>
-<span class="normal">2825</span>
-<span class="normal">2826</span>
-<span class="normal">2827</span>
-<span class="normal">2828</span>
-<span class="normal">2829</span>
-<span class="normal">2830</span>
-<span class="normal">2831</span>
-<span class="normal">2832</span>
-<span class="normal">2833</span>
-<span class="normal">2834</span>
-<span class="normal">2835</span>
-<span class="normal">2836</span>
-<span class="normal">2837</span>
-<span class="normal">2838</span>
-<span class="normal">2839</span>
-<span class="normal">2840</span>
-<span class="normal">2841</span>
-<span class="normal">2842</span>
-<span class="normal">2843</span>
-<span class="normal">2844</span>
-<span class="normal">2845</span>
-<span class="normal">2846</span>
-<span class="normal">2847</span>
-<span class="normal">2848</span>
-<span class="normal">2849</span>
-<span class="normal">2850</span>
-<span class="normal">2851</span>
-<span class="normal">2852</span>
-<span class="normal">2853</span>
-<span class="normal">2854</span>
-<span class="normal">2855</span>
-<span class="normal">2856</span>
-<span class="normal">2857</span>
-<span class="normal">2858</span>
-<span class="normal">2859</span>
-<span class="normal">2860</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">create_server</span><span class="p">(</span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">2905</span>
+<span class="normal">2906</span>
+<span class="normal">2907</span>
+<span class="normal">2908</span>
+<span class="normal">2909</span>
+<span class="normal">2910</span>
+<span class="normal">2911</span>
+<span class="normal">2912</span>
+<span class="normal">2913</span>
+<span class="normal">2914</span>
+<span class="normal">2915</span>
+<span class="normal">2916</span>
+<span class="normal">2917</span>
+<span class="normal">2918</span>
+<span class="normal">2919</span>
+<span class="normal">2920</span>
+<span class="normal">2921</span>
+<span class="normal">2922</span>
+<span class="normal">2923</span>
+<span class="normal">2924</span>
+<span class="normal">2925</span>
+<span class="normal">2926</span>
+<span class="normal">2927</span>
+<span class="normal">2928</span>
+<span class="normal">2929</span>
+<span class="normal">2930</span>
+<span class="normal">2931</span>
+<span class="normal">2932</span>
+<span class="normal">2933</span>
+<span class="normal">2934</span>
+<span class="normal">2935</span>
+<span class="normal">2936</span>
+<span class="normal">2937</span>
+<span class="normal">2938</span>
+<span class="normal">2939</span>
+<span class="normal">2940</span>
+<span class="normal">2941</span>
+<span class="normal">2942</span>
+<span class="normal">2943</span>
+<span class="normal">2944</span>
+<span class="normal">2945</span>
+<span class="normal">2946</span>
+<span class="normal">2947</span>
+<span class="normal">2948</span>
+<span class="normal">2949</span>
+<span class="normal">2950</span>
+<span class="normal">2951</span>
+<span class="normal">2952</span>
+<span class="normal">2953</span>
+<span class="normal">2954</span>
+<span class="normal">2955</span>
+<span class="normal">2956</span>
+<span class="normal">2957</span>
+<span class="normal">2958</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">create_server</span><span class="p">(</span>
     <span class="n">allow_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
     <span class="n">output_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">max_objects</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">DEFAULT_MAX_OBJECTS</span><span class="p">,</span>
@@ -2664,7 +2665,10 @@ limit.</p>
         <p>Run the MCP server of skforecast-ai over stdio until the client closes.</p>
 <p>The working directory of the process becomes <code>output_dir</code>, so a library
 that writes files next to it (CatBoost writes <code>catboost_info/</code>) does not
-write them into the project of the user. While it serves, the logger
+write them into the project of the user. As it starts serving, it starts
+importing pandas, scikit-learn, scipy and skforecast in a background
+thread, which the handshake does not need and every tool waits for.
+While it serves, the logger
 <code>skforecast_ai.mcp</code> writes one plain line per record to the standard
 error and does not pass its records to the root logger; both are
 restored when it returns. When the client disconnects, also during a
@@ -2816,93 +2820,101 @@ license information.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>skforecast_ai/mcp/server.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">2863</span>
-<span class="normal">2864</span>
-<span class="normal">2865</span>
-<span class="normal">2866</span>
-<span class="normal">2867</span>
-<span class="normal">2868</span>
-<span class="normal">2869</span>
-<span class="normal">2870</span>
-<span class="normal">2871</span>
-<span class="normal">2872</span>
-<span class="normal">2873</span>
-<span class="normal">2874</span>
-<span class="normal">2875</span>
-<span class="normal">2876</span>
-<span class="normal">2877</span>
-<span class="normal">2878</span>
-<span class="normal">2879</span>
-<span class="normal">2880</span>
-<span class="normal">2881</span>
-<span class="normal">2882</span>
-<span class="normal">2883</span>
-<span class="normal">2884</span>
-<span class="normal">2885</span>
-<span class="normal">2886</span>
-<span class="normal">2887</span>
-<span class="normal">2888</span>
-<span class="normal">2889</span>
-<span class="normal">2890</span>
-<span class="normal">2891</span>
-<span class="normal">2892</span>
-<span class="normal">2893</span>
-<span class="normal">2894</span>
-<span class="normal">2895</span>
-<span class="normal">2896</span>
-<span class="normal">2897</span>
-<span class="normal">2898</span>
-<span class="normal">2899</span>
-<span class="normal">2900</span>
-<span class="normal">2901</span>
-<span class="normal">2902</span>
-<span class="normal">2903</span>
-<span class="normal">2904</span>
-<span class="normal">2905</span>
-<span class="normal">2906</span>
-<span class="normal">2907</span>
-<span class="normal">2908</span>
-<span class="normal">2909</span>
-<span class="normal">2910</span>
-<span class="normal">2911</span>
-<span class="normal">2912</span>
-<span class="normal">2913</span>
-<span class="normal">2914</span>
-<span class="normal">2915</span>
-<span class="normal">2916</span>
-<span class="normal">2917</span>
-<span class="normal">2918</span>
-<span class="normal">2919</span>
-<span class="normal">2920</span>
-<span class="normal">2921</span>
-<span class="normal">2922</span>
-<span class="normal">2923</span>
-<span class="normal">2924</span>
-<span class="normal">2925</span>
-<span class="normal">2926</span>
-<span class="normal">2927</span>
-<span class="normal">2928</span>
-<span class="normal">2929</span>
-<span class="normal">2930</span>
-<span class="normal">2931</span>
-<span class="normal">2932</span>
-<span class="normal">2933</span>
-<span class="normal">2934</span>
-<span class="normal">2935</span>
-<span class="normal">2936</span>
-<span class="normal">2937</span>
-<span class="normal">2938</span>
-<span class="normal">2939</span>
-<span class="normal">2940</span>
-<span class="normal">2941</span>
-<span class="normal">2942</span>
-<span class="normal">2943</span>
-<span class="normal">2944</span>
-<span class="normal">2945</span>
-<span class="normal">2946</span>
-<span class="normal">2947</span>
-<span class="normal">2948</span>
-<span class="normal">2949</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">run_server</span><span class="p">(</span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">2961</span>
+<span class="normal">2962</span>
+<span class="normal">2963</span>
+<span class="normal">2964</span>
+<span class="normal">2965</span>
+<span class="normal">2966</span>
+<span class="normal">2967</span>
+<span class="normal">2968</span>
+<span class="normal">2969</span>
+<span class="normal">2970</span>
+<span class="normal">2971</span>
+<span class="normal">2972</span>
+<span class="normal">2973</span>
+<span class="normal">2974</span>
+<span class="normal">2975</span>
+<span class="normal">2976</span>
+<span class="normal">2977</span>
+<span class="normal">2978</span>
+<span class="normal">2979</span>
+<span class="normal">2980</span>
+<span class="normal">2981</span>
+<span class="normal">2982</span>
+<span class="normal">2983</span>
+<span class="normal">2984</span>
+<span class="normal">2985</span>
+<span class="normal">2986</span>
+<span class="normal">2987</span>
+<span class="normal">2988</span>
+<span class="normal">2989</span>
+<span class="normal">2990</span>
+<span class="normal">2991</span>
+<span class="normal">2992</span>
+<span class="normal">2993</span>
+<span class="normal">2994</span>
+<span class="normal">2995</span>
+<span class="normal">2996</span>
+<span class="normal">2997</span>
+<span class="normal">2998</span>
+<span class="normal">2999</span>
+<span class="normal">3000</span>
+<span class="normal">3001</span>
+<span class="normal">3002</span>
+<span class="normal">3003</span>
+<span class="normal">3004</span>
+<span class="normal">3005</span>
+<span class="normal">3006</span>
+<span class="normal">3007</span>
+<span class="normal">3008</span>
+<span class="normal">3009</span>
+<span class="normal">3010</span>
+<span class="normal">3011</span>
+<span class="normal">3012</span>
+<span class="normal">3013</span>
+<span class="normal">3014</span>
+<span class="normal">3015</span>
+<span class="normal">3016</span>
+<span class="normal">3017</span>
+<span class="normal">3018</span>
+<span class="normal">3019</span>
+<span class="normal">3020</span>
+<span class="normal">3021</span>
+<span class="normal">3022</span>
+<span class="normal">3023</span>
+<span class="normal">3024</span>
+<span class="normal">3025</span>
+<span class="normal">3026</span>
+<span class="normal">3027</span>
+<span class="normal">3028</span>
+<span class="normal">3029</span>
+<span class="normal">3030</span>
+<span class="normal">3031</span>
+<span class="normal">3032</span>
+<span class="normal">3033</span>
+<span class="normal">3034</span>
+<span class="normal">3035</span>
+<span class="normal">3036</span>
+<span class="normal">3037</span>
+<span class="normal">3038</span>
+<span class="normal">3039</span>
+<span class="normal">3040</span>
+<span class="normal">3041</span>
+<span class="normal">3042</span>
+<span class="normal">3043</span>
+<span class="normal">3044</span>
+<span class="normal">3045</span>
+<span class="normal">3046</span>
+<span class="normal">3047</span>
+<span class="normal">3048</span>
+<span class="normal">3049</span>
+<span class="normal">3050</span>
+<span class="normal">3051</span>
+<span class="normal">3052</span>
+<span class="normal">3053</span>
+<span class="normal">3054</span>
+<span class="normal">3055</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">run_server</span><span class="p">(</span>
     <span class="n">allow_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
     <span class="n">output_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">max_objects</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">DEFAULT_MAX_OBJECTS</span><span class="p">,</span>
@@ -2915,7 +2927,10 @@ license information.</p>
 
 <span class="sd">    The working directory of the process becomes `output_dir`, so a library</span>
 <span class="sd">    that writes files next to it (CatBoost writes `catboost_info/`) does not</span>
-<span class="sd">    write them into the project of the user. While it serves, the logger</span>
+<span class="sd">    write them into the project of the user. As it starts serving, it starts</span>
+<span class="sd">    importing pandas, scikit-learn, scipy and skforecast in a background</span>
+<span class="sd">    thread, which the handshake does not need and every tool waits for.</span>
+<span class="sd">    While it serves, the logger</span>
 <span class="sd">    `skforecast_ai.mcp` writes one plain line per record to the standard</span>
 <span class="sd">    error and does not pass its records to the root logger; both are</span>
 <span class="sd">    restored when it returns. When the client disconnects, also during a</span>
@@ -2971,6 +2986,11 @@ license information.</p>
             <span class="n">state</span><span class="o">.</span><span class="n">allowed</span><span class="o">.</span><span class="n">path</span><span class="p">,</span>
             <span class="n">state</span><span class="o">.</span><span class="n">output_dir</span><span class="p">,</span>
         <span class="p">)</span>
+        <span class="c1"># The core is imported in the background while the server answers</span>
+        <span class="c1"># its client: the handshake and `tools/list` do not need it, and</span>
+        <span class="c1"># starting it here instead of after the first answer costs the</span>
+        <span class="c1"># handshake nothing measurable.</span>
+        <span class="n">_preload</span><span class="o">.</span><span class="n">PRELOAD</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
         <span class="k">try</span><span class="p">:</span>
             <span class="n">server</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="s2">"stdio"</span><span class="p">)</span>
         <span class="k">except</span> <span class="ne">BaseException</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>

@@ -8,9 +8,11 @@
  */
 /* Shared engine for the skforecast documentation animations.
 
-   Copied from the skforecast repository (docs/animations/skf-anim.js). The
-   only change is the `brandUrl` option of run(), so the brand mark can point
-   to ai.skforecast.org. Keep both copies in sync.
+   Copied from the skforecast repository (docs/animations/skf-anim.js). Two
+   changes: the `brandUrl` option of run(), so the brand mark can point to
+   ai.skforecast.org, and the chapters (the steps of header() can be clicked,
+   are marked on the progress bar and are reached with the arrow keys). Keep
+   both copies in sync: the chapters are still to be ported to skforecast.
 
    An animation is a pure function of time: `render(t, out)` pushes SVG strings
    for the frame at `t` seconds. The engine builds the stage and the controls,
@@ -29,6 +31,10 @@
        brandUrl: 'skforecast.org',   // URL of the brand mark, default shown
        render(t, o) { SkfAnim.header(t, o, {title, captions, steps}); ... }
      });
+
+   Chapters: every step passed to header() is a chapter. Clicking it, or its
+   mark on the progress bar, jumps to its start; the left and right arrow keys
+   go to the previous and next chapter, and the space bar plays or pauses.
 
    URL parameters: ?theme=light|dark forces the theme, ?t=<seconds> shows a
    still frame, ?export=1 hides the controls and exposes window.skfRender(t),
@@ -121,6 +127,9 @@ function chip(o, x, y, s, c, op = 1){
   o.push(text(x, y + 4.3, s, {size:12.5, cls:'m', weight:700, anchor:'middle', fill: c === 'target' ? '#2a1600' : V('chip'), op}));
 }
 
+/* Start of every step that header() has drawn: the chapters of run(). */
+const chapters = new Set();
+
 /* ---------------------------------------------------------------- header */
 /* Title, the caption active at t and a right-aligned stepper.
    captions: [[start, end, text], ...]   steps: [[label, start, end], ...] */
@@ -134,15 +143,20 @@ function header(t, o, {title, captions = [], steps = []}){
   }
   const items = steps.map(([lab, s, e], n) => {
     const state = t >= e ? 'done' : t >= s ? 'active' : 'todo';
-    return {lab, n, state, w: 20 + 8 + mw(lab, 13, 700)};
+    chapters.add(s);
+    return {lab, n, s, state, w: 20 + 8 + mw(lab, 13, 700)};
   });
   const gap = 22;
   let x = 1240 - items.reduce((s, it) => s + it.w, 0) - gap*(items.length - 1);
   for (const it of items){
     const cx = x + 10, cy = 52, on = it.state === 'active', done = it.state === 'done';
+    // A transparent target makes the whole step clickable (see run()).
+    o.push(`<g data-seek="${it.s}"><title>${esc(it.lab)}</title>` +
+      `<rect x="${r2(x - 6)}" y="${cy - 16}" width="${r2(it.w + 12)}" height="32" style="fill:#000;fill-opacity:0"/>`);
     o.push(circle(cx, cy, 10, {fill: on ? V('target') : 'none', stroke: on ? V('target') : done ? V('muted') : V('faint'), sw:1.5, op:a}));
     o.push(text(cx, cy + 4.3, String(it.n + 1), {size:12, weight:700, anchor:'middle', fill: on ? '#001633' : done ? V('muted') : V('faint'), op:a}));
     o.push(text(x + 28, cy + 4.6, it.lab, {size:13, weight: on ? 700 : 400, fill: on ? V('fg') : done ? V('muted') : V('faint'), op:a}));
+    o.push('</g>');
     x += it.w + gap;
   }
 }
@@ -195,7 +209,8 @@ function run(cfg){
     `<div class="skf-controls">` +
       `<button id="skf-play" aria-label="Pause"><svg viewBox="0 0 16 16" id="skf-play-icon"></svg></button>` +
       `<button id="skf-restart" aria-label="Restart"><svg viewBox="0 0 16 16">${ICON_RESTART}</svg></button>` +
-      `<input id="skf-scrub" type="range" min="0" max="1000" value="0" step="1" aria-label="Animation position">` +
+      `<div class="skf-track"><input id="skf-scrub" type="range" min="0" max="1000" value="0" step="1" aria-label="Animation position">` +
+      `<div class="skf-ticks" id="skf-ticks" aria-hidden="true"></div></div>` +
       `<span class="time" id="skf-time">0.0 s</span>` +
       `<button id="skf-full" aria-label="Full screen"><svg viewBox="0 0 16 16" id="skf-full-icon">${ICON_EXPAND}</svg></button></div>`;
   watchTheme();
@@ -244,6 +259,27 @@ function run(cfg){
   full.addEventListener('click', () => {
     if (document.fullscreenElement) document.exitFullscreen();
     else host.requestFullscreen().catch(() => {});
+  });
+  // Chapters: the steps of header(), found by drawing the first frame.
+  render(t);
+  const starts = [...chapters].sort((a, b) => a - b);
+  document.getElementById('skf-ticks').innerHTML = starts.filter(s => s > 0)
+    .map(s => `<span style="left:${r2(s/cfg.total*100)}%"></span>`).join('');
+  root.addEventListener('click', e => {
+    const step = e.target.closest && e.target.closest('[data-seek]');
+    if (step) t = parseFloat(step.getAttribute('data-seek'));
+  });
+  document.addEventListener('keydown', e => {
+    const tag = e.target.tagName;
+    if (tag === 'INPUT' || e.altKey || e.ctrlKey || e.metaKey) return;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft'){
+      if (!starts.length) return;
+      t = e.key === 'ArrowRight' ? (starts.find(s => s > t + .05) ?? t)
+        : (starts.filter(s => s < t - 1).pop() ?? 0);
+      e.preventDefault();
+    } else if (e.key === ' ' && tag !== 'BUTTON'){
+      playing = !playing; setIcon(); e.preventDefault();
+    }
   });
   document.addEventListener('fullscreenchange', () => {
     const on = !!document.fullscreenElement;

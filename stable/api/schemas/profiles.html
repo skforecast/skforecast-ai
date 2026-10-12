@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Python time series forecasting assistant built on skforecast: deterministic decisions, the script that ran, and an optional LLM that explains them.">
+        <meta name="description" content="Python time series forecasting assistant built on skforecast: deterministic decisions, the script that ran, an optional LLM that explains them, and an MCP server for AI agents.">
       
       
         <meta name="author" content="Joaquin Amat Rodrigo and Javier Escobar Ortiz">
@@ -111,7 +111,8 @@
             
             
   New in the skforecast ecosystem:
-<a href="https://studio.skforecast.org" target="_blank" rel="noopener noreferrer"><strong>Skforecast Studio</strong></a> (train and evaluate models visually, no coding required).
+<a href="https://studio.skforecast.org" target="_blank" rel="noopener noreferrer"><strong>skforecast studio</strong></a> (train and evaluate models visually, no coding required) and the
+<a href="../../user-guides/mcp-server.html"><strong>MCP server</strong></a> of skforecast-ai (forecasting tools for coding agents).
 Every forecast of skforecast-ai runs on
 <a href="https://skforecast.org" target="_blank" rel="noopener noreferrer"><strong>skforecast</strong></a>.
 
@@ -1515,6 +1516,28 @@ Every forecast of skforecast-ai runs on
 </li>
         
           <li class="md-nav__item">
+  <a href="#skforecast_ai.schemas.profiles.DataProfile.csv_sep" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        csv_sep
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#skforecast_ai.schemas.profiles.DataProfile.csv_decimal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        csv_decimal
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#skforecast_ai.schemas.profiles.DataProfile.start_date" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2909,6 +2932,45 @@ input is a DataFrame, defaults to <code>'data.csv'</code>.</p>
             </td>
           </tr>
           <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;csv_sep&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-class-attribute&quot;&gt;&lt;code&gt;class-attribute&lt;/code&gt;&lt;/small&gt;
+      &lt;small class=&quot;doc doc-label doc-label-instance-attribute&quot;&gt;&lt;code&gt;instance-attribute&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;skforecast_ai.schemas.profiles.DataProfile.csv_sep&lt;/code&gt;)" href="#skforecast_ai.schemas.profiles.DataProfile.csv_sep">csv_sep</a></code></td>
+            <td>
+                  <code>str, default &#39;,&#39;</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Separator of the fields of the CSV file of <code>data_path</code>: <code>','</code>,
+<code>';'</code> or a tabulator. Detected when the file is profiled, or given
+with <code>sep</code>; the generated script reads the file with it. <code>','</code> for
+data passed in memory.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;csv_decimal&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-class-attribute&quot;&gt;&lt;code&gt;class-attribute&lt;/code&gt;&lt;/small&gt;
+      &lt;small class=&quot;doc doc-label doc-label-instance-attribute&quot;&gt;&lt;code&gt;instance-attribute&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;skforecast_ai.schemas.profiles.DataProfile.csv_decimal&lt;/code&gt;)" href="#skforecast_ai.schemas.profiles.DataProfile.csv_decimal">csv_decimal</a></code></td>
+            <td>
+                  <code>str, default &#39;.&#39;</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Decimal mark of the CSV file of <code>data_path</code>: <code>'.'</code> or <code>','</code>, the
+latter only when <code>csv_sep</code> is not <code>','</code>. Detected or given as
+<code>csv_sep</code>.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
             <td><code><a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;warnings&lt;/span&gt;
 
 
@@ -3445,6 +3507,52 @@ input is a DataFrame, defaults to <code>'data.csv'</code>.</p>
 
 <a href="#skforecast_ai.schemas.profiles.DataProfile.data_path" class="headerlink" title="Permanent link">&para;</a></h6>
 <div class="language-python doc-signature highlight"><pre><span></span><code><span class="n">data_path</span> <span class="o">=</span> <span class="s1">'data.csv'</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h6 id="skforecast_ai.schemas.profiles.DataProfile.csv_sep" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">csv_sep</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-class-attribute"><code>class-attribute</code></small>
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+<a href="#skforecast_ai.schemas.profiles.DataProfile.csv_sep" class="headerlink" title="Permanent link">&para;</a></h6>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span class="n">csv_sep</span> <span class="o">=</span> <span class="s1">','</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h6 id="skforecast_ai.schemas.profiles.DataProfile.csv_decimal" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">csv_decimal</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-class-attribute"><code>class-attribute</code></small>
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+<a href="#skforecast_ai.schemas.profiles.DataProfile.csv_decimal" class="headerlink" title="Permanent link">&para;</a></h6>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span class="n">csv_decimal</span> <span class="o">=</span> <span class="s1">'.'</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">

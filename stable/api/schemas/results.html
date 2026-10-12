@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Python time series forecasting assistant built on skforecast: deterministic decisions, the script that ran, and an optional LLM that explains them.">
+        <meta name="description" content="Python time series forecasting assistant built on skforecast: deterministic decisions, the script that ran, an optional LLM that explains them, and an MCP server for AI agents.">
       
       
         <meta name="author" content="Joaquin Amat Rodrigo and Javier Escobar Ortiz">
@@ -111,7 +111,8 @@
             
             
   New in the skforecast ecosystem:
-<a href="https://studio.skforecast.org" target="_blank" rel="noopener noreferrer"><strong>Skforecast Studio</strong></a> (train and evaluate models visually, no coding required).
+<a href="https://studio.skforecast.org" target="_blank" rel="noopener noreferrer"><strong>skforecast studio</strong></a> (train and evaluate models visually, no coding required) and the
+<a href="../../user-guides/mcp-server.html"><strong>MCP server</strong></a> of skforecast-ai (forecasting tools for coding agents).
 Every forecast of skforecast-ai runs on
 <a href="https://skforecast.org" target="_blank" rel="noopener noreferrer"><strong>skforecast</strong></a>.
 
@@ -2452,6 +2453,17 @@ Every forecast of skforecast-ai runs on
     <span class="md-ellipsis">
       
         cv_defaults_explanation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#skforecast_ai.schemas.results.ComparisonResult.strategy_plan_name" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        strategy_plan_name
       
     </span>
   </a>
@@ -7301,6 +7313,30 @@ by <code>describe()</code>, <code>ask()</code> and the rich display. Empty when
             </td>
           </tr>
           <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;strategy_plan_name&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-class-attribute&quot;&gt;&lt;code&gt;class-attribute&lt;/code&gt;&lt;/small&gt;
+      &lt;small class=&quot;doc doc-label doc-label-instance-attribute&quot;&gt;&lt;code&gt;instance-attribute&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;skforecast_ai.schemas.results.ComparisonResult.strategy_plan_name&lt;/code&gt;)" href="#skforecast_ai.schemas.results.ComparisonResult.strategy_plan_name">strategy_plan_name</a></code></td>
+            <td>
+                  <code>str, default None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Name of the row that runs the plan the strategy was created for
+(<code>CVResult.plan</code>) in a comparison without explicit <code>candidates</code>:
+<code>'Strategy plan'</code> when that plan is none of the candidates the
+profile recommends and runs as one more row, else the name of the
+candidate that makes the same decisions. None when <code>compare()</code>
+received a <code>TimeSeriesFold</code> or explicit <code>candidates</code>, or when the
+plan belongs to a forecaster family that cannot be ranked with the
+candidates.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
             <td><code><a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;best_name&lt;/span&gt;
 
 
@@ -7660,6 +7696,29 @@ index as a leading column. <code>model_dump()</code> keeps the live DataFrames.<
 
 <a href="#skforecast_ai.schemas.results.ComparisonResult.cv_defaults_explanation" class="headerlink" title="Permanent link">&para;</a></h6>
 <div class="language-python doc-signature highlight"><pre><span></span><code><span class="n">cv_defaults_explanation</span> <span class="o">=</span> <span class="s1">''</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h6 id="skforecast_ai.schemas.results.ComparisonResult.strategy_plan_name" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">strategy_plan_name</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-class-attribute"><code>class-attribute</code></small>
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+<a href="#skforecast_ai.schemas.results.ComparisonResult.strategy_plan_name" class="headerlink" title="Permanent link">&para;</a></h6>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span class="n">strategy_plan_name</span> <span class="o">=</span> <span class="kc">None</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">

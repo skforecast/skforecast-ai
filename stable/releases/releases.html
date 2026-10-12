@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Python time series forecasting assistant built on skforecast: deterministic decisions, the script that ran, and an optional LLM that explains them.">
+        <meta name="description" content="Python time series forecasting assistant built on skforecast: deterministic decisions, the script that ran, an optional LLM that explains them, and an MCP server for AI agents.">
       
       
         <meta name="author" content="Joaquin Amat Rodrigo and Javier Escobar Ortiz">
@@ -111,7 +111,8 @@
             
             
   New in the skforecast ecosystem:
-<a href="https://studio.skforecast.org" target="_blank" rel="noopener noreferrer"><strong>Skforecast Studio</strong></a> (train and evaluate models visually, no coding required).
+<a href="https://studio.skforecast.org" target="_blank" rel="noopener noreferrer"><strong>skforecast studio</strong></a> (train and evaluate models visually, no coding required) and the
+<a href="../user-guides/mcp-server.html"><strong>MCP server</strong></a> of skforecast-ai (forecasting tools for coding agents).
 Every forecast of skforecast-ai runs on
 <a href="https://skforecast.org" target="_blank" rel="noopener noreferrer"><strong>skforecast</strong></a>.
 
@@ -1333,6 +1334,17 @@ Every forecast of skforecast-ai runs on
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#0.4.2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0.4.2 Oct 12, 2026
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#0.4.1" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1579,6 +1591,50 @@ Every forecast of skforecast-ai runs on
 </tr>
 </tbody>
 </table>
+<h2 id="0.4.2">0.4.2 <small>Oct 12, 2026</small><a class="headerlink" href="#0.4.2" title="Permanent link">&para;</a></h2>
+<p>The main changes in this release are:</p>
+<ul>
+<li><span class="badge text-bg-danger">Fix</span> <a href="../api/assistant.html"><code>ForecastingAssistant.compare()</code></a> without <code>candidates</code>, on the strategy of a refined plan, ranks that plan as the row <code>'Strategy plan'</code>, and its summary says how many configurations beat the baseline (<a href="https://github.com/skforecast/skforecast-ai/pull/71">#71</a>).</li>
+</ul>
+<div class="admonition warning">
+<p class="admonition-title">Before upgrading</p>
+<p>Some results change with this version, without any change in your code:</p>
+<ul>
+<li><code>compare()</code> without <code>candidates</code>, on a <code>CVResult</code> created for a plan that is none of the candidates of the profile, has one more row, <code>'Strategy plan'</code>, which runs that plan. Pass <code>candidates</code> to choose the rows.</li>
+<li><code>compare()</code>: the sentence of <code>explanation</code> about the baseline counts the configurations that beat it instead of those that do not, so code that parses that text must be updated.</li>
+</ul>
+</div>
+<p><strong>Added</strong></p>
+<ul>
+<li>New field <code>strategy_plan_name</code> of <a href="../api/schemas/results.html"><code>ComparisonResult</code></a>: the row of the comparison that runs the plan the strategy of <code>create_cv()</code> was created for, or None (<a href="https://github.com/skforecast/skforecast-ai/pull/71">#71</a>).</li>
+</ul>
+<p><strong>Changed</strong></p>
+<ul>
+<li>
+<p>The first start of the MCP server fits in the 30 seconds Claude Code waits: the server connects before loading pandas, scikit-learn and skforecast, which it loads in the background (7 seconds instead of 39 on macOS with an empty <code>uvx</code> cache; the first tool waits for that loading, about 30 seconds the first time). <code>import skforecast_ai</code> no longer loads them either. See <a href="../user-guides/mcp-server.html">MCP server for coding agents</a> (<a href="https://github.com/skforecast/skforecast-ai/pull/72">#72</a>).</p>
+</li>
+<li>
+<p>Dependencies: statsmodels 0.15 is allowed (<code>statsmodels&gt;=0.13.2,&lt;0.16</code>, as in skforecast), the minimum pandas is 2.2, the one skforecast 0.26 already required, and numpy, scikit-learn and scipy are declared as direct dependencies, with the minimum versions of skforecast.</p>
+</li>
+</ul>
+<p><strong>Fixed</strong></p>
+<ul>
+<li>
+<p>CSV files separated by <code>;</code> or tabulators, with <code>,</code> as decimal mark (what a spreadsheet exports in most of Europe), failed with a target column not found. The Python API, the CLI and the MCP server now detect the separator and the decimal mark (or take them as <code>sep</code> and <code>decimal</code> of <a href="../api/assistant.html"><code>ForecastingAssistant.profile()</code></a>), the generated script reads the file with them, and the MCP server also accepts <code>.tsv</code> and <code>.csv.gz</code> files. See the <a href="../user-guides/cli-usage.html">CLI guide</a> (<a href="https://github.com/skforecast/skforecast-ai/pull/74">#74</a>).</p>
+</li>
+<li>
+<p><a href="../api/assistant.html"><code>ForecastingAssistant.compare()</code></a> without <code>candidates</code>, on the strategy of a plan refined with another estimator, lags or window features, did not run that plan. It now runs as the row <code>'Strategy plan'</code>, and the summary names that row and counts the configurations that beat the baseline, not those that do not (<a href="https://github.com/skforecast/skforecast-ai/pull/71">#71</a>).</p>
+</li>
+<li>
+<p><a href="../api/assistant.html"><code>ForecastingAssistant.compare()</code></a>: when the two best configurations have the same value of the ranking metric, the summary says they are tied instead of "0.0% ahead" (<a href="https://github.com/skforecast/skforecast-ai/pull/71">#71</a>).</p>
+</li>
+<li>
+<p>The <code>cost</code> of <code>create_cv</code> in the MCP server, for a <code>compare</code> without <code>candidates</code>, counted forecasters that <code>compare</code> does not run (the multivariate one with several series) and only one of the estimators it compares when a single forecaster is left. It now counts the candidates that <code>compare</code> runs, the plan of the strategy included. See <a href="../user-guides/mcp-server.html">MCP server for coding agents</a> (<a href="https://github.com/skforecast/skforecast-ai/pull/71">#71</a>).</p>
+</li>
+<li>
+<p><code>pip install "skforecast-ai[llm]"</code> did not install the Groq client, so a <code>groq:</code> model failed with an <code>ImportError</code> unless the <code>groq</code> extra was installed too. The <code>llm</code> extra now includes it, as the installation guide says.</p>
+</li>
+</ul>
 <h2 id="0.4.1">0.4.1 <small>Oct 9, 2026</small><a class="headerlink" href="#0.4.1" title="Permanent link">&para;</a></h2>
 <p>The main changes in this release are:</p>
 <ul>

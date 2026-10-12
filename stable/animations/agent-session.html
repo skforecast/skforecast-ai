@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<!--
+  Copyright (c) 2021-present Joaquín Amat Rodrigo and Javier Escobar Ortiz.
+  Part of the skforecast-ai documentation, licensed under CC BY-NC-SA 4.0
+  (https://creativecommons.org/licenses/by-nc-sa/4.0/). It is not covered by the
+  license of the skforecast-ai software.
+  The skforecast trademark and logo are registered with the EUIPO (application
+  number 019109684) and may not be used without permission.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A real agent session with the MCP server</title>
+<meta name="description" content="Replay of a real session of a coding agent with the skforecast-ai MCP server: the request in plain language, the calls to profile, plan, create_cv, compare and get_code, and the final answer with the leaderboard, the baseline and the script.">
+<link rel="stylesheet" href="skf-anim.css">
+</head>
+<body>
+<div class="skf-anim"></div>
+<script src="skf-anim.js"></script>
+<script src="agent-session-data.js"></script>
+<script>
+(function(){
+"use strict";
+const {cl, lin, P, lerp, r2, V, esc, text, rect, line, header} = SkfAnim;
+
+/* ------------------------------------------------------------------ data */
+// A real session of the MCP agent check (tools/mcp/check_mcp_agent.py), written
+// by tools/docs/home_page/generate_agent_session_data.py from the report of the
+// run: the request, every call, the messages of the agent and its final answer,
+// as they were. The only changes are the trims the script declares, all marked
+// here: fragments of a response joined by an ellipsis, two calls of the client
+// shortened with an ellipsis, and lines of the answer replaced by a line that
+// counts them. The workspace of the session is shown as ~/project.
+// ?cut=short plays the abridged cut of the README: the request, the calls to
+// the server (the first three as one row), two messages of the agent and the
+// answer without the paragraphs the script omits. It has more air between
+// blocks, so that each one reads at a glance.
+const D = window.AGENT_SESSION_DATA;
+if (!D){
+  document.querySelector('.skf-anim').textContent =
+    'Missing agent-session-data.js: run tools/docs/home_page/generate_agent_session_data.py.';
+  return;
+}
+const SHORT = new URLSearchParams(location.search).get('cut') === 'short';
+const C = D.cuts[SHORT ? 'short' : 'full'];
+const PACE = SHORT ? .7 : 1;                                     // the short cut plays faster
+
+/* ---------------------------------------------------------------- layout */
+const H = 860;
+const PX0 = 40, PX1 = 1240, PY0 = 112, PY1 = H - 46, BAR = 34;   // terminal panel
+const VY0 = PY0 + BAR + 14, VY1 = PY1 - 12, VH = VY1 - VY0;      // visible rows
+const FS = 19, LH = 27, CW = 0.6*FS;                             // JetBrains Mono: 0.6 em advance
+const TX = 64, COLS = Math.floor((PX1 - 24 - TX)/CW);
+const GAP = (SHORT ? 1 : 0.5)*LH, BLANK = 0.45*LH;
+
+/* ------------------------------------------------- text runs and wrapping */
+// A run is [text, style]; a row is a list of runs drawn with one <text>.
+const ST = {
+  fg:     {fill:V('fg')},
+  title:  {fill:V('title'), weight:700},
+  muted:  {fill:V('muted')},
+  mark:   {fill:V('muted'), weight:700},
+  quote:  {fill:V('series')},
+  code:   {fill:V('lag')},
+  bold:   {fill:V('title'), weight:700},
+  user:   {fill:V('title'), weight:700},
+  prompt: {fill:V('targetText'), weight:700},
+  agent:  {fill:V('llm'), weight:700},
+  tool:   {fill:V('targetText'), weight:700},
+  call:   {fill:V('fg')},
+  client: {fill:V('muted')},
+  head:   {fill:V('muted'), weight:700},
+  rule:   {fill:V('border')},
+};
+// Inline Markdown of the agent: **bold** and `code`. The markers are not drawn.
+function inline(s, base = ST.fg){
+  const runs = [];
+  for (const part of s.split(/(\*\*[^*]+\*\*|`[^`]+`)/)){
+    if (!part) continue;
+    if (part.startsWith('**')) runs.push([part.slice(2, -2), ST.bold]);
+    else if (part.startsWith('`')) runs.push([part.slice(1, -1), ST.code]);
+    else runs.push([part, base]);
+  }
+  return runs;
+}
+// Greedy wrap of runs to `width` characters; continuation rows start with `indent`.
+function wrapRuns(runs, width, indent = ''){
+  const words = [];
+  for (const [s, st] of runs){
+    for (const w of s.split(/(\s+)/)) if (w) words.push([w, st]);
+  }
+  const rows = [[]];
+  let n = 0, broken = false;
+  const newRow = () => { rows.push(indent ? [[indent, ST.muted]] : []); n = indent.length; broken = true; };
+  for (let [w, st] of words){
+    const space = /^\s+$/.test(w);
+    if (space && broken && n === indent.length) continue;   // no space after a break
+    if (!space && n + w.length > width && n > indent.length){
+      const row = rows[rows.length - 1];
+      while (row.length && /^\s+$/.test(row[row.length - 1][0])) row.pop();
+      newRow();
+    }
+    while (!space && w.length > width - n){            // a path longer than a row
+      rows[rows.length - 1].push([w.slice(0, width - n), st]);
+      w = w.slice(width - n);
+      newRow();
+    }
+    rows[rows.length - 1].push([w, st]);
+    n += w.length;
+  }
+  return rows;
+}
+const rowLength = runs => runs.reduce((s, [w]) => s + w.length, 0);
+
+/* ------------------------------------------------------- the transcript */
+// Blocks in order. Each one has its rows (y relative to the transcript), the
+// time it appears and how long it is shown before the next one.
+const blocks = [];
+let y = 0, t = 1.0;
+function add(kind, rows, hold, opts = {}){
+  const b = {kind, t0:t, rows:[], ...opts};
+  let pause = 0;
+  rows.forEach((r, i) => {
+    const row = Array.isArray(r) ? {runs:r} : r, h = row.h || LH;
+    pause += row.pause || 0;
+    b.rows.push({...row, y, h, at:t + (opts.stagger || 0)*i + pause});
+    y += h;
+  });
+  b.bottom = y;
+  blocks.push(b);
+  t += hold;
+  y += GAP;
+  return b;
+}
+const prefixed = (mark, st, runs, width = COLS) =>
+  wrapRuns([[mark, st], ...runs], width, ' '.repeat(mark.length));
+
+const toolAt = {};
+for (const e of C.entries){
+  if (e.kind === 'user'){
+    const rows = prefixed('> ', ST.prompt, [[e.text, ST.user]]);
+    const chars = e.text.length, typing = chars*PACE/55;
+    add('user', rows, typing + 1.0*PACE, {typing, chars});
+  } else if (e.kind === 'text'){
+    const rows = prefixed('● ', ST.agent, inline(e.text));
+    add('text', rows, (0.8 + e.text.length/100)*PACE, {stagger:.08});
+  } else if (e.kind === 'client'){
+    const runs = [[e.call, ST.client]];
+    if (e.trimmed) runs.push([' …)', ST.mark]);
+    add('client', prefixed('◇ ', ST.client, runs), 0.6);
+  } else {
+    // A group of calls is drawn as the names of its tools, without arguments.
+    const name = e.group ? e.group[0] : e.call.slice(0, e.call.indexOf('('));
+    const callRuns = e.group
+      ? e.group.flatMap((g, k) => k ? [['  →  ', ST.mark], [g, ST.tool]] : [[g, ST.tool]])
+      : [[name, ST.tool], [e.call.slice(name.length), ST.call]];
+    const callRows = prefixed('◆ ', ST.tool, callRuns);
+    // The server is busy for the real duration of the call, shown faster.
+    const busy = (e.seconds >= 5 ? 2.2 : 0.7)*PACE;
+    const res = [];
+    e.excerpts.forEach((frags, k) => {
+      const runs = [];
+      frags.forEach((f, j) => { if (j) runs.push(['  …  ', ST.mark]); runs.push([f, ST.quote]); });
+      const last = k === e.excerpts.length - 1;
+      wrapRuns([[last ? '  └ ' : '  │ ', ST.muted], ...runs], COLS, last ? '    ' : '  │ ').forEach(r => res.push(r));
+    });
+    const b = add('tool', callRows, 0, {seconds:e.seconds, busy});
+    t += busy;
+    y -= GAP;
+    const r = add('result', res, (1.1 + 0.4*res.length)*PACE, {stagger:.12});
+    b.done = r.t0;
+    toolAt[name] = b.t0;
+  }
+}
+
+// The final answer, streamed row by row, as the agent wrote it in Markdown.
+const answerRows = [];
+const A = C.answer;
+let first = true, inCode = false, tableEnd = -1;
+const ind = '  ';
+for (let i = 0; i < A.length; i++){
+  const s = A[i];
+  if (typeof s !== 'string'){                         // lines trimmed by the generator
+    answerRows.push({runs:[[ind + `⋯ ${s.trim} ${s.what} trimmed ⋯`, ST.mark]], code:inCode, trim:true});
+    continue;
+  }
+  if (s.startsWith('```')){ inCode = !inCode; continue; }
+  if (inCode){ answerRows.push({runs:[[ind + s, ST.fg]], code:true}); continue; }
+  if (!s.trim()){ answerRows.push({runs:[], h:BLANK}); continue; }
+  if (s.startsWith('|')){                             // a table, aligned in columns
+    const table = [];
+    while (i < A.length && typeof A[i] === 'string' && A[i].startsWith('|')) table.push(A[i++]);
+    i--;
+    const cells = table.map(r => r.slice(1, -1).split('|').map(c => c.trim()));
+    const widths = cells[0].map((_, j) => Math.max(...cells.map((r, k) =>
+      k === 1 ? 0 : r[j].replace(/\*\*/g, '').length)));
+    tableEnd = answerRows.length + cells.length - 1;
+    cells.forEach((r, k) => {
+      if (k === 1){
+        answerRows.push({runs:[[ind + widths.map(w => '─'.repeat(w)).join('──'), ST.rule]]});
+        return;
+      }
+      const runs = [[ind, ST.fg]];
+      r.forEach((c, j) => {
+        const bold = c.startsWith('**'), v = c.replace(/\*\*/g, '');
+        runs.push([v.padEnd(widths[j] + (j < r.length - 1 ? 2 : 0)), k === 0 ? ST.head : bold ? ST.bold : ST.fg]);
+      });
+      answerRows.push({runs});
+    });
+    continue;
+  }
+  const heading = s.match(/^#+ (.*)$/);
+  const runs = heading ? [[heading[1], ST.title]] : inline(s);
+  const mark = first ? '● ' : ind;
+  wrapRuns([[mark, ST.agent], ...runs], COLS, ind).forEach(r => answerRows.push({runs:r}));
+  first = false;
+}
+// Hold on the table, then let the rest of the answer scroll in. The answer of
+// the short cut fits in one screen, so it needs no stop.
+if (!SHORT && tableEnd >= 0 && answerRows[tableEnd + 1]) answerRows[tableEnd + 1].pause = 3.5;
+t += 2.5;                                              // time to read the calls before they go
+const ANSWER = add('answer', answerRows, 0, {stagger:.07});
+const TOTAL = ANSWER.rows[ANSWER.rows.length - 1].at + (SHORT ? 8 : 9);
+
+/* ------------------------------------------------------------- scrolling */
+// When a row appears below the visible area, the transcript scrolls up by
+// several rows at once, as a terminal makes room: few moves, each a short
+// glide, so the exported GIF stays small. The answer starts on a clean screen,
+// and the last position leaves a whole row at the top, never a cut one.
+const JUMP = 7*LH, GLIDE = .25;
+const PAGE = ANSWER.rows[0].y;
+const allRows = blocks.flatMap(b => b.rows).sort((a, b) => a.at - b.at);
+const bottom = blocks[blocks.length - 1].bottom;
+const END = Math.max(PAGE, Math.min(...allRows.map(r => r.y).filter(v => v >= bottom - VH)));
+const moves = [];
+{
+  let off = 0;
+  for (const r of allRows){
+    const page = r === ANSWER.rows[0];
+    const need = page ? PAGE : r.y + r.h - VH;
+    if (need <= off) continue;
+    const to = page ? PAGE : Math.min(END, Math.max(need, Math.min(off + JUMP, need + JUMP - LH)));
+    moves.push({at:r.at, from:off, to});
+    off = to;
+  }
+}
+function scroll(t){
+  let off = 0;
+  for (const m of moves){
+    if (t < m.at) break;
+    off = lerp(m.from, m.to, P(t, m.at, m.at + GLIDE));
+  }
+  return off;
+}
+
+/* ---------------------------------------------------------------- render */
+function runsSvg(x, y, runs, op){
+  if (op <= 0.004 || !runs.length) return '';
+  const spans = runs.map(([s, st]) =>
+    `<tspan style="fill:${st.fill}"${st.weight ? ` font-weight="${st.weight}"` : ''}>${esc(s)}</tspan>`).join('');
+  return `<text x="${r2(x)}" y="${r2(y)}" class="m" font-size="${FS}" opacity="${r2(op)}" style="font-variant-ligatures:none">${spans}</text>`;
+}
+function truncate(runs, n){
+  const out = [];
+  for (const [s, st] of runs){
+    if (n <= 0) break;
+    out.push([s.slice(0, n), st]);
+    n -= s.length;
+  }
+  return out;
+}
+function panel(t, o){
+  const a = P(t, .2, .8);
+  o.push(rect(PX0, PY0, PX1 - PX0, PY1 - PY0, {rx:12, fill:V('panel'), stroke:V('border'), op:a}));
+  o.push(line(PX0, PY0 + BAR, PX1, PY0 + BAR, {stroke:V('border'), op:a}));
+  o.push(text(PX0 + 22, PY0 + 22, '~/project', {size:14, cls:'m', fill:V('muted'), op:a}));
+  o.push(text(PX1 - 22, PY0 + 22, 'coding agent  +  skforecast-ai MCP server', {size:14, anchor:'end', fill:V('muted'), op:a}));
+}
+function transcript(t, o){
+  const off = scroll(t);
+  // Rows scroll out under the bar of the panel, as in a terminal.
+  o.push(`<defs><clipPath id="vp"><rect x="${PX0}" y="${PY0 + BAR + 1}" width="${PX1 - PX0}" height="${VY1 + 6 - PY0 - BAR}"/></clipPath></defs>`);
+  o.push('<g clip-path="url(#vp)">');
+  for (const b of blocks){
+    if (t < b.t0) continue;
+    for (const r of b.rows){
+      const top = VY0 + r.y - off;
+      if (top + r.h < VY0 - LH || top > VY1 + LH || t < r.at) continue;
+      const base = top + LH*0.72;
+      let runs = r.runs, op = lin(t, r.at, r.at + .15);
+      if (b.kind === 'user'){                               // typed by the user
+        const shown = Math.floor(lin(t, b.t0, b.t0 + b.typing)*b.chars);
+        let before = 0;
+        for (const q of b.rows){ if (q === r) break; before += rowLength(q.runs) - 2; }
+        runs = truncate(r.runs, 2 + Math.max(0, shown - before));
+        op = before <= shown || r === b.rows[0] ? 1 : 0;
+        if (shown < b.chars && shown >= before && shown < before + rowLength(r.runs) - 2){
+          const x = TX + rowLength(runs)*CW;
+          o.push(rect(x + 1, base - FS*0.8, CW*0.6, FS, {fill:V('target'), op:(Math.floor(t*3) % 2) ? .35 : .9}));
+        }
+      }
+      if (r.code){
+        o.push(rect(TX + 2*CW - 10, top, PX1 - 34 - TX - 2*CW + 10, r.h, {fill:V('bg'), op}));
+        o.push(rect(TX + 2*CW - 10, top, 3, r.h, {fill:V('border'), op}));
+      }
+      o.push(runsSvg(TX + (r.code ? 6 : 0), base, runs, op));
+      if (b.kind === 'tool' && r === b.rows[0] && b.seconds >= 0.5){
+        const done = t >= b.done;
+        const label = done ? `${b.seconds.toFixed(1)} s`
+          : `running ${(lin(t, b.t0, b.done)*b.seconds).toFixed(1)} s`;
+        o.push(text(PX1 - 34, base, label, {size:15, cls:'m', anchor:'end', fill:V('muted')}));
+      }
+    }
+  }
+  o.push('</g>');
+}
+
+/* -------------------------------------------------------------- captions */
+const T_PROFILE = toolAt.profile, T_COMPARE = toolAt.compare, T_CODE = toolAt.get_code;
+const CAPTIONS = [
+  [0.0, T_PROFILE - .2, 'You ask in plain language. The agent brings the language model and calls the server as tools.'],
+  [T_PROFILE - .2, T_COMPARE - .2, 'profile, plan and create_cv: every decision comes from the deterministic rules of skforecast-ai.'],
+  [T_COMPARE - .2, T_CODE - .2, 'compare backtests the candidates on the same folds, next to a seasonal naive baseline.'],
+  [T_CODE - .2, ANSWER.t0 - .2, 'get_code returns the script of the winner, to run it without the server.'],
+  [ANSWER.t0 - .2, 999, 'The final answer, as the agent wrote it: every figure comes from a response of the server.'],
+];
+
+/* ---------------------------------------------------------------- run */
+const S = D.source;
+const FOOTER = SHORT
+  ? `Session ${S.run} / ${S.session} (skforecast-ai ${S.skforecast_ai}), abridged: the first three calls share a row; … and ⋯ mark the cuts.`
+  : `Recorded session ${S.run} / ${S.session} (skforecast-ai ${S.skforecast_ai}). … and ⋯ mark the trimmed text.`;
+// The loop starts with the title, the panel and the first caption already
+// drawn: the first frame of the GIF is what a README shows while the file
+// loads, and all it shows where images do not play on their own.
+const LEAD = .8;
+SkfAnim.run({
+  title: 'A real agent session with the MCP server',
+  desc: `Replay of a real session of a coding agent with the skforecast-ai MCP server (run ${S.run}, session ` +
+        `${S.session} of the agent check). The user asks: "${C.entries[0].text}" The agent loads the skill of ` +
+        'the server and calls profile, plan, create_cv, compare and get_code. Its final answer ranks five ' +
+        'candidates by MAE next to a seasonal naive baseline and gives the script that forecasts with ' +
+        'the winner. Responses and the script are trimmed where an ellipsis marks it.' +
+        (SHORT ? ' This cut is abridged: it draws the first three calls as one row and leaves out some messages of the agent and part of its answer.' : ''),
+  total: TOTAL - LEAD,
+  height: H,
+  still: TOTAL - LEAD - 1,
+  fadeOut: [TOTAL - LEAD - .6, TOTAL - LEAD],
+  brandUrl: 'ai.skforecast.org',
+  render(t, o){
+    t += LEAD;
+    header(t, o, {title:'A real agent session with the MCP server', captions:CAPTIONS});
+    panel(t, o);
+    transcript(t, o);
+    o.push(text(PX0, H - 16, FOOTER, {size:15, fill:V('muted'), op:P(t, .2, .8)}));
+  }
+});
+})();
+</script>
+</body>
+</html>

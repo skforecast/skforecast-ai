@@ -180,10 +180,22 @@
     for (var q = 0; q < SHOW_LAGS; q++) {
       var lag = ALL.profile.pacf_lags[q], row = document.createElement("div");
       row.className = "pacf-row" + (lag === 25 || lag === 169 ? " season" : "");
-      row.innerHTML = "<span>lag <b>" + lag + "</b></span><div><div class=\"fill\"></div></div><span>" +
-        ALL.profile.pacf_abs[q].toFixed(2) + "</span>";
+      /* built node by node: the values come from the data attribute of the
+         page and must stay text, never markup */
+      var lagBox = document.createElement("span"), lagNum = document.createElement("b");
+      var bar = document.createElement("div"), fill = document.createElement("div");
+      var absBox = document.createElement("span");
+      lagNum.textContent = lag;
+      lagBox.appendChild(document.createTextNode("lag "));
+      lagBox.appendChild(lagNum);
+      fill.className = "fill";
+      bar.appendChild(fill);
+      absBox.textContent = ALL.profile.pacf_abs[q].toFixed(2);
+      row.appendChild(lagBox);
+      row.appendChild(bar);
+      row.appendChild(absBox);
       pacfBox.appendChild(row);
-      pacfFills.push({ el: row.querySelector(".fill"), w: ALL.profile.pacf_abs[q] / maxPacf * 100 });
+      pacfFills.push({ el: fill, w: ALL.profile.pacf_abs[q] / maxPacf * 100 });
     }
     var decisions = Array.prototype.slice.call(root.querySelectorAll(".decisions li"));
     $("m-mae").textContent = ALL.metrics.mae.toFixed(1);

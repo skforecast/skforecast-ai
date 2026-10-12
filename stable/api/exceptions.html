@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Python time series forecasting assistant built on skforecast: deterministic decisions, the script that ran, and an optional LLM that explains them.">
+        <meta name="description" content="Python time series forecasting assistant built on skforecast: deterministic decisions, the script that ran, an optional LLM that explains them, and an MCP server for AI agents.">
       
       
         <meta name="author" content="Joaquin Amat Rodrigo and Javier Escobar Ortiz">
@@ -111,7 +111,8 @@
             
             
   New in the skforecast ecosystem:
-<a href="https://studio.skforecast.org" target="_blank" rel="noopener noreferrer"><strong>Skforecast Studio</strong></a> (train and evaluate models visually, no coding required).
+<a href="https://studio.skforecast.org" target="_blank" rel="noopener noreferrer"><strong>skforecast studio</strong></a> (train and evaluate models visually, no coding required) and the
+<a href="../user-guides/mcp-server.html"><strong>MCP server</strong></a> of skforecast-ai (forecasting tools for coding agents).
 Every forecast of skforecast-ai runs on
 <a href="https://skforecast.org" target="_blank" rel="noopener noreferrer"><strong>skforecast</strong></a>.
 
@@ -2269,8 +2270,8 @@ Every forecast of skforecast-ai runs on
 </tr>
 <tr>
 <td><code>PlanEditsDiscardedWarning</code></td>
-<td><code>refine_plan()</code></td>
-<td>The plan holds values edited by hand (a key of <code>forecaster_kwargs</code>, the preprocessing steps) that the refined plan does not keep. The warning names them and its text is kept in the <code>warnings</code> of the refined plan. The ones <code>refine_plan()</code> takes as overrides (<code>forecaster</code>, <code>lags</code>, <code>metric</code>...) can be passed again; the others cannot be kept.</td>
+<td><code>refine_plan()</code>, <code>compare()</code> without <code>candidates</code></td>
+<td>The plan holds values edited by hand (a key of <code>forecaster_kwargs</code>, the preprocessing steps) that the refined plan does not keep. The warning names them and its text is kept in the <code>warnings</code> of the refined plan. The ones <code>refine_plan()</code> takes as overrides (<code>forecaster</code>, <code>lags</code>, <code>metric</code>...) can be passed again; the others cannot be kept. In <code>compare()</code>, the row <code>'Strategy plan'</code> runs the plan of the <code>CVResult</code> without them: <code>backtest()</code> measures it as it is.</td>
 </tr>
 <tr>
 <td><code>UnrecommendedForecasterWarning</code></td>
@@ -2309,7 +2310,7 @@ Every forecast of skforecast-ai runs on
 <tr>
 <td><code>data_unreadable</code></td>
 <td><code>DataNotFoundError</code>, <code>InvalidInputError</code></td>
-<td>An input exists but cannot be parsed: a CSV file that pandas cannot read (empty, binary, not UTF-8, or rows with more fields than the header), a URL whose content is not a CSV (<code>DataNotFoundError</code>, as before), or the JSON of <code>--from-plan</code> or <code>--from-profile</code> in the CLI.</td>
+<td>An input exists but cannot be parsed: a CSV file that pandas cannot read (empty, binary, not UTF-8, or rows with more fields than the header) or whose separator or decimal mark cannot be told (pass <code>sep</code> and <code>decimal</code> to <code>profile()</code>), a URL whose content is not a CSV (<code>DataNotFoundError</code>, as before), or the JSON of <code>--from-plan</code> or <code>--from-profile</code> in the CLI.</td>
 </tr>
 <tr>
 <td><code>missing_dependency</code></td>
@@ -4618,6 +4619,9 @@ hand in the plan (in <code>forecaster_kwargs</code>, the metric, the
 preprocessing steps...) that <code>plan()</code> would not build is therefore
 lost. The warning names those fields; its text is also kept in the
 <code>warnings</code> of the refined plan.</p>
+<p><code>compare()</code> without <code>candidates</code> warns it too when the plan of its
+<code>CVResult</code> runs as the row <code>'Strategy plan'</code>, which <code>plan()</code> rebuilds
+in the same way: the edits it would not build do not run.</p>
 
 
 

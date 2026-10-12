@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Python time series forecasting assistant built on skforecast: deterministic decisions, the script that ran, and an optional LLM that explains them.">
+        <meta name="description" content="Python time series forecasting assistant built on skforecast: deterministic decisions, the script that ran, an optional LLM that explains them, and an MCP server for AI agents.">
       
       
         <meta name="author" content="Joaquin Amat Rodrigo and Javier Escobar Ortiz">
@@ -111,7 +111,8 @@
             
             
   New in the skforecast ecosystem:
-<a href="https://studio.skforecast.org" target="_blank" rel="noopener noreferrer"><strong>Skforecast Studio</strong></a> (train and evaluate models visually, no coding required).
+<a href="https://studio.skforecast.org" target="_blank" rel="noopener noreferrer"><strong>skforecast studio</strong></a> (train and evaluate models visually, no coding required) and the
+<a href="mcp-server.html"><strong>MCP server</strong></a> of skforecast-ai (forecasting tools for coding agents).
 Every forecast of skforecast-ai runs on
 <a href="https://skforecast.org" target="_blank" rel="noopener noreferrer"><strong>skforecast</strong></a>.
 
@@ -1632,6 +1633,11 @@ Every forecast of skforecast-ai runs on
 
 <h1 id="mcp-server-for-coding-agents">MCP server for coding agents<a class="headerlink" href="#mcp-server-for-coding-agents" title="Permanent link">&para;</a></h1>
 <p>Coding agents such as Claude Code, Cursor or Claude Desktop can call <strong>skforecast-ai</strong> as a set of tools through the <a href="https://modelcontextprotocol.io">Model Context Protocol</a> (MCP). The agent brings the language model: it reads your request, calls the tools and explains the results. skforecast-ai brings the forecasting: every decision (forecaster, estimator, lags, metric, cross-validation) is made by the same deterministic rules as in Python, and every result comes with the script that produced it.</p>
+<p>The animation follows one request from the installation to the answer. Click a step, or use the arrow keys, to go to it.</p>
+<div class="skf-anim-embed" style="--skf-ratio: 0.5625">
+  <iframe src="../animations/mcp-overview.html" title="Animation: your agent asks, skforecast-ai decides" loading="lazy" allowfullscreen></iframe>
+</div>
+
 <p>Once the server is connected, you ask in plain language:</p>
 <ul>
 <li><em>"Forecast the next 12 months of <code>data/sales.csv</code> and tell me how accurate it is."</em></li>
@@ -1649,7 +1655,10 @@ Every forecast of skforecast-ai runs on
 <div class="language-text highlight"><pre><span></span><code>/plugin marketplace add skforecast/skforecast-ai
 /plugin install skforecast-ai@skforecast-ai
 </code></pre></div>
-<p>The plugin starts <code>uvx skforecast-ai-mcp==&lt;version&gt; --allow-project-dir</code>, where <code>&lt;version&gt;</code> is the version of the plugin (<code>claude plugin list</code> shows it).</p>
+<p>The plugin starts <code>uvx skforecast-ai-mcp==&lt;version&gt; --allow-project-dir</code>, where <code>&lt;version&gt;</code> is the version of the plugin (<code>claude plugin list</code> shows it). The first start downloads the server and its dependencies, and Claude Code waits 30 seconds for it to connect and list its tools. To install them before, run this once in a terminal, with that version:</p>
+<div class="language-bash highlight"><pre><span></span><code>uvx<span class="w"> </span>skforecast-ai-mcp<span class="o">==</span>&lt;version&gt;<span class="w"> </span>--help
+</code></pre></div>
+<p><strong>If the first connection times out</strong>, <code>/mcp</code> shows the server as failed or pending: open <code>/mcp</code>, select <code>skforecast-ai</code> and reconnect. Everything is installed by then, and the second start connects in a few seconds. Restarting Claude Code is not enough: it does not try a server that failed again for 15 minutes, and the reconnection from <code>/mcp</code> does.</p>
 <div class="admonition warning">
 <p class="admonition-title">The plugin can read every CSV file of your project</p>
 <p>The allowed directory is the project you open in Claude Code, the directory you start it in: <code>--allow-project-dir</code> reads it from the environment variable <code>CLAUDE_PROJECT_DIR</code>, which Claude Code sets. That includes an export of credentials or of personal data saved as <code>.csv</code>, whose values an error or a summary can quote. The server does not start in your home directory or in the root of a disk: open Claude Code in the folder of the project.</p>
@@ -1742,10 +1751,10 @@ uvx<span class="w"> </span>--from<span class="w"> </span><span class="s2">"skfor
 </div>
 <div class="admonition tip">
 <p class="admonition-title">Warm up uvx before the first start</p>
-<p><strong>The first start is slow.</strong> <code>uvx</code> downloads and installs the package and its dependencies the first time, and Python loads them for the first time: about 30 seconds with a fast connection, more with a slow one. A client may give up on a server that takes that long to start: Claude Code waits 30 seconds by default. Run this once before connecting the agent, so later starts take a few seconds (the first one up to 10, the next ones about 2). With the plugin of Claude Code, use <code>"skforecast-ai[mcp]==&lt;version&gt;"</code>:</p>
+<p><strong>The first start is slow.</strong> <code>uvx</code> downloads and installs the package and its dependencies the first time (about 900 MB: a few seconds with a fast connection, a minute or more with a slow one), and Python compiles every module the first time it loads it. The server answers its client before it loads pandas, scikit-learn and skforecast, which it does in the background: that loading no longer delays the connection, and the first tool waits for it instead. That wait is long only the first time after an installation: some 6 seconds on Linux and about 30 on macOS, where the second start still takes some 7 seconds and the later ones 1 or 2. A client may give up on a server that takes long to start: Claude Code waits 30 seconds by default for it to connect and list its tools. Run this once before connecting the agent, so the download is done by then and the server connects in a few seconds (the command does not load those libraries, so the first tool still waits for them). With the plugin of Claude Code, use the command of its tab, <code>uvx skforecast-ai-mcp==&lt;version&gt; --help</code>:</p>
 <div class="language-bash highlight"><pre><span></span><code>uvx<span class="w"> </span>--from<span class="w"> </span><span class="s2">"skforecast-ai[mcp]"</span><span class="w"> </span>skforecast-ai<span class="w"> </span>--version
 </code></pre></div>
-<p>In Claude Code, the <code>MCP_TIMEOUT</code> environment variable, in milliseconds, makes it wait longer instead: <code>MCP_TIMEOUT=120000 claude</code>.</p>
+<p>If the first connection fails anyway, reconnect the server once the download has ended (in Claude Code, <code>/mcp</code>, select the server and reconnect). In Claude Code, the <code>MCP_TIMEOUT</code> environment variable, in milliseconds, makes it wait longer instead: <code>MCP_TIMEOUT=120000 claude</code>; a plugin cannot set it.</p>
 </div>
 <p><strong>Install the skill.</strong> <a href="#the-skill">The skill</a> teaches the agent how to use the tools. The plugin of Claude Code already includes it. For Cursor, VS Code, Codex and other agents, install it with the <a href="https://github.com/vercel-labs/skills">skills</a> command:</p>
 <div class="language-bash highlight"><pre><span></span><code>npx<span class="w"> </span>skills<span class="w"> </span>add<span class="w"> </span>skforecast/skforecast-ai<span class="w"> </span>--skill<span class="w"> </span>skforecast-ai-forecasting
@@ -1792,10 +1801,11 @@ uvx<span class="w"> </span>--from<span class="w"> </span><span class="s2">"skfor
 <li><code>profile(data_path="/path/to/data/h2o.csv", target="x")</code>: the frequency, the series, the exogenous columns and the recommended forecaster, as a profile id. Every column other than the target, the date and the series ids is an exogenous variable, unless <code>exog_columns</code> names the ones to use.</li>
 <li><code>plan(profile_id=..., steps=12)</code>: lags, window features, metric and preprocessing, as a plan id.</li>
 <li><code>create_cv(plan_id=...)</code>: the cross-validation strategy, with its cost (estimator fits, or inference windows for a foundation model, which is never trained). A notice warns when the backtest will be long.</li>
-<li><code>backtest(cv_id=...)</code> and, to compare configurations, <code>compare(cv_id=...)</code>.</li>
+<li><code>backtest(cv_id=...)</code> and, to compare configurations, <code>compare(cv_id=...)</code>. Without <code>candidates</code>, <code>compare</code> ranks the configurations the profile recommends, a seasonal naive baseline and, when the strategy was created for another plan (one from <code>refine_plan</code>), that plan as the row <code>Strategy plan</code>.</li>
 <li><code>forecast(plan_id=...)</code>: the forecast of the next 12 months.</li>
 </ol>
 <p>Each of these tools returns an id for the next ones, a plain-text summary (the one <code>describe()</code> gives in Python) and the warnings of the call. The summary of a backtest or a forecast carries its metrics and statistics of the predictions, and that of a comparison its leaderboard; the predictions themselves, row by row, go to CSV files in the output directory, listed in <code>files</code>. <code>get_code</code> returns the script that ran, which you can run yourself without the server. The <a href="../api/mcp.html">API reference</a> lists every tool, its arguments and its errors.</p>
+<p>To see it with a real agent, watch <a href="../img/agent-session.gif">a recorded session</a> of the agent check of skforecast-ai 0.4.0: Claude Code with the server and its skill, asked to compare models for the next 12 months of a monthly series and to hand over the script of the best one. It is the session <code>compare_code__r2</code> of the run <code>0.4.0-final2</code>, in <a href="https://github.com/skforecast/skforecast-ai/tree/main/tools/mcp/agent_reports"><code>tools/mcp/agent_reports/</code></a>; the responses of the server and the script are trimmed where an ellipsis marks it, and nothing else is edited.</p>
 <p><strong>Long calls.</strong> <code>compare</code> sends a progress notification when each candidate starts and ends. Any long call (a backtest, a forecast, a candidate of <code>compare</code>) also sends one every 5 seconds while it runs, naming what runs and for how long ("ForecasterStats: running (35 s)"), so a client does not give up on a request that is still working, as long as it asked for progress. Cancelling a call waits for the candidate or the backtest in progress to end: a cancelled <code>compare</code> skips its remaining candidates, and a cancelled call registers nothing. Until it ends, only the read tools (<code>get_code</code>, <code>get_failure</code>, <code>list_objects</code>, <code>describe_object</code>) answer; the others wait their turn.</p>
 <hr />
 <h2 id="server-options">Server options<a class="headerlink" href="#server-options" title="Permanent link">&para;</a></h2>
@@ -1839,12 +1849,12 @@ uvx<span class="w"> </span>--from<span class="w"> </span><span class="s2">"skfor
 <tr>
 <td style="text-align: left;"><code>--max-file-mb</code></td>
 <td style="text-align: left;">256</td>
-<td style="text-align: left;">Largest CSV file (data or future exogenous values) the server reads, checked on the size of the file before reading it. 0 for no limit.</td>
+<td style="text-align: left;">Largest CSV file (data or future exogenous values) the server reads, checked on the size of the file before reading it, and on the size of its content when it is compressed (<code>.gz</code>). 0 for no limit.</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>--allow-model</code></td>
 <td style="text-align: left;">(none)</td>
-<td style="text-align: left;">Model ID prefix of a foundation model that the server does not run by default, for example <code>google/timesfm-3.0</code>. Repeat it for several. See <a href="#foundation-models-and-licenses">Foundation models and licenses</a>.</td>
+<td style="text-align: left;">Model ID prefix of a foundation model that the server does not run by default, for example <code>google/timesfm-3.0</code>. Repeat it for several. The server checks it against skforecast before it answers its client, which makes its start a few seconds slower. See <a href="#foundation-models-and-licenses">Foundation models and licenses</a>.</td>
 </tr>
 </tbody>
 </table>
@@ -1980,7 +1990,7 @@ uvx<span class="w"> </span>--from<span class="w"> </span><span class="s2">"skfor
 <tr>
 <td style="text-align: left;">The server does not appear, or fails to start the first time</td>
 <td style="text-align: left;"><code>uvx</code> is still downloading the package when the client gives up</td>
-<td style="text-align: left;">Run the warm up command of <a href="#install">Install</a> once, then restart the client. In Claude Code, <code>MCP_TIMEOUT=120000 claude</code> also gives it time. In Codex, set <code>startup_timeout_sec</code></td>
+<td style="text-align: left;">Reconnect it (in Claude Code, <code>/mcp</code>, select the server and reconnect), or run the warm up command of <a href="#install">Install</a> once and restart the client. In Claude Code, <code>MCP_TIMEOUT=120000 claude</code> also gives it time. In Codex, set <code>startup_timeout_sec</code></td>
 </tr>
 <tr>
 <td style="text-align: left;">The client cannot find <code>uvx</code> or <code>skforecast-ai</code></td>
@@ -1999,7 +2009,7 @@ uvx<span class="w"> </span>--from<span class="w"> </span><span class="s2">"skfor
 </tr>
 <tr>
 <td style="text-align: left;"><code>invalid_path</code> or <code>url_not_allowed</code></td>
-<td style="text-align: left;">The path is relative, is not a <code>.csv</code> file or is a URL</td>
+<td style="text-align: left;">The path is relative, does not end in <code>.csv</code>, <code>.tsv</code>, <code>.csv.gz</code> or <code>.tsv.gz</code>, or is a URL</td>
 <td style="text-align: left;">Give the absolute path of a CSV file; download a URL first</td>
 </tr>
 <tr>
@@ -2042,7 +2052,8 @@ uvx<span class="w"> </span>--from<span class="w"> </span><span class="s2">"skfor
 <h2 id="limits">Limits<a class="headerlink" href="#limits" title="Permanent link">&para;</a></h2>
 <ul>
 <li>Calls run one at a time; a call waits for the previous one to end.</li>
-<li>The server reads CSV files of at most <code>--max-file-mb</code> (256 MB by default), and a horizon (<code>steps</code>) longer than the longest series is rejected when the plan is built.</li>
+<li>The server reads <code>.csv</code>, <code>.tsv</code>, <code>.csv.gz</code> and <code>.tsv.gz</code> files, separated by <code>,</code>, <code>;</code> or tabulators and with <code>.</code> or <code>,</code> as decimal mark (what a spreadsheet exports in most of Europe). <code>profile</code> detects the separator and the decimal mark, and takes them as <code>sep</code> and <code>decimal</code> when a file reads in more than one way. Parquet and Excel files are not read. The file must be UTF-8 (in Excel, "CSV UTF-8"), and dates written day first (<code>31/01/2024</code>) are read month first or rejected: write them in ISO 8601 (<code>2024-01-31</code>).</li>
+<li>The server reads files of at most <code>--max-file-mb</code> (256 MB by default), counted also on the content of a <code>.gz</code> file, and a horizon (<code>steps</code>) longer than the longest series is rejected when the plan is built.</li>
 <li>Ids live while the server runs. An id of a previous run, or of an object removed to stay within <code>--max-objects</code> and <code>--max-memory-mb</code>, gives <code>unknown_id</code> saying which.</li>
 <li>A summary, a script or a failure longer than 20,000 characters is cut in the response; the full text is written to the output directory.</li>
 <li>Foundation models (<code>ForecasterFoundation</code>) need their backend package where the server runs: Chronos-2, the default, needs <code>chronos-forecasting</code> (the <code>foundation</code> extra). Without it, <code>backtest</code> and <code>forecast</code> answer <code>missing_dependency</code>, whose hint gives the <code>pip install</code> command and the <code>--with</code> option of <code>uvx</code>.</li>
@@ -2072,7 +2083,7 @@ candidates).
 <span class="gu">## Workflow</span>
 
 <span class="k">1.</span> `profile(data_path, target, date_column?, series_id_column?,
-   exog_columns?)`: the absolute path of a CSV file inside the directory
+   exog_columns?, sep?, decimal?)`: the absolute path of a CSV file inside the directory
    the server may read, which its instructions name: build the path from
    it when the user gives a relative one, without searching the file
    system. <span class="sb">`target`</span> is one column, or a list of columns for
@@ -2123,11 +2134,17 @@ candidates).
    family of the data (with several series, ForecasterRecursiveMultiSeries
    and ForecasterFoundation), or the estimators of the recommended
    forecaster when that leaves one, without those above 500 estimator
-   fits. Without <span class="sb">`interval`</span> it uses the interval of the plan of the
-   strategy, so the winner keeps it (with an asymmetric interval there
-   is no baseline: it only takes symmetric ones, such as <span class="sb">`[0.1, 0.9]`</span>).
-   The candidates do not take <span class="sb">`use_exog`</span> from that plan: to compare
-   without exogenous variables, <span class="sb">`profile`</span> with <span class="sb">`exog_columns: []`</span>.
+   fits. When the strategy was created for another plan (one from
+   <span class="sb">`refine_plan`</span>, say), that plan runs too, with its own decisions, in
+   the row <span class="sb">`Strategy plan`</span>. The summary names the row of the plan of the
+   strategy: report that row as the user's plan. A row named after a
+   forecaster runs the plan the profile recommends for it, which is the
+   user's plan only when the summary names that row. Without <span class="sb">`interval`</span>
+   it uses the interval of the plan of the strategy, so the winner keeps
+   it (with an asymmetric interval there is no baseline: it only takes
+   symmetric ones, such as <span class="sb">`[0.1, 0.9]`</span>).
+   The other candidates do not take <span class="sb">`use_exog`</span> from that plan: to compare
+   them without exogenous variables, <span class="sb">`profile`</span> with <span class="sb">`exog_columns: []`</span>.
 <span class="k">7.</span> <span class="sb">`forecast(plan_id, test_size?, exog_path?)`</span>: the future. <span class="sb">`exog_path`</span> is
    required when the plan uses exogenous variables: without a file of
    future values from the user, ask for it, or build the plan again with
@@ -2151,9 +2168,11 @@ again; <span class="sb">`list_objects()`</span> lists the ids.
 From most to least reliable:
 
 <span class="k">1.</span> A <span class="sb">`compare`</span> in which the winner beats the baseline: measured over the
-   <span class="sb">`n_folds`</span> of the strategy (at least 2) against a reference. If the
-   baseline wins, say so: the data may not be forecastable better than
-   repeating the last season. There is no baseline with several series,
+   <span class="sb">`n_folds`</span> of the strategy (at least 2) against a reference. The
+   summary says how many configurations beat the baseline: quote that
+   count, and never call the winner the only one unless it says so. If
+   the baseline wins, say so: the data may not be forecastable better
+   than repeating the last season. There is no baseline with several series,
    when the target has missing values or dates, or with an asymmetric
    interval (the summary says why):
    then read the rows per series of <span class="sb">`files.best_metrics`</span> (<span class="sb">`files.metrics`</span>
@@ -2204,7 +2223,8 @@ upper bound: a series without data in a fold is not forecast in it. Above
 50 estimator fits, or 2000 inference windows (added up over the foundation
 candidates of a <span class="sb">`compare`</span>), a run gets a <span class="sb">`LongTrainingWarning`</span> notice and
 can take minutes on a CPU; <span class="sb">`compare`</span> without <span class="sb">`candidates`</span> leaves out the
-candidates above 500 estimator fits. Before an expensive run (a <span class="sb">`backtest`</span> or a <span class="sb">`compare`</span> above those
+candidates above 500 estimator fits, never the recommended forecaster
+nor the plan of the strategy. Before an expensive run (a <span class="sb">`backtest`</span> or a <span class="sb">`compare`</span> above those
 thresholds), stop and do not run it: tell the user the number of fits and
 the cheaper strategies, an integer <span class="sb">`refit`</span> (retrain every n folds), fewer
 folds (a larger <span class="sb">`fold_stride`</span> or a later <span class="sb">`initial_train_size`</span>) or
@@ -2238,7 +2258,11 @@ that is for the user to ask once they know.
 
 <span class="gu">## Inputs</span>
 
-<span class="k">-</span><span class="w"> </span>Paths: absolute paths of <span class="sb">`.csv`</span> files inside the allowed directory,
+<span class="k">-</span><span class="w"> </span>Files: <span class="sb">`.csv`</span>, <span class="sb">`.tsv`</span>, <span class="sb">`.csv.gz`</span> or <span class="sb">`.tsv.gz`</span>, separated by <span class="sb">`,`</span>, <span class="sb">`;`</span>
+  or tabulators, with <span class="sb">`.`</span> or <span class="sb">`,`</span> as decimal mark. <span class="sb">`profile`</span> detects both
+  and the profile records them; pass <span class="sb">`sep`</span> and <span class="sb">`decimal`</span> only when an
+  error says they cannot be told.
+<span class="k">-</span><span class="w"> </span>Paths: absolute paths of those files inside the allowed directory,
   which the instructions of the server name (also <span class="sb">`details.allowed_dir`</span>
   of a path error). No URLs: download the file first. No relative paths
   and no <span class="sb">`~`</span>. Never copy or move a file of the user into that directory
@@ -2328,9 +2352,9 @@ and follow <span class="sb">`hint`</span> when there is one:
 |---|---|
 | <span class="sb">`invalid_argument`</span> | Fix the argument named in <span class="sb">`field`</span>, as the message says. |
 | <span class="sb">`insufficient_data`</span> | Ask for less, as the message says: a shorter horizon, fewer lags, or a first training set that leaves room for the folds (smaller) or for the window of the forecaster (a later <span class="sb">`initial_train_size`</span>). A target column without any value, or a series too short for the forecaster (the message names it), is also reported this way. |
-| <span class="sb">`data_not_found`</span>, <span class="sb">`invalid_path`</span>, <span class="sb">`url_not_allowed`</span> | Pass the absolute path of a CSV file inside the allowed directory. |
+| <span class="sb">`data_not_found`</span>, <span class="sb">`invalid_path`</span>, <span class="sb">`url_not_allowed`</span> | Pass the absolute path of a CSV file (<span class="sb">`.csv`</span>, <span class="sb">`.tsv`</span>, <span class="sb">`.csv.gz`</span> or <span class="sb">`.tsv.gz`</span>) inside the allowed directory. |
 | <span class="sb">`path_not_allowed`</span> | The file is outside the allowed directory (<span class="sb">`details.allowed_dir`</span>). Do not copy or move it yourself: tell the user, who can copy it there or restart the server with another <span class="sb">`--allow-dir`</span>. |
-| <span class="sb">`data_unreadable`</span> | The file is not a CSV the server can read (empty, binary, not UTF-8, or rows with more fields than the header). Tell the user, as for the data problems above. |
+| <span class="sb">`data_unreadable`</span> | The file is not a CSV the server can read (empty, binary, not UTF-8, or rows with more fields than the header): tell the user, as for the data problems above. When the message says the separator or the decimal mark cannot be told, call <span class="sb">`profile`</span> again with <span class="sb">`sep`</span> and <span class="sb">`decimal`</span>, asking the user if you do not know them. |
 | <span class="sb">`file_too_large`</span> | The file is larger than the server reads (<span class="sb">`--max-file-mb`</span>, 256 MB by default): pass a smaller file, or ask the user to raise the limit. |
 | <span class="sb">`data_changed`</span> | The file changed: call <span class="sb">`profile`</span> again (or the tool again for an exogenous file). |
 | <span class="sb">`unknown_id`</span> | Use an id from <span class="sb">`list_objects`</span>, or create the object again. |

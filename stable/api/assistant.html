@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Python time series forecasting assistant built on skforecast: deterministic decisions, the script that ran, and an optional LLM that explains them.">
+        <meta name="description" content="Python time series forecasting assistant built on skforecast: deterministic decisions, the script that ran, an optional LLM that explains them, and an MCP server for AI agents.">
       
       
         <meta name="author" content="Joaquin Amat Rodrigo and Javier Escobar Ortiz">
@@ -111,7 +111,8 @@
             
             
   New in the skforecast ecosystem:
-<a href="https://studio.skforecast.org" target="_blank" rel="noopener noreferrer"><strong>Skforecast Studio</strong></a> (train and evaluate models visually, no coding required).
+<a href="https://studio.skforecast.org" target="_blank" rel="noopener noreferrer"><strong>skforecast studio</strong></a> (train and evaluate models visually, no coding required) and the
+<a href="../user-guides/mcp-server.html"><strong>MCP server</strong></a> of skforecast-ai (forecasting tools for coding agents).
 Every forecast of skforecast-ai runs on
 <a href="https://skforecast.org" target="_blank" rel="noopener noreferrer"><strong>skforecast</strong></a>.
 
@@ -2142,16 +2143,7 @@ credentials, endpoint, installed extras) before any workflow runs.</p>
 
                   <details class="mkdocstrings-source">
                     <summary>Source code in <code>skforecast_ai/assistant.py</code></summary>
-                    <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">629</span>
-<span class="normal">630</span>
-<span class="normal">631</span>
-<span class="normal">632</span>
-<span class="normal">633</span>
-<span class="normal">634</span>
-<span class="normal">635</span>
-<span class="normal">636</span>
-<span class="normal">637</span>
-<span class="normal">638</span>
+                    <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">638</span>
 <span class="normal">639</span>
 <span class="normal">640</span>
 <span class="normal">641</span>
@@ -2161,7 +2153,16 @@ credentials, endpoint, installed extras) before any workflow runs.</p>
 <span class="normal">645</span>
 <span class="normal">646</span>
 <span class="normal">647</span>
-<span class="normal">648</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+<span class="normal">648</span>
+<span class="normal">649</span>
+<span class="normal">650</span>
+<span class="normal">651</span>
+<span class="normal">652</span>
+<span class="normal">653</span>
+<span class="normal">654</span>
+<span class="normal">655</span>
+<span class="normal">656</span>
+<span class="normal">657</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">,</span>
     <span class="n">llm</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">base_url</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -2299,7 +2300,9 @@ credentials, endpoint, installed extras) before any workflow runs.</p>
     <span class="n">date_column</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
     <span class="n">series_id_column</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">exog_columns</span><span class="o">=</span><span class="kc">None</span>
+    <span class="n">exog_columns</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">sep</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">decimal</span><span class="o">=</span><span class="kc">None</span>
 <span class="p">)</span>
 </code></pre></div>
 
@@ -2414,6 +2417,42 @@ on the same columns when it is given without its profile.</p>
                   <code>None</code>
             </td>
           </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>sep</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Separator of the fields of a CSV file: <code>','</code>, <code>';'</code> or a
+tabulator (<code>'\t'</code>). If None, it is detected from the first
+lines of the file. Ignored for data passed in memory.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>decimal</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Decimal mark of a CSV file: <code>'.'</code> or <code>','</code> (only when the
+separator is not <code>','</code>). If None, it is detected from the
+first lines of the file. Ignored for data passed in memory.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
       </tbody>
     </table>
 
@@ -2442,18 +2481,21 @@ on the same columns when it is given without its profile.</p>
     </table>
 
 
+<details class="note" open>
+  <summary>Notes</summary>
+  <p>The separator and the decimal mark of a CSV file are recorded in
+the profile (<code>DataProfile.csv_sep</code> and <code>DataProfile.csv_decimal</code>):
+the generated script reads the file with them. A file that reads
+with more than one separator, or that holds numbers written with
+both decimal marks, raises <code>InvalidInputError</code> (code
+<code>'data_unreadable'</code>) instead of guessing: pass <code>sep</code> and <code>decimal</code>.
+The other methods detect how the file they receive is written, and
+read such a file as the profile passed with it says.</p>
+</details>
+
             <details class="mkdocstrings-source">
               <summary>Source code in <code>skforecast_ai/assistant.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">650</span>
-<span class="normal">651</span>
-<span class="normal">652</span>
-<span class="normal">653</span>
-<span class="normal">654</span>
-<span class="normal">655</span>
-<span class="normal">656</span>
-<span class="normal">657</span>
-<span class="normal">658</span>
-<span class="normal">659</span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">659</span>
 <span class="normal">660</span>
 <span class="normal">661</span>
 <span class="normal">662</span>
@@ -2545,7 +2587,48 @@ on the same columns when it is given without its profile.</p>
 <span class="normal">748</span>
 <span class="normal">749</span>
 <span class="normal">750</span>
-<span class="normal">751</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">profile</span><span class="p">(</span>
+<span class="normal">751</span>
+<span class="normal">752</span>
+<span class="normal">753</span>
+<span class="normal">754</span>
+<span class="normal">755</span>
+<span class="normal">756</span>
+<span class="normal">757</span>
+<span class="normal">758</span>
+<span class="normal">759</span>
+<span class="normal">760</span>
+<span class="normal">761</span>
+<span class="normal">762</span>
+<span class="normal">763</span>
+<span class="normal">764</span>
+<span class="normal">765</span>
+<span class="normal">766</span>
+<span class="normal">767</span>
+<span class="normal">768</span>
+<span class="normal">769</span>
+<span class="normal">770</span>
+<span class="normal">771</span>
+<span class="normal">772</span>
+<span class="normal">773</span>
+<span class="normal">774</span>
+<span class="normal">775</span>
+<span class="normal">776</span>
+<span class="normal">777</span>
+<span class="normal">778</span>
+<span class="normal">779</span>
+<span class="normal">780</span>
+<span class="normal">781</span>
+<span class="normal">782</span>
+<span class="normal">783</span>
+<span class="normal">784</span>
+<span class="normal">785</span>
+<span class="normal">786</span>
+<span class="normal">787</span>
+<span class="normal">788</span>
+<span class="normal">789</span>
+<span class="normal">790</span>
+<span class="normal">791</span>
+<span class="normal">792</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">profile</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">,</span>
     <span class="n">data</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span> <span class="o">|</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
     <span class="n">target</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -2553,6 +2636,8 @@ on the same columns when it is given without its profile.</p>
     <span class="n">series_id_column</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">exog_columns</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">sep</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">decimal</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ForecastingProfile</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Profile a dataset and select the recommended forecaster and estimator.</span>
@@ -2585,16 +2670,44 @@ on the same columns when it is given without its profile.</p>
 <span class="sd">        the generated script uses them. A plan built from this profile</span>
 <span class="sd">        records the selection (`ForecastPlan.exog_columns`), so it runs</span>
 <span class="sd">        on the same columns when it is given without its profile.</span>
+<span class="sd">    sep : str, default None</span>
+<span class="sd">        Separator of the fields of a CSV file: `','`, `';'` or a</span>
+<span class="sd">        tabulator (`'\\t'`). If None, it is detected from the first</span>
+<span class="sd">        lines of the file. Ignored for data passed in memory.</span>
+<span class="sd">    decimal : str, default None</span>
+<span class="sd">        Decimal mark of a CSV file: `'.'` or `','` (only when the</span>
+<span class="sd">        separator is not `','`). If None, it is detected from the</span>
+<span class="sd">        first lines of the file. Ignored for data passed in memory.</span>
 
 <span class="sd">    Returns</span>
 <span class="sd">    -------</span>
 <span class="sd">    profile : ForecastingProfile</span>
 <span class="sd">        Dataset profile + recommended forecaster + estimator</span>
 <span class="sd">        (with alternative candidates) + analysis context.</span>
+
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    The separator and the decimal mark of a CSV file are recorded in</span>
+<span class="sd">    the profile (`DataProfile.csv_sep` and `DataProfile.csv_decimal`):</span>
+<span class="sd">    the generated script reads the file with them. A file that reads</span>
+<span class="sd">    with more than one separator, or that holds numbers written with</span>
+<span class="sd">    both decimal marks, raises `InvalidInputError` (code</span>
+<span class="sd">    `'data_unreadable'`) instead of guessing: pass `sep` and `decimal`.</span>
+<span class="sd">    The other methods detect how the file they receive is written, and</span>
+<span class="sd">    read such a file as the profile passed with it says.</span>
 <span class="sd">    """</span>
 
     <span class="n">data_path</span> <span class="o">=</span> <span class="n">recorded_data_path</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
-    <span class="n">data</span><span class="p">,</span> <span class="n">target</span> <span class="o">=</span> <span class="n">_resolve_data_and_target</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">date_column</span><span class="p">)</span>
+    <span class="n">data</span><span class="p">,</span> <span class="n">target</span> <span class="o">=</span> <span class="n">_resolve_data_and_target</span><span class="p">(</span>
+                       <span class="n">data</span>        <span class="o">=</span> <span class="n">data</span><span class="p">,</span>
+                       <span class="n">target</span>      <span class="o">=</span> <span class="n">target</span><span class="p">,</span>
+                       <span class="n">date_column</span> <span class="o">=</span> <span class="n">date_column</span><span class="p">,</span>
+                       <span class="n">sep</span>         <span class="o">=</span> <span class="n">sep</span><span class="p">,</span>
+                       <span class="n">decimal</span>     <span class="o">=</span> <span class="n">decimal</span><span class="p">,</span>
+                   <span class="p">)</span>
+    <span class="c1"># How the file was read, which the script repeats; nothing for data</span>
+    <span class="c1"># passed in memory.</span>
+    <span class="n">sep</span><span class="p">,</span> <span class="n">decimal</span> <span class="o">=</span> <span class="n">_dialect_read</span><span class="p">(</span><span class="n">data_path</span><span class="p">)</span>
 
     <span class="n">data_profile</span> <span class="o">=</span> <span class="n">create_data_profile</span><span class="p">(</span>
         <span class="n">data</span>             <span class="o">=</span> <span class="n">data</span><span class="p">,</span>
@@ -2603,6 +2716,8 @@ on the same columns when it is given without its profile.</p>
         <span class="n">series_id_column</span> <span class="o">=</span> <span class="n">series_id_column</span><span class="p">,</span>
         <span class="n">data_path</span>        <span class="o">=</span> <span class="n">data_path</span><span class="p">,</span>
         <span class="n">exog_columns</span>     <span class="o">=</span> <span class="n">exog_columns</span><span class="p">,</span>
+        <span class="n">sep</span>              <span class="o">=</span> <span class="n">sep</span><span class="p">,</span>
+        <span class="n">decimal</span>          <span class="o">=</span> <span class="n">decimal</span><span class="p">,</span>
     <span class="p">)</span>
     <span class="n">validate_target_numeric</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">data_profile</span><span class="o">.</span><span class="n">target</span><span class="p">)</span>
 
@@ -3078,48 +3193,7 @@ regression metrics of skforecast.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>skforecast_ai/assistant.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 753</span>
-<span class="normal"> 754</span>
-<span class="normal"> 755</span>
-<span class="normal"> 756</span>
-<span class="normal"> 757</span>
-<span class="normal"> 758</span>
-<span class="normal"> 759</span>
-<span class="normal"> 760</span>
-<span class="normal"> 761</span>
-<span class="normal"> 762</span>
-<span class="normal"> 763</span>
-<span class="normal"> 764</span>
-<span class="normal"> 765</span>
-<span class="normal"> 766</span>
-<span class="normal"> 767</span>
-<span class="normal"> 768</span>
-<span class="normal"> 769</span>
-<span class="normal"> 770</span>
-<span class="normal"> 771</span>
-<span class="normal"> 772</span>
-<span class="normal"> 773</span>
-<span class="normal"> 774</span>
-<span class="normal"> 775</span>
-<span class="normal"> 776</span>
-<span class="normal"> 777</span>
-<span class="normal"> 778</span>
-<span class="normal"> 779</span>
-<span class="normal"> 780</span>
-<span class="normal"> 781</span>
-<span class="normal"> 782</span>
-<span class="normal"> 783</span>
-<span class="normal"> 784</span>
-<span class="normal"> 785</span>
-<span class="normal"> 786</span>
-<span class="normal"> 787</span>
-<span class="normal"> 788</span>
-<span class="normal"> 789</span>
-<span class="normal"> 790</span>
-<span class="normal"> 791</span>
-<span class="normal"> 792</span>
-<span class="normal"> 793</span>
-<span class="normal"> 794</span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 794</span>
 <span class="normal"> 795</span>
 <span class="normal"> 796</span>
 <span class="normal"> 797</span>
@@ -3816,7 +3890,48 @@ regression metrics of skforecast.</p>
 <span class="normal">1488</span>
 <span class="normal">1489</span>
 <span class="normal">1490</span>
-<span class="normal">1491</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">plan</span><span class="p">(</span>
+<span class="normal">1491</span>
+<span class="normal">1492</span>
+<span class="normal">1493</span>
+<span class="normal">1494</span>
+<span class="normal">1495</span>
+<span class="normal">1496</span>
+<span class="normal">1497</span>
+<span class="normal">1498</span>
+<span class="normal">1499</span>
+<span class="normal">1500</span>
+<span class="normal">1501</span>
+<span class="normal">1502</span>
+<span class="normal">1503</span>
+<span class="normal">1504</span>
+<span class="normal">1505</span>
+<span class="normal">1506</span>
+<span class="normal">1507</span>
+<span class="normal">1508</span>
+<span class="normal">1509</span>
+<span class="normal">1510</span>
+<span class="normal">1511</span>
+<span class="normal">1512</span>
+<span class="normal">1513</span>
+<span class="normal">1514</span>
+<span class="normal">1515</span>
+<span class="normal">1516</span>
+<span class="normal">1517</span>
+<span class="normal">1518</span>
+<span class="normal">1519</span>
+<span class="normal">1520</span>
+<span class="normal">1521</span>
+<span class="normal">1522</span>
+<span class="normal">1523</span>
+<span class="normal">1524</span>
+<span class="normal">1525</span>
+<span class="normal">1526</span>
+<span class="normal">1527</span>
+<span class="normal">1528</span>
+<span class="normal">1529</span>
+<span class="normal">1530</span>
+<span class="normal">1531</span>
+<span class="normal">1532</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">plan</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">,</span>
     <span class="n">profile</span><span class="p">:</span> <span class="n">ForecastingProfile</span><span class="p">,</span>
     <span class="n">steps</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
@@ -4778,48 +4893,7 @@ compared, nor the fields overridden in the call.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>skforecast_ai/assistant.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">1493</span>
-<span class="normal">1494</span>
-<span class="normal">1495</span>
-<span class="normal">1496</span>
-<span class="normal">1497</span>
-<span class="normal">1498</span>
-<span class="normal">1499</span>
-<span class="normal">1500</span>
-<span class="normal">1501</span>
-<span class="normal">1502</span>
-<span class="normal">1503</span>
-<span class="normal">1504</span>
-<span class="normal">1505</span>
-<span class="normal">1506</span>
-<span class="normal">1507</span>
-<span class="normal">1508</span>
-<span class="normal">1509</span>
-<span class="normal">1510</span>
-<span class="normal">1511</span>
-<span class="normal">1512</span>
-<span class="normal">1513</span>
-<span class="normal">1514</span>
-<span class="normal">1515</span>
-<span class="normal">1516</span>
-<span class="normal">1517</span>
-<span class="normal">1518</span>
-<span class="normal">1519</span>
-<span class="normal">1520</span>
-<span class="normal">1521</span>
-<span class="normal">1522</span>
-<span class="normal">1523</span>
-<span class="normal">1524</span>
-<span class="normal">1525</span>
-<span class="normal">1526</span>
-<span class="normal">1527</span>
-<span class="normal">1528</span>
-<span class="normal">1529</span>
-<span class="normal">1530</span>
-<span class="normal">1531</span>
-<span class="normal">1532</span>
-<span class="normal">1533</span>
-<span class="normal">1534</span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">1534</span>
 <span class="normal">1535</span>
 <span class="normal">1536</span>
 <span class="normal">1537</span>
@@ -5143,7 +5217,48 @@ compared, nor the fields overridden in the call.</p>
 <span class="normal">1855</span>
 <span class="normal">1856</span>
 <span class="normal">1857</span>
-<span class="normal">1858</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">refine_plan</span><span class="p">(</span>
+<span class="normal">1858</span>
+<span class="normal">1859</span>
+<span class="normal">1860</span>
+<span class="normal">1861</span>
+<span class="normal">1862</span>
+<span class="normal">1863</span>
+<span class="normal">1864</span>
+<span class="normal">1865</span>
+<span class="normal">1866</span>
+<span class="normal">1867</span>
+<span class="normal">1868</span>
+<span class="normal">1869</span>
+<span class="normal">1870</span>
+<span class="normal">1871</span>
+<span class="normal">1872</span>
+<span class="normal">1873</span>
+<span class="normal">1874</span>
+<span class="normal">1875</span>
+<span class="normal">1876</span>
+<span class="normal">1877</span>
+<span class="normal">1878</span>
+<span class="normal">1879</span>
+<span class="normal">1880</span>
+<span class="normal">1881</span>
+<span class="normal">1882</span>
+<span class="normal">1883</span>
+<span class="normal">1884</span>
+<span class="normal">1885</span>
+<span class="normal">1886</span>
+<span class="normal">1887</span>
+<span class="normal">1888</span>
+<span class="normal">1889</span>
+<span class="normal">1890</span>
+<span class="normal">1891</span>
+<span class="normal">1892</span>
+<span class="normal">1893</span>
+<span class="normal">1894</span>
+<span class="normal">1895</span>
+<span class="normal">1896</span>
+<span class="normal">1897</span>
+<span class="normal">1898</span>
+<span class="normal">1899</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">refine_plan</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">,</span>
     <span class="n">profile</span><span class="p">:</span> <span class="n">ForecastingProfile</span><span class="p">,</span>
     <span class="n">plan</span><span class="p">:</span> <span class="n">ForecastPlan</span><span class="p">,</span>
@@ -6047,48 +6162,7 @@ modeling decisions.</li>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>skforecast_ai/assistant.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">1860</span>
-<span class="normal">1861</span>
-<span class="normal">1862</span>
-<span class="normal">1863</span>
-<span class="normal">1864</span>
-<span class="normal">1865</span>
-<span class="normal">1866</span>
-<span class="normal">1867</span>
-<span class="normal">1868</span>
-<span class="normal">1869</span>
-<span class="normal">1870</span>
-<span class="normal">1871</span>
-<span class="normal">1872</span>
-<span class="normal">1873</span>
-<span class="normal">1874</span>
-<span class="normal">1875</span>
-<span class="normal">1876</span>
-<span class="normal">1877</span>
-<span class="normal">1878</span>
-<span class="normal">1879</span>
-<span class="normal">1880</span>
-<span class="normal">1881</span>
-<span class="normal">1882</span>
-<span class="normal">1883</span>
-<span class="normal">1884</span>
-<span class="normal">1885</span>
-<span class="normal">1886</span>
-<span class="normal">1887</span>
-<span class="normal">1888</span>
-<span class="normal">1889</span>
-<span class="normal">1890</span>
-<span class="normal">1891</span>
-<span class="normal">1892</span>
-<span class="normal">1893</span>
-<span class="normal">1894</span>
-<span class="normal">1895</span>
-<span class="normal">1896</span>
-<span class="normal">1897</span>
-<span class="normal">1898</span>
-<span class="normal">1899</span>
-<span class="normal">1900</span>
-<span class="normal">1901</span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">1901</span>
 <span class="normal">1902</span>
 <span class="normal">1903</span>
 <span class="normal">1904</span>
@@ -6287,7 +6361,48 @@ modeling decisions.</li>
 <span class="normal">2097</span>
 <span class="normal">2098</span>
 <span class="normal">2099</span>
-<span class="normal">2100</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">forecast_code</span><span class="p">(</span>
+<span class="normal">2100</span>
+<span class="normal">2101</span>
+<span class="normal">2102</span>
+<span class="normal">2103</span>
+<span class="normal">2104</span>
+<span class="normal">2105</span>
+<span class="normal">2106</span>
+<span class="normal">2107</span>
+<span class="normal">2108</span>
+<span class="normal">2109</span>
+<span class="normal">2110</span>
+<span class="normal">2111</span>
+<span class="normal">2112</span>
+<span class="normal">2113</span>
+<span class="normal">2114</span>
+<span class="normal">2115</span>
+<span class="normal">2116</span>
+<span class="normal">2117</span>
+<span class="normal">2118</span>
+<span class="normal">2119</span>
+<span class="normal">2120</span>
+<span class="normal">2121</span>
+<span class="normal">2122</span>
+<span class="normal">2123</span>
+<span class="normal">2124</span>
+<span class="normal">2125</span>
+<span class="normal">2126</span>
+<span class="normal">2127</span>
+<span class="normal">2128</span>
+<span class="normal">2129</span>
+<span class="normal">2130</span>
+<span class="normal">2131</span>
+<span class="normal">2132</span>
+<span class="normal">2133</span>
+<span class="normal">2134</span>
+<span class="normal">2135</span>
+<span class="normal">2136</span>
+<span class="normal">2137</span>
+<span class="normal">2138</span>
+<span class="normal">2139</span>
+<span class="normal">2140</span>
+<span class="normal">2141</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">forecast_code</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">,</span>
     <span class="n">data</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span> <span class="o">|</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">steps</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -7097,48 +7212,7 @@ script (<code>ForecastResult.code</code>) and the actual execution.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>skforecast_ai/assistant.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">2102</span>
-<span class="normal">2103</span>
-<span class="normal">2104</span>
-<span class="normal">2105</span>
-<span class="normal">2106</span>
-<span class="normal">2107</span>
-<span class="normal">2108</span>
-<span class="normal">2109</span>
-<span class="normal">2110</span>
-<span class="normal">2111</span>
-<span class="normal">2112</span>
-<span class="normal">2113</span>
-<span class="normal">2114</span>
-<span class="normal">2115</span>
-<span class="normal">2116</span>
-<span class="normal">2117</span>
-<span class="normal">2118</span>
-<span class="normal">2119</span>
-<span class="normal">2120</span>
-<span class="normal">2121</span>
-<span class="normal">2122</span>
-<span class="normal">2123</span>
-<span class="normal">2124</span>
-<span class="normal">2125</span>
-<span class="normal">2126</span>
-<span class="normal">2127</span>
-<span class="normal">2128</span>
-<span class="normal">2129</span>
-<span class="normal">2130</span>
-<span class="normal">2131</span>
-<span class="normal">2132</span>
-<span class="normal">2133</span>
-<span class="normal">2134</span>
-<span class="normal">2135</span>
-<span class="normal">2136</span>
-<span class="normal">2137</span>
-<span class="normal">2138</span>
-<span class="normal">2139</span>
-<span class="normal">2140</span>
-<span class="normal">2141</span>
-<span class="normal">2142</span>
-<span class="normal">2143</span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">2143</span>
 <span class="normal">2144</span>
 <span class="normal">2145</span>
 <span class="normal">2146</span>
@@ -7415,7 +7489,48 @@ script (<code>ForecastResult.code</code>) and the actual execution.</p>
 <span class="normal">2417</span>
 <span class="normal">2418</span>
 <span class="normal">2419</span>
-<span class="normal">2420</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">forecast</span><span class="p">(</span>
+<span class="normal">2420</span>
+<span class="normal">2421</span>
+<span class="normal">2422</span>
+<span class="normal">2423</span>
+<span class="normal">2424</span>
+<span class="normal">2425</span>
+<span class="normal">2426</span>
+<span class="normal">2427</span>
+<span class="normal">2428</span>
+<span class="normal">2429</span>
+<span class="normal">2430</span>
+<span class="normal">2431</span>
+<span class="normal">2432</span>
+<span class="normal">2433</span>
+<span class="normal">2434</span>
+<span class="normal">2435</span>
+<span class="normal">2436</span>
+<span class="normal">2437</span>
+<span class="normal">2438</span>
+<span class="normal">2439</span>
+<span class="normal">2440</span>
+<span class="normal">2441</span>
+<span class="normal">2442</span>
+<span class="normal">2443</span>
+<span class="normal">2444</span>
+<span class="normal">2445</span>
+<span class="normal">2446</span>
+<span class="normal">2447</span>
+<span class="normal">2448</span>
+<span class="normal">2449</span>
+<span class="normal">2450</span>
+<span class="normal">2451</span>
+<span class="normal">2452</span>
+<span class="normal">2453</span>
+<span class="normal">2454</span>
+<span class="normal">2455</span>
+<span class="normal">2456</span>
+<span class="normal">2457</span>
+<span class="normal">2458</span>
+<span class="normal">2459</span>
+<span class="normal">2460</span>
+<span class="normal">2461</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">forecast</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">,</span>
     <span class="n">data</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span> <span class="o">|</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
     <span class="n">steps</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -8057,48 +8172,7 @@ have their value, and which ones were passed.</li>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>skforecast_ai/assistant.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">2422</span>
-<span class="normal">2423</span>
-<span class="normal">2424</span>
-<span class="normal">2425</span>
-<span class="normal">2426</span>
-<span class="normal">2427</span>
-<span class="normal">2428</span>
-<span class="normal">2429</span>
-<span class="normal">2430</span>
-<span class="normal">2431</span>
-<span class="normal">2432</span>
-<span class="normal">2433</span>
-<span class="normal">2434</span>
-<span class="normal">2435</span>
-<span class="normal">2436</span>
-<span class="normal">2437</span>
-<span class="normal">2438</span>
-<span class="normal">2439</span>
-<span class="normal">2440</span>
-<span class="normal">2441</span>
-<span class="normal">2442</span>
-<span class="normal">2443</span>
-<span class="normal">2444</span>
-<span class="normal">2445</span>
-<span class="normal">2446</span>
-<span class="normal">2447</span>
-<span class="normal">2448</span>
-<span class="normal">2449</span>
-<span class="normal">2450</span>
-<span class="normal">2451</span>
-<span class="normal">2452</span>
-<span class="normal">2453</span>
-<span class="normal">2454</span>
-<span class="normal">2455</span>
-<span class="normal">2456</span>
-<span class="normal">2457</span>
-<span class="normal">2458</span>
-<span class="normal">2459</span>
-<span class="normal">2460</span>
-<span class="normal">2461</span>
-<span class="normal">2462</span>
-<span class="normal">2463</span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">2463</span>
 <span class="normal">2464</span>
 <span class="normal">2465</span>
 <span class="normal">2466</span>
@@ -8371,7 +8445,48 @@ have their value, and which ones were passed.</li>
 <span class="normal">2733</span>
 <span class="normal">2734</span>
 <span class="normal">2735</span>
-<span class="normal">2736</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">create_cv</span><span class="p">(</span>
+<span class="normal">2736</span>
+<span class="normal">2737</span>
+<span class="normal">2738</span>
+<span class="normal">2739</span>
+<span class="normal">2740</span>
+<span class="normal">2741</span>
+<span class="normal">2742</span>
+<span class="normal">2743</span>
+<span class="normal">2744</span>
+<span class="normal">2745</span>
+<span class="normal">2746</span>
+<span class="normal">2747</span>
+<span class="normal">2748</span>
+<span class="normal">2749</span>
+<span class="normal">2750</span>
+<span class="normal">2751</span>
+<span class="normal">2752</span>
+<span class="normal">2753</span>
+<span class="normal">2754</span>
+<span class="normal">2755</span>
+<span class="normal">2756</span>
+<span class="normal">2757</span>
+<span class="normal">2758</span>
+<span class="normal">2759</span>
+<span class="normal">2760</span>
+<span class="normal">2761</span>
+<span class="normal">2762</span>
+<span class="normal">2763</span>
+<span class="normal">2764</span>
+<span class="normal">2765</span>
+<span class="normal">2766</span>
+<span class="normal">2767</span>
+<span class="normal">2768</span>
+<span class="normal">2769</span>
+<span class="normal">2770</span>
+<span class="normal">2771</span>
+<span class="normal">2772</span>
+<span class="normal">2773</span>
+<span class="normal">2774</span>
+<span class="normal">2775</span>
+<span class="normal">2776</span>
+<span class="normal">2777</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">create_cv</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">,</span>
     <span class="n">profile</span><span class="p">:</span> <span class="n">ForecastingProfile</span><span class="p">,</span>
     <span class="n">plan</span><span class="p">:</span> <span class="n">ForecastPlan</span><span class="p">,</span>
@@ -9168,48 +9283,7 @@ forecaster raises (see <code>cv</code>).</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>skforecast_ai/assistant.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">2738</span>
-<span class="normal">2739</span>
-<span class="normal">2740</span>
-<span class="normal">2741</span>
-<span class="normal">2742</span>
-<span class="normal">2743</span>
-<span class="normal">2744</span>
-<span class="normal">2745</span>
-<span class="normal">2746</span>
-<span class="normal">2747</span>
-<span class="normal">2748</span>
-<span class="normal">2749</span>
-<span class="normal">2750</span>
-<span class="normal">2751</span>
-<span class="normal">2752</span>
-<span class="normal">2753</span>
-<span class="normal">2754</span>
-<span class="normal">2755</span>
-<span class="normal">2756</span>
-<span class="normal">2757</span>
-<span class="normal">2758</span>
-<span class="normal">2759</span>
-<span class="normal">2760</span>
-<span class="normal">2761</span>
-<span class="normal">2762</span>
-<span class="normal">2763</span>
-<span class="normal">2764</span>
-<span class="normal">2765</span>
-<span class="normal">2766</span>
-<span class="normal">2767</span>
-<span class="normal">2768</span>
-<span class="normal">2769</span>
-<span class="normal">2770</span>
-<span class="normal">2771</span>
-<span class="normal">2772</span>
-<span class="normal">2773</span>
-<span class="normal">2774</span>
-<span class="normal">2775</span>
-<span class="normal">2776</span>
-<span class="normal">2777</span>
-<span class="normal">2778</span>
-<span class="normal">2779</span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">2779</span>
 <span class="normal">2780</span>
 <span class="normal">2781</span>
 <span class="normal">2782</span>
@@ -9387,7 +9461,48 @@ forecaster raises (see <code>cv</code>).</p>
 <span class="normal">2954</span>
 <span class="normal">2955</span>
 <span class="normal">2956</span>
-<span class="normal">2957</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">backtest_code</span><span class="p">(</span>
+<span class="normal">2957</span>
+<span class="normal">2958</span>
+<span class="normal">2959</span>
+<span class="normal">2960</span>
+<span class="normal">2961</span>
+<span class="normal">2962</span>
+<span class="normal">2963</span>
+<span class="normal">2964</span>
+<span class="normal">2965</span>
+<span class="normal">2966</span>
+<span class="normal">2967</span>
+<span class="normal">2968</span>
+<span class="normal">2969</span>
+<span class="normal">2970</span>
+<span class="normal">2971</span>
+<span class="normal">2972</span>
+<span class="normal">2973</span>
+<span class="normal">2974</span>
+<span class="normal">2975</span>
+<span class="normal">2976</span>
+<span class="normal">2977</span>
+<span class="normal">2978</span>
+<span class="normal">2979</span>
+<span class="normal">2980</span>
+<span class="normal">2981</span>
+<span class="normal">2982</span>
+<span class="normal">2983</span>
+<span class="normal">2984</span>
+<span class="normal">2985</span>
+<span class="normal">2986</span>
+<span class="normal">2987</span>
+<span class="normal">2988</span>
+<span class="normal">2989</span>
+<span class="normal">2990</span>
+<span class="normal">2991</span>
+<span class="normal">2992</span>
+<span class="normal">2993</span>
+<span class="normal">2994</span>
+<span class="normal">2995</span>
+<span class="normal">2996</span>
+<span class="normal">2997</span>
+<span class="normal">2998</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">backtest_code</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">,</span>
     <span class="n">data</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span> <span class="o">|</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">cv</span><span class="p">:</span> <span class="n">TimeSeriesFold</span> <span class="o">|</span> <span class="n">CVResult</span><span class="p">,</span>
@@ -10124,48 +10239,7 @@ forecaster raises (see <code>cv</code>).</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>skforecast_ai/assistant.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">2959</span>
-<span class="normal">2960</span>
-<span class="normal">2961</span>
-<span class="normal">2962</span>
-<span class="normal">2963</span>
-<span class="normal">2964</span>
-<span class="normal">2965</span>
-<span class="normal">2966</span>
-<span class="normal">2967</span>
-<span class="normal">2968</span>
-<span class="normal">2969</span>
-<span class="normal">2970</span>
-<span class="normal">2971</span>
-<span class="normal">2972</span>
-<span class="normal">2973</span>
-<span class="normal">2974</span>
-<span class="normal">2975</span>
-<span class="normal">2976</span>
-<span class="normal">2977</span>
-<span class="normal">2978</span>
-<span class="normal">2979</span>
-<span class="normal">2980</span>
-<span class="normal">2981</span>
-<span class="normal">2982</span>
-<span class="normal">2983</span>
-<span class="normal">2984</span>
-<span class="normal">2985</span>
-<span class="normal">2986</span>
-<span class="normal">2987</span>
-<span class="normal">2988</span>
-<span class="normal">2989</span>
-<span class="normal">2990</span>
-<span class="normal">2991</span>
-<span class="normal">2992</span>
-<span class="normal">2993</span>
-<span class="normal">2994</span>
-<span class="normal">2995</span>
-<span class="normal">2996</span>
-<span class="normal">2997</span>
-<span class="normal">2998</span>
-<span class="normal">2999</span>
-<span class="normal">3000</span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">3000</span>
 <span class="normal">3001</span>
 <span class="normal">3002</span>
 <span class="normal">3003</span>
@@ -10427,7 +10501,48 @@ forecaster raises (see <code>cv</code>).</p>
 <span class="normal">3259</span>
 <span class="normal">3260</span>
 <span class="normal">3261</span>
-<span class="normal">3262</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">backtest</span><span class="p">(</span>
+<span class="normal">3262</span>
+<span class="normal">3263</span>
+<span class="normal">3264</span>
+<span class="normal">3265</span>
+<span class="normal">3266</span>
+<span class="normal">3267</span>
+<span class="normal">3268</span>
+<span class="normal">3269</span>
+<span class="normal">3270</span>
+<span class="normal">3271</span>
+<span class="normal">3272</span>
+<span class="normal">3273</span>
+<span class="normal">3274</span>
+<span class="normal">3275</span>
+<span class="normal">3276</span>
+<span class="normal">3277</span>
+<span class="normal">3278</span>
+<span class="normal">3279</span>
+<span class="normal">3280</span>
+<span class="normal">3281</span>
+<span class="normal">3282</span>
+<span class="normal">3283</span>
+<span class="normal">3284</span>
+<span class="normal">3285</span>
+<span class="normal">3286</span>
+<span class="normal">3287</span>
+<span class="normal">3288</span>
+<span class="normal">3289</span>
+<span class="normal">3290</span>
+<span class="normal">3291</span>
+<span class="normal">3292</span>
+<span class="normal">3293</span>
+<span class="normal">3294</span>
+<span class="normal">3295</span>
+<span class="normal">3296</span>
+<span class="normal">3297</span>
+<span class="normal">3298</span>
+<span class="normal">3299</span>
+<span class="normal">3300</span>
+<span class="normal">3301</span>
+<span class="normal">3302</span>
+<span class="normal">3303</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">backtest</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">,</span>
     <span class="n">data</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span> <span class="o">|</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
     <span class="n">cv</span><span class="p">:</span> <span class="n">TimeSeriesFold</span> <span class="o">|</span> <span class="n">CVResult</span><span class="p">,</span>
@@ -10818,7 +10933,8 @@ script loads the path recorded in the profile.</p>
                 <p>Cross-validation strategy applied identically to every
 candidate. The <code>steps</code> value is inferred from <code>cv.steps</code>.
 The <code>CVResult</code> returned by <code>create_cv()</code> is accepted as well;
-its <code>cv</code> splitter is used.
+its <code>cv</code> splitter is used and, when <code>candidates</code> is None, its
+plan runs too (see <code>candidates</code>).
 Its profile must describe data of the same structure (format,
 target, series, frequency, exogenous columns), or <code>ValueError</code>
 is raised.</p>
@@ -10914,7 +11030,16 @@ the set is built from the profile's forecaster candidates of
 the same family as the recommended forecaster (with several
 series, <code>ForecasterRecursiveMultiSeries</code> and
 <code>ForecasterFoundation</code>); when that leaves a single forecaster,
-its estimator candidates are compared instead.</p>
+its estimator candidates are compared instead. When <code>cv</code> is a
+<code>CVResult</code> created for a plan that makes other decisions than
+all of those candidates (one refined with another estimator,
+lags or window features, for example), that plan runs too, as
+the row <code>'Strategy plan'</code>, with its decisions and the <code>metric</code>
+and <code>interval</code> of the comparison, and the explanation says
+where it ranks. <code>strategy_plan_name</code> names the row that runs
+that plan, which is one of the candidates when it makes the
+same decisions. A plan of a forecaster family that cannot be
+ranked with the candidates is left out with a warning.</p>
               </div>
             </td>
             <td>
@@ -11007,7 +11132,8 @@ the profile does not name are not used.</p>
                 <p>Whether to add a <code>ForecasterEquivalentDate</code> baseline (seasonal
 naive, or naive when no seasonal period applies) as one more
 row, ranked like the other candidates. The explanation states
-whether the best configuration beats it and by how much. It is
+how many configurations beat it, which ones, and by how much
+the best one does. It is
 not added for multi-series data, which it cannot forecast, nor
 when the target has missing values or missing timestamps, which
 it would repeat as missing predictions (the explanation says
@@ -11087,6 +11213,8 @@ that have no effect on the shared strategy.</li>
 parameters that were not passed.</li>
 <li>cv_defaults_explanation: why the strategy parameters that
 were not passed have their value, and which ones were passed.</li>
+<li>strategy_plan_name: name of the row that runs the plan of
+the <code>CVResult</code>, or None.</li>
 <li>best_name: name of the top-ranked candidate.</li>
 <li>best_candidate: top-ranked candidate as a <code>BacktestResult</code>.</li>
 </ul>
@@ -11167,6 +11295,30 @@ if <code>data</code> does not have the structure of <code>profile</code>.</p>
           </tr>
           <tr class="doc-section-item">
             <td>
+                  <code><a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;PlanEditsDiscardedWarning&lt;/span&gt; (&lt;code&gt;skforecast_ai.exceptions.PlanEditsDiscardedWarning&lt;/code&gt;)" href="exceptions.html#skforecast_ai.exceptions.PlanEditsDiscardedWarning">PlanEditsDiscardedWarning</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>When <code>candidates</code> is None and the plan of the <code>CVResult</code> runs
+without values that <code>plan()</code> does not rebuild from its
+decisions (values edited by hand, for example).</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="UserWarning">UserWarning</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>When <code>candidates</code> is None and the plan of the <code>CVResult</code> is left
+out: a forecaster family whose metrics cannot be ranked with the
+candidates.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
                   <code><a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;MissingBackendWarning&lt;/span&gt; (&lt;code&gt;skforecast_ai.exceptions.MissingBackendWarning&lt;/code&gt;)" href="exceptions.html#skforecast_ai.exceptions.MissingBackendWarning">MissingBackendWarning</a></code>
             </td>
             <td>
@@ -11197,48 +11349,7 @@ be fed directly into <code>forecast()</code>, <code>backtest()</code>, or
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>skforecast_ai/assistant.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">3264</span>
-<span class="normal">3265</span>
-<span class="normal">3266</span>
-<span class="normal">3267</span>
-<span class="normal">3268</span>
-<span class="normal">3269</span>
-<span class="normal">3270</span>
-<span class="normal">3271</span>
-<span class="normal">3272</span>
-<span class="normal">3273</span>
-<span class="normal">3274</span>
-<span class="normal">3275</span>
-<span class="normal">3276</span>
-<span class="normal">3277</span>
-<span class="normal">3278</span>
-<span class="normal">3279</span>
-<span class="normal">3280</span>
-<span class="normal">3281</span>
-<span class="normal">3282</span>
-<span class="normal">3283</span>
-<span class="normal">3284</span>
-<span class="normal">3285</span>
-<span class="normal">3286</span>
-<span class="normal">3287</span>
-<span class="normal">3288</span>
-<span class="normal">3289</span>
-<span class="normal">3290</span>
-<span class="normal">3291</span>
-<span class="normal">3292</span>
-<span class="normal">3293</span>
-<span class="normal">3294</span>
-<span class="normal">3295</span>
-<span class="normal">3296</span>
-<span class="normal">3297</span>
-<span class="normal">3298</span>
-<span class="normal">3299</span>
-<span class="normal">3300</span>
-<span class="normal">3301</span>
-<span class="normal">3302</span>
-<span class="normal">3303</span>
-<span class="normal">3304</span>
-<span class="normal">3305</span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">3305</span>
 <span class="normal">3306</span>
 <span class="normal">3307</span>
 <span class="normal">3308</span>
@@ -11710,7 +11821,116 @@ be fed directly into <code>forecast()</code>, <code>backtest()</code>, or
 <span class="normal">3774</span>
 <span class="normal">3775</span>
 <span class="normal">3776</span>
-<span class="normal">3777</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">compare</span><span class="p">(</span>
+<span class="normal">3777</span>
+<span class="normal">3778</span>
+<span class="normal">3779</span>
+<span class="normal">3780</span>
+<span class="normal">3781</span>
+<span class="normal">3782</span>
+<span class="normal">3783</span>
+<span class="normal">3784</span>
+<span class="normal">3785</span>
+<span class="normal">3786</span>
+<span class="normal">3787</span>
+<span class="normal">3788</span>
+<span class="normal">3789</span>
+<span class="normal">3790</span>
+<span class="normal">3791</span>
+<span class="normal">3792</span>
+<span class="normal">3793</span>
+<span class="normal">3794</span>
+<span class="normal">3795</span>
+<span class="normal">3796</span>
+<span class="normal">3797</span>
+<span class="normal">3798</span>
+<span class="normal">3799</span>
+<span class="normal">3800</span>
+<span class="normal">3801</span>
+<span class="normal">3802</span>
+<span class="normal">3803</span>
+<span class="normal">3804</span>
+<span class="normal">3805</span>
+<span class="normal">3806</span>
+<span class="normal">3807</span>
+<span class="normal">3808</span>
+<span class="normal">3809</span>
+<span class="normal">3810</span>
+<span class="normal">3811</span>
+<span class="normal">3812</span>
+<span class="normal">3813</span>
+<span class="normal">3814</span>
+<span class="normal">3815</span>
+<span class="normal">3816</span>
+<span class="normal">3817</span>
+<span class="normal">3818</span>
+<span class="normal">3819</span>
+<span class="normal">3820</span>
+<span class="normal">3821</span>
+<span class="normal">3822</span>
+<span class="normal">3823</span>
+<span class="normal">3824</span>
+<span class="normal">3825</span>
+<span class="normal">3826</span>
+<span class="normal">3827</span>
+<span class="normal">3828</span>
+<span class="normal">3829</span>
+<span class="normal">3830</span>
+<span class="normal">3831</span>
+<span class="normal">3832</span>
+<span class="normal">3833</span>
+<span class="normal">3834</span>
+<span class="normal">3835</span>
+<span class="normal">3836</span>
+<span class="normal">3837</span>
+<span class="normal">3838</span>
+<span class="normal">3839</span>
+<span class="normal">3840</span>
+<span class="normal">3841</span>
+<span class="normal">3842</span>
+<span class="normal">3843</span>
+<span class="normal">3844</span>
+<span class="normal">3845</span>
+<span class="normal">3846</span>
+<span class="normal">3847</span>
+<span class="normal">3848</span>
+<span class="normal">3849</span>
+<span class="normal">3850</span>
+<span class="normal">3851</span>
+<span class="normal">3852</span>
+<span class="normal">3853</span>
+<span class="normal">3854</span>
+<span class="normal">3855</span>
+<span class="normal">3856</span>
+<span class="normal">3857</span>
+<span class="normal">3858</span>
+<span class="normal">3859</span>
+<span class="normal">3860</span>
+<span class="normal">3861</span>
+<span class="normal">3862</span>
+<span class="normal">3863</span>
+<span class="normal">3864</span>
+<span class="normal">3865</span>
+<span class="normal">3866</span>
+<span class="normal">3867</span>
+<span class="normal">3868</span>
+<span class="normal">3869</span>
+<span class="normal">3870</span>
+<span class="normal">3871</span>
+<span class="normal">3872</span>
+<span class="normal">3873</span>
+<span class="normal">3874</span>
+<span class="normal">3875</span>
+<span class="normal">3876</span>
+<span class="normal">3877</span>
+<span class="normal">3878</span>
+<span class="normal">3879</span>
+<span class="normal">3880</span>
+<span class="normal">3881</span>
+<span class="normal">3882</span>
+<span class="normal">3883</span>
+<span class="normal">3884</span>
+<span class="normal">3885</span>
+<span class="normal">3886</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">compare</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">,</span>
     <span class="n">data</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span> <span class="o">|</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
     <span class="n">cv</span><span class="p">:</span> <span class="n">TimeSeriesFold</span> <span class="o">|</span> <span class="n">CVResult</span><span class="p">,</span>
@@ -11751,7 +11971,8 @@ be fed directly into <code>forecast()</code>, <code>backtest()</code>, or
 <span class="sd">        Cross-validation strategy applied identically to every</span>
 <span class="sd">        candidate. The `steps` value is inferred from `cv.steps`.</span>
 <span class="sd">        The `CVResult` returned by `create_cv()` is accepted as well;</span>
-<span class="sd">        its `cv` splitter is used.</span>
+<span class="sd">        its `cv` splitter is used and, when `candidates` is None, its</span>
+<span class="sd">        plan runs too (see `candidates`).</span>
 <span class="sd">        Its profile must describe data of the same structure (format,</span>
 <span class="sd">        target, series, frequency, exogenous columns), or `ValueError`</span>
 <span class="sd">        is raised.</span>
@@ -11791,7 +12012,16 @@ be fed directly into <code>forecast()</code>, <code>backtest()</code>, or
 <span class="sd">        the same family as the recommended forecaster (with several</span>
 <span class="sd">        series, `ForecasterRecursiveMultiSeries` and</span>
 <span class="sd">        `ForecasterFoundation`); when that leaves a single forecaster,</span>
-<span class="sd">        its estimator candidates are compared instead.</span>
+<span class="sd">        its estimator candidates are compared instead. When `cv` is a</span>
+<span class="sd">        `CVResult` created for a plan that makes other decisions than</span>
+<span class="sd">        all of those candidates (one refined with another estimator,</span>
+<span class="sd">        lags or window features, for example), that plan runs too, as</span>
+<span class="sd">        the row `'Strategy plan'`, with its decisions and the `metric`</span>
+<span class="sd">        and `interval` of the comparison, and the explanation says</span>
+<span class="sd">        where it ranks. `strategy_plan_name` names the row that runs</span>
+<span class="sd">        that plan, which is one of the candidates when it makes the</span>
+<span class="sd">        same decisions. A plan of a forecaster family that cannot be</span>
+<span class="sd">        ranked with the candidates is left out with a warning.</span>
 <span class="sd">    metric : str, list of str, default None</span>
 <span class="sd">        Metric(s) computed per candidate. When a list is passed, the</span>
 <span class="sd">        first metric is used to rank the table. When None, the plan</span>
@@ -11814,7 +12044,8 @@ be fed directly into <code>forecast()</code>, <code>backtest()</code>, or
 <span class="sd">        Whether to add a `ForecasterEquivalentDate` baseline (seasonal</span>
 <span class="sd">        naive, or naive when no seasonal period applies) as one more</span>
 <span class="sd">        row, ranked like the other candidates. The explanation states</span>
-<span class="sd">        whether the best configuration beats it and by how much. It is</span>
+<span class="sd">        how many configurations beat it, which ones, and by how much</span>
+<span class="sd">        the best one does. It is</span>
 <span class="sd">        not added for multi-series data, which it cannot forecast, nor</span>
 <span class="sd">        when the target has missing values or missing timestamps, which</span>
 <span class="sd">        it would repeat as missing predictions (the explanation says</span>
@@ -11859,6 +12090,8 @@ be fed directly into <code>forecast()</code>, <code>backtest()</code>, or
 <span class="sd">        parameters that were not passed.</span>
 <span class="sd">        - cv_defaults_explanation: why the strategy parameters that</span>
 <span class="sd">        were not passed have their value, and which ones were passed.</span>
+<span class="sd">        - strategy_plan_name: name of the row that runs the plan of</span>
+<span class="sd">        the `CVResult`, or None.</span>
 <span class="sd">        - best_name: name of the top-ranked candidate.</span>
 <span class="sd">        - best_candidate: top-ranked candidate as a `BacktestResult`.</span>
 
@@ -11881,6 +12114,14 @@ be fed directly into <code>forecast()</code>, <code>backtest()</code>, or
 <span class="sd">    -----</span>
 <span class="sd">    CandidateFailedWarning</span>
 <span class="sd">        Once per failed candidate.</span>
+<span class="sd">    PlanEditsDiscardedWarning</span>
+<span class="sd">        When `candidates` is None and the plan of the `CVResult` runs</span>
+<span class="sd">        without values that `plan()` does not rebuild from its</span>
+<span class="sd">        decisions (values edited by hand, for example).</span>
+<span class="sd">    UserWarning</span>
+<span class="sd">        When `candidates` is None and the plan of the `CVResult` is left</span>
+<span class="sd">        out: a forecaster family whose metrics cannot be ranked with the</span>
+<span class="sd">        candidates.</span>
 <span class="sd">    MissingBackendWarning</span>
 <span class="sd">        When `candidates` is None and the backend of the default</span>
 <span class="sd">        foundation model is not installed, so `ForecasterFoundation`</span>
@@ -11934,18 +12175,10 @@ be fed directly into <code>forecast()</code>, <code>backtest()</code>, or
         <span class="n">profile</span><span class="o">.</span><span class="n">data_profile</span><span class="o">.</span><span class="n">data_path</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="n">Path</span><span class="p">))</span> <span class="k">else</span> <span class="kc">None</span>
     <span class="p">)</span>
 
-    <span class="c1"># Automatic candidates leave out a foundation model whose backend</span>
-    <span class="c1"># is not installed, rather than fail on every call; the warning and</span>
-    <span class="c1"># the explanation say which package to install.</span>
-    <span class="n">excluded</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">()</span>
-    <span class="n">backend_note</span> <span class="o">=</span> <span class="kc">None</span>
-    <span class="k">if</span> <span class="n">candidates</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">excluded</span><span class="p">,</span> <span class="n">backend_note</span> <span class="o">=</span> <span class="n">missing_foundation_backend</span><span class="p">(</span><span class="n">profile</span><span class="p">)</span>
-        <span class="k">if</span> <span class="n">backend_note</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span><span class="n">backend_note</span><span class="p">,</span> <span class="n">MissingBackendWarning</span><span class="p">,</span> <span class="n">stacklevel</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
-    <span class="n">candidate_configs</span> <span class="o">=</span> <span class="n">resolve_compare_candidates</span><span class="p">(</span>
-        <span class="n">candidates</span><span class="p">,</span> <span class="n">profile</span><span class="p">,</span> <span class="n">exclude</span><span class="o">=</span><span class="n">excluded</span>
-    <span class="p">)</span>
+    <span class="c1"># Explicit candidates are the user's choice and run as given; they</span>
+    <span class="c1"># are checked before anything else.</span>
+    <span class="k">if</span> <span class="n">candidates</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">candidate_configs</span> <span class="o">=</span> <span class="n">resolve_compare_candidates</span><span class="p">(</span><span class="n">candidates</span><span class="p">,</span> <span class="n">profile</span><span class="p">)</span>
 
     <span class="c1"># Checked once here: an invalid interval would make every candidate</span>
     <span class="c1"># fail. Whether a method needs a symmetric interval is checked per</span>
@@ -11958,13 +12191,6 @@ be fed directly into <code>forecast()</code>, <code>backtest()</code>, or
         <span class="n">data_profile</span> <span class="o">=</span> <span class="n">profile</span><span class="o">.</span><span class="n">data_profile</span><span class="p">,</span>
         <span class="n">cv</span>           <span class="o">=</span> <span class="n">cv</span><span class="p">,</span>
     <span class="p">)</span>
-
-    <span class="n">baseline_name</span> <span class="o">=</span> <span class="kc">None</span>
-    <span class="n">baseline_note</span> <span class="o">=</span> <span class="kc">None</span>
-    <span class="k">if</span> <span class="n">baseline</span><span class="p">:</span>
-        <span class="n">candidate_configs</span><span class="p">,</span> <span class="n">baseline_name</span><span class="p">,</span> <span class="n">baseline_note</span> <span class="o">=</span> <span class="p">(</span>
-            <span class="n">add_baseline_candidate</span><span class="p">(</span><span class="n">candidate_configs</span><span class="p">,</span> <span class="n">profile</span><span class="p">,</span> <span class="n">interval</span><span class="p">)</span>
-        <span class="p">)</span>
 
     <span class="c1"># Resolve the ranking metric and the metric columns once, so the</span>
     <span class="c1"># table is consistent across candidates regardless of which ones</span>
@@ -11988,20 +12214,65 @@ be fed directly into <code>forecast()</code>, <code>backtest()</code>, or
     <span class="n">cv_config</span><span class="p">,</span> <span class="n">cv_explanation</span> <span class="o">=</span> <span class="n">resolve_cv_config</span><span class="p">(</span><span class="n">cv</span><span class="p">,</span> <span class="n">profile</span><span class="o">.</span><span class="n">data_profile</span><span class="p">)</span>
     <span class="n">n_fits</span> <span class="o">=</span> <span class="n">cv_config</span><span class="p">[</span><span class="s2">"n_fits"</span><span class="p">]</span>
 
-    <span class="c1"># Automatic candidates are also kept within a fit budget: with a</span>
-    <span class="c1"># strategy that refits in every fold a direct forecaster can take</span>
-    <span class="c1"># hours. Explicit candidates always run; they only get the warning.</span>
+    <span class="c1"># Automatic candidates leave out a foundation model whose backend is</span>
+    <span class="c1"># not installed, rather than fail on every call, and the</span>
+    <span class="c1"># alternatives above a fit budget (with a strategy that refits in</span>
+    <span class="c1"># every fold a direct forecaster can take hours). The plan the</span>
+    <span class="c1"># strategy was created for is the one the user means to compare: it</span>
+    <span class="c1"># runs as one more row unless it is one of the candidates of the</span>
+    <span class="c1"># profile, and the summary names its row. Each note is warned.</span>
+    <span class="n">strategy_plan</span> <span class="o">=</span> <span class="n">cv_result</span><span class="o">.</span><span class="n">plan</span> <span class="k">if</span> <span class="n">cv_result</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
+    <span class="n">strategy_name</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">backend_note</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">strategy_note</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="n">budget_note</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="k">if</span> <span class="n">candidates</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">candidate_configs</span><span class="p">,</span> <span class="n">budget_note</span> <span class="o">=</span> <span class="n">exclude_costly_candidates</span><span class="p">(</span>
-            <span class="n">candidate_configs</span> <span class="o">=</span> <span class="n">candidate_configs</span><span class="p">,</span>
-            <span class="n">preferred</span>         <span class="o">=</span> <span class="n">profile</span><span class="o">.</span><span class="n">forecaster</span><span class="p">,</span>
-            <span class="n">n_fits</span>            <span class="o">=</span> <span class="n">n_fits</span><span class="p">,</span>
-            <span class="n">steps</span>             <span class="o">=</span> <span class="n">steps</span><span class="p">,</span>
-            <span class="n">n_folds</span>           <span class="o">=</span> <span class="n">cv_config</span><span class="p">[</span><span class="s2">"n_folds"</span><span class="p">],</span>
-        <span class="p">)</span>
+
+        <span class="k">def</span><span class="w"> </span><span class="nf">build_plan</span><span class="p">(</span><span class="n">config</span><span class="p">:</span> <span class="n">CandidateConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ForecastPlan</span><span class="p">:</span>
+            <span class="k">with</span> <span class="n">warnings</span><span class="o">.</span><span class="n">catch_warnings</span><span class="p">():</span>
+                <span class="n">warnings</span><span class="o">.</span><span class="n">simplefilter</span><span class="p">(</span><span class="s2">"ignore"</span><span class="p">)</span>
+                <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">plan</span><span class="p">(</span>
+                    <span class="n">profile</span>  <span class="o">=</span> <span class="n">profile</span><span class="p">,</span>
+                    <span class="n">steps</span>    <span class="o">=</span> <span class="n">steps</span><span class="p">,</span>
+                    <span class="n">interval</span> <span class="o">=</span> <span class="n">interval</span><span class="p">,</span>
+                    <span class="n">metric</span>   <span class="o">=</span> <span class="n">metric_override</span><span class="p">,</span>
+                    <span class="o">**</span><span class="n">config</span><span class="p">,</span>
+                <span class="p">)</span>
+
+        <span class="n">default</span> <span class="o">=</span> <span class="n">resolve_default_candidates</span><span class="p">(</span>
+                      <span class="n">profile</span>       <span class="o">=</span> <span class="n">profile</span><span class="p">,</span>
+                      <span class="n">strategy_plan</span> <span class="o">=</span> <span class="n">strategy_plan</span><span class="p">,</span>
+                      <span class="n">build_plan</span>    <span class="o">=</span> <span class="n">build_plan</span><span class="p">,</span>
+                      <span class="n">n_fits</span>        <span class="o">=</span> <span class="n">n_fits</span><span class="p">,</span>
+                      <span class="n">steps</span>         <span class="o">=</span> <span class="n">steps</span><span class="p">,</span>
+                      <span class="n">n_folds</span>       <span class="o">=</span> <span class="n">cv_config</span><span class="p">[</span><span class="s2">"n_folds"</span><span class="p">],</span>
+                  <span class="p">)</span>
+        <span class="n">candidate_configs</span> <span class="o">=</span> <span class="n">default</span><span class="o">.</span><span class="n">candidates</span>
+        <span class="n">strategy_name</span> <span class="o">=</span> <span class="n">default</span><span class="o">.</span><span class="n">strategy_name</span>
+        <span class="n">backend_note</span> <span class="o">=</span> <span class="n">default</span><span class="o">.</span><span class="n">backend_note</span>
+        <span class="n">strategy_note</span> <span class="o">=</span> <span class="n">default</span><span class="o">.</span><span class="n">strategy_note</span>
+        <span class="n">budget_note</span> <span class="o">=</span> <span class="n">default</span><span class="o">.</span><span class="n">budget_note</span>
+        <span class="k">if</span> <span class="n">backend_note</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span><span class="n">backend_note</span><span class="p">,</span> <span class="n">MissingBackendWarning</span><span class="p">,</span> <span class="n">stacklevel</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">strategy_note</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="c1"># Left out (no row), or run without values edited by hand.</span>
+            <span class="n">category</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="ne">UserWarning</span> <span class="k">if</span> <span class="n">strategy_name</span> <span class="ow">is</span> <span class="kc">None</span>
+                <span class="k">else</span> <span class="n">PlanEditsDiscardedWarning</span>
+            <span class="p">)</span>
+            <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span><span class="n">strategy_note</span><span class="p">,</span> <span class="n">category</span><span class="p">,</span> <span class="n">stacklevel</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">budget_note</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span><span class="n">budget_note</span><span class="p">,</span> <span class="n">LongTrainingWarning</span><span class="p">,</span> <span class="n">stacklevel</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+    <span class="c1"># The row added for that plan, which the summary describes; a</span>
+    <span class="c1"># candidate of the profile that is that plan keeps its own name.</span>
+    <span class="n">strategy_row</span> <span class="o">=</span> <span class="n">strategy_name</span> <span class="k">if</span> <span class="n">strategy_name</span> <span class="o">==</span> <span class="n">STRATEGY_PLAN_NAME</span> <span class="k">else</span> <span class="kc">None</span>
+
+    <span class="n">baseline_name</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">baseline_note</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="n">baseline</span><span class="p">:</span>
+        <span class="n">candidate_configs</span><span class="p">,</span> <span class="n">baseline_name</span><span class="p">,</span> <span class="n">baseline_note</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">add_baseline_candidate</span><span class="p">(</span><span class="n">candidate_configs</span><span class="p">,</span> <span class="n">profile</span><span class="p">,</span> <span class="n">interval</span><span class="p">)</span>
+        <span class="p">)</span>
 
     <span class="c1"># Warned once per costly candidate here; the warning of each</span>
     <span class="c1"># backtest() call is silenced in the loop so it is not repeated.</span>
@@ -12105,7 +12376,19 @@ be fed directly into <code>forecast()</code>, <code>backtest()</code>, or
             <span class="c1"># the user. The forecaster and the estimator of an automatic</span>
             <span class="c1"># candidate and of the baseline are chosen here, by the rules:</span>
             <span class="c1"># only the metric of the comparison is the user's.</span>
-            <span class="k">if</span> <span class="n">candidates</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">name</span> <span class="o">==</span> <span class="n">baseline_name</span><span class="p">:</span>
+            <span class="c1"># The row of the plan of the strategy keeps the decisions the</span>
+            <span class="c1"># user made in that plan, and the metric of the comparison.</span>
+            <span class="k">if</span> <span class="n">name</span> <span class="o">==</span> <span class="n">strategy_row</span> <span class="ow">and</span> <span class="n">name</span> <span class="o">!=</span> <span class="n">baseline_name</span><span class="p">:</span>
+                <span class="n">cand_plan</span><span class="o">.</span><span class="n">overridden_fields</span> <span class="o">=</span> <span class="p">[</span>
+                    <span class="n">field</span> <span class="k">for</span> <span class="n">field</span> <span class="ow">in</span> <span class="n">cand_plan</span><span class="o">.</span><span class="n">overridden_fields</span>
+                    <span class="k">if</span> <span class="n">field</span> <span class="o">==</span> <span class="s2">"metric"</span> <span class="ow">or</span> <span class="n">field</span> <span class="ow">in</span> <span class="n">strategy_plan</span><span class="o">.</span><span class="n">overridden_fields</span>
+                <span class="p">]</span>
+                <span class="n">cand_plan</span><span class="o">.</span><span class="n">llm_refined_fields</span> <span class="o">=</span> <span class="p">[</span>
+                    <span class="n">field</span> <span class="k">for</span> <span class="n">field</span> <span class="ow">in</span> <span class="n">strategy_plan</span><span class="o">.</span><span class="n">llm_refined_fields</span>
+                    <span class="k">if</span> <span class="n">cand_plan</span><span class="o">.</span><span class="n">forecaster_kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">field</span><span class="p">)</span>
+                    <span class="o">==</span> <span class="n">strategy_plan</span><span class="o">.</span><span class="n">forecaster_kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">field</span><span class="p">)</span>
+                <span class="p">]</span>
+            <span class="k">elif</span> <span class="n">candidates</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">name</span> <span class="o">==</span> <span class="n">baseline_name</span><span class="p">:</span>
                 <span class="n">cand_plan</span><span class="o">.</span><span class="n">overridden_fields</span> <span class="o">=</span> <span class="p">[</span>
                     <span class="n">field</span> <span class="k">for</span> <span class="n">field</span> <span class="ow">in</span> <span class="n">cand_plan</span><span class="o">.</span><span class="n">overridden_fields</span>
                     <span class="k">if</span> <span class="n">field</span> <span class="o">==</span> <span class="s2">"metric"</span>
@@ -12211,18 +12494,23 @@ be fed directly into <code>forecast()</code>, <code>backtest()</code>, or
             <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">cv</span><span class="o">.</span><span class="n">differentiation</span><span class="si">}</span><span class="s2">): </span><span class="si">{</span><span class="n">own_differentiation</span><span class="si">}</span><span class="s2">."</span>
             <span class="k">if</span> <span class="n">own_differentiation</span> <span class="k">else</span> <span class="kc">None</span>
         <span class="p">),</span>
+        <span class="n">strategy_row</span>         <span class="o">=</span> <span class="n">strategy_row</span><span class="p">,</span>
+        <span class="n">strategy_note</span>        <span class="o">=</span> <span class="n">strategy_note</span><span class="p">,</span>
     <span class="p">)</span>
 
     <span class="k">return</span> <span class="n">ComparisonResult</span><span class="p">(</span>
-        <span class="n">profile</span>        <span class="o">=</span> <span class="n">profile</span><span class="p">,</span>
-        <span class="n">cv_config</span>      <span class="o">=</span> <span class="n">cv_config</span><span class="p">,</span>
-        <span class="n">results</span>        <span class="o">=</span> <span class="n">results</span><span class="p">,</span>
-        <span class="n">candidates</span>     <span class="o">=</span> <span class="n">candidate_results</span><span class="p">,</span>
-        <span class="n">failures</span>       <span class="o">=</span> <span class="n">failures</span><span class="p">,</span>
-        <span class="n">ranking_metric</span> <span class="o">=</span> <span class="n">ranking_metric</span><span class="p">,</span>
-        <span class="n">explanation</span>    <span class="o">=</span> <span class="n">explanation</span><span class="p">,</span>
-        <span class="n">baseline_name</span>  <span class="o">=</span> <span class="n">baseline_name</span><span class="p">,</span>
-        <span class="o">**</span><span class="n">_cv_provenance_fields</span><span class="p">(</span><span class="n">cv_result</span><span class="p">,</span> <span class="n">cv</span><span class="p">,</span> <span class="n">cv_config</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">profile</span><span class="p">),</span>
+        <span class="n">profile</span>            <span class="o">=</span> <span class="n">profile</span><span class="p">,</span>
+        <span class="n">cv_config</span>          <span class="o">=</span> <span class="n">cv_config</span><span class="p">,</span>
+        <span class="n">results</span>            <span class="o">=</span> <span class="n">results</span><span class="p">,</span>
+        <span class="n">candidates</span>         <span class="o">=</span> <span class="n">candidate_results</span><span class="p">,</span>
+        <span class="n">failures</span>           <span class="o">=</span> <span class="n">failures</span><span class="p">,</span>
+        <span class="n">ranking_metric</span>     <span class="o">=</span> <span class="n">ranking_metric</span><span class="p">,</span>
+        <span class="n">explanation</span>        <span class="o">=</span> <span class="n">explanation</span><span class="p">,</span>
+        <span class="n">baseline_name</span>      <span class="o">=</span> <span class="n">baseline_name</span><span class="p">,</span>
+        <span class="n">strategy_plan_name</span> <span class="o">=</span> <span class="n">strategy_name</span><span class="p">,</span>
+        <span class="o">**</span><span class="n">_cv_provenance_fields</span><span class="p">(</span>
+            <span class="n">cv_result</span><span class="p">,</span> <span class="n">cv</span><span class="p">,</span> <span class="n">cv_config</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">profile</span><span class="p">,</span> <span class="n">created_for_row</span><span class="o">=</span><span class="n">strategy_name</span>
+        <span class="p">),</span>
     <span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
@@ -12505,116 +12793,7 @@ this method cannot operate and raises <code>LLMRequiredError</code>.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>skforecast_ai/assistant.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">3779</span>
-<span class="normal">3780</span>
-<span class="normal">3781</span>
-<span class="normal">3782</span>
-<span class="normal">3783</span>
-<span class="normal">3784</span>
-<span class="normal">3785</span>
-<span class="normal">3786</span>
-<span class="normal">3787</span>
-<span class="normal">3788</span>
-<span class="normal">3789</span>
-<span class="normal">3790</span>
-<span class="normal">3791</span>
-<span class="normal">3792</span>
-<span class="normal">3793</span>
-<span class="normal">3794</span>
-<span class="normal">3795</span>
-<span class="normal">3796</span>
-<span class="normal">3797</span>
-<span class="normal">3798</span>
-<span class="normal">3799</span>
-<span class="normal">3800</span>
-<span class="normal">3801</span>
-<span class="normal">3802</span>
-<span class="normal">3803</span>
-<span class="normal">3804</span>
-<span class="normal">3805</span>
-<span class="normal">3806</span>
-<span class="normal">3807</span>
-<span class="normal">3808</span>
-<span class="normal">3809</span>
-<span class="normal">3810</span>
-<span class="normal">3811</span>
-<span class="normal">3812</span>
-<span class="normal">3813</span>
-<span class="normal">3814</span>
-<span class="normal">3815</span>
-<span class="normal">3816</span>
-<span class="normal">3817</span>
-<span class="normal">3818</span>
-<span class="normal">3819</span>
-<span class="normal">3820</span>
-<span class="normal">3821</span>
-<span class="normal">3822</span>
-<span class="normal">3823</span>
-<span class="normal">3824</span>
-<span class="normal">3825</span>
-<span class="normal">3826</span>
-<span class="normal">3827</span>
-<span class="normal">3828</span>
-<span class="normal">3829</span>
-<span class="normal">3830</span>
-<span class="normal">3831</span>
-<span class="normal">3832</span>
-<span class="normal">3833</span>
-<span class="normal">3834</span>
-<span class="normal">3835</span>
-<span class="normal">3836</span>
-<span class="normal">3837</span>
-<span class="normal">3838</span>
-<span class="normal">3839</span>
-<span class="normal">3840</span>
-<span class="normal">3841</span>
-<span class="normal">3842</span>
-<span class="normal">3843</span>
-<span class="normal">3844</span>
-<span class="normal">3845</span>
-<span class="normal">3846</span>
-<span class="normal">3847</span>
-<span class="normal">3848</span>
-<span class="normal">3849</span>
-<span class="normal">3850</span>
-<span class="normal">3851</span>
-<span class="normal">3852</span>
-<span class="normal">3853</span>
-<span class="normal">3854</span>
-<span class="normal">3855</span>
-<span class="normal">3856</span>
-<span class="normal">3857</span>
-<span class="normal">3858</span>
-<span class="normal">3859</span>
-<span class="normal">3860</span>
-<span class="normal">3861</span>
-<span class="normal">3862</span>
-<span class="normal">3863</span>
-<span class="normal">3864</span>
-<span class="normal">3865</span>
-<span class="normal">3866</span>
-<span class="normal">3867</span>
-<span class="normal">3868</span>
-<span class="normal">3869</span>
-<span class="normal">3870</span>
-<span class="normal">3871</span>
-<span class="normal">3872</span>
-<span class="normal">3873</span>
-<span class="normal">3874</span>
-<span class="normal">3875</span>
-<span class="normal">3876</span>
-<span class="normal">3877</span>
-<span class="normal">3878</span>
-<span class="normal">3879</span>
-<span class="normal">3880</span>
-<span class="normal">3881</span>
-<span class="normal">3882</span>
-<span class="normal">3883</span>
-<span class="normal">3884</span>
-<span class="normal">3885</span>
-<span class="normal">3886</span>
-<span class="normal">3887</span>
-<span class="normal">3888</span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">3888</span>
 <span class="normal">3889</span>
 <span class="normal">3890</span>
 <span class="normal">3891</span>
@@ -12777,7 +12956,116 @@ this method cannot operate and raises <code>LLMRequiredError</code>.</p>
 <span class="normal">4048</span>
 <span class="normal">4049</span>
 <span class="normal">4050</span>
-<span class="normal">4051</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">ask</span><span class="p">(</span>
+<span class="normal">4051</span>
+<span class="normal">4052</span>
+<span class="normal">4053</span>
+<span class="normal">4054</span>
+<span class="normal">4055</span>
+<span class="normal">4056</span>
+<span class="normal">4057</span>
+<span class="normal">4058</span>
+<span class="normal">4059</span>
+<span class="normal">4060</span>
+<span class="normal">4061</span>
+<span class="normal">4062</span>
+<span class="normal">4063</span>
+<span class="normal">4064</span>
+<span class="normal">4065</span>
+<span class="normal">4066</span>
+<span class="normal">4067</span>
+<span class="normal">4068</span>
+<span class="normal">4069</span>
+<span class="normal">4070</span>
+<span class="normal">4071</span>
+<span class="normal">4072</span>
+<span class="normal">4073</span>
+<span class="normal">4074</span>
+<span class="normal">4075</span>
+<span class="normal">4076</span>
+<span class="normal">4077</span>
+<span class="normal">4078</span>
+<span class="normal">4079</span>
+<span class="normal">4080</span>
+<span class="normal">4081</span>
+<span class="normal">4082</span>
+<span class="normal">4083</span>
+<span class="normal">4084</span>
+<span class="normal">4085</span>
+<span class="normal">4086</span>
+<span class="normal">4087</span>
+<span class="normal">4088</span>
+<span class="normal">4089</span>
+<span class="normal">4090</span>
+<span class="normal">4091</span>
+<span class="normal">4092</span>
+<span class="normal">4093</span>
+<span class="normal">4094</span>
+<span class="normal">4095</span>
+<span class="normal">4096</span>
+<span class="normal">4097</span>
+<span class="normal">4098</span>
+<span class="normal">4099</span>
+<span class="normal">4100</span>
+<span class="normal">4101</span>
+<span class="normal">4102</span>
+<span class="normal">4103</span>
+<span class="normal">4104</span>
+<span class="normal">4105</span>
+<span class="normal">4106</span>
+<span class="normal">4107</span>
+<span class="normal">4108</span>
+<span class="normal">4109</span>
+<span class="normal">4110</span>
+<span class="normal">4111</span>
+<span class="normal">4112</span>
+<span class="normal">4113</span>
+<span class="normal">4114</span>
+<span class="normal">4115</span>
+<span class="normal">4116</span>
+<span class="normal">4117</span>
+<span class="normal">4118</span>
+<span class="normal">4119</span>
+<span class="normal">4120</span>
+<span class="normal">4121</span>
+<span class="normal">4122</span>
+<span class="normal">4123</span>
+<span class="normal">4124</span>
+<span class="normal">4125</span>
+<span class="normal">4126</span>
+<span class="normal">4127</span>
+<span class="normal">4128</span>
+<span class="normal">4129</span>
+<span class="normal">4130</span>
+<span class="normal">4131</span>
+<span class="normal">4132</span>
+<span class="normal">4133</span>
+<span class="normal">4134</span>
+<span class="normal">4135</span>
+<span class="normal">4136</span>
+<span class="normal">4137</span>
+<span class="normal">4138</span>
+<span class="normal">4139</span>
+<span class="normal">4140</span>
+<span class="normal">4141</span>
+<span class="normal">4142</span>
+<span class="normal">4143</span>
+<span class="normal">4144</span>
+<span class="normal">4145</span>
+<span class="normal">4146</span>
+<span class="normal">4147</span>
+<span class="normal">4148</span>
+<span class="normal">4149</span>
+<span class="normal">4150</span>
+<span class="normal">4151</span>
+<span class="normal">4152</span>
+<span class="normal">4153</span>
+<span class="normal">4154</span>
+<span class="normal">4155</span>
+<span class="normal">4156</span>
+<span class="normal">4157</span>
+<span class="normal">4158</span>
+<span class="normal">4159</span>
+<span class="normal">4160</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">ask</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">,</span>
     <span class="n">prompt</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
     <span class="n">context</span><span class="p">:</span> <span class="n">ExplainableResult</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -13184,92 +13472,92 @@ that installs them.</li>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>skforecast_ai/assistant.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">4053</span>
-<span class="normal">4054</span>
-<span class="normal">4055</span>
-<span class="normal">4056</span>
-<span class="normal">4057</span>
-<span class="normal">4058</span>
-<span class="normal">4059</span>
-<span class="normal">4060</span>
-<span class="normal">4061</span>
-<span class="normal">4062</span>
-<span class="normal">4063</span>
-<span class="normal">4064</span>
-<span class="normal">4065</span>
-<span class="normal">4066</span>
-<span class="normal">4067</span>
-<span class="normal">4068</span>
-<span class="normal">4069</span>
-<span class="normal">4070</span>
-<span class="normal">4071</span>
-<span class="normal">4072</span>
-<span class="normal">4073</span>
-<span class="normal">4074</span>
-<span class="normal">4075</span>
-<span class="normal">4076</span>
-<span class="normal">4077</span>
-<span class="normal">4078</span>
-<span class="normal">4079</span>
-<span class="normal">4080</span>
-<span class="normal">4081</span>
-<span class="normal">4082</span>
-<span class="normal">4083</span>
-<span class="normal">4084</span>
-<span class="normal">4085</span>
-<span class="normal">4086</span>
-<span class="normal">4087</span>
-<span class="normal">4088</span>
-<span class="normal">4089</span>
-<span class="normal">4090</span>
-<span class="normal">4091</span>
-<span class="normal">4092</span>
-<span class="normal">4093</span>
-<span class="normal">4094</span>
-<span class="normal">4095</span>
-<span class="normal">4096</span>
-<span class="normal">4097</span>
-<span class="normal">4098</span>
-<span class="normal">4099</span>
-<span class="normal">4100</span>
-<span class="normal">4101</span>
-<span class="normal">4102</span>
-<span class="normal">4103</span>
-<span class="normal">4104</span>
-<span class="normal">4105</span>
-<span class="normal">4106</span>
-<span class="normal">4107</span>
-<span class="normal">4108</span>
-<span class="normal">4109</span>
-<span class="normal">4110</span>
-<span class="normal">4111</span>
-<span class="normal">4112</span>
-<span class="normal">4113</span>
-<span class="normal">4114</span>
-<span class="normal">4115</span>
-<span class="normal">4116</span>
-<span class="normal">4117</span>
-<span class="normal">4118</span>
-<span class="normal">4119</span>
-<span class="normal">4120</span>
-<span class="normal">4121</span>
-<span class="normal">4122</span>
-<span class="normal">4123</span>
-<span class="normal">4124</span>
-<span class="normal">4125</span>
-<span class="normal">4126</span>
-<span class="normal">4127</span>
-<span class="normal">4128</span>
-<span class="normal">4129</span>
-<span class="normal">4130</span>
-<span class="normal">4131</span>
-<span class="normal">4132</span>
-<span class="normal">4133</span>
-<span class="normal">4134</span>
-<span class="normal">4135</span>
-<span class="normal">4136</span>
-<span class="normal">4137</span>
-<span class="normal">4138</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">check_llm</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">test_call</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">LLMCheckResult</span><span class="p">:</span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">4162</span>
+<span class="normal">4163</span>
+<span class="normal">4164</span>
+<span class="normal">4165</span>
+<span class="normal">4166</span>
+<span class="normal">4167</span>
+<span class="normal">4168</span>
+<span class="normal">4169</span>
+<span class="normal">4170</span>
+<span class="normal">4171</span>
+<span class="normal">4172</span>
+<span class="normal">4173</span>
+<span class="normal">4174</span>
+<span class="normal">4175</span>
+<span class="normal">4176</span>
+<span class="normal">4177</span>
+<span class="normal">4178</span>
+<span class="normal">4179</span>
+<span class="normal">4180</span>
+<span class="normal">4181</span>
+<span class="normal">4182</span>
+<span class="normal">4183</span>
+<span class="normal">4184</span>
+<span class="normal">4185</span>
+<span class="normal">4186</span>
+<span class="normal">4187</span>
+<span class="normal">4188</span>
+<span class="normal">4189</span>
+<span class="normal">4190</span>
+<span class="normal">4191</span>
+<span class="normal">4192</span>
+<span class="normal">4193</span>
+<span class="normal">4194</span>
+<span class="normal">4195</span>
+<span class="normal">4196</span>
+<span class="normal">4197</span>
+<span class="normal">4198</span>
+<span class="normal">4199</span>
+<span class="normal">4200</span>
+<span class="normal">4201</span>
+<span class="normal">4202</span>
+<span class="normal">4203</span>
+<span class="normal">4204</span>
+<span class="normal">4205</span>
+<span class="normal">4206</span>
+<span class="normal">4207</span>
+<span class="normal">4208</span>
+<span class="normal">4209</span>
+<span class="normal">4210</span>
+<span class="normal">4211</span>
+<span class="normal">4212</span>
+<span class="normal">4213</span>
+<span class="normal">4214</span>
+<span class="normal">4215</span>
+<span class="normal">4216</span>
+<span class="normal">4217</span>
+<span class="normal">4218</span>
+<span class="normal">4219</span>
+<span class="normal">4220</span>
+<span class="normal">4221</span>
+<span class="normal">4222</span>
+<span class="normal">4223</span>
+<span class="normal">4224</span>
+<span class="normal">4225</span>
+<span class="normal">4226</span>
+<span class="normal">4227</span>
+<span class="normal">4228</span>
+<span class="normal">4229</span>
+<span class="normal">4230</span>
+<span class="normal">4231</span>
+<span class="normal">4232</span>
+<span class="normal">4233</span>
+<span class="normal">4234</span>
+<span class="normal">4235</span>
+<span class="normal">4236</span>
+<span class="normal">4237</span>
+<span class="normal">4238</span>
+<span class="normal">4239</span>
+<span class="normal">4240</span>
+<span class="normal">4241</span>
+<span class="normal">4242</span>
+<span class="normal">4243</span>
+<span class="normal">4244</span>
+<span class="normal">4245</span>
+<span class="normal">4246</span>
+<span class="normal">4247</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">check_llm</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">test_call</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">LLMCheckResult</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Check whether the configured LLM can be used, and report why not.</span>
 
