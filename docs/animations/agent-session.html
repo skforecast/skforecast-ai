@@ -219,7 +219,7 @@ for (let i = 0; i < A.length; i++){
 // Hold on the table, then let the rest of the answer scroll in. The answer of
 // the short cut fits in one screen, so it needs no stop.
 if (!SHORT && tableEnd >= 0 && answerRows[tableEnd + 1]) answerRows[tableEnd + 1].pause = 3.5;
-t += SHORT ? .8 : 0;                                   // a last look at the calls
+t += 2.5;                                              // time to read the calls before they go
 const ANSWER = add('answer', answerRows, 0, {stagger:.07});
 const TOTAL = ANSWER.rows[ANSWER.rows.length - 1].at + (SHORT ? 8 : 9);
 

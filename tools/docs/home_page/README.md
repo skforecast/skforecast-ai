@@ -369,7 +369,7 @@ What the script changes, and nothing else:
   report can carry one in the output of a command).
 
 The short cut is for a reader of the README, who gives it a few seconds: it
-lasts 23 s instead of 44 and fits in two screens, the calls and the answer,
+lasts 24 s instead of 46 and fits in two screens, the calls and the answer,
 with more space between blocks. It only leaves out, never rewrites, and says
 so in its footer:
 
