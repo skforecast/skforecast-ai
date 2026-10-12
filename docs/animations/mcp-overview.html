@@ -37,8 +37,10 @@ if (!D){
   return;
 }
 const ROWS = D.compare.rows, BEST = ROWS[0], BASE = D.compare.baseline;
-const modelName = r => r.forecaster === 'ForecasterFoundation' && r.estimator
-  ? r.estimator.split('/').pop().replace(/^./, c => c.toUpperCase()) : r.name;
+// The winner as the leaderboard names it, with its model: the bars only say
+// "Foundation", so the answer has to tie both names together.
+const modelName = r => !r.estimator ? r.name : r.name + ' (' + (r.forecaster === 'ForecasterFoundation'
+  ? r.estimator.split('/').pop().replace(/^./, c => c.toUpperCase()) : r.estimator) + ')';
 const PROMPT = `Forecast the next ${D.steps} months of ${D.data_file} and tell me how accurate it is.`;
 const ANSWER = `${modelName(BEST)} ranks first among ${ROWS.length - 1} candidates: MAE ` +
   `${BEST.mae.toFixed(4)}, ${D.compare.gain_pct}% below the seasonal naive baseline ` +
@@ -55,7 +57,7 @@ const T = {
   cmd1:[1.0,2.6], cmd2:[2.9,4.3], installed:4.6, server:[4.8,5.4], project:[5.6,6.2],
   allow:[6.2,7.6], output:[6.6,7.2], others:7.4,
   termOut:[9.4,9.8], prompt:[9.9,12.0], toLlm:[12.3,13.1], think:[13.1,14.1], fromLlm:[14.2,15.0],
-  call0:CH.rules, callStep:4.2,
+  call0:CH.rules, callStep:4.2, summary:[CH.rules + 3.45, CH.rules + 4.15],
   compare:CH.validate, bars:[30.0,32.0], winner:[32.3,32.8], gain:32.8, lbFile:33.0, compareBack:[33.4,34.2],
   forecast:34.6, predFile:[36.2,37.4], forecastBack:[37.6,38.4],
   code:CH.answer, script:[40.6,41.2], codeBack:[41.4,42.2],
@@ -93,11 +95,13 @@ const TOOLS = ['profile', 'plan', 'create_cv', 'compare', 'forecast', 'get_code'
 
 /* ---------------------------------------------------------------- layout */
 const MX0 = 30, MY0 = 124, MX1 = 910, MY1 = 690;          // your machine
-const SX0 = 56, SX1 = 420, CY0 = 150, CY1 = 440;          // server card
-const AX0 = 450, AX1 = 884;                               // agent card
+const AX0 = 56, AX1 = 490, CY0 = 150, CY1 = 440;          // agent card
+const SX0 = 520, SX1 = 884;                               // server card
 const PX1 = 560, OX0 = 584, FY0 = 466, FY1 = 672;         // project and output folders
 const LX0 = 950, LX1 = 1240, LY0 = CY0, LY1 = 330;        // language model
 const RY0 = CY0 + 140;                                    // response area of the server
+const HOP = 60;                                           // control height of the hops: they peak under the caption
+const WX = (OX0 + SX1)/2;                                 // where the server writes to the output folder
 const MONO = 13, CWm = 0.6*MONO;
 
 /* ------------------------------------------------------------- helpers */
@@ -118,6 +122,16 @@ function fly(o, t, [a, b], x0, y0, x1, y1, s, style){
   const p = P(t, a, b), op = Math.min(lin(t, a, a + .15), 1 - lin(t, b, b + .25));
   pill(o, lerp(x0, x1, p), lerp(y0, y1, p) - Math.sin(p*Math.PI)*18, s, {...style, op});
 }
+// A chip between the agent and its language model: it hops over the server,
+// which stands between them and takes no part in that exchange.
+function hop(o, t, [a, b], x0, y0, x1, y1, s, style){
+  if (t < a || t > b + .25) return;
+  const p = P(t, a, b), q = 1 - p, op = Math.min(lin(t, a, a + .15), 1 - lin(t, b, b + .25));
+  const toLlm = x1 > x0, w = Math.abs(x1 - x0);
+  const c0 = x0 + (toLlm ? .08 : -.2)*w, c1 = x1 - (toLlm ? .2 : -.08)*w;
+  const bez = (u0, u1, u2, u3) => q*q*q*u0 + 3*q*q*p*u1 + 3*q*p*p*u2 + p*p*p*u3;
+  pill(o, bez(x0, c0, c1, x1), bez(y0, HOP, HOP, y1), s, {...style, op});
+}
 const typed = (s, t, [a, b]) => s.slice(0, Math.round(lin(t, a, b)*s.length));
 function wrap(s, width, size, cls = 's'){
   const out = []; let cur = '';
@@ -136,7 +150,7 @@ function focus(t, part){
   if (part === 'llm'){
     const on = Math.max(
       lin(t, CH.ask - .4, CH.ask)*(1 - lin(t, CH.rules, CH.rules + .4)),
-      pulse(t, T.call0 + 3.65, 1.0),
+      pulse(t, (T.summary[0] + T.summary[1])/2 + .1, 1.0),
       lin(t, T.toLlm2[0] - .4, T.toLlm2[0]));
     return lerp(dim, 1, cl(on));
   }
@@ -158,7 +172,7 @@ function llmZone(t, o){
   const think = pulse(t, (T.think[0] + T.think[1])/2, .9);
   o.push(rect(LX0, LY0, LX1 - LX0, LY1 - LY0, {rx:14, fill:V('panel'), stroke:V('llm'), sw:1.5 + think, op:a}));
   o.push(text(LX0 + 18, LY0 + 36, 'Language model', {size:20, weight:700, fill:V('llm'), op:a}));
-  ['reads the request and what', 'the agent reads; picks the', 'tools and writes the answer'].forEach((s, i) =>
+  ['reads your request and the', 'summaries; picks the tools', 'and writes the answer'].forEach((s, i) =>
     o.push(text(LX0 + 18, LY0 + 66 + i*21, s, {size:14, fill:V('fg'), op:a})));
   const pick = Math.min(lin(t, T.think[0], T.think[0] + .3), 1 - lin(t, CH.rules - .3, CH.rules));
   o.push(text(LX0 + 18, LY1 - 14, 'next: call profile', {size:13, cls:'m', weight:700, fill:V('llm'), op:a*pick}));
@@ -205,7 +219,8 @@ function agentCard(t, o){
     o.push(text(x, y, c.tool, {size:MONO, cls:'m', weight:700, fill:V('targetText'), op}));
     if (c.args) o.push(text(x + mw(c.tool, MONO, 700, 'm') + 8, y, c.args, {size:MONO, cls:'m', fill:V('muted'), op}));
     const back = lin(t, c.back[1] - .1, c.back[1] + .2);
-    if (back > 0) o.push(text(AX1 - 18, y, '✓ ' + c.id, {size:MONO, cls:'m', anchor:'end', fill:V('ok'), op:op*back}));
+    const got = c.script ? `script, ${D.script.length} lines` : c.id;
+    if (back > 0) o.push(text(AX1 - 18, y, '✓ ' + got, {size:MONO, cls:'m', anchor:'end', fill:V('ok'), op:op*back}));
   });
   // Answer: written by the language model, with the figures of the server.
   const ans = lin(t, ...T.answerIn);
@@ -274,24 +289,24 @@ function folders(t, o){
   if (a > 0){
     const hl = pulse(t, (T.allow[0] + T.allow[1])/2, .7);
     const read = CALLS[0], r = Math.min(lin(t, read.sent[1], read.sent[1] + .2), 1 - lin(t, read.back[0], read.back[0] + .4));
-    card(o, SX0, FY0, PX1, FY1, 'Project folder', '--allow-dir: the only folder the server reads', a,
+    card(o, AX0, FY0, PX1, FY1, 'Project folder', '--allow-dir: the only folder the server reads', a,
       hl > .05 || r > .05 ? V('target') : V('border'));
-    o.push(text(SX0 + 18, FY0 + 78, D.data_file, {size:MONO, cls:'m', weight:700, fill:V('fg'), op:a}));
+    o.push(text(AX0 + 18, FY0 + 78, D.data_file, {size:MONO, cls:'m', weight:700, fill:V('fg'), op:a}));
     const v = D.series.values, lo = Math.min(...v), hi = Math.max(...v);
-    const X0 = SX0 + 18, X1 = PX1 - 18, Y0 = FY0 + 92, Y1 = FY1 - 30;
+    const X0 = AX0 + 18, X1 = PX1 - 18, Y0 = FY0 + 92, Y1 = FY1 - 30;
     const pts = v.map((y, i) => [X0 + i/(v.length - 1)*(X1 - X0), Y1 - (y - lo)/(hi - lo)*(Y1 - Y0)]);
     o.push(path(polyline(pts), {stroke:V('series'), sw:1.5, op:a}));
     o.push(text(X1, FY1 - 10, `${v.length} rows: they stay in the file`, {size:12.5, anchor:'end', fill:V('muted'), op:a}));
     // The server reads the file during profile.
     if (r > 0){
-      o.push(line(SX0 + 120, CY1 + 2, SX0 + 120, FY0 - 2, {stroke:V('target'), sw:2, op:r}));
-      o.push(text(SX0 + 130, FY0 - 8, 'reads the CSV', {size:12.5, weight:700, fill:V('targetText'), op:r}));
+      o.push(line(SX0 + 20, CY1 + 2, SX0 + 20, FY0 - 2, {stroke:V('target'), sw:2, op:r}));
+      o.push(text(SX0 + 30, FY0 - 8, 'reads the CSV', {size:12.5, weight:700, fill:V('targetText'), op:r}));
     }
   }
   // Output folder: what the server writes.
   const b = P(t, ...T.output)*focus(t, 'folders');
   if (b <= 0) return;
-  card(o, OX0, FY0, AX1, FY1, 'Output folder', 'temporary, unless --output-dir', b);
+  card(o, OX0, FY0, SX1, FY1, 'Output folder', 'temporary, unless --output-dir', b);
   const files = [[D.compare.file, T.lbFile], [D.forecast.file, T.predFile[0]]];
   files.forEach(([f, at], i) => {
     const op = b*lin(t, at, at + .3);
@@ -299,14 +314,14 @@ function folders(t, o){
   });
   const w = Math.max(lin(t, T.lbFile - .3, T.lbFile), lin(t, T.predFile[0] - .3, T.predFile[0]))*(1 - lin(t, T.predFile[0] + 1.2, T.predFile[0] + 1.6));
   if (w > 0 && t < T.code){
-    o.push(path(`M${SX1 - 60} ${CY1 + 2} V${CY1 + 13} H${OX0 + 60} V${FY0 - 2}`, {stroke:V('target'), sw:2, op:w}));
-    o.push(text((SX1 + OX0)/2 + 20, CY1 + 10, 'writes', {size:12.5, weight:700, fill:V('targetText'), op:w}));
+    o.push(line(WX, CY1 + 2, WX, FY0 - 2, {stroke:V('target'), sw:2, op:w}));
+    o.push(text(WX + 10, FY0 - 8, 'writes', {size:12.5, weight:700, fill:V('targetText'), op:w}));
   }
   // The forecast itself, as written to the file.
   const g = lin(t, ...T.predFile);
   if (g > 0){
     const v = D.forecast.values, lo = Math.min(...v), hi = Math.max(...v);
-    const X0 = OX0 + 18, X1 = AX1 - 18, Y0 = FY0 + 124, Y1 = FY1 - 30;
+    const X0 = OX0 + 18, X1 = SX1 - 18, Y0 = FY0 + 124, Y1 = FY1 - 30;
     const pts = v.map((y, i) => [X0 + i/(v.length - 1)*(X1 - X0), Y1 - (y - lo)/(hi - lo)*(Y1 - Y0)]);
     o.push(path(polyline(pts, g), {stroke:V('target'), sw:2, op:b}));
     o.push(text(X1, FY1 - 10, `${v.length} predictions`, {size:12.5, anchor:'end', fill:V('muted'), op:b*g}));
@@ -322,13 +337,13 @@ function traffic(t, o){
   CALLS.forEach((c, i) => {
     const y = CY0 + 138 + i*21, sx = SX0 + 74 + (TOOLS.indexOf(c.tool) % 3)*112, sy = CY0 + 80 + Math.floor(TOOLS.indexOf(c.tool)/3)*34;
     fly(o, t, c.sent, AX0 + 60, y, sx, sy, c.tool, call);
-    fly(o, t, c.back, SX1 - 80, RY0 + 30, AX1 - 110, y, c.script ? 'script' : 'id + summary', resp);
+    fly(o, t, c.back, SX0 + 80, RY0 + 30, AX1 - 110, y, c.script ? 'script' : 'id + summary', resp);
   });
-  fly(o, t, T.toLlm, AX1 - 70, CY0 + 90, (LX0 + LX1)/2, LY1 - 34, 'request', llm);
-  fly(o, t, T.fromLlm, LX0 + 82, LY1 - 19, AX0 + 120, CY0 + 138, 'call profile', llm);
-  fly(o, t, [T.call0 + 3.3, T.call0 + 4.0], AX1 - 70, CY0 + 140, (LX0 + LX1)/2, LY1 - 34, 'summary', llm);
-  fly(o, t, T.toLlm2, AX1 - 70, CY0 + 200, (LX0 + LX1)/2, LY1 - 34, 'summaries', llm);
-  fly(o, t, T.fromLlm2, LX0 + 82, LY1 - 19, AX0 + 140, CY0 + 150, 'answer', llm);
+  hop(o, t, T.toLlm, AX1 - 70, CY0 + 90, (LX0 + LX1)/2, LY1 - 34, 'request', llm);
+  hop(o, t, T.fromLlm, LX0 + 82, LY1 - 19, AX0 + 120, CY0 + 138, 'call profile', llm);
+  hop(o, t, T.summary, AX1 - 70, CY0 + 138, (LX0 + LX1)/2, LY1 - 34, 'summary', llm);
+  hop(o, t, T.toLlm2, AX1 - 70, CY0 + 200, (LX0 + LX1)/2, LY1 - 34, 'summaries', llm);
+  hop(o, t, T.fromLlm2, LX0 + 82, LY1 - 19, AX0 + 140, CY0 + 150, 'answer', llm);
 }
 
 /* ---------------------------------------------------------------- run */
@@ -341,7 +356,7 @@ SkfAnim.run({
         'rules of the Python API, and each response is an id and a summary, never rows of the data: ' +
         `${D.profile.lines.join(', ')}; ${D.plan.lines.join(', ')}. Validate: compare backtests ${ROWS.length - 1} ` +
         `candidates and a seasonal naive baseline on the same folds; ${modelName(BEST)} ranks first with MAE ` +
-        `${BEST.mae}, ${D.compare.gain_pct}% below the baseline. forecast writes ${D.forecast.values.length} ` +
+        `${BEST.mae.toFixed(4)}, ${D.compare.gain_pct}% below the baseline. forecast writes ${D.forecast.values.length} ` +
         'predictions to a file in the output folder. Answer: get_code returns the script that ran, and the agent ' +
         `answers: "${ANSWER}"`,
   total: T.total,

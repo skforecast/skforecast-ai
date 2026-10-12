@@ -236,12 +236,16 @@ header: each one ends in a still, complete state, and the reader can jump
 between them (see "Chapters" below).
 
 The layout follows "Deterministic first, LLM second": your machine in a
-dashed frame with the server (orange, deterministic rules), the agent and two
+dashed frame with the agent, the server (orange, deterministic rules) and two
 folders, the project folder (`--allow-dir`, the only one the server reads,
 where the rows of the data stay) and the output folder (temporary unless
 `--output-dir`, where the predictions are written), and the language model of
-the agent outside, in violet. Only the part that acts in a chapter is at full
-opacity, and one thing moves at a time.
+the agent outside, in violet. It reads from left to right, as the title does:
+the agent asks, the server decides, and the server stands over the output
+folder it writes to. The server is therefore between the agent and its
+language model, so what they exchange (`hop()`) jumps over the server instead
+of crossing it: the server takes no part in that exchange. Only the part that
+acts in a chapter is at full opacity, and one thing moves at a time.
 
 The figures are real. `generate_mcp_overview_data.py` starts the server of
 this checkout, opens an in-memory MCP client against it (as
