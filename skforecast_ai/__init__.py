@@ -11,7 +11,7 @@ LLM full:  https://skforecast.org/latest/llms-full.txt
 Examples:  https://skforecast.org/latest/examples/examples_english.html
 """
 
-__version__ = "0.4.1"
+__version__ = "0.4.2"
 
 # Aliased so they do not show up as public names of the package.
 import importlib as _importlib
