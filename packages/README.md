@@ -15,7 +15,46 @@ itself. They are not part of the `skforecast-ai` distribution
 (`tests/test_mcp_registry_distribution.py`). The `release-bump` skill
 updates them.
 
-## Publishing, after `skforecast-ai` is on PyPI
+## Publishing with GitHub Actions (on trial)
+
+`.github/workflows/publish-pypi.yml` builds `skforecast-ai` and
+`skforecast-ai-mcp`, installs the wheels to run them, uploads both with
+Trusted Publishing (no token) and installs the launcher back from the
+index. Until a release has gone through it, the steps by hand below stay
+the reference.
+
+| Trigger | Index | GitHub environment |
+|:--------|:------|:-------------------|
+| A published GitHub release, tag `vX.Y.Z` | PyPI | `pypi` |
+| A tag `test-publish-*`, or a manual run | TestPyPI | `testpypi` |
+
+Setup, once per index (<https://pypi.org> and <https://test.pypi.org> are
+separate accounts): in each of the two projects, **Settings**,
+**Publishing**, add a GitHub publisher with owner `skforecast`, repository
+`skforecast-ai`, workflow `publish-pypi.yml` and the environment of the table.
+A project that the index does not have yet takes a pending publisher, from
+**Publishing** in the settings of the account. In GitHub, the environment
+`pypi` has a required reviewer, so that a release waits for an approval
+before each of the two uploads.
+
+A rehearsal, from any branch that has the workflow:
+
+```bash
+git tag test-publish-X.Y.Z-1
+git push origin test-publish-X.Y.Z-1
+# afterwards
+git push origin --delete test-publish-X.Y.Z-1
+git tag -d test-publish-X.Y.Z-1
+```
+
+An index never takes the same file twice. A rehearsal skips the files
+that TestPyPI already has, so a second one with the same version checks
+the build and the login but uploads nothing new.
+
+The workflow does not publish the entry of the MCP registry: steps 3 and 4
+below are still done by hand.
+
+## Publishing by hand, after `skforecast-ai` is on PyPI
 
 The launcher pins the version of `skforecast-ai`, so that one goes first.
 
