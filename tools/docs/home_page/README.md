@@ -242,10 +242,17 @@ where the rows of the data stay) and the output folder (temporary unless
 `--output-dir`, where the predictions are written), and the language model of
 the agent outside, in violet. It reads from left to right, as the title does:
 the agent asks, the server decides, and the server stands over the output
-folder it writes to. The server is therefore between the agent and its
-language model, so what they exchange (`hop()`) jumps over the server instead
-of crossing it: the server takes no part in that exchange. Only the part that
-acts in a chapter is at full opacity, and one thing moves at a time.
+folder it writes to. One thing moves at a time, and in Ask the server and the
+folders fade, since they take no part in it.
+
+The language model is not an actor: every coding agent has one, and showing
+how it reads the request, picks each tool and writes the answer explains
+agents, not this server. It is a small, static card outside the frame, there
+for one reason: what the agent reads ends up in it, which is why it matters
+that the responses carry no rows. A single `summary` chip travels to it
+(`hop()`), once for all the responses, while the caption says that no
+response carries rows; it jumps over the server, which stands in between and
+takes no part in that exchange.
 
 The figures are real. `generate_mcp_overview_data.py` starts the server of
 this checkout, opens an in-memory MCP client against it (as

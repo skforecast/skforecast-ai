@@ -51,24 +51,24 @@ const INSTALL = ['/plugin marketplace add skforecast/skforecast-ai', '/plugin in
 /* -------------------------------------------------------------- timeline */
 // Five chapters (the steps of the header): each one ends in a still, complete
 // state, so a pause at the end of any of them leaves a readable diagram.
-const CH = {connect:0, ask:9.4, rules:15.6, validate:28.6, answer:39.6};
+const CH = {connect:0, ask:9.4, rules:13.4, validate:26.4, answer:37.4};
 const T = {
   machine:[0.1,0.6], agent:[0.3,0.8], llm:[0.5,1.0],
   cmd1:[1.0,2.6], cmd2:[2.9,4.3], installed:4.6, server:[4.8,5.4], project:[5.6,6.2],
   allow:[6.2,7.6], output:[6.6,7.2], others:7.4,
-  termOut:[9.4,9.8], prompt:[9.9,12.0], toLlm:[12.3,13.1], think:[13.1,14.1], fromLlm:[14.2,15.0],
-  call0:CH.rules, callStep:4.2, summary:[CH.rules + 3.45, CH.rules + 4.15],
-  compare:CH.validate, bars:[30.0,32.0], winner:[32.3,32.8], gain:32.8, lbFile:33.0, compareBack:[33.4,34.2],
-  forecast:34.6, predFile:[36.2,37.4], forecastBack:[37.6,38.4],
-  code:CH.answer, script:[40.6,41.2], codeBack:[41.4,42.2],
-  toLlm2:[42.4,43.0], fromLlm2:[43.4,44.2], answerIn:[44.3,45.3],
-  fadeOut:[51.3,52.0], total:52.0
+  termOut:[9.4,9.8], prompt:[9.9,12.0],
+  call0:CH.rules, callStep:4.2, noRows:19.8, summary:[21.05, 21.75],
+  compare:CH.validate, bars:[27.8,29.8], winner:[30.1,30.6], gain:30.6, lbFile:30.8, compareBack:[31.2,32.0],
+  forecast:32.4, predFile:[34.0,35.2], forecastBack:[35.4,36.2],
+  code:CH.answer, script:[38.4,39.0], codeBack:[39.2,40.0],
+  answerIn:[40.3,41.3],
+  fadeOut:[47.3,48.0], total:48.0
 };
 const CAPTIONS = [
   [0, CH.ask, 'Connect once: the Claude Code plugin adds the server and its skill. Other agents add one MCP entry.'],
-  [CH.ask, CH.rules, 'Ask in plain language. Your agent\'s language model reads the request and picks the tools.'],
-  [CH.rules, 22.0, 'The server decides with the same deterministic rules as the Python API: no LLM in the decisions.'],
-  [22.0, CH.validate, 'Each response is an id and a plain-text summary: statistics and decisions, never rows of your data.'],
+  [CH.ask, CH.rules, 'Ask in plain language: your agent picks the tools, you do not need to name them.'],
+  [CH.rules, T.noRows, 'The server decides with the same deterministic rules as the Python API: no LLM in the decisions.'],
+  [T.noRows, CH.validate, 'Each response is an id and a plain-text summary: statistics and decisions, never rows of your data.'],
   [CH.validate, T.forecast, 'compare backtests the candidates on the same folds, next to a seasonal naive baseline.'],
   [T.forecast, CH.answer, 'The predictions go to CSV files in the output folder: the agent opens them only if it needs to.'],
   [CH.answer, 99, 'The agent answers with the figures of the server, and the script runs on its own with plain skforecast.'],
@@ -94,14 +94,15 @@ CALLS.forEach(c => { if (!c.back) c.back = [c.at + 2.4, c.at + 3.2]; c.sent = [c
 const TOOLS = ['profile', 'plan', 'create_cv', 'compare', 'forecast', 'get_code'];
 
 /* ---------------------------------------------------------------- layout */
-const MX0 = 30, MY0 = 124, MX1 = 910, MY1 = 690;          // your machine
-const AX0 = 56, AX1 = 490, CY0 = 150, CY1 = 440;          // agent card
-const SX0 = 520, SX1 = 884;                               // server card
-const PX1 = 560, OX0 = 584, FY0 = 466, FY1 = 672;         // project and output folders
-const LX0 = 950, LX1 = 1240, LY0 = CY0, LY1 = 330;        // language model
+const MX0 = 30, MY0 = 124, MX1 = 1012, MY1 = 690;         // your machine
+const AX0 = 56, AX1 = 530, CY0 = 150, CY1 = 440;          // agent card
+const SX0 = 560, SX1 = 986;                               // server card
+const PX1 = 620, OX0 = 644, FY0 = 466, FY1 = 672;         // project and output folders
+const LX0 = 1046, LX1 = 1250, LY0 = CY0, LY1 = 290;       // language model
 const RY0 = CY0 + 140;                                    // response area of the server
-const HOP = 60;                                           // control height of the hops: they peak under the caption
+const HOP = 60;                                           // control height of the hop: it peaks under the caption
 const WX = (OX0 + SX1)/2;                                 // where the server writes to the output folder
+const toolXY = name => { const i = TOOLS.indexOf(name); return [SX0 + 83 + (i % 3)*130, CY0 + 80 + Math.floor(i/3)*34]; };
 const MONO = 13, CWm = 0.6*MONO;
 
 /* ------------------------------------------------------------- helpers */
@@ -122,15 +123,13 @@ function fly(o, t, [a, b], x0, y0, x1, y1, s, style){
   const p = P(t, a, b), op = Math.min(lin(t, a, a + .15), 1 - lin(t, b, b + .25));
   pill(o, lerp(x0, x1, p), lerp(y0, y1, p) - Math.sin(p*Math.PI)*18, s, {...style, op});
 }
-// A chip between the agent and its language model: it hops over the server,
-// which stands between them and takes no part in that exchange.
+// The chip that goes from the agent to its language model: it hops over the
+// server, which stands between them and takes no part in that exchange.
 function hop(o, t, [a, b], x0, y0, x1, y1, s, style){
   if (t < a || t > b + .25) return;
   const p = P(t, a, b), q = 1 - p, op = Math.min(lin(t, a, a + .15), 1 - lin(t, b, b + .25));
-  const toLlm = x1 > x0, w = Math.abs(x1 - x0);
-  const c0 = x0 + (toLlm ? .08 : -.2)*w, c1 = x1 - (toLlm ? .2 : -.08)*w;
-  const bez = (u0, u1, u2, u3) => q*q*q*u0 + 3*q*q*p*u1 + 3*q*p*p*u2 + p*p*p*u3;
-  pill(o, bez(x0, c0, c1, x1), bez(y0, HOP, HOP, y1), s, {...style, op});
+  const w = x1 - x0, bez = (u0, u1, u2, u3) => q*q*q*u0 + 3*q*q*p*u1 + 3*q*p*p*u2 + p*p*p*u3;
+  pill(o, bez(x0, x0 + .08*w, x1 - .2*w, x1), bez(y0, HOP, HOP, y1), s, {...style, op});
 }
 const typed = (s, t, [a, b]) => s.slice(0, Math.round(lin(t, a, b)*s.length));
 function wrap(s, width, size, cls = 's'){
@@ -142,19 +141,9 @@ function wrap(s, width, size, cls = 's'){
   if (cur) out.push(cur);
   return out;
 }
-// Emphasis of each part in each chapter: the part that takes no part fades.
-// The model only acts in Ask, when it reads the first summary and in Answer;
-// the server and the folders take no part in Ask.
-function focus(t, part){
-  const dim = .4;
-  if (part === 'llm'){
-    const on = Math.max(
-      lin(t, CH.ask - .4, CH.ask)*(1 - lin(t, CH.rules, CH.rules + .4)),
-      pulse(t, (T.summary[0] + T.summary[1])/2 + .1, 1.0),
-      lin(t, T.toLlm2[0] - .4, T.toLlm2[0]));
-    return lerp(dim, 1, cl(on));
-  }
-  return lerp(1, dim, lin(t, CH.ask, CH.ask + .4)*(1 - lin(t, CH.rules - .4, CH.rules)));
+// Emphasis in Ask: the server and the folders take no part in it, so they fade.
+function focus(t){
+  return lerp(1, .4, lin(t, CH.ask, CH.ask + .4)*(1 - lin(t, CH.rules - .4, CH.rules)));
 }
 
 /* ----------------------------------------------------------------- scenes */
@@ -165,19 +154,17 @@ function machine(t, o){
   o.push(text(MX0 + 28, MY0 + 5, 'Your machine', {size:14, weight:700, fill:V('muted'), op:a}));
 }
 
+// The language model of the agent is not an actor here: every agent has one.
+// It stands outside the frame as the place where what the agent reads ends up,
+// which is why it matters that the responses of the server carry no rows.
 function llmZone(t, o){
-  const a = P(t, ...T.llm)*focus(t, 'llm');
+  const a = P(t, ...T.llm);
   if (a <= 0) return;
-  o.push(text(LX0, MY0 + 5, 'Your agent\'s language model', {size:14, weight:700, fill:V('llm'), op:a}));
-  const think = pulse(t, (T.think[0] + T.think[1])/2, .9);
-  o.push(rect(LX0, LY0, LX1 - LX0, LY1 - LY0, {rx:14, fill:V('panel'), stroke:V('llm'), sw:1.5 + think, op:a}));
-  o.push(text(LX0 + 18, LY0 + 36, 'Language model', {size:20, weight:700, fill:V('llm'), op:a}));
-  ['reads your request and the', 'summaries; picks the tools', 'and writes the answer'].forEach((s, i) =>
-    o.push(text(LX0 + 18, LY0 + 66 + i*21, s, {size:14, fill:V('fg'), op:a})));
-  const pick = Math.min(lin(t, T.think[0], T.think[0] + .3), 1 - lin(t, CH.rules - .3, CH.rules));
-  o.push(text(LX0 + 18, LY1 - 14, 'next: call profile', {size:13, cls:'m', weight:700, fill:V('llm'), op:a*pick}));
-  o.push(text(LX0, LY1 + 32, 'It sees what your agent reads:', {size:13, fill:V('muted'), op:a}));
-  o.push(text(LX0, LY1 + 51, 'the summaries, not your files.', {size:13, fill:V('muted'), op:a}));
+  card(o, LX0, LY0, LX1, LY1, 'Language model', 'of your coding agent', a, V('llm'), V('llm'));
+  wrap('It sees what your agent reads: the summaries the server returns.', LX1 - LX0 - 36, 13).forEach((s, i) =>
+    o.push(text(LX0 + 18, LY0 + 76 + i*19, s, {size:13, fill:V('fg'), op:a})));
+  const got = pulse(t, T.summary[1], .8);
+  if (got > 0) o.push(rect(LX0, LY0, LX1 - LX0, LY1 - LY0, {rx:12, stroke:V('llm'), sw:3, op:got}));
 }
 
 function agentCard(t, o){
@@ -222,7 +209,7 @@ function agentCard(t, o){
     const got = c.script ? `script, ${D.script.length} lines` : c.id;
     if (back > 0) o.push(text(AX1 - 18, y, '✓ ' + got, {size:MONO, cls:'m', anchor:'end', fill:V('ok'), op:op*back}));
   });
-  // Answer: written by the language model, with the figures of the server.
+  // Answer: written by the agent, with the figures of the server.
   const ans = lin(t, ...T.answerIn);
   if (ans > 0){
     wrap(ANSWER, AX1 - AX0 - 40, 15).forEach((ln, i) =>
@@ -239,7 +226,7 @@ function serverCard(t, o){
     const c = CALLS.find(k => k.tool === name);
     const on = c ? Math.min(lin(t, c.sent[1], c.sent[1] + .2), 1 - lin(t, c.back[0], c.back[0] + .3)) : 0;
     const used = c ? lin(t, c.back[0], c.back[0] + .3) : 0;
-    const cx = SX0 + 74 + (i % 3)*112, cy = CY0 + 80 + Math.floor(i/3)*34;
+    const [cx, cy] = toolXY(name);
     pill(o, cx, cy, name, {fill: on > .5 ? V('target') : V('bg'), stroke: on > .5 || used ? V('target') : V('border'),
       color: on > .5 ? '#2a1600' : used ? V('targetText') : V('muted'), op:a, weight: on > .5 || used ? 700 : 400});
   });
@@ -264,7 +251,7 @@ function serverCard(t, o){
 
 // The leaderboard of compare: one bar per row, the baseline in gray.
 function board(t, o, x, y, op){
-  const max = Math.max(...ROWS.map(r => r.mae)), W = 140, BX = x + 108;
+  const max = Math.max(...ROWS.map(r => r.mae)), W = 200, BX = x + 108;
   ROWS.forEach((r, i) => {
     const s = T.bars[0] + i*.35, g = P(t, s, s + .5), base = r.name === BASE, win = i === 0 && t >= T.winner[0];
     const yy = y + i*18, fill = base ? V('muted') : win ? V('target') : V('lag');
@@ -280,7 +267,7 @@ function board(t, o, x, y, op){
 function script(o, x, y, op){
   const S = D.script, keep = [S[0], '...', ...S.slice(-3)];
   keep.forEach((s, i) => o.push(text(x, y + i*19, s,
-    {size:11.5, cls:'m', fill: s === '...' ? V('muted') : V('fg'), op})));
+    {size:MONO, cls:'m', fill: s === '...' ? V('muted') : V('fg'), op})));
 }
 
 function folders(t, o){
@@ -329,21 +316,18 @@ function folders(t, o){
 }
 
 // Everything that travels: calls and responses between the agent and the
-// server, the request and the answer between the agent and its model.
+// server, and one summary on its way to the language model, shown once (while
+// the caption says that no response carries rows) for all of them.
 function traffic(t, o){
   const call = {fill:V('bg'), stroke:V('target'), color:V('targetText'), weight:700};
   const resp = {fill:V('bg'), stroke:V('ok'), color:V('ok'), weight:700};
   const llm = {fill:V('bg'), stroke:V('llm'), color:V('llm'), weight:700};
   CALLS.forEach((c, i) => {
-    const y = CY0 + 138 + i*21, sx = SX0 + 74 + (TOOLS.indexOf(c.tool) % 3)*112, sy = CY0 + 80 + Math.floor(TOOLS.indexOf(c.tool)/3)*34;
+    const y = CY0 + 138 + i*21, [sx, sy] = toolXY(c.tool);
     fly(o, t, c.sent, AX0 + 60, y, sx, sy, c.tool, call);
     fly(o, t, c.back, SX0 + 80, RY0 + 30, AX1 - 110, y, c.script ? 'script' : 'id + summary', resp);
   });
-  hop(o, t, T.toLlm, AX1 - 70, CY0 + 90, (LX0 + LX1)/2, LY1 - 34, 'request', llm);
-  hop(o, t, T.fromLlm, LX0 + 82, LY1 - 19, AX0 + 120, CY0 + 138, 'call profile', llm);
-  hop(o, t, T.summary, AX1 - 70, CY0 + 138, (LX0 + LX1)/2, LY1 - 34, 'summary', llm);
-  hop(o, t, T.toLlm2, AX1 - 70, CY0 + 200, (LX0 + LX1)/2, LY1 - 34, 'summaries', llm);
-  hop(o, t, T.fromLlm2, LX0 + 82, LY1 - 19, AX0 + 140, CY0 + 150, 'answer', llm);
+  hop(o, t, T.summary, AX1 - 70, CY0 + 138 + 21, (LX0 + LX1)/2, LY1 - 24, 'summary', llm);
 }
 
 /* ---------------------------------------------------------------- run */
@@ -351,8 +335,8 @@ SkfAnim.run({
   title: 'Your agent asks, skforecast-ai decides',
   desc: 'Five chapters. Connect: in Claude Code, two plugin commands install the MCP server and its skill; other agents ' +
         'add one entry to their MCP settings. The server runs on your machine and only reads CSV files in the project ' +
-        `folder (--allow-dir). Ask: "${PROMPT}" The language model of the agent reads the request and picks the ` +
-        'tools. Rules decide: the agent calls profile, plan and create_cv; the server decides with the deterministic ' +
+        `folder (--allow-dir). Ask: "${PROMPT}" The agent picks the tools; its language model, outside your ` +
+        'machine, sees what the agent reads. Rules decide: the agent calls profile, plan and create_cv; the server decides with the deterministic ' +
         'rules of the Python API, and each response is an id and a summary, never rows of the data: ' +
         `${D.profile.lines.join(', ')}; ${D.plan.lines.join(', ')}. Validate: compare backtests ${ROWS.length - 1} ` +
         `candidates and a seasonal naive baseline on the same folds; ${modelName(BEST)} ranks first with MAE ` +
@@ -361,7 +345,7 @@ SkfAnim.run({
         `answers: "${ANSWER}"`,
   total: T.total,
   height: 720,
-  still: 50,
+  still: 46,
   fadeOut: T.fadeOut,
   brandUrl: 'ai.skforecast.org',
   render(t, o){
