@@ -89,6 +89,24 @@ def test_mcp_registry_entry_names_the_launcher():
     ] == [("named", "--allow-dir", True)]
 
 
+def test_mcp_registry_entry_icons_are_images_of_the_documentation():
+    """
+    Test that the registry entry has one icon for the light theme and one
+    for the dark theme, each an HTTPS URL within the limit of 255 characters
+    of the registry that serves a PNG kept in `docs/img`, so a renamed image
+    does not leave the entry without its logo.
+    """
+    icons = _server_json()["icons"]
+    prefix = "https://ai.skforecast.org/stable/img/"
+
+    assert [icon["theme"] for icon in icons] == ["light", "dark"]
+    for icon in icons:
+        assert icon["src"].startswith(prefix)
+        assert len(icon["src"]) <= 255
+        assert icon["mimeType"] == "image/png"
+        assert (ROOT / "docs" / "img" / icon["src"].removeprefix(prefix)).is_file()
+
+
 def test_mcp_registry_ownership_line_is_in_the_launcher_readme():
     """
     Test that the README the launcher publishes to PyPI has the line the
