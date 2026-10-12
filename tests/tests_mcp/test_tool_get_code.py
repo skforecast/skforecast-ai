@@ -3,8 +3,9 @@
 from importlib.metadata import version
 
 from skforecast_ai import ForecastingAssistant
-from skforecast_ai.mcp import server as server_module
+from skforecast_ai.mcp import create_server, server as server_module
 
+from ..fixtures_csv_dialect import df_dialect, write_dialect
 from .fixtures_mcp import call, content_of, error_of, h2o_server, profile_and_plan
 
 
@@ -83,3 +84,25 @@ def test_tool_get_code_requirements_of_a_foundation_plan(tmp_path):
         f"pandas=={version('pandas')}",
         f"skforecast=={version('skforecast')}",
     ]
+
+
+def test_tool_get_code_reads_the_file_with_its_dialect(tmp_path):
+    """
+    Test that the code of a plan built from a ';' file with a decimal comma
+    reads it with `sep=';', decimal=','`, and that the code of a comma file
+    names neither.
+    """
+    path = write_dialect(tmp_path, df_dialect, "semicolon_comma")
+    comma_path = str(tmp_path / "us.csv")
+    df_dialect.to_csv(comma_path, index=False)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, plan_id = profile_and_plan(server, path, target="y", steps=3)
+    _, comma_plan_id = profile_and_plan(server, comma_path, target="y", steps=3)
+
+    result = content_of(call(server, "get_code", {"object_id": plan_id}))
+    comma = content_of(call(server, "get_code", {"object_id": comma_plan_id}))
+
+    assert not result["code_truncated"]
+    assert f"data = pd.read_csv({path!r}, sep=';', decimal=',')\n" in result["code"]
+    assert f"data = pd.read_csv({comma_path!r})\n" in comma["code"]
+    assert "sep=" not in comma["code"]

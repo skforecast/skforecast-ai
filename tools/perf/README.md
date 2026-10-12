@@ -13,6 +13,7 @@ there afterwards.
 | `seasonal_periods.py` | Lists, for every frequency pandas infers, the seasonal period of `FREQUENCY_TO_SEASONAL_PERIOD`, of `estimate_seasonality`, the `m` of Auto-ARIMA and the period of the baseline, and the rows where they differ. |
 | `subhourly_periods.py` | Backtests data every 5 to 30 minutes with the hour and with the day as seasonal period (lags and window features, baseline, Auto-ARIMA): MASE, MAE, time and predictors. |
 | `foundation_cost.py` | Times the backtest of a foundation model by number of inference windows (series times folds) and fits the fixed cost and the cost per window. Needs the backend of the model. |
+| `mcp_startup.py` | Starts the MCP server as the plugin does (the launcher, `--allow-project-dir`, stdio) and times the answers to the handshake, `tools/list` and a first `profile`, with and without compiled bytecode (`PYTHONPYCACHEPREFIX` in an empty directory), from the checkout or with `uvx` and an empty `UV_CACHE_DIR`; `importtime` splits `-X importtime` by the answer each import came before. See its docstring. |
 | `gc_after_test.py` | pytest plugin that collects the garbage after every test, so a `ResourceWarning` (unclosed socket, file or event loop) fails the test that left the resource open. See its docstring. |
 | `_datasets.py` | The datasets both scripts use. |
 | `results/` | Timing outputs of phase 6 (`baseline_*` before any change, `final_*` after the last one), summarized in section 20 of `dev/mcp-preparation.md`, and the measurements of phase 7 (`phase7_*`: 5 to 30 minute data and the cost of foundation models). |
@@ -29,6 +30,17 @@ python tools/perf/timing.py imports imports.json
 python tools/perf/timing.py memory memory.json
 python tools/perf/timing.py report api.json mcp.json imports.json memory.json
 ```
+
+```bash
+python tools/perf/mcp_startup.py run start.json                 # launcher, warm and cold
+python tools/perf/mcp_startup.py run discover.json --handshake discover
+python tools/perf/mcp_startup.py run uvx.json --command uvx     # needs PyPI
+python tools/perf/mcp_startup.py importtime imports.json
+python tools/perf/mcp_startup.py report start.json uvx.json imports.json
+```
+
+`--source` takes another checkout (an older revision exported with `git
+archive`) to time the start before a change on the same machine.
 
 Compare timings only between runs on the same machine, with nothing else
 running. The cProfile split adds the self time of every function by

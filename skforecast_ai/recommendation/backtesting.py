@@ -221,6 +221,7 @@ def build_cv_defaults_explanation(
     llm_configured: bool = False,
     created_for: ForecastPlan | None = None,
     n_observations: int | None = None,
+    created_for_row: str | None = None,
 ) -> str:
     """
     Explain why the parameters of a strategy that the user did not pass
@@ -257,6 +258,9 @@ def build_cv_defaults_explanation(
         Observations of the data the strategy runs on. When they are not
         the ones it was created on, the text says so: the default was
         computed on those.
+    created_for_row : str, default None
+        Row of a comparison that runs `created_for`. When given, the text
+        names it, so the plan is not looked for in another row.
 
     Returns
     -------
@@ -282,6 +286,8 @@ def build_cv_defaults_explanation(
             f"{created_for.forecaster}{estimator} with another configuration"
             if same_model else f"{created_for.forecaster}{estimator}"
         )
+        if plan is None and created_for_row is not None:
+            which = f"the plan of row '{created_for_row}'"
         parts.append(f"The strategy was created for {which} ({detail}).")
 
     # A reason is given only for a value that is the default: a result
@@ -404,6 +410,7 @@ def resolve_cv_provenance(
     overridden: list[str],
     llm_configured: bool,
     n_observations: int | None = None,
+    created_for_row: str | None = None,
 ) -> tuple[list[str], str]:
     """
     Resolve, for the plan that runs a strategy of `create_cv()`, which of
@@ -436,6 +443,9 @@ def resolve_cv_provenance(
     n_observations : int, default None
         Observations of the data the strategy runs on, when they may not
         be the ones it was created on (`backtest()`, `compare()`).
+    created_for_row : str, default None
+        Row of a comparison that runs the plan the strategy was created
+        for, which the text names. None when no row runs it.
 
     Returns
     -------
@@ -455,14 +465,15 @@ def resolve_cv_provenance(
         for name in ("forecaster", "estimator", "task_type", "steps", "forecaster_kwargs")
     )
     defaults_explanation = build_cv_defaults_explanation(
-        default        = default_initial_train_size(created_profile, created_plan),
-        cv_config      = cv_config,
-        plan           = plan,
-        overridden     = overridden,
-        without_effect = without_effect,
-        llm_configured = llm_configured,
-        created_for    = None if same_plan else created_plan,
-        n_observations = n_observations,
+        default         = default_initial_train_size(created_profile, created_plan),
+        cv_config       = cv_config,
+        plan            = plan,
+        overridden      = overridden,
+        without_effect  = without_effect,
+        llm_configured  = llm_configured,
+        created_for     = None if same_plan else created_plan,
+        n_observations  = n_observations,
+        created_for_row = created_for_row,
     )
 
     return without_effect, defaults_explanation

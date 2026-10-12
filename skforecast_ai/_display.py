@@ -22,7 +22,7 @@ from rich.rule import Rule
 from rich.syntax import Syntax
 from rich.table import Table
 
-from ._constants import ML_TASK_TYPES
+from ._constants import ML_TASK_TYPES, PLACEHOLDER_DATA_PATH
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -519,6 +519,17 @@ def render_profile(profile: ForecastingProfile) -> RenderableType:
         if missing
         else _format_value(None),
     )
+
+    # How the file is written, when it is not the default of
+    # `pandas.read_csv`: detected, so shown where the user reads the profile.
+    if dp.data_path != PLACEHOLDER_DATA_PATH and (
+        (dp.csv_sep, dp.csv_decimal) != (",", ".")
+    ):
+        sep_name = "tabulator" if dp.csv_sep == "\t" else repr(dp.csv_sep)
+        table.add_row(
+            "CSV format",
+            escape(f"separator {sep_name}, decimal {dp.csv_decimal!r}"),
+        )
 
     renderables: list[RenderableType] = [table]
     if dp.warnings:

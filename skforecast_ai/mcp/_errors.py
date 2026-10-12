@@ -19,7 +19,6 @@ from ..exceptions import (
     ForecastExecutionError,
     SkforecastAIError,
 )
-from ..schemas.errors import ErrorInfo, _format_location, _is_union_label
 
 ServerErrorCode = Literal[
     "unknown_id",
@@ -354,6 +353,10 @@ def error_payload(exc: Exception) -> dict[str, Any]:
                 for key, value in exc.details.items()
             }
     else:
+        # The schemas load pandas and skforecast: imported here, so the
+        # server starts without them (every tool waits for them anyway).
+        from ..schemas.errors import ErrorInfo
+
         info = ErrorInfo.from_exception(exc)
         code, message, field, hint = info.code, info.message, info.field, info.hint
         if isinstance(exc, ForecastExecutionError):
@@ -393,6 +396,8 @@ def argument_error_payload(exc: ValidationError) -> dict[str, Any]:
     payload : dict
         Keys `code`, `message`, `field`, `hint` and `details`.
     """
+
+    from ..schemas.errors import _format_location, _is_union_label
 
     payload = error_payload(exc)
     location = exc.errors(include_url=False)[0]["loc"]

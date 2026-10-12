@@ -11,6 +11,45 @@ All significant changes to this project are documented in this release file.
 | <span class="badge text-bg-docs">Docs</span>               | Documentation improvement             |
 
 
+## 0.4.2 <small>In development</small> { id="0.4.2" }
+
+The main changes in this release are:
+
++ <span class="badge text-bg-danger">Fix</span> [<code>ForecastingAssistant.compare()</code>][assistant] without `candidates`, on the strategy of a refined plan, ranks that plan as the row `'Strategy plan'`, and its summary says how many configurations beat the baseline ([#71](https://github.com/skforecast/skforecast-ai/pull/71)).
+
+!!! warning "Before upgrading"
+
+    Some results change with this version, without any change in your code:
+
+    + `compare()` without `candidates`, on a `CVResult` created for a plan that is none of the candidates of the profile, has one more row, `'Strategy plan'`, which runs that plan. Pass `candidates` to choose the rows.
+    + `compare()`: the sentence of `explanation` about the baseline counts the configurations that beat it instead of those that do not, so code that parses that text must be updated.
+
+
+**Added**
+
++ New field `strategy_plan_name` of [`ComparisonResult`][results]: the row of the comparison that runs the plan the strategy of `create_cv()` was created for, or None ([#71](https://github.com/skforecast/skforecast-ai/pull/71)).
+
+
+**Changed**
+
++ The first start of the MCP server fits in the 30 seconds Claude Code waits: the server connects before loading pandas, scikit-learn and skforecast, which it loads in the background (7 seconds instead of 39 on macOS with an empty `uvx` cache; the first tool waits for that loading, about 30 seconds the first time). `import skforecast_ai` no longer loads them either. See [MCP server for coding agents][mcp-guide] ([#72](https://github.com/skforecast/skforecast-ai/pull/72)).
+
++ Dependencies: statsmodels 0.15 is allowed (`statsmodels>=0.13.2,<0.16`, as in skforecast), the minimum pandas is 2.2, the one skforecast 0.26 already required, and numpy, scikit-learn and scipy are declared as direct dependencies, with the minimum versions of skforecast.
+
+
+**Fixed**
+
++ CSV files separated by `;` or tabulators, with `,` as decimal mark (what a spreadsheet exports in most of Europe), failed with a target column not found. The Python API, the CLI and the MCP server now detect the separator and the decimal mark (or take them as `sep` and `decimal` of [<code>ForecastingAssistant.profile()</code>][assistant]), the generated script reads the file with them, and the MCP server also accepts `.tsv` and `.csv.gz` files. See the [CLI guide][cli-guide] ([#74](https://github.com/skforecast/skforecast-ai/pull/74)).
+
++ [<code>ForecastingAssistant.compare()</code>][assistant] without `candidates`, on the strategy of a plan refined with another estimator, lags or window features, did not run that plan. It now runs as the row `'Strategy plan'`, and the summary names that row and counts the configurations that beat the baseline, not those that do not ([#71](https://github.com/skforecast/skforecast-ai/pull/71)).
+
++ [<code>ForecastingAssistant.compare()</code>][assistant]: when the two best configurations have the same value of the ranking metric, the summary says they are tied instead of "0.0% ahead" ([#71](https://github.com/skforecast/skforecast-ai/pull/71)).
+
++ The `cost` of `create_cv` in the MCP server, for a `compare` without `candidates`, counted forecasters that `compare` does not run (the multivariate one with several series) and only one of the estimators it compares when a single forecaster is left. It now counts the candidates that `compare` runs, the plan of the strategy included. See [MCP server for coding agents][mcp-guide] ([#71](https://github.com/skforecast/skforecast-ai/pull/71)).
+
++ `pip install "skforecast-ai[llm]"` did not install the Groq client, so a `groq:` model failed with an `ImportError` unless the `groq` extra was installed too. The `llm` extra now includes it, as the installation guide says.
+
+
 ## 0.4.1 <small>Oct 9, 2026</small> { id="0.4.1" }
 
 The main changes in this release are:

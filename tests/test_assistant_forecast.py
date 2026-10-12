@@ -19,6 +19,7 @@ from skforecast_ai.exceptions import (
 from skforecast_ai import _validation as validation_module
 from skforecast_ai._constants import ALLOWED_METRICS
 
+from tests.fixtures_csv_dialect import df_dialect, write_dialect
 from tests.fixtures_datasets import (
     df_h2o,
     df_h2o_changed_value,
@@ -2968,3 +2969,29 @@ def test_forecast_output_when_long_series_start_on_different_dates(test_size):
 
     assert result.plan.end_train == "2023-04-05"
     assert result.predictions.index.min() == pd.Timestamp("2023-04-06")
+
+
+def test_forecast_output_when_csv_has_semicolon_and_decimal_comma(tmp_path):
+    """
+    Test that forecast() on a CSV with ';' and a decimal comma predicts the
+    same values as on the same data written with commas, and returns a
+    script that reads the file with `sep=';', decimal=','`.
+    """
+    path = write_dialect(tmp_path, df_dialect, "semicolon_comma")
+    comma_path = tmp_path / "us.csv"
+    df_dialect.to_csv(comma_path, index=False)
+    assistant = ForecastingAssistant()
+
+    result = assistant.forecast(
+        data=path, target="y", steps=3, estimator="Ridge", test_size=3
+    )
+    expected = assistant.forecast(
+        data=comma_path, target="y", steps=3, estimator="Ridge", test_size=3
+    )
+
+    assert f"data = pd.read_csv({path!r}, sep=';', decimal=',')\n" in result.code
+    assert f"data = pd.read_csv({str(comma_path)!r})\n" in expected.code
+    assert result.profile.data_profile.csv_sep == ";"
+    assert result.profile.data_profile.csv_decimal == ","
+    pd.testing.assert_frame_equal(result.predictions, expected.predictions)
+    assert result.predictions.index.min() == pd.Timestamp("2023-02-27")

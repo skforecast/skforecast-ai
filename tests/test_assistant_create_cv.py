@@ -16,6 +16,7 @@ from skforecast_ai import ForecastingAssistant, LLMRequiredError
 from skforecast_ai.exceptions import InvalidInputError
 from skforecast_ai.recommendation.backtesting import _compute_min_train_size
 from skforecast_ai.schemas import CV_OVERRIDE_NAMES, CVParams, CVResult
+from tests.fixtures_csv_dialect import df_dialect, write_dialect
 from tests.fixtures_assistant import (
     df_single,
     df_multi_long,
@@ -2164,3 +2165,24 @@ def test_create_cv_UserWarning_when_intervals_have_few_residuals():
     assistant.create_cv(
         profile, plan_no_interval, initial_train_size=40, fold_stride=1, refit=False
     )
+
+
+def test_create_cv_keeps_the_dialect_of_the_profile_of_a_csv_file(tmp_path):
+    """
+    Test that create_cv() with a profile built from a CSV with ';' and a
+    decimal comma returns a result whose profile still records the dialect,
+    so backtest() reads the file with it.
+    """
+    path = write_dialect(tmp_path, df_dialect, "semicolon_comma")
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=path, target="y")
+    plan = assistant.plan(profile, steps=3, estimator="Ridge")
+
+    result = assistant.create_cv(profile, plan)
+    backtest = assistant.backtest(
+        data=path, cv=result, profile=profile, plan=plan, show_progress=False
+    )
+
+    assert result.profile.data_profile.csv_sep == ";"
+    assert result.profile.data_profile.csv_decimal == ","
+    assert f"data = pd.read_csv({path!r}, sep=';', decimal=',')\n" in backtest.code

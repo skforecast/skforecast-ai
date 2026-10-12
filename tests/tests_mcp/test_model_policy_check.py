@@ -5,7 +5,6 @@ import pytest
 from skforecast.foundation import get_model_info
 
 from skforecast_ai.mcp._errors import ServerError
-from skforecast_ai.mcp import _foundation
 from skforecast_ai.mcp._foundation import ModelPolicy
 
 
@@ -102,7 +101,10 @@ def test_model_policy_check_ServerError_names_gated_weights(monkeypatch):
     info = dataclasses.replace(
         get_model_info("theforecastingcompany/t0-alpha"), requires_hf_auth=True
     )
-    monkeypatch.setattr(_foundation, "resolve_foundation_model", lambda _: info)
+    # The server imports it from the core when it runs.
+    monkeypatch.setattr(
+        "skforecast_ai._foundation.resolve_foundation_model", lambda _: info
+    )
 
     with pytest.raises(ServerError, match="gated on the Hugging Face Hub"):
         ModelPolicy().check("theforecastingcompany/t0-alpha", "estimator")
@@ -122,7 +124,10 @@ def test_model_policy_check_ServerError_when_skforecast_gives_no_information(
         model_id_prefixes: tuple = ("autogluon/chronos-2",)
         requires_hf_auth: bool = False
 
-    monkeypatch.setattr(_foundation, "resolve_foundation_model", lambda _: OldInfo())
+    # The server imports it from the core when it runs.
+    monkeypatch.setattr(
+        "skforecast_ai._foundation.resolve_foundation_model", lambda _: OldInfo()
+    )
 
     with pytest.raises(ServerError) as info:
         ModelPolicy().check("autogluon/chronos-2-small", "estimator")

@@ -21,6 +21,7 @@ from tests.fixtures_assistant import (
     df_no_exog,
     df_single,
 )
+from tests.fixtures_csv_dialect import df_dialect, write_dialect
 from tests.fixtures_datasets import df_h2o, df_items_sales_long
 
 
@@ -897,3 +898,69 @@ def test_standalone_script_matches_forecast_when_long_series_start_on_different_
         forecast.predictions["pred"].to_numpy(),
         rtol=1e-6,
     )
+
+
+@pytest.mark.parametrize(
+    "name, fragment",
+    [
+        ("semicolon_comma", "sep=';', decimal=','"),
+        ("tab_dot", "sep='\\t', decimal='.'"),
+        ("gz_semicolon_comma", "sep=';', decimal=','"),
+    ],
+)
+def test_standalone_script_matches_forecast_when_csv_has_another_dialect(
+    tmp_path, name, fragment
+):
+    """
+    Test that the script of a CSV with ';' and a decimal comma, tabulators,
+    or gzip, run as a real file, reads it with its dialect and yields the
+    same predictions as forecast().
+    """
+    csv_path = write_dialect(tmp_path, df_dialect, name)
+    assistant = ForecastingAssistant()
+
+    code = assistant.forecast_code(data=csv_path, target="y", steps=5).code
+    executed = assistant.forecast(data=csv_path, target="y", steps=5)
+
+    assert fragment in code
+    _assert_same_predictions(_run_standalone(code, tmp_path), executed.predictions)
+
+
+def test_standalone_backtesting_script_matches_backtest_when_csv_has_another_dialect(
+    tmp_path,
+):
+    """
+    Test that the backtesting script of a CSV with ';' and a decimal comma,
+    run as a real file, yields the same predictions as backtest().
+    """
+    csv_path = write_dialect(tmp_path, df_dialect, "semicolon_comma")
+    cv = TimeSeriesFold(steps=5, initial_train_size=40, verbose=False)
+    assistant = ForecastingAssistant()
+
+    result = assistant.backtest(
+        data=csv_path, cv=cv, target="y", estimator="Ridge", show_progress=False
+    )
+
+    assert "sep=';', decimal=','" in result.code
+    _assert_same_predictions(
+        _run_standalone(result.code, tmp_path), result.predictions
+    )
+
+
+def test_forecast_gives_equal_predictions_when_same_data_in_semicolon_and_comma_csv(
+    tmp_path,
+):
+    """
+    Test that forecast() on a ';' file with a decimal comma and on the same
+    data written with commas gives equal predictions.
+    """
+    semicolon_path = write_dialect(tmp_path, df_dialect, "semicolon_comma")
+    comma_path = tmp_path / "us.csv"
+    df_dialect.to_csv(comma_path, index=False)
+    assistant = ForecastingAssistant()
+
+    result = assistant.forecast(data=semicolon_path, target="y", steps=5)
+    expected = assistant.forecast(data=comma_path, target="y", steps=5)
+
+    pd.testing.assert_frame_equal(result.predictions, expected.predictions)
+

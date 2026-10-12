@@ -369,6 +369,64 @@ def test_render_profile_summarizes_missing_target_and_exog(sample_profile):
     assert "{'target_col': 4}" not in text
 
 
+@pytest.mark.parametrize(
+    "csv_sep, csv_decimal, expected",
+    [
+        (";", ",", "separator ';', decimal ','"),
+        (";", ".", "separator ';', decimal '.'"),
+        ("\t", ",", "separator tabulator, decimal ','"),
+    ],
+    ids=["semicolon and comma", "semicolon and point", "tabulator"],
+)
+def test_render_profile_shows_csv_format_when_not_the_default(
+    sample_profile, csv_sep, csv_decimal, expected
+):
+    """
+    Test that render_profile shows how the CSV file is written when its
+    separator or decimal mark is not the default one.
+    """
+    profile = sample_profile.model_copy(
+        update={
+            "data_profile": sample_profile.data_profile.model_copy(
+                update={
+                    "data_path": "eu.csv",
+                    "csv_sep": csv_sep,
+                    "csv_decimal": csv_decimal,
+                }
+            )
+        }
+    )
+    text = _render_to_text(render_profile(profile))
+
+    assert "CSV format" in text
+    assert expected in text
+
+
+@pytest.mark.parametrize(
+    "update",
+    [
+        {"data_path": "us.csv"},
+        {"data_path": "data.csv", "csv_sep": ";", "csv_decimal": ","},
+    ],
+    ids=["comma file", "data passed in memory"],
+)
+def test_render_profile_hides_csv_format_when_default_or_in_memory(
+    sample_profile, update
+):
+    """
+    Test that render_profile does not show the CSV format of a file written
+    with ',' and '.', nor of data passed in memory.
+    """
+    profile = sample_profile.model_copy(
+        update={
+            "data_profile": sample_profile.data_profile.model_copy(update=update)
+        }
+    )
+    text = _render_to_text(render_profile(profile))
+
+    assert "CSV format" not in text
+
+
 def test_render_profile_marks_categorical_exog(sample_profile):
     """
     Test that render_profile flags which exogenous columns are categorical.

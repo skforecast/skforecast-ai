@@ -17,14 +17,14 @@ import os
 import sys
 import tempfile
 import threading
+import warnings
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
 from importlib import metadata
 from pathlib import Path
-from typing import Annotated, Any, Literal, get_args, get_origin
+from typing import TYPE_CHECKING, Annotated, Any, Literal, get_args, get_origin
 import anyio
-import pandas as pd
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
 from mcp.server.mcpserver.tools import Tool
@@ -33,33 +33,11 @@ from mcp.types import ToolAnnotations
 from pydantic import ConfigDict, Field, ValidationError
 from .. import __version__
 from .._constants import (
-    COMPARE_FIT_BUDGET,
     FORECASTER_TASK_TYPES,
     LONG_INFERENCE_WINDOWS,
     LONG_TRAINING_FITS,
 )
-from .._foundation import resolve_foundation_model
-from .._last_window import backtest_missing_values_reason
-from .._utils import (
-    load_exog,
-    plan_override_value,
-    warn_long_inference,
-    warn_long_training,
-)
-from ..assistant import ForecastingAssistant
 from ..exceptions import DataContentError, InvalidInputError, SkforecastAIError
-from ..execution.comparison import (
-    missing_foundation_backend,
-    resolve_compare_candidates,
-)
-from ..profiling.data_profile import _listed_columns, read_csv_file
-from ..recommendation import (
-    count_estimator_fits,
-    count_inference_windows,
-    resolve_cv_config,
-)
-from ..schemas.plans import REFINE_PLAN_OVERRIDE_KEYS
-from ..schemas.results import CV_OVERRIDE_NAMES
 from . import _inputs
 from ._errors import (
     ServerError,
@@ -70,6 +48,7 @@ from ._errors import (
     failure_text,
     tool_error,
 )
+from . import _preload
 from ._foundation import ModelPolicy, check_allow_models
 from ._inputs import AllowedDir
 from ._runtime import CallControl, build_notices, notice_text, run_call
@@ -104,6 +83,15 @@ from .models import (
     ToolResult,
     WindowFeatures,
 )
+
+# The core (the assistant, the recommendation, the execution) loads pandas,
+# scikit-learn, scipy and skforecast, most of the start of the server: every
+# function imports what it needs from it, so the server answers `initialize`
+# and `tools/list` without them, and `_preload` imports them in a background
+# thread that `run_server` starts as it starts serving. Every tool waits for
+# it, and starts it when nothing did (`create_server`).
+if TYPE_CHECKING:
+    from ..assistant import ForecastingAssistant
 
 logger = logging.getLogger("skforecast_ai.mcp")
 
@@ -140,10 +128,6 @@ _MAX_DESCRIPTORS = 256
 # an invalid argument rather than as an error of skforecast.
 Count = Annotated[int, Field(ge=1)]
 NonNegative = Annotated[int, Field(ge=0)]
-
-# The arguments of `create_cv` that can be changed: the same names, in the
-# same order, a strategy records when the user passes them.
-CV_ARGUMENTS = CV_OVERRIDE_NAMES
 
 # Metrics scaled by the error of a naive forecast, as the metrics of a
 # backtest (the names of skforecast) and of a forecast (short names) call
@@ -211,8 +195,9 @@ Deterministic time series forecasting with skforecast. Every decision \
 (forecaster, estimator, lags, metric, cross-validation) comes from rules, \
 never from a language model, and is reproducible.
 
-The server reads CSV files only inside '{allowed_dir}' (subdirectories \
-included). Tools take absolute paths: a file the user names by a relative \
+The server reads CSV files ('.csv', '.tsv', '.csv.gz', '.tsv.gz'; \
+separated by ',', ';' or tabulators, which `profile` detects) only inside \
+'{allowed_dir}' (subdirectories included). Tools take absolute paths: a file the user names by a relative \
 path or by its name is looked for there, so build the path from that \
 directory instead of searching the file system. When the file is outside \
 it, stop and answer the user: only they can copy it there or restart the \
@@ -401,6 +386,8 @@ def _missing_values_notices(plan: Any, profile: Any) -> list[ToolNotice]:
         One notice (source `'data'`), or none when the backtest cannot fail
         for that reason.
     """
+
+    from .._last_window import backtest_missing_values_reason
 
     reason = backtest_missing_values_reason(plan, profile.data_profile)
     if reason is None:
@@ -848,8 +835,25 @@ class _StrictTool(Tool):
         """
         Run the tool as the SDK does, reporting arguments that do not match
         its schema with the JSON of the other errors.
+
+        It first waits for the core, imported in the background since the
+        server started (`_preload.PRELOAD`), so no part of a call runs during
+        that import and an import that failed is the error of the call.
         """
 
+        preload = _preload.PRELOAD
+        try:
+            if preload.done:
+                preload.wait()
+            else:
+                await anyio.to_thread.run_sync(preload.wait, abandon_on_cancel=True)
+        except _preload.PreloadError as exc:
+            # Reported as any unexpected error (its type and an id; the
+            # message and the traceback go to the log), with the prefix the
+            # SDK gives to the errors of the tools.
+            raise ToolError(
+                f"Error executing tool {self.name}: {tool_error(exc.__cause__)}"
+            ) from exc
         try:
             return await super().run(arguments, context, convert_result=convert_result)
         except ToolError as exc:
@@ -905,7 +909,10 @@ class _ServerState:
     store : Store
         Registered objects.
     assistant : ForecastingAssistant
-        Assistant without LLM that runs every call.
+        Assistant without LLM that runs every call, built by the first call
+        that needs it: importing it loads pandas, scikit-learn, scipy and
+        skforecast, which the server does in the background while it
+        answers the handshake.
     failures : OrderedDict
         Failures of runs by id: their text cut to `MAX_FAILURE_CHARS` and the
         file with the full text, if any. `get_failure` returns them.
@@ -921,13 +928,29 @@ class _ServerState:
     allowed: AllowedDir
     output_dir: Path
     store: Store
-    assistant: ForecastingAssistant
     models: ModelPolicy = field(default_factory=ModelPolicy)
     max_file_bytes: int = DEFAULT_MAX_FILE_MB * 1024 * 1024
     failures: OrderedDict[str, tuple[str, str | None]] = field(
         default_factory=OrderedDict
     )
     failures_lock: threading.Lock = field(default_factory=threading.Lock)
+    _assistant: ForecastingAssistant | None = field(
+        default = None, init = False, repr = False
+    )
+
+    @property
+    def assistant(self) -> ForecastingAssistant:
+        """
+        The assistant of the server, built on first use. The calls run one at
+        a time, so it is built once.
+        """
+
+        if self._assistant is None:
+            from ..assistant import ForecastingAssistant
+
+            self._assistant = ForecastingAssistant()
+
+        return self._assistant
 
     def add_failure(self, text: str) -> str:
         """
@@ -1337,6 +1360,8 @@ def _requirements(code: str, model_id: str | None) -> list[str]:
         where the server runs.
     """
 
+    from .._foundation import resolve_foundation_model
+
     modules = set()
     for node in ast.walk(ast.parse(code)):
         if isinstance(node, ast.Import):
@@ -1366,6 +1391,8 @@ def _check_test_size_date(test_size: object) -> None:
 
     if not isinstance(test_size, str):
         return
+    import pandas as pd
+
     try:
         pd.Timestamp(test_size)
     except (ValueError, TypeError):
@@ -1387,6 +1414,8 @@ def _cost(cv_config: dict, forecaster: str, steps: int) -> dict[str, int]:
     its `cv_config` carries (0 for the other forecasters).
     """
 
+    from ..recommendation import count_estimator_fits
+
     n_folds = int(cv_config["n_folds"])
     n_fits = int(cv_config["n_fits"])
 
@@ -1405,53 +1434,90 @@ def _cost(cv_config: dict, forecaster: str, steps: int) -> dict[str, int]:
     }
 
 
-def _default_compare_fits(profile: Any, cv: Any, steps: int) -> dict:
+def _default_compare_cost(
+    assistant: ForecastingAssistant,
+    profile: Any,
+    cv_result: Any,
+) -> tuple[dict[str, int], int]:
     """
-    Estimator fits of each forecaster that a `compare` without candidates
-    runs with a strategy: the candidates of the profile, leaving out the
-    alternatives above the budget of `compare()`, which it never runs (the
-    recommended forecaster always runs). The fits are those of the strategy
-    as `compare()` shares it, not as the forecaster of the plan runs it
-    (ForecasterStats is refitted in every fold).
+    Cost of the candidates that a `compare` without candidates runs with a
+    strategy, resolved by `resolve_default_candidates()`, as `compare()`
+    resolves them: the candidates of the profile (without a foundation model
+    whose backend is not installed), the plan the strategy was created for
+    when it is none of them, and without the alternatives above the budget
+    of `compare()` (the recommended forecaster and the plan of the strategy
+    always run). The
+    interval and the metric are those the `compare` tool takes from that
+    plan. The baseline fits nothing and is not counted. The fits are those
+    of the strategy as `compare()` shares it, not as the forecaster of the
+    plan runs it (ForecasterStats is refitted in every fold).
+
+    Returns
+    -------
+    fits : dict
+        Estimator fits of each candidate, by the name of its row.
+    inference_windows : int
+        Inference windows of the foundation candidates (one per series and
+        fold).
     """
 
-    shared, _ = resolve_cv_config(cv, profile.data_profile)
+    from .._utils import plan_override_value
+    from ..execution.comparison import resolve_default_candidates
+    from ..recommendation import (
+        count_estimator_fits,
+        count_inference_windows,
+        resolve_cv_config,
+    )
+
+    plan = cv_result.plan
+    interval = list(plan.interval) if plan.interval is not None else None
+    metric = (
+        plan_override_value(plan, "metric")
+        if "metric" in plan.overridden_fields
+        else None
+    )
+
+    def build_plan(config: dict) -> Any:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return assistant.plan(
+                profile  = profile,
+                steps    = plan.steps,
+                interval = interval,
+                metric   = metric,
+                **config,
+            )
+
+    shared, _ = resolve_cv_config(cv_result.cv, profile.data_profile)
+    n_fits, n_folds = int(shared["n_fits"]), int(shared["n_folds"])
+    candidates = resolve_default_candidates(
+                     profile       = profile,
+                     strategy_plan = plan,
+                     build_plan    = build_plan,
+                     n_fits        = n_fits,
+                     steps         = plan.steps,
+                     n_folds       = n_folds,
+                 ).candidates
+
     fits = {}
-    for forecaster in profile.forecaster_candidates:
-        count = int(
+    inference_windows = 0
+    for name, config in candidates:
+        forecaster = config.get("forecaster") or profile.forecaster
+        fits[name] = int(
             count_estimator_fits(
-                n_fits     = int(shared["n_fits"]),
+                n_fits     = n_fits,
                 forecaster = forecaster,
-                steps      = steps,
-                n_folds    = int(shared["n_folds"]),
+                steps      = plan.steps,
+                n_folds    = n_folds,
             )
         )
-        if count > COMPARE_FIT_BUDGET and forecaster != profile.forecaster:
-            continue
-        fits[forecaster] = count
-
-    return fits
-
-
-def _default_compare_windows(profile: Any, cv: Any) -> int:
-    """
-    Inference windows of the foundation candidate that a `compare` without
-    candidates runs with a strategy (one per series and fold), 0 when the
-    profile has no such candidate or `compare()` leaves it out because its
-    backend is not installed.
-    """
-
-    excluded, _ = missing_foundation_backend(profile)
-    shared, _ = resolve_cv_config(cv, profile.data_profile)
-
-    return sum(
-        count_inference_windows(
-            n_folds    = int(shared["n_folds"]),
+        inference_windows += count_inference_windows(
+            n_folds    = n_folds,
             n_series   = profile.data_profile.n_series,
-            forecaster = config.get("forecaster") or profile.forecaster,
+            forecaster = forecaster,
         )
-        for _, config in resolve_compare_candidates(None, profile, exclude=excluded)
-    )
+
+    return fits, int(inference_windows)
 
 
 def _register(
@@ -1538,13 +1604,13 @@ def _build_tools(state: _ServerState) -> list[Tool]:
     """
 
     store = state.store
-    assistant = state.assistant
 
     @_reported
     async def profile(
         data_path: Annotated[str, Field(description=(
-            "Absolute path of a CSV file inside the directory the server may "
-            "read. URLs are not accepted."
+            "Absolute path of a CSV file ('.csv', '.tsv', '.csv.gz' or "
+            "'.tsv.gz') inside the directory the server may read. URLs are "
+            "not accepted."
         ))],
         target: Annotated[str | list[str] | None, Field(description=(
             "Column to forecast, or a list of columns (one series each) for "
@@ -1563,6 +1629,15 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             "When null, every column that is not the target, the date or the "
             "series ids. The other columns are not used."
         ))] = None,
+        sep: Annotated[Literal[",", ";", "\t"] | None, Field(description=(
+            "Separator of the fields of the file: ',', ';' or a tabulator. "
+            "When null, it is detected from the file; pass it only when an "
+            "error says it cannot be told."
+        ))] = None,
+        decimal: Annotated[Literal[".", ","] | None, Field(description=(
+            "Decimal mark of the file: '.' or ',' (only when the separator "
+            "is not ','). When null, it is detected from the file."
+        ))] = None,
         ctx: Context = None,
     ) -> ToolResult:
         _inputs.check_text_argument(target, "target")
@@ -1571,12 +1646,15 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         _inputs.check_text_argument(exog_columns, "exog_columns")
 
         def work(control: CallControl):
+            from ..profiling.data_profile import _listed_columns, read_csv_file
+
             path = _inputs.resolve_csv_path(data_path, state.allowed, "data_path")
             _inputs.check_file_size(path, state.max_file_bytes, "data_path")
             if target is None:
                 # Agents called `profile` with a made up target to read the
                 # columns in its error: the same answer, without guessing.
-                columns = [str(column) for column in read_csv_file(path).columns]
+                frame = read_csv_file(path, sep=sep, decimal=decimal)
+                columns = [str(column) for column in frame.columns]
                 raise ServerError(
                     f"`target` was not given. Columns of the file: "
                     f"{_listed_columns(columns)}.",
@@ -1589,12 +1667,14 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 )
             digest = _inputs.file_sha256(path)
             try:
-                result = assistant.profile(
+                result = state.assistant.profile(
                     data             = path,
                     target           = target,
                     date_column      = date_column,
                     series_id_column = series_id_column,
                     exog_columns     = exog_columns,
+                    sep              = sep,
+                    decimal          = decimal,
                 )
             except SkforecastAIError as exc:
                 # Every error of a profile on `data` is about the file:
@@ -1646,6 +1726,8 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         notices: tuple[list, int] | None = None,
         uncached: Iterable[str] = (),
     ) -> ToolResult:
+        from ..schemas.plans import REFINE_PLAN_OVERRIDE_KEYS
+
         if notices is None:
             # The license of its foundation model, in the announcement of
             # the download when one is due.
@@ -1691,7 +1773,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         return state.models.uncached([model_id])
 
     def _describe_plan(control: CallControl, profile_obj: Any, new_plan: Any):
-        script = assistant.forecast_code(
+        script = state.assistant.forecast_code(
             profile = _copy(profile_obj),
             plan    = _copy(new_plan),
         )
@@ -1755,7 +1837,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         _check_steps(steps, profile_entry.obj, "steps")
 
         def work(control: CallControl):
-            new_plan = assistant.plan(
+            new_plan = state.assistant.plan(
                 profile            = _copy(profile_entry.obj),
                 steps              = steps,
                 interval           = interval,
@@ -1804,8 +1886,10 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             _check_steps(overrides["steps"], plan_entry.profile, "overrides.steps")
 
         def work(control: CallControl):
+            from ..schemas.plans import REFINE_PLAN_OVERRIDE_KEYS
+
             try:
-                new_plan = assistant.refine_plan(
+                new_plan = state.assistant.refine_plan(
                     profile = _copy(plan_entry.profile),
                     plan    = _copy(plan_entry.obj),
                     **dict(overrides),
@@ -1881,14 +1965,18 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         ))] = None,
         ctx: Context = None,
     ) -> ToolResult:
+        from ..schemas.results import CV_OVERRIDE_NAMES
+
         _inputs.check_not_numeric_text(initial_train_size, "initial_train_size")
         plan_entry = store.get(plan_id, "plan_id", ("plan",))
 
         def work(control: CallControl):
+            from .._utils import warn_long_inference, warn_long_training
+
             # The core turns what skforecast rejects in the strategy (an
             # `initial_train_size` beyond the data, a `gap` too large) into
             # `invalid_argument` with its reason and the argument at fault.
-            result = assistant.create_cv(
+            result = state.assistant.create_cv(
                 profile               = _copy(plan_entry.profile),
                 plan                  = _copy(plan_entry.obj),
                 initial_train_size    = initial_train_size,
@@ -1913,13 +2001,11 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 n_series          = plan_entry.profile.data_profile.n_series,
                 n_folds           = cost["n_folds"],
             )
-            compare_fits = _default_compare_fits(
-                plan_entry.profile, result.cv, result.plan.steps
+            compare_fits, compare_windows = _default_compare_cost(
+                state.assistant, plan_entry.profile, result
             )
             cost["compare_estimator_fits"] = sum(compare_fits.values())
-            cost["compare_inference_windows"] = _default_compare_windows(
-                plan_entry.profile, result.cv
-            )
+            cost["compare_inference_windows"] = compare_windows
             object_id = store.new_id("cv")
             summary = state.summary(object_id, result.describe())
             code_file = state.code_file(object_id, result.code)
@@ -1998,7 +2084,9 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             code          = result.code,
             code_file     = code_file,
             cost          = cost,
-            changeable    = list(CV_ARGUMENTS),
+            # The arguments that can be changed: the same names, in the same
+            # order, a strategy records when the user passes them.
+            changeable    = list(CV_OVERRIDE_NAMES),
         )
 
     def _data_of(entry: Entry) -> str:
@@ -2085,7 +2173,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         def work(control: CallControl):
             path = _data_of(cv_entry)
             try:
-                result = assistant.backtest(
+                result = state.assistant.backtest(
                     data          = path,
                     # The whole result, not its splitter: it says which
                     # parameters the user chose, which the summary states.
@@ -2149,8 +2237,10 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 "profile: the forecasters of its family (with several series, "
                 "ForecasterRecursiveMultiSeries and ForecasterFoundation), or "
                 "the estimators of the recommended forecaster when that leaves "
-                "one, without those above 500 estimator fits. A candidate that "
-                "fails is ranked last with its error."
+                "one, without those above 500 estimator fits; plus the plan "
+                "the strategy was built for, in the row 'Strategy plan', when "
+                "it is none of them. The summary names the row of that plan. "
+                "A candidate that fails is ranked last with its error."
             ),
         )] = None,
         interval: Annotated[Interval | None, Field(description=(
@@ -2169,6 +2259,9 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         ))] = True,
         ctx: Context = None,
     ) -> ToolResult:
+        from .._utils import plan_override_value
+        from ..execution.comparison import STRATEGY_PLAN_NAME
+
         cv_entry = store.get(cv_id, "cv_id", ("cv",))
         profile_obj = cv_entry.profile
         # Without `interval`, the one of the plan of the strategy, so the
@@ -2183,11 +2276,15 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         configs = None
         if candidates is None:
             # The default candidates are named by their forecaster and run
-            # the default foundation model, if any.
+            # the default foundation model, if any; the plan of the strategy
+            # runs as one more row when it is none of them.
             models = {
                 name: state.models.model_of(name, None)
                 for name in profile_obj.forecaster_candidates
             }
+            models[STRATEGY_PLAN_NAME] = state.models.model_of(
+                cv_entry.obj.plan.forecaster, cv_entry.obj.plan.estimator
+            )
         else:
             configs, models = [], {}
             for position, candidate in enumerate(candidates):
@@ -2224,7 +2321,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 )
 
             try:
-                result = assistant.compare(
+                result = state.assistant.compare(
                     data              = path,
                     cv                = _copy(cv_entry.obj),
                     profile           = _copy(profile_obj),
@@ -2399,6 +2496,8 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         _run_plan_locally(plan_entry.obj, "plan_id")
 
         def work(control: CallControl):
+            from .._utils import load_exog
+
             path = _data_of(plan_entry)
             exog, exog_file, exog_digest = None, None, None
             if exog_path is not None:
@@ -2420,7 +2519,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                     _leave_to_user(exc, {"exog": EXOG_FILE_HINT})
                     raise
             try:
-                result = assistant.forecast(
+                result = state.assistant.forecast(
                     data      = path,
                     exog      = exog,
                     test_size = test_size,
@@ -2784,7 +2883,6 @@ def _build_state(
         allowed        = allowed,
         output_dir     = output,
         store          = store,
-        assistant      = ForecastingAssistant(),
         models         = models,
         max_file_bytes = max_file_mb * 1024 * 1024,
     )
@@ -2873,7 +2971,10 @@ def run_server(
 
     The working directory of the process becomes `output_dir`, so a library
     that writes files next to it (CatBoost writes `catboost_info/`) does not
-    write them into the project of the user. While it serves, the logger
+    write them into the project of the user. As it starts serving, it starts
+    importing pandas, scikit-learn, scipy and skforecast in a background
+    thread, which the handshake does not need and every tool waits for.
+    While it serves, the logger
     `skforecast_ai.mcp` writes one plain line per record to the standard
     error and does not pass its records to the root logger; both are
     restored when it returns. When the client disconnects, also during a
@@ -2929,6 +3030,11 @@ def run_server(
             state.allowed.path,
             state.output_dir,
         )
+        # The core is imported in the background while the server answers
+        # its client: the handshake and `tools/list` do not need it, and
+        # starting it here instead of after the first answer costs the
+        # handshake nothing measurable.
+        _preload.PRELOAD.start()
         try:
             server.run("stdio")
         except BaseException as exc:

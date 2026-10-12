@@ -66,3 +66,52 @@ def test_exclude_costly_candidates_keeps_preferred_stats_when_n_folds_exceed_bud
 
     assert kept == _CANDIDATES
     assert note is None
+
+
+def test_exclude_costly_candidates_keeps_candidate_in_keep_above_the_budget():
+    """
+    Test that a candidate named in `keep` is never left out, even though its
+    fits exceed the budget (ForecasterStats refitted in 12 folds against a
+    budget of 10), and that the note names only the one that is left out.
+    """
+    candidates = [
+        *_CANDIDATES,
+        ("other_stats", {"forecaster": "ForecasterStats"}),
+    ]
+
+    kept, note = exclude_costly_candidates(
+        candidate_configs = candidates,
+        preferred         = "ForecasterRecursive",
+        n_fits            = 1,
+        steps             = 5,
+        budget            = 10,
+        n_folds           = 12,
+        keep              = frozenset({"stats"}),
+    )
+
+    assert kept == [_CANDIDATES[0], _CANDIDATES[1]]
+    assert note == (
+        "Left out of the automatic candidates because this cross-validation "
+        "strategy exceeds the budget of 10 estimator fits: 'other_stats': "
+        "ForecasterStats will be fit 12 times. Pass them in `candidates` to "
+        "include them."
+    )
+
+
+def test_exclude_costly_candidates_note_is_none_when_all_costly_are_in_keep():
+    """
+    Test that nothing is reported when every candidate above the budget is in
+    `keep`.
+    """
+    kept, note = exclude_costly_candidates(
+        candidate_configs = _CANDIDATES,
+        preferred         = "ForecasterRecursive",
+        n_fits            = 1,
+        steps             = 5,
+        budget            = 10,
+        n_folds           = 12,
+        keep              = frozenset({"stats"}),
+    )
+
+    assert kept == _CANDIDATES
+    assert note is None

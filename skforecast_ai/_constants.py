@@ -66,9 +66,35 @@ FOUNDATION_FORECASTERS: set[str] = {
 # license with no registered restriction make it the safest default.
 DEFAULT_FOUNDATION_MODEL_ID = "autogluon/chronos-2-small"
 
+# Model ID prefixes of the foundation model adapters of skforecast, in the
+# order of `skforecast.foundation.list_adapters()`. Written out so the schemas
+# of the MCP tools (the description of `estimator`) are built without
+# importing `skforecast.foundation`, which loads pandas, scikit-learn and
+# scipy before the server could answer its client. A test compares it with
+# `list_adapters()`; the server checks every model ID against skforecast.
+FOUNDATION_MODEL_ID_PREFIXES: tuple[str, ...] = (
+    "amazon/chronos-2",
+    "autogluon/chronos-2",
+    "google/timesfm-2.5",
+    "google/timesfm-3.0",
+    "Salesforce/moirai-2",
+    "soda-inria/tabicl",
+    "priorlabs/tabpfn",
+    "theforecastingcompany/t0",
+    "Synthefy/Nori",
+    "taharnbl/TS-ICL",
+)
+
 BASELINE_FORECASTERS: set[str] = {
     "ForecasterEquivalentDate",
 }
+
+# Unicode categories escaped in the comments of a rendered script: control
+# characters (newlines, carriage return, NUL) and the line and paragraph
+# separators. Any of them would end the comment and turn the rest of the
+# text into code. The MCP server rejects them in the names that reach the
+# agent.
+COMMENT_ESCAPED_CATEGORIES = frozenset({"Cc", "Zl", "Zp"})
 
 # Forecasting task category implied by each supported forecaster
 FORECASTER_TASK_TYPES: dict[str, str] = {
