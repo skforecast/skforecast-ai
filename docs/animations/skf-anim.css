@@ -11,7 +11,8 @@
    this file, the fonts in ./fonts and the engine in skf-anim.js.
 
    Copied from the skforecast repository (docs/animations/skf-anim.css). The
-   only change is the skforecast-ai roles at the end of each token block. */
+   changes are the skforecast-ai roles at the end of each token block and the
+   styles of the chapters (.skf-track, .skf-ticks), still to be ported. */
 
 @font-face{font-family:'Work Sans';font-weight:400;font-style:normal;font-display:block;src:url(fonts/work-sans-400.woff) format('woff');}
 @font-face{font-family:'Work Sans';font-weight:700;font-style:normal;font-display:block;src:url(fonts/work-sans-700.woff) format('woff');}
@@ -54,6 +55,13 @@ html,body{margin:0;background:var(--bg);color:var(--fg);}
 .skf-controls button:focus-visible{outline:2px solid var(--target);outline-offset:2px;}
 .skf-controls svg{width:16px;height:16px;fill:currentColor;}
 .skf-controls input[type=range]{flex:1;accent-color:#f79939;min-width:0;}
+/* Chapters: a mark on the progress bar at the start of every step after the
+   first, and a pointer on the steps of the header (see skf-anim.js). */
+.skf-track{position:relative;flex:1;min-width:0;display:flex;align-items:center;}
+.skf-track input[type=range]{width:100%;margin:0;}
+.skf-ticks{position:absolute;left:8px;right:8px;top:50%;height:0;pointer-events:none;}
+.skf-ticks span{position:absolute;top:-8px;width:2px;height:16px;margin-left:-1px;border-radius:1px;background:var(--muted);opacity:.55;}
+.skf-anim [data-seek]{cursor:pointer;}
 .skf-controls .time{font:12px 'JetBrains Mono',Menlo,monospace;color:var(--muted);min-width:78px;text-align:right;}
 
 /* Logo of the brand mark (see brand() in skf-anim.js), one per theme. */

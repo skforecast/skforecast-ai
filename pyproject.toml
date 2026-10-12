@@ -5,8 +5,22 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "skforecast-ai"
 version = "0.4.2"
-description = "Python time series forecasting assistant built on skforecast: deterministic decisions, the script that ran, and an optional LLM that explains them."
+description = "Python time series forecasting assistant built on skforecast: deterministic decisions, the script that ran, an optional LLM that explains them, and an MCP server for AI agents."
 readme = "README.md"
+keywords = [
+    "forecasting",
+    "time-series",
+    "time-series-forecasting",
+    "skforecast",
+    "backtesting",
+    "machine-learning",
+    "llm",
+    "ai-assistant",
+    "ai-agents",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+]
 authors = [
     {name = "Javier Escobar Ortiz", email = "javier.escobar.ortiz@gmail.com"},
     {name = "Joaquin Amat Rodrigo", email = "j.amatrodrigo@gmail.com"},
