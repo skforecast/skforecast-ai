@@ -36,6 +36,17 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
+keywords = [
+    "forecasting",
+    "time-series",
+    "time-series-analysis",
+    "skforecast",
+    "machine-learning",
+    "backtesting",
+    "llm",
+    "mcp",
+]
+
 license = "Apache-2.0"
 license-files = ["LICENSE", "CITATION.cff"]
 
@@ -113,6 +124,14 @@ test = [
 dev = [
     "skforecast-ai[all,docs,test]"
 ]
+
+[project.urls]
+Homepage = "https://ai.skforecast.org"
+Repository = "https://github.com/skforecast/skforecast-ai"
+Documentation = "https://ai.skforecast.org"
+"Release Notes" = "https://ai.skforecast.org/stable/releases/releases.html"
+Download = "https://pypi.org/project/skforecast-ai/#files"
+Tracker = "https://github.com/skforecast/skforecast-ai/issues"
 
 [project.scripts]
 skforecast-ai = "skforecast_ai.cli:app"
