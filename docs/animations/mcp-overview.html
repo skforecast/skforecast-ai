@@ -60,8 +60,8 @@ const CH = {connect:0, ask:AS, rules:R, validate:VA, answer:AN};
 const T = {
   agent:[0.3,0.8],
   // The server and the two folders come in one by one, with time to read each.
-  cmd1:[1.0,2.6], cmd2:[2.9,4.3], installed:4.6, server:[5.2,5.8], project:[7.0,7.6],
-  allow:[7.6,9.0], output:[8.8,9.4], others:10.2,
+  cmd1:[1.0,2.6], cmd2:[2.9,4.3], installed:4.6, others:5.0, server:[6.2,6.8], project:[7.8,8.4],
+  allow:[8.4,9.8], output:[9.6,10.2],
   termOut:[AS, AS + .4], prompt:[AS + .5, AS + 2.6], read:AS + 2.8, pick:AS + 3.8,
   // The gap after profile is longer: the model reads its summary, and that is
   // the privacy step.
@@ -128,7 +128,10 @@ const SX0 = 636, SX1 = 1240;                              // server card
 const PX1 = AX1, OX0 = SX0, FY0 = 456, FY1 = 672;         // project and output folders, under the agent and the server
 // Both charts share the vertical scale and the rows of pixels they use, so the
 // forecast continues the series from one folder to the other.
-const YV = [...D.series.values, ...D.forecast.values], YLO = Math.min(...YV), YHI = Math.max(...YV);
+// The project folder shows the last TAIL months of the series, and the output
+// folder the forecast at the same pixels per month (PXM), right after it.
+const TAIL = 36, SERIES = D.series.values.slice(-TAIL), PXM = (PX1 - AX0 - 36)/(TAIL - 1);
+const YV = [...SERIES, ...D.forecast.values], YLO = Math.min(...YV), YHI = Math.max(...YV);
 const chartY = y => FY1 - 30 - (y - YLO)/(YHI - YLO)*(FY1 - 30 - (FY0 + 92));
 const LY0 = CY1 - 42, LY1 = CY1 - 12;                     // language model, at the foot of the agent card
 const RY0 = CY0 + 108;                                    // response area of the server
@@ -312,11 +315,11 @@ function folders(t, o){
     o.push(text(AX0 + 18, FY0 + 78, D.data_file, {size:MONO, cls:'m', weight:700, fill:V('fg'), op:a}));
     const v = D.series.values;
     const X0 = AX0 + 18, X1 = PX1 - 18;
-    const pts = v.map((y, i) => [X0 + i/(v.length - 1)*(X1 - X0), chartY(y)]);
+    const pts = SERIES.map((y, i) => [X0 + i*PXM, chartY(y)]);
     o.push(path(polyline(pts), {stroke:V('series'), sw:1.5, op:a}));
     // The privacy step: while the model reads the summary, the rows are here.
     const stay = Math.min(lin(t, T.privacy[0], T.privacy[0] + .3), 1 - lin(t, T.privacy[1], T.privacy[1] + .4));
-    o.push(text(X1, FY1 - 10, `${v.length} rows: they stay in the file`,
+    o.push(text(X1, FY1 - 10, `${v.length} rows, the last ${TAIL} drawn: they stay in the file`,
       {size:12.5, anchor:'end', weight: stay > .5 ? 700 : 400, fill: stay > .5 ? V('ok') : V('muted'), op:a}));
     // The server reads the file during profile.
     if (r > 0){
@@ -330,24 +333,24 @@ function folders(t, o){
   card(o, OX0, FY0, SX1, FY1, 'Output folder', 'temporary, unless --output-dir', b);
   // Side by side, so the chart starts at the same height as the one of the
   // series. Each name appears when its chip lands (traffic).
-  outFiles().forEach(([f, , at, x]) =>
-    o.push(text(x, FY0 + 78, f, {size:MONO, cls:'m', fill:V('fg'), op:b*lin(t, at, at + .3)})));
+  outFiles().forEach(([f, , at, x, y]) =>
+    o.push(text(x, y, f, {size:MONO, cls:'m', fill:V('fg'), op:b*lin(t, at, at + .3)})));
   // The forecast itself, as written to the file.
   const g = lin(t, ...T.predFile);
   if (g > 0){
-    const v = D.forecast.values;
-    const X0 = OX0 + 18, X1 = SX1 - 18;
-    const pts = v.map((y, i) => [X0 + i/(v.length - 1)*(X1 - X0), chartY(y)]);
+    const v = D.forecast.values, [, , , fx, fy] = outFiles()[1];
+    const pts = v.map((y, i) => [OX0 + 18 + i*PXM, chartY(y)]);
     o.push(path(polyline(pts, g), {stroke:V('target'), sw:2, op:b}));
-    o.push(text(X1, FY1 - 10, `${v.length} predictions`, {size:12.5, anchor:'end', fill:V('muted'), op:b*g}));
+    o.push(text(fx, fy + 20, `${v.length} predictions, the months after the series`, {size:12.5, fill:V('muted'), op:b*g}));
   }
 }
 
 // The files of the output folder: name, flight of its chip from the server,
-// when the name appears and where.
+// when the name appears and where: a column to the right of the chart, which
+// keeps the left of the card so the forecast starts next to the series.
 function outFiles(){
-  const x = OX0 + 18;
-  return [[LB_FILE, T.lbFly, T.lbFile, x], [PRED_FILE, T.predFly, T.predFile[0], x + mw(LB_FILE, MONO, 400, 'm') + 32]];
+  const x = OX0 + 18 + (D.forecast.values.length - 1)*PXM + 56;
+  return [[LB_FILE, T.lbFly, T.lbFile, x, FY0 + 112], [PRED_FILE, T.predFly, T.predFile[0], x, FY0 + 142]];
 }
 
 // Everything that travels: calls and responses between the agent and the
@@ -355,8 +358,8 @@ function outFiles(){
 function traffic(t, o){
   const call = {fill:V('bg'), stroke:V('target'), color:V('targetText'), weight:700};
   const resp = {fill:V('bg'), stroke:V('ok'), color:V('ok'), weight:700};
-  outFiles().forEach(([f, at, , x]) =>
-    fly(o, t, at, SX0 + 120, RY0 + 60, x + mw(f, MONO, 400, 'm')/2, FY0 + 74, f, {...call, weight:400}));
+  outFiles().forEach(([f, at, , x, y]) =>
+    fly(o, t, at, SX0 + 120, RY0 + 60, x + mw(f, MONO, 400, 'm')/2, y - 4, f, {...call, weight:400}));
   CALLS.forEach((c, i) => {
     const y = CY0 + 138 + i*21, [sx, sy] = toolXY(c.tool);
     fly(o, t, c.sent, AX0 + 60, y, sx, sy, c.tool, call);

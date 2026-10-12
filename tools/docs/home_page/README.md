@@ -244,7 +244,8 @@ predictions are written). It reads from left to right, as the title does: the
 agent asks, the server decides, and the server stands over the output folder
 it writes to. One thing moves at a time, and in Ask the server and the
 folders fade, since they take no part in it. In Connect the server and the
-two folders come in one by one, more than a second apart.
+two folders come in one by one, more than a second apart, after the note
+for other agents, which belongs to the installation and not to the server.
 
 There is no frame for "your machine": once the model moved into the agent, a
 frame around everything separated nothing and suggested that the model runs
@@ -262,9 +263,16 @@ the model does not guess the order, the instructions of the server give it
 caption of Ask says so.
 
 The four cards form a grid: the project folder under the agent and the output
-folder under the server. Both charts share the vertical scale and the rows of
-pixels they use (`chartY()`), so the forecast continues the series from one
-folder to the other; the horizontal scale differs, 204 months against 12.
+folder under the server. Both charts share both scales (`chartY()`, `PXM`
+pixels per month), so the forecast in the output folder reads as one more
+cycle of the series next to it. For that the project folder draws only the
+last `TAIL` months (its label says so, next to the 204 rows of the file): at
+the scale of the whole series the 12 predictions would be 30 pixels wide, and
+stretched to the width of their card they looked like another series. The
+forecast keeps the left of the output folder and the names of the files go
+in a column to its right. The history is not drawn in the output folder,
+although that is the usual picture of a forecast: its files hold no rows of
+the series.
 
 Every call shows its own response on the server. That of `forecast` is its
 summary and the path of the predictions file, not the script: the server only
