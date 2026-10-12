@@ -1,7 +1,7 @@
 site_name: skforecast-AI Docs
 repo_url: https://github.com/skforecast/skforecast-ai
 site_url: https://ai.skforecast.org
-site_description: "Python time series forecasting assistant built on skforecast: deterministic decisions, the script that ran, and an optional LLM that explains them."
+site_description: "Python time series forecasting assistant built on skforecast: deterministic decisions, the script that ran, an optional LLM that explains them, and an MCP server for AI agents."
 site_author: Joaquin Amat Rodrigo and Javier Escobar Ortiz
 use_directory_urls: false
 
