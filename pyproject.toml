@@ -45,6 +45,7 @@ keywords = [
     "backtesting",
     "llm",
     "mcp",
+    "ai"
 ]
 
 license = "Apache-2.0"
