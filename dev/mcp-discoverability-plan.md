@@ -282,6 +282,21 @@ tiene una página por ficha ni un badge propio.
 sin haberla enviado (Glama, PulseMCP, Smithery, mcp.so) y enviar a mano solo
 donde falte y merezca la pena.
 
+Estado, 2026-10-11: **mcprush.com** listó `skforecast-ai-mcp` por su cuenta
+(ficha `mcprush.com/skforecast/skforecast-ai-mcp`, avisado por email). Es un
+agregador nuevo (su CLI, `mcprush` en npm, es de agosto de 2026 y tiene un
+solo mantenedor) que recoge paquetes de npm, PyPI y Docker. Nuestra ficha es
+"direct": el cliente arranca `uvx skforecast-ai-mcp` él mismo, sin el
+gateway de mcprush ni clave, así que nada de los datos pasa por ellos. El
+comando que muestra para Claude Code es correcto, con `--allow-dir` sacado
+de `server.json` como hueco a rellenar:
+`claude mcp add --scope user skforecast-ai-mcp '--' uvx skforecast-ai-mcp --allow-dir '<allow-dir>'`.
+Decisión: no reclamarla. Reclamar (con un fichero
+`.well-known/mcprush.com-claim.txt` en `main`) solo da analítica, cobro y
+alojamiento, que no aplican a un servidor local. Revisar en esta misma
+revisión que la ficha sigue la versión publicada; si un día muestra un
+comando roto, reclamarla para corregirlo.
+
 ## Lo que no está verificado
 
 - Qué comando construyen VS Code y otros clientes a partir de la ficha
