@@ -283,7 +283,7 @@ rather than show the script as part of another response.
 
 The privacy step is not in Connect, where nothing has been returned yet, but
 at the first response (`T.privacy`): the summary of `profile` is on the
-server with its "no rows" tag, the strip says "reads the summary, not the
+server, the strip says "reads the summary, not the
 file", and "204 rows: they stay in the file" turns green in the project
 folder. The gap between `profile` and `plan` is longer than the others to
 give it time. That the model reads each response is said only there: before

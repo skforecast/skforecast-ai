@@ -78,7 +78,7 @@ T.privacy = [T.profile + 3.2, T.plan - .6];               // from the response o
 const CAPTIONS = [
   [0, CH.ask, 'Connect once: the Claude Code plugin adds the server and its skill. Other agents add one MCP entry.'],
   [CH.ask, CH.rules, 'Ask in plain language: the server gives your agent its workflow, so the model knows which tool comes next.'],
-  [CH.rules, T.privacy[0], 'The server reads the file and answers with an id and a plain-text summary: statistics, no rows.'],
+  [CH.rules, T.privacy[0], 'The server reads the file and answers with an id and a plain-text summary: statistics of your data, not the data.'],
   [T.privacy[0], T.plan, 'The model reads that summary, not your file: the responses of the server never carry rows of your data.'],
   [T.plan, CH.validate, 'The server decides with the same deterministic rules as the Python API: no LLM in the decisions.'],
   [CH.validate, T.forecast, 'compare backtests the candidates on the same folds, next to a seasonal naive baseline.'],
@@ -275,7 +275,6 @@ function serverCard(t, o){
   const op = a*show*(next ? 1 - lin(t, next.sent[1] - .1, next.sent[1] + .1) : 1);
   const x = SX0 + 30;
   o.push(text(x, RY0 + 14, cur.script ? `script that ran (${D.script.length} lines)` : 'response: ' + cur.id, {size:12, cls:'m', fill:V('muted'), op}));
-  if (!cur.script) o.push(text(SX1 - 30, RY0 + 14, 'no rows', {size:12, weight:700, anchor:'end', fill:V('ok'), op}));
   if (cur.board) board(t, o, x, RY0 + 36, op);
   else if (cur.script) script(o, x, RY0 + 38, op);
   else cur.lines.forEach((s, i) =>
@@ -338,24 +337,29 @@ function folders(t, o){
   card(o, OX0, FY0, SX1, FY1, 'Output folder', 'temporary, unless --output-dir', b);
   // Side by side, so the chart starts at the same height as the one of the
   // series. Each name appears when its chip lands (traffic).
-  outFiles().forEach(([f, , at, x, y]) =>
-    o.push(text(x, y, f, {size:MONO, cls:'m', fill:V('fg'), op:b*lin(t, at, at + .3)})));
+  outFiles().forEach(([f, , at, x, y, note]) => {
+    const op = b*lin(t, at, at + .3);
+    o.push(text(x, y, f, {size:MONO, cls:'m', fill:V('fg'), op}));
+    o.push(text(x, y + 19, note, {size:12.5, fill:V('muted'), op}));
+  });
   // The forecast itself, as written to the file.
   const g = lin(t, ...T.predFile);
   if (g > 0){
-    const v = D.forecast.values, [, , , fx, fy] = outFiles()[1];
+    const v = D.forecast.values;
     const pts = v.map((y, i) => [OX0 + 18 + i*PXM, chartY(y)]);
     o.push(path(polyline(pts, g), {stroke:V('target'), sw:2, op:b}));
-    o.push(text(fx, fy + 20, `${v.length} predictions, the months after the series`, {size:12.5, fill:V('muted'), op:b*g}));
   }
 }
 
 // The files of the output folder: name, flight of its chip from the server,
-// when the name appears and where: a column to the right of the chart, which
+// when the name appears, where, and what it holds: a column to the right of the chart, which
 // keeps the left of the card so the forecast starts next to the series.
 function outFiles(){
   const x = OX0 + 18 + (D.forecast.values.length - 1)*PXM + 56;
-  return [[LB_FILE, T.lbFly, T.lbFile, x, FY0 + 112], [PRED_FILE, T.predFly, T.predFile[0], x, FY0 + 142]];
+  return [
+    [LB_FILE, T.lbFly, T.lbFile, x, FY0 + 102, `${ROWS.length - 1} candidates and the baseline, ranked by MAE`],
+    [PRED_FILE, T.predFly, T.predFile[0], x, FY0 + 154, `${D.forecast.values.length} predictions, the months after the series`],
+  ];
 }
 
 // Everything that travels: calls and responses between the agent and the
