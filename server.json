@@ -8,6 +8,20 @@
     "source": "github"
   },
   "websiteUrl": "https://ai.skforecast.org/stable/user-guides/mcp-server.html",
+  "icons": [
+    {
+      "src": "https://ai.skforecast.org/stable/img/logo-skforecast.png",
+      "mimeType": "image/png",
+      "sizes": ["500x500"],
+      "theme": "light"
+    },
+    {
+      "src": "https://ai.skforecast.org/stable/img/logo-skforecast-white-no-backgound.png",
+      "mimeType": "image/png",
+      "sizes": ["500x500"],
+      "theme": "dark"
+    }
+  ],
   "version": "0.4.2",
   "packages": [
     {
