@@ -91,9 +91,10 @@ const CALLS = [
   {tool:'create_cv', args:'', at:T.cv, id:D.cv.id,
    lines:[...D.cv.lines, `compare_estimator_fits: ${D.cv.compare_fits}`]},
   {tool:'compare', args:'', at:T.compare, id:D.compare.id, board:true, back:T.compareBack},
-  // The response of forecast does not replace the leaderboard: its id reaches
-  // the agent and its predictions the output folder.
-  {tool:'forecast', args:'best plan', at:T.forecast, id:D.forecast.id, back:T.forecastBack, keep:true},
+  // The response of forecast carries its summary and the path of the file with
+  // the predictions, not the script: that is what get_code returns.
+  {tool:'forecast', args:'best plan', at:T.forecast, id:D.forecast.id, back:T.forecastBack,
+   lines:[...D.forecast.lines, 'predictions: ' + D.forecast.file]},
   {tool:'get_code', args:'', at:T.code, id:D.forecast.id, script:true, back:T.codeBack},
 ];
 CALLS.forEach(c => { if (!c.back) c.back = [c.at + 2.4, c.at + 3.2]; c.sent = [c.at + .1, c.at + .9]; });
@@ -115,7 +116,11 @@ MODEL.push([T.codeBack[1], T.answerIn[1] + .4, 'writes the answer']);
 const MX0 = 30, MY0 = 124, MX1 = 1250, MY1 = 681;         // your machine
 const AX0 = 56, AX1 = 600, CY0 = 150, CY1 = 448;          // agent card
 const SX0 = 630, SX1 = 1224;                              // server card
-const PX1 = 720, OX0 = 744, FY0 = 472, FY1 = 664;         // project and output folders
+const PX1 = AX1, OX0 = SX0, FY0 = 472, FY1 = 664;         // project and output folders, under the agent and the server
+// Both charts share the vertical scale and the rows of pixels they use, so the
+// forecast continues the series from one folder to the other.
+const YV = [...D.series.values, ...D.forecast.values], YLO = Math.min(...YV), YHI = Math.max(...YV);
+const chartY = y => FY1 - 30 - (y - YLO)/(YHI - YLO)*(FY1 - 30 - (FY0 + 92));
 const LY0 = CY1 - 42, LY1 = CY1 - 12;                     // language model, at the foot of the agent card
 const RY0 = CY0 + 108;                                    // response area of the server
 const WX = (OX0 + SX1)/2;                                 // where the server writes to the output folder
@@ -254,7 +259,7 @@ function serverCard(t, o){
       color: on > .5 ? '#2a1600' : used ? V('targetText') : V('muted'), op:a, weight: on > .5 || used ? 700 : 400});
   });
   // The response area: what the current call sends back.
-  const shown = CALLS.filter(c => !c.keep), cur = [...shown].reverse().find(c => t >= c.sent[1]);
+  const shown = CALLS, cur = [...shown].reverse().find(c => t >= c.sent[1]);
   o.push(rect(SX0 + 16, RY0 - 8, SX1 - SX0 - 32, CY1 - RY0 - 6, {rx:8, fill:V('bg'), op:a*.9}));
   if (!cur){
     o.push(text(SX0 + 30, RY0 + 16, 'waiting for a call', {size:MONO, cls:'m', fill:V('faint'), op:a}));
@@ -302,9 +307,9 @@ function folders(t, o){
     card(o, AX0, FY0, PX1, FY1, 'Project folder', '--allow-dir: the only folder the server reads', a,
       hl > .05 || r > .05 ? V('target') : V('border'));
     o.push(text(AX0 + 18, FY0 + 78, D.data_file, {size:MONO, cls:'m', weight:700, fill:V('fg'), op:a}));
-    const v = D.series.values, lo = Math.min(...v), hi = Math.max(...v);
-    const X0 = AX0 + 18, X1 = PX1 - 18, Y0 = FY0 + 92, Y1 = FY1 - 30;
-    const pts = v.map((y, i) => [X0 + i/(v.length - 1)*(X1 - X0), Y1 - (y - lo)/(hi - lo)*(Y1 - Y0)]);
+    const v = D.series.values;
+    const X0 = AX0 + 18, X1 = PX1 - 18;
+    const pts = v.map((y, i) => [X0 + i/(v.length - 1)*(X1 - X0), chartY(y)]);
     o.push(path(polyline(pts), {stroke:V('series'), sw:1.5, op:a}));
     // The privacy step: while the model reads the summary, the rows are here.
     const stay = Math.min(lin(t, T.privacy[0], T.privacy[0] + .3), 1 - lin(t, T.privacy[1], T.privacy[1] + .4));
@@ -312,7 +317,7 @@ function folders(t, o){
       {size:12.5, anchor:'end', weight: stay > .5 ? 700 : 400, fill: stay > .5 ? V('ok') : V('muted'), op:a}));
     // The server reads the file during profile.
     if (r > 0){
-      o.push(line(SX0 + 20, CY1 + 2, SX0 + 20, FY0 - 2, {stroke:V('target'), sw:2, op:r}));
+      o.push(path(`M${SX0 + 20} ${CY1 + 2} V${(CY1 + FY0)/2} H${PX1 - 40} V${FY0 - 2}`, {stroke:V('target'), sw:2, op:r}));
       o.push(text(SX0 + 30, FY0 - 8, 'reads the CSV', {size:12.5, weight:700, fill:V('targetText'), op:r}));
     }
   }
@@ -321,9 +326,10 @@ function folders(t, o){
   if (b <= 0) return;
   card(o, OX0, FY0, SX1, FY1, 'Output folder', 'temporary, unless --output-dir', b);
   const files = [[D.compare.file, T.lbFile], [D.forecast.file, T.predFile[0]]];
+  // Side by side, so the chart starts at the same height as the one of the series.
   files.forEach(([f, at], i) => {
     const op = b*lin(t, at, at + .3);
-    o.push(text(OX0 + 18, FY0 + 78 + i*22, f, {size:12, cls:'m', fill:V('fg'), op}));
+    o.push(text(OX0 + 18 + (i ? mw(files[0][0], 12, 400, 'm') + 28 : 0), FY0 + 78, f, {size:12, cls:'m', fill:V('fg'), op}));
   });
   const w = Math.max(lin(t, T.lbFile - .3, T.lbFile), lin(t, T.predFile[0] - .3, T.predFile[0]))*(1 - lin(t, T.predFile[0] + 1.2, T.predFile[0] + 1.6));
   if (w > 0 && t < T.code){
@@ -333,9 +339,9 @@ function folders(t, o){
   // The forecast itself, as written to the file.
   const g = lin(t, ...T.predFile);
   if (g > 0){
-    const v = D.forecast.values, lo = Math.min(...v), hi = Math.max(...v);
-    const X0 = OX0 + 18, X1 = SX1 - 18, Y0 = FY0 + 124, Y1 = FY1 - 30;
-    const pts = v.map((y, i) => [X0 + i/(v.length - 1)*(X1 - X0), Y1 - (y - lo)/(hi - lo)*(Y1 - Y0)]);
+    const v = D.forecast.values;
+    const X0 = OX0 + 18, X1 = SX1 - 18;
+    const pts = v.map((y, i) => [X0 + i/(v.length - 1)*(X1 - X0), chartY(y)]);
     o.push(path(polyline(pts, g), {stroke:V('target'), sw:2, op:b}));
     o.push(text(X1, FY1 - 10, `${v.length} predictions`, {size:12.5, anchor:'end', fill:V('muted'), op:b*g}));
   }

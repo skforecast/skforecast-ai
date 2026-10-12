@@ -250,6 +250,10 @@ def main() -> None:
         },
         "forecast": {
             "id": forecast["id"],
+            "lines": [
+                summary_line(forecast["summary"], p)
+                for p in ("Forecaster:", "Steps:", "Index range:")
+            ],
             "file": Path(forecast["files"]["predictions"]).name,
             "start": str(pd.Timestamp(predictions.iloc[0, 0]).date()),
             "values": [round(float(v), 4) for v in predictions["pred"]],

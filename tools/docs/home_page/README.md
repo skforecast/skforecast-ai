@@ -252,6 +252,16 @@ runs, so violet and orange alternate as the title says: the model asks, the
 rules decide. The strip is inside the frame of the machine, but the model may
 not run there, hence its label "local or cloud".
 
+The four cards form a grid: the project folder under the agent and the output
+folder under the server. Both charts share the vertical scale and the rows of
+pixels they use (`chartY()`), so the forecast continues the series from one
+folder to the other; the horizontal scale differs, 204 months against 12.
+
+Every call shows its own response on the server. That of `forecast` is its
+summary and the path of the predictions file, not the script: the server only
+returns the script through `get_code`, so the animation keeps that call
+rather than show the script as part of another response.
+
 The privacy step is not in Connect, where nothing has been returned yet, but
 at the first response (`T.privacy`): the summary of `profile` is on the
 server with its "no rows" tag, the strip says "reads the summary, not the
