@@ -125,7 +125,10 @@ MODEL.push([T.codeBack[1], T.answerIn[1] + .4, 'writes the answer']);
 /* ---------------------------------------------------------------- layout */
 const AX0 = 40, AX1 = 604, CY0 = 120, CY1 = 432;          // agent card
 const SX0 = 636, SX1 = 1240;                              // server card
-const PX1 = AX1, OX0 = SX0, FY0 = 456, FY1 = 672;         // project and output folders, under the agent and the server
+// Project and output folders. The output folder is as wide as its content
+// (the forecast at the scale of the series, and its files); the project
+// folder takes the rest, so it is somewhat wider than the agent above it.
+const PX1 = 656, OX0 = PX1 + 32, FY0 = 456, FY1 = 672;
 // Both charts share the vertical scale and the rows of pixels they use, so the
 // forecast continues the series from one folder to the other.
 // The project folder shows the last TAIL months of the series, and the output
@@ -323,8 +326,10 @@ function folders(t, o){
       {size:12.5, anchor:'end', weight: stay > .5 ? 700 : 400, fill: stay > .5 ? V('ok') : V('muted'), op:a}));
     // The server reads the file during profile.
     if (r > 0){
-      o.push(path(`M${SX0 + 20} ${CY1 + 2} V${(CY1 + FY0)/2} H${PX1 - 40} V${FY0 - 2}`, {stroke:V('target'), sw:2, op:r}));
-      o.push(text(SX0 + 30, FY0 - 8, 'reads the CSV', {size:12.5, weight:700, fill:V('targetText'), op:r}));
+      // Straight down: the project folder reaches under the left edge of the server.
+      const rx = (SX0 + PX1)/2;
+      o.push(line(rx, CY1 + 2, rx, FY0 - 2, {stroke:V('target'), sw:2, op:r}));
+      o.push(text(rx + 10, FY0 - 8, 'reads the CSV', {size:12.5, weight:700, fill:V('targetText'), op:r}));
     }
   }
   // Output folder: what the server writes.

@@ -262,8 +262,10 @@ the model does not guess the order, the instructions of the server give it
 (`profile` -> `plan` -> `create_cv` -> `compare` -> `forecast`), and the
 caption of Ask says so.
 
-The four cards form a grid: the project folder under the agent and the output
-folder under the server. Both charts share both scales (`chartY()`, `PXM`
+The folders sit under the agent and the server, but not with the same split:
+the output folder is as wide as its content, and the project folder takes the
+rest, so it reaches a little under the server, which reads it straight down.
+Both charts share both scales (`chartY()`, `PXM`
 pixels per month), so the forecast in the output folder reads as one more
 cycle of the series next to it. For that the project folder draws only the
 last `TAIL` months (its label says so, next to the 204 rows of the file): at
