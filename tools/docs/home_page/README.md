@@ -239,20 +239,25 @@ The layout follows "Deterministic first, LLM second": your machine in a
 dashed frame with the agent, the server (orange, deterministic rules) and two
 folders, the project folder (`--allow-dir`, the only one the server reads,
 where the rows of the data stay) and the output folder (temporary unless
-`--output-dir`, where the predictions are written), and the language model of
-the agent outside, in violet. It reads from left to right, as the title does:
-the agent asks, the server decides, and the server stands over the output
-folder it writes to. One thing moves at a time, and in Ask the server and the
-folders fade, since they take no part in it.
+`--output-dir`, where the predictions are written). It reads from left to
+right, as the title does: the agent asks, the server decides, and the server
+stands over the output folder it writes to. One thing moves at a time, and in
+Ask the server and the folders fade, since they take no part in it.
 
-The language model is not an actor: every coding agent has one, and showing
-how it reads the request, picks each tool and writes the answer explains
-agents, not this server. It is a small, static card outside the frame, there
-for one reason: what the agent reads ends up in it, which is why it matters
-that the responses carry no rows. A single `summary` chip travels to it
-(`hop()`), once for all the responses, while the caption says that no
-response carries rows; it jumps over the server, which stands in between and
-takes no part in that exchange.
+The language model lives in the agent: a violet strip at the foot of its
+card, not a box of its own. Nothing travels to it. It is lit while it reads
+or picks (`MODEL`: "reads your request", "picks profile", "reads the
+summary", "writes the answer") and off, "waits for the server", while a tool
+runs, so violet and orange alternate as the title says: the model asks, the
+rules decide. The strip is inside the frame of the machine, but the model may
+not run there, hence its label "local or cloud".
+
+The privacy step is not in Connect, where nothing has been returned yet, but
+at the first response (`T.privacy`): the summary of `profile` is on the
+server with its "no rows" tag, the strip says "reads the summary, not the
+file", and "204 rows: they stay in the file" turns green in the project
+folder. The gap between `profile` and `plan` is longer than the others to
+give it time.
 
 The figures are real. `generate_mcp_overview_data.py` starts the server of
 this checkout, opens an in-memory MCP client against it (as
