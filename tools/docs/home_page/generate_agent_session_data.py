@@ -13,7 +13,9 @@ The animation (`docs/animations/agent-session.html`) replays one session of
 the MCP agent check (`tools/mcp/check_mcp_agent.py`): the request of the
 user, every call of the agent to the server, its messages and its final
 answer. Nothing is written by hand. The script reads the session from the
-`report.md` of the run and keeps it as it is, except for two things:
+`report.md` of the run and writes two cuts of it: `full`, the whole session,
+and `short`, an abridged one for the README. The full cut keeps the session
+as it is, except for two things:
 
 - Trims, all declared in this file and all marked in the animation: the
   responses of the server are reduced to the fragments in `EXCERPTS`, joined
@@ -25,6 +27,11 @@ answer. Nothing is written by hand. The script reads the session from the
 - Paths: the workspace of the session, which the report writes as `<ws>`,
   becomes `WORKSPACE`. The script stops if a path of a home directory or a
   user name is left in the output.
+
+The short cut leaves out more, and only leaves out: the calls of the client
+and the messages of the agent between calls are not shown (its footer says
+so), the responses use the fragments of `SHORT_EXCERPTS`, and the paragraphs
+of the final answer in `SHORT_ANSWER_OMITS` become a line that counts them.
 
 It also stops if the report lists numbers without a source for the session:
 the animation says that every figure comes from a response of the server.
@@ -42,7 +49,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RUN = "0.4.0-final2"
-SESSION = "compare_code__r1"
+SESSION = "compare_code__r3"
 REPORT = REPO_ROOT / "tools" / "mcp" / "agent_reports" / RUN / "report.md"
 OUTPUT = REPO_ROOT / "docs" / "animations" / "agent-session-data.js"
 
@@ -86,13 +93,24 @@ EXCERPTS = {
          "Index range: 2008-07-01 00:00:00 to 2009-06-01 00:00:00"],
     ],
     8: [
-        ["from skforecast.model_selection import TimeSeriesFold, "
-         "backtesting_foundation", "metrics, predictions = backtesting_foundation("],
-    ],
-    9: [
         ["forecaster.fit(series=series)",
          "predictions = forecaster.predict(steps=steps)"],
     ],
+}
+
+# Fragments of the short cut, for the steps where it shows less than the full
+# one, so that all the calls fit in one screen.
+SHORT_EXCERPTS = {
+    **EXCERPTS,
+    3: [
+        ["Observations: 204", "Frequency: MS", "Date range: 1991-07-01 to 2008-06-01"],
+        ["A single-series ML forecaster (ForecasterRecursive) is recommended."],
+    ],
+    5: [
+        ["Initial training up to 2003-04-01, trained once (no refit), "
+         "12-step horizon, 6 folds."],
+    ],
+    6: EXCERPTS[6][:3],
 }
 
 # Lines of the final answer trimmed: those strictly between the two anchors.
@@ -102,6 +120,14 @@ ANSWER_TRIMS = [
         "steps = 12",
         "lines of the script",
     ),
+]
+
+# Paragraphs of the final answer left out of the short cut, by the text each
+# one starts with: the table, the requirements and the script stay.
+SHORT_ANSWER_OMITS = [
+    "**Best model: Chronos-2-small**",
+    "The 12-month forecast",
+    "Note: this script",
 ]
 
 # Paths of a home directory, or the placeholder of the workspace, left over.
@@ -241,7 +267,7 @@ def neutral(text: str) -> str:
     return text.replace("<ws>", WORKSPACE)
 
 
-def build_entries(entries: list[dict]) -> list[dict]:
+def build_entries(entries: list[dict], short: bool = False) -> list[dict]:
     """
     Entries of the animation, with the declared trims applied and checked.
 
@@ -249,6 +275,9 @@ def build_entries(entries: list[dict]) -> list[dict]:
     ----------
     entries : list of dict
         Output of `parse_session()`.
+    short : bool, default False
+        If `True`, the entries of the short cut: the request of the user and
+        the calls to the server, with the fragments of `SHORT_EXCERPTS`.
 
     Returns
     -------
@@ -257,8 +286,11 @@ def build_entries(entries: list[dict]) -> list[dict]:
 
     """
 
+    excerpts = SHORT_EXCERPTS if short else EXCERPTS
     shown = []
     for entry in entries:
+        if short and (entry["kind"] == "text" or entry.get("side") == "client"):
+            continue
         if entry["kind"] != "step":
             shown.append({"kind": entry["kind"], "text": neutral(entry["text"])})
             continue
@@ -269,7 +301,7 @@ def build_entries(entries: list[dict]) -> list[dict]:
                 raise SystemExit(f"Step {n}: the call does not start with its prefix.")
             call = CALL_PREFIXES[n]
         rows = []
-        for fragments in EXCERPTS.get(n, []):
+        for fragments in excerpts.get(n, []):
             for fragment in fragments:
                 if fragment not in entry["result"]:
                     raise SystemExit(f"Step {n}: {fragment!r} is not in the trace.")
@@ -287,7 +319,47 @@ def build_entries(entries: list[dict]) -> list[dict]:
     return shown
 
 
-def build_answer(answer: str) -> list:
+def omit_paragraphs(lines: list[str], starts: list[str]) -> list:
+    """
+    Replace paragraphs of the final answer with a mark that counts them.
+
+    Parameters
+    ----------
+    lines : list of str
+        Lines of the final answer; a paragraph is one line.
+    starts : list of str
+        Text each paragraph to leave out starts with.
+
+    Returns
+    -------
+    lines : list
+        The lines, with one `{"trim": count, "what": label}` per run of
+        omitted paragraphs: those separated only by blank lines share a mark.
+
+    """
+
+    for start in starts:
+        if sum(line.startswith(start) for line in lines) != 1:
+            raise SystemExit(f"Paragraph to omit not found once: {start!r}.")
+    kept = []
+    for line in lines:
+        if not line.startswith(tuple(starts)):
+            kept.append(line)
+            continue
+        blanks = 0
+        while kept and kept[-1 - blanks] == "":
+            blanks += 1
+        previous = kept[-1 - blanks] if len(kept) > blanks else None
+        if isinstance(previous, dict):
+            del kept[len(kept) - blanks:]
+            previous["trim"] += 1
+            previous["what"] = "paragraphs"
+        else:
+            kept.append({"trim": 1, "what": "paragraph"})
+    return kept
+
+
+def build_answer(answer: str, short: bool = False) -> list:
     """
     Lines of the final answer, with the declared trims.
 
@@ -295,6 +367,8 @@ def build_answer(answer: str) -> list:
     ----------
     answer : str
         Output of `parse_session()`.
+    short : bool, default False
+        If `True`, the paragraphs of `SHORT_ANSWER_OMITS` are left out too.
 
     Returns
     -------
@@ -304,13 +378,16 @@ def build_answer(answer: str) -> list:
     """
 
     lines = answer.splitlines()
+    if short:
+        lines = omit_paragraphs(lines, SHORT_ANSWER_OMITS)
     for first, last, what in ANSWER_TRIMS:
         if lines.count(first) != 1 or lines.count(last) != 1:
             raise SystemExit(f"Anchors of a trim not found once: {first!r}, {last!r}.")
         a, b = lines.index(first), lines.index(last)
         if b - a < 2:
             raise SystemExit(f"Nothing to trim between {first!r} and {last!r}.")
-        lines = lines[: a + 1] + [{"trim": b - a - 1, "what": what}] + lines[b:]
+        trim = {"trim": b - a - 1, "what": what}
+        lines = lines[: a + 1] + [trim] + lines[b:]
     return [neutral(line) if isinstance(line, str) else line for line in lines]
 
 
@@ -387,8 +464,13 @@ def main() -> None:
     entries, answer = parse_session(lines)
     payload = {
         "source": header(report),
-        "entries": build_entries(entries),
-        "answer": build_answer(answer),
+        "cuts": {
+            cut: {
+                "entries": build_entries(entries, short=cut == "short"),
+                "answer": build_answer(answer, short=cut == "short"),
+            }
+            for cut in ("full", "short")
+        },
     }
     text = json.dumps(payload, separators=(",", ":"))
     leak = PRIVATE.search("\n".join(strings(payload)))
@@ -399,8 +481,14 @@ def main() -> None:
         "Do not edit.\nwindow.AGENT_SESSION_DATA = " + text + ";\n",
         encoding="utf-8",
     )
-    calls = sum(entry["kind"] in ("tool", "client") for entry in payload["entries"])
-    print(f"Wrote {OUTPUT.relative_to(REPO_ROOT)}: {RUN}, {SESSION}, {calls} calls.")
+    calls = {
+        cut: sum(entry["kind"] in ("tool", "client") for entry in data["entries"])
+        for cut, data in payload["cuts"].items()
+    }
+    print(
+        f"Wrote {OUTPUT.relative_to(REPO_ROOT)}: {RUN}, {SESSION}, "
+        f"{calls['full']} calls ({calls['short']} in the short cut)."
+    )
 
 
 if __name__ == "__main__":

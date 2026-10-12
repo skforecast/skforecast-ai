@@ -33,18 +33,19 @@ docs/
 │   ├── compare-candidates-data.js     # GENERATED: its data
 │   ├── mcp-overview.html              # How the MCP server works, at the top of its guide
 │   ├── mcp-overview-data.js           # GENERATED: its data, from the tools of the server
-│   ├── agent-session.html             # Replay of a real agent session, exported as the GIF below
+│   ├── agent-session.html             # Replay of a real agent session, exported as the GIFs below
 │   └── agent-session-data.js          # GENERATED: its data, from a report of the agent check
 └── img/
     ├── social-card-home.png           # GENERATED: preview image when the page is shared
     ├── skforecast-ai-forecast-ask.png # GENERATED: image for the GitHub README
-    └── agent-session.gif              # GENERATED: the agent session, for the GitHub README
+    ├── agent-session.gif              # GENERATED: the whole agent session, linked from the MCP guide
+    └── agent-session-short.gif        # GENERATED: its abridged cut, for the GitHub README
 tools/docs/home_page/
 ├── README.md                          # This file
 ├── generate_home_data.py              # Writes home-data.json and the data of the animations
 ├── generate_mcp_overview_data.py      # Writes mcp-overview-data.js through an in-memory MCP client
 ├── generate_agent_session_data.py     # Writes agent-session-data.js from a report of the agent check
-├── make_agent_session_video.py        # Exports agent-session.html as the GIF above and an MP4
+├── make_agent_session_video.py        # Exports agent-session.html as the GIFs above and an MP4
 ├── make_social_card.mjs               # Writes the two images of docs/img/ above
 └── social_card.html                   # Layout of the social preview card
 ```
@@ -300,10 +301,12 @@ of the engine from skforecast removes them.
 
 ### The animation "A real agent session"
 
-`docs/animations/agent-session.html` is exported as
-`docs/img/agent-session.gif` for the "From your coding agent" section of the
-GitHub README, which "What a session looks like" of the MCP server guide links
-to; it is not embedded in the site, so that the guide keeps one animation. It replays a session of
+`docs/animations/agent-session.html` is exported as two GIFs, one per cut:
+`docs/img/agent-session.gif`, the whole session, which "What a session looks
+like" of the MCP server guide links to, and `docs/img/agent-session-short.gif`,
+an abridged cut (`?cut=short`) for the "From your coding agent" section of the
+GitHub README. Neither is embedded in the site, so that the guide keeps one
+animation. It replays a session of
 the MCP agent check (`tools/mcp/README.md`), not an example: the request of
 the user, every call of the agent to the server, its messages and its final
 answer come from the `report.md` of the run, read by
@@ -312,11 +315,13 @@ answer come from the `report.md` of the run, read by
 the site) and imitates no product: the panel is labelled only with the
 project folder and the server.
 
-The session is `compare_code__r1` of `0.4.0-final2` (`RUN` and `SESSION` in
+The session is `compare_code__r3` of `0.4.0-final2` (`RUN` and `SESSION` in
 the script): the user asks to compare models for the next 12 months of
 `data/h2o.csv` and for the script of the best one, and the agent calls
 `profile`, `plan`, `create_cv`, `compare`, `forecast` and `get_code`. It was
-chosen because it covers the whole flow, its verdict is `correct` and the
+chosen because it covers the whole flow with one call to each tool (in
+`compare_code__r1` the agent asks `get_code` for the script of the comparison
+before that of the forecast), its verdict is `correct` and the
 report finds no number without a source in its answer; the script stops if
 the session it reads has one, since a caption of the animation says that
 every figure comes from a response of the server.
@@ -335,9 +340,22 @@ What the script changes, and nothing else:
   or a user path is left (item 15 of `dev/mcp-pending-after-0.4.0.md`: a
   report can carry one in the output of a command).
 
+The short cut is for a reader of the README, who gives it a few seconds: it
+lasts 25 s instead of 50 and fits in two screens, the calls and the answer.
+It only leaves out, never rewrites, and says so in its footer:
+
+- The calls of the client (`Skill`, `ToolSearch`) and the messages of the
+  agent between calls are not shown.
+- Some responses show fewer fragments (`SHORT_EXCERPTS`), so that the six
+  calls fit in one screen.
+- The paragraphs of the final answer in `SHORT_ANSWER_OMITS` become a line
+  `⋯ N paragraphs trimmed ⋯`; the table, the requirements and the script stay.
+
 The captions under the title, the footer and the timing are written in the
-animation. The GIF has no sound, no logo but the skforecast mark of the other
-animations, and loops.
+animation. In both cuts the answer starts on a clean screen, and the first
+frame already has the title and the panel: it is what the README shows while
+the GIF loads. The GIFs have no sound, no logo but the skforecast mark of the
+other animations, and loop.
 
 Written by hand in `home.html`, review them when the results change: the facts
 and the decisions of the side panes, the metric labels, the question and answer
@@ -382,6 +400,7 @@ from the report.
 ```bash
 python tools/docs/home_page/generate_agent_session_data.py
 python tools/docs/home_page/make_agent_session_video.py                        # docs/img/agent-session.gif
+python tools/docs/home_page/make_agent_session_video.py --cut short            # docs/img/agent-session-short.gif
 python tools/docs/home_page/make_agent_session_video.py --mp4 /tmp/agent-session.mp4   # plus an MP4
 ```
 

@@ -32,12 +32,18 @@ const {cl, lin, P, lerp, r2, V, esc, text, rect, line, header} = SkfAnim;
 // here: fragments of a response joined by an ellipsis, two calls of the client
 // shortened with an ellipsis, and lines of the answer replaced by a line that
 // counts them. The workspace of the session is shown as ~/project.
+// ?cut=short plays the abridged cut of the README: the request, the calls to
+// the server and the answer, without the calls of the client, the messages of
+// the agent between calls and the paragraphs of the answer the script omits.
 const D = window.AGENT_SESSION_DATA;
 if (!D){
   document.querySelector('.skf-anim').textContent =
     'Missing agent-session-data.js: run tools/docs/home_page/generate_agent_session_data.py.';
   return;
 }
+const SHORT = new URLSearchParams(location.search).get('cut') === 'short';
+const C = D.cuts[SHORT ? 'short' : 'full'];
+const PACE = SHORT ? .7 : 1;                                     // the short cut plays faster
 
 /* ---------------------------------------------------------------- layout */
 const H = 860;
@@ -130,11 +136,11 @@ const prefixed = (mark, st, runs, width = COLS) =>
   wrapRuns([[mark, st], ...runs], width, ' '.repeat(mark.length));
 
 const toolAt = {};
-for (const e of D.entries){
+for (const e of C.entries){
   if (e.kind === 'user'){
     const rows = prefixed('> ', ST.prompt, [[e.text, ST.user]]);
-    const chars = e.text.length, typing = chars/55;
-    add('user', rows, typing + 1.0, {typing, chars});
+    const chars = e.text.length, typing = chars*PACE/55;
+    add('user', rows, typing + 1.0*PACE, {typing, chars});
   } else if (e.kind === 'text'){
     const rows = prefixed('● ', ST.agent, inline(e.text));
     add('text', rows, 0.8 + e.text.length/100, {stagger:.08});
@@ -146,7 +152,7 @@ for (const e of D.entries){
     const name = e.call.slice(0, e.call.indexOf('('));
     const callRows = prefixed('◆ ', ST.tool, [[name, ST.tool], [e.call.slice(name.length), ST.call]]);
     // The server is busy for the real duration of the call, shown faster.
-    const busy = e.seconds >= 5 ? 2.2 : 0.7;
+    const busy = (e.seconds >= 5 ? 2.2 : 0.7)*PACE;
     const res = [];
     e.excerpts.forEach((frags, k) => {
       const runs = [];
@@ -157,7 +163,7 @@ for (const e of D.entries){
     const b = add('tool', callRows, 0, {seconds:e.seconds, busy});
     t += busy;
     y -= GAP;
-    const r = add('result', res, 1.1 + 0.4*res.length, {stagger:.12});
+    const r = add('result', res, (1.1 + 0.4*res.length)*PACE, {stagger:.12});
     b.done = r.t0;
     toolAt[name] = b.t0;
   }
@@ -165,13 +171,13 @@ for (const e of D.entries){
 
 // The final answer, streamed row by row, as the agent wrote it in Markdown.
 const answerRows = [];
-const A = D.answer;
+const A = C.answer;
 let first = true, inCode = false, tableEnd = -1;
 const ind = '  ';
 for (let i = 0; i < A.length; i++){
   const s = A[i];
   if (typeof s !== 'string'){                         // lines trimmed by the generator
-    answerRows.push({runs:[[ind + `⋯ ${s.trim} ${s.what} trimmed ⋯`, ST.mark]], code:true, trim:true});
+    answerRows.push({runs:[[ind + `⋯ ${s.trim} ${s.what} trimmed ⋯`, ST.mark]], code:inCode, trim:true});
     continue;
   }
   if (s.startsWith('```')){ inCode = !inCode; continue; }
@@ -205,25 +211,31 @@ for (let i = 0; i < A.length; i++){
   wrapRuns([[mark, ST.agent], ...runs], COLS, ind).forEach(r => answerRows.push({runs:r}));
   first = false;
 }
-// Hold on the table, then let the rest of the answer scroll in.
-if (tableEnd >= 0 && answerRows[tableEnd + 1]) answerRows[tableEnd + 1].pause = 3.5;
+// Hold on the table, then let the rest of the answer scroll in. The answer of
+// the short cut fits in one screen, so it needs no stop.
+if (!SHORT && tableEnd >= 0 && answerRows[tableEnd + 1]) answerRows[tableEnd + 1].pause = 3.5;
+t += SHORT ? .8 : 0;                                   // a last look at the calls
 const ANSWER = add('answer', answerRows, 0, {stagger:.07});
-const TOTAL = ANSWER.rows[ANSWER.rows.length - 1].at + 9;
+const TOTAL = ANSWER.rows[ANSWER.rows.length - 1].at + (SHORT ? 8 : 9);
 
 /* ------------------------------------------------------------- scrolling */
 // When a row appears below the visible area, the transcript scrolls up by
 // several rows at once, as a terminal makes room: few moves, each a short
-// glide, so the exported GIF stays small.
+// glide, so the exported GIF stays small. The answer starts on a clean screen,
+// and the last position leaves a whole row at the top, never a cut one.
 const JUMP = 7*LH, GLIDE = .25;
-const END = Math.max(0, blocks[blocks.length - 1].bottom - VH);
+const PAGE = ANSWER.rows[0].y;
+const allRows = blocks.flatMap(b => b.rows).sort((a, b) => a.at - b.at);
+const bottom = blocks[blocks.length - 1].bottom;
+const END = Math.max(PAGE, Math.min(...allRows.map(r => r.y).filter(v => v >= bottom - VH)));
 const moves = [];
 {
-  const rows = blocks.flatMap(b => b.rows).sort((a, b) => a.at - b.at);
   let off = 0;
-  for (const r of rows){
-    const need = r.y + r.h - VH;
+  for (const r of allRows){
+    const page = r === ANSWER.rows[0];
+    const need = page ? PAGE : r.y + r.h - VH;
     if (need <= off) continue;
-    const to = Math.min(END, Math.max(need, Math.min(off + JUMP, need + JUMP - LH)));
+    const to = page ? PAGE : Math.min(END, Math.max(need, Math.min(off + JUMP, need + JUMP - LH)));
     moves.push({at:r.at, from:off, to});
     off = to;
   }
@@ -311,24 +323,32 @@ const CAPTIONS = [
 
 /* ---------------------------------------------------------------- run */
 const S = D.source;
+const FOOTER = SHORT
+  ? `Session ${S.run} / ${S.session} (skforecast-ai ${S.skforecast_ai}), abridged to the server calls and the answer. … and ⋯ mark the cuts.`
+  : `Recorded session ${S.run} / ${S.session} (skforecast-ai ${S.skforecast_ai}). … and ⋯ mark the trimmed text.`;
+// The loop starts with the title, the panel and the first caption already
+// drawn: the first frame of the GIF is what a README shows while the file
+// loads, and all it shows where images do not play on their own.
+const LEAD = .8;
 SkfAnim.run({
   title: 'A real agent session with the MCP server',
   desc: `Replay of a real session of a coding agent with the skforecast-ai MCP server (run ${S.run}, session ` +
-        `${S.session} of the agent check). The user asks: "${D.entries[0].text}" The agent loads the skill of ` +
+        `${S.session} of the agent check). The user asks: "${C.entries[0].text}" The agent loads the skill of ` +
         'the server and calls profile, plan, create_cv, compare, forecast and get_code. Its final answer ranks five ' +
-        'candidates by MAE next to a seasonal naive baseline, names the winner, the file of predictions and the ' +
-        'script that produced the forecast. Responses and the script are trimmed where an ellipsis marks it.',
-  total: TOTAL,
+        'candidates by MAE next to a seasonal naive baseline and gives the script that produced the forecast of ' +
+        'the winner. Responses and the script are trimmed where an ellipsis marks it.' +
+        (SHORT ? ' This cut is abridged: it leaves out the messages of the agent between calls and part of its answer.' : ''),
+  total: TOTAL - LEAD,
   height: H,
-  still: TOTAL - 1,
-  fadeOut: [TOTAL - .6, TOTAL],
+  still: TOTAL - LEAD - 1,
+  fadeOut: [TOTAL - LEAD - .6, TOTAL - LEAD],
   brandUrl: 'ai.skforecast.org',
   render(t, o){
+    t += LEAD;
     header(t, o, {title:'A real agent session with the MCP server', captions:CAPTIONS});
     panel(t, o);
     transcript(t, o);
-    o.push(text(PX0, H - 16, `Recorded session ${S.run} / ${S.session} (skforecast-ai ${S.skforecast_ai}). … and ⋯ mark the trimmed text.`,
-      {size:15, fill:V('muted'), op:P(t, .2, .8)}));
+    o.push(text(PX0, H - 16, FOOTER, {size:15, fill:V('muted'), op:P(t, .2, .8)}));
   }
 });
 })();

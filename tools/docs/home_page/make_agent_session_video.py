@@ -12,8 +12,13 @@ Export the animation "A real agent session" as a GIF and an MP4.
 The page is opened in Chromium with Playwright in its export mode
 (`?export=1`, see `docs/animations/skf-anim.js`), every frame is rendered
 with `window.skfRender(t)` and captured, and ffmpeg encodes the frames. The
-GIF is scaled to 800 px wide with a palette of its own, for the README; the
-MP4 keeps the 1280 px of the stage, to share it where a GIF is not welcome.
+GIF is scaled to 800 px wide with a palette of its own; the MP4 keeps the
+1280 px of the stage, to share it where a GIF is not welcome.
+
+The animation has two cuts (see `generate_agent_session_data.py`): `full`,
+the whole session, which the MCP server guide links to, and `short`, the
+abridged one of the README. Each has its GIF: `docs/img/agent-session.gif`
+and `docs/img/agent-session-short.gif`.
 
 Needs `pip install playwright` and ffmpeg. Playwright's own Chromium works
 (`playwright install chromium`); `--chrome` or `CHROME_PATH` point to
@@ -22,6 +27,7 @@ another one.
 Run from the repository root, after `generate_agent_session_data.py`:
 
     python tools/docs/home_page/make_agent_session_video.py
+    python tools/docs/home_page/make_agent_session_video.py --cut short
     python tools/docs/home_page/make_agent_session_video.py --theme dark \\
         --gif docs/img/agent-session-dark.gif
 """
@@ -70,7 +76,8 @@ def serve(directory: Path) -> http.server.ThreadingHTTPServer:
     return server
 
 
-def capture(frames: Path, theme: str, fps: int, chrome: str | None) -> float:
+def capture(frames: Path, cut: str, theme: str, fps: int,
+            chrome: str | None) -> float:
     """
     Render every frame of the animation to a numbered PNG file.
 
@@ -78,6 +85,8 @@ def capture(frames: Path, theme: str, fps: int, chrome: str | None) -> float:
     ----------
     frames : Path
         Empty directory for the frames.
+    cut : str
+        `full` or `short`.
     theme : str
         `light` or `dark`.
     fps : int
@@ -95,7 +104,8 @@ def capture(frames: Path, theme: str, fps: int, chrome: str | None) -> float:
     from playwright.sync_api import sync_playwright
 
     server = serve(ANIMATIONS)
-    url = f"http://127.0.0.1:{server.server_port}/{PAGE}?export=1&theme={theme}"
+    query = f"export=1&cut={cut}&theme={theme}"
+    url = f"http://127.0.0.1:{server.server_port}/{PAGE}?{query}"
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(executable_path=chrome)
@@ -167,9 +177,10 @@ def main() -> None:
     """
 
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[1])
+    parser.add_argument("--cut", choices=["full", "short"], default="full")
     parser.add_argument("--theme", choices=["light", "dark"], default="light")
-    parser.add_argument("--gif", type=Path,
-                        default=REPO_ROOT / "docs" / "img" / "agent-session.gif")
+    parser.add_argument("--gif", type=Path, default=None,
+                        help="Output GIF, by default the one of the cut in docs/img.")
     parser.add_argument("--gif-width", type=int, default=800)
     parser.add_argument("--gif-fps", type=int, default=10)
     parser.add_argument("--mp4", type=Path, default=None,
@@ -180,8 +191,11 @@ def main() -> None:
 
     if shutil.which("ffmpeg") is None:
         raise SystemExit("ffmpeg is not installed.")
+    if args.gif is None:
+        name = "agent-session.gif" if args.cut == "full" else "agent-session-short.gif"
+        args.gif = REPO_ROOT / "docs" / "img" / name
     with tempfile.TemporaryDirectory() as tmp:
-        duration = capture(Path(tmp), args.theme, args.fps, args.chrome)
+        duration = capture(Path(tmp), args.cut, args.theme, args.fps, args.chrome)
         encode(Path(tmp), args.fps, args.gif, args.gif_width, args.gif_fps, args.mp4)
     for path in (args.gif, args.mp4):
         if path is not None:
