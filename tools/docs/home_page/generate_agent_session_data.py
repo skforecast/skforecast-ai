@@ -29,9 +29,11 @@ as it is, except for two things:
   user name is left in the output.
 
 The short cut leaves out more, and only leaves out: the calls of the client
-and the messages of the agent between calls are not shown (its footer says
-so), the responses use the fragments of `SHORT_EXCERPTS`, and the paragraphs
-of the final answer in `SHORT_ANSWER_OMITS` become a line that counts them.
+are not shown, of the messages of the agent between calls only those of
+`SHORT_TEXTS` stay, the calls of `SHORT_GROUP` share one row and one line of
+fragments (its footer says so), the other responses use the fragments of
+`SHORT_EXCERPTS`, and the paragraphs of the final answer in
+`SHORT_ANSWER_OMITS` become a line that counts them.
 
 It also stops if the report lists numbers without a source for the session:
 the animation says that every figure comes from a response of the server.
@@ -49,7 +51,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RUN = "0.4.0-final2"
-SESSION = "compare_code__r3"
+SESSION = "compare_code__r2"
 REPORT = REPO_ROOT / "tools" / "mcp" / "agent_reports" / RUN / "report.md"
 OUTPUT = REPO_ROOT / "docs" / "animations" / "agent-session-data.js"
 
@@ -89,28 +91,31 @@ EXCERPTS = {
         ["ModelLicenseNotice", "its license is Apache-2.0"],
     ],
     7: [
-        ["Shape: 12 rows x 2 columns",
-         "Index range: 2008-07-01 00:00:00 to 2009-06-01 00:00:00"],
-    ],
-    8: [
         ["forecaster.fit(series=series)",
          "predictions = forecaster.predict(steps=steps)"],
     ],
 }
 
-# Fragments of the short cut, for the steps where it shows less than the full
-# one, so that all the calls fit in one screen.
+# The short cut. Messages of the agent between calls that it keeps, by the
+# text each one starts with.
+SHORT_TEXTS = ["Cost is low", "The winner is"]
+
+# Consecutive calls it draws as one row, with the names of the tools and one
+# line of fragments: (step number, fragment of the response of that step).
+SHORT_GROUP = [
+    (3, "Observations: 204"),
+    (3, "Frequency: MS"),
+    (4, "ForecasterRecursive + Ridge"),
+    (5, "6 folds"),
+]
+
+# Fragments of its other responses: one line each.
 SHORT_EXCERPTS = {
-    **EXCERPTS,
-    3: [
-        ["Observations: 204", "Frequency: MS", "Date range: 1991-07-01 to 2008-06-01"],
-        ["A single-series ML forecaster (ForecasterRecursive) is recommended."],
+    6: [
+        ["'ForecasterFoundation' beats the baseline 'Baseline (seasonal naive)' "
+         "(0.0661) by 13.7%."],
     ],
-    5: [
-        ["Initial training up to 2003-04-01, trained once (no refit), "
-         "12-step horizon, 6 folds."],
-    ],
-    6: EXCERPTS[6][:3],
+    7: EXCERPTS[7],
 }
 
 # Lines of the final answer trimmed: those strictly between the two anchors.
@@ -125,9 +130,10 @@ ANSWER_TRIMS = [
 # Paragraphs of the final answer left out of the short cut, by the text each
 # one starts with: the table, the requirements and the script stay.
 SHORT_ANSWER_OMITS = [
-    "**Best model: Chronos-2-small**",
-    "The 12-month forecast",
-    "Note: this script",
+    "I compared 5",
+    "**Winner: ForecasterFoundation",
+    "Note: this is a pre-trained",
+    "I adjusted the data path",
 ]
 
 # Paths of a home directory, or the placeholder of the workspace, left over.
@@ -267,6 +273,20 @@ def neutral(text: str) -> str:
     return text.replace("<ws>", WORKSPACE)
 
 
+def grouped_steps() -> list[int]:
+    """
+    Step numbers of the calls the short cut draws as one row.
+
+    Returns
+    -------
+    steps : list of int
+        The steps of `SHORT_GROUP`, in order and without repeats.
+
+    """
+
+    return sorted({step for step, _ in SHORT_GROUP})
+
+
 def build_entries(entries: list[dict], short: bool = False) -> list[dict]:
     """
     Entries of the animation, with the declared trims applied and checked.
@@ -276,25 +296,53 @@ def build_entries(entries: list[dict], short: bool = False) -> list[dict]:
     entries : list of dict
         Output of `parse_session()`.
     short : bool, default False
-        If `True`, the entries of the short cut: the request of the user and
-        the calls to the server, with the fragments of `SHORT_EXCERPTS`.
+        If `True`, the entries of the short cut: the request of the user,
+        the messages of `SHORT_TEXTS` and the calls to the server, those of
+        `SHORT_GROUP` as one entry and the rest with `SHORT_EXCERPTS`.
 
     Returns
     -------
     shown : list of dict
-        One dict per message or call, as the animation reads them.
+        One dict per message or call, as the animation reads them. The entry
+        of a group holds the names of its tools in `group`.
 
     """
 
     excerpts = SHORT_EXCERPTS if short else EXCERPTS
+    texts = [entry["text"] for entry in entries if entry["kind"] == "text"]
+    for start in SHORT_TEXTS:
+        if sum(text.startswith(start) for text in texts) != 1:
+            raise SystemExit(f"Message to keep not found once: {start!r}.")
     shown = []
+    group = None
     for entry in entries:
-        if short and (entry["kind"] == "text" or entry.get("side") == "client"):
+        if short and entry["kind"] == "text":
+            if not entry["text"].startswith(tuple(SHORT_TEXTS)):
+                continue
+            if group is not None and len(group["group"]) < len(grouped_steps()):
+                raise SystemExit("A message kept falls inside the group of calls.")
+        if short and entry.get("side") == "client":
             continue
         if entry["kind"] != "step":
             shown.append({"kind": entry["kind"], "text": neutral(entry["text"])})
             continue
         n, call = entry["n"], entry["call"]
+        if short and n in grouped_steps():
+            fragments = [fragment for step, fragment in SHORT_GROUP if step == n]
+            for fragment in fragments:
+                if fragment not in entry["result"]:
+                    raise SystemExit(f"Step {n}: {fragment!r} is not in the trace.")
+            if group is None:
+                group = {"kind": "tool", "n": n, "call": "", "group": [],
+                         "trimmed": False, "seconds": 0.0, "excerpts": [[]]}
+                shown.append(group)
+            elif shown[-1] is not group:
+                raise SystemExit(f"Step {n}: the calls of the group are not in a row.")
+            group["group"].append(call[: call.index("(")])
+            group["call"] = " -> ".join(group["group"])
+            group["seconds"] = round(group["seconds"] + entry["seconds"], 1)
+            group["excerpts"][0] += fragments
+            continue
         trimmed = n in CALL_PREFIXES
         if trimmed:
             if not call.startswith(CALL_PREFIXES[n]):

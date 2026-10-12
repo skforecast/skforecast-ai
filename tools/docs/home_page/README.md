@@ -341,13 +341,15 @@ answer come from the `report.md` of the run, read by
 the site) and imitates no product: the panel is labelled only with the
 project folder and the server.
 
-The session is `compare_code__r3` of `0.4.0-final2` (`RUN` and `SESSION` in
+The session is `compare_code__r2` of `0.4.0-final2` (`RUN` and `SESSION` in
 the script): the user asks to compare models for the next 12 months of
 `data/h2o.csv` and for the script of the best one, and the agent calls
-`profile`, `plan`, `create_cv`, `compare`, `forecast` and `get_code`. It was
-chosen because it covers the whole flow with one call to each tool (in
-`compare_code__r1` the agent asks `get_code` for the script of the comparison
-before that of the forecast), its verdict is `correct` and the
+`profile`, `plan`, `create_cv`, `compare` and `get_code`. It was
+chosen because it is the shortest way to the answer, five calls, one per tool
+(`compare_code__r3` also calls `forecast`, whose response adds nothing a
+viewer can see, and in `compare_code__r1` the agent asks `get_code` for the
+script of the comparison before that of the forecast), its verdict is
+`correct` and the
 report finds no number without a source in its answer; the script stops if
 the session it reads has one, since a caption of the animation says that
 every figure comes from a response of the server.
@@ -367,13 +369,17 @@ What the script changes, and nothing else:
   report can carry one in the output of a command).
 
 The short cut is for a reader of the README, who gives it a few seconds: it
-lasts 25 s instead of 50 and fits in two screens, the calls and the answer.
-It only leaves out, never rewrites, and says so in its footer:
+lasts 23 s instead of 44 and fits in two screens, the calls and the answer,
+with more space between blocks. It only leaves out, never rewrites, and says
+so in its footer:
 
-- The calls of the client (`Skill`, `ToolSearch`) and the messages of the
-  agent between calls are not shown.
-- Some responses show fewer fragments (`SHORT_EXCERPTS`), so that the six
-  calls fit in one screen.
+- The calls of the client (`Skill`, `ToolSearch`) are not shown, and of the
+  messages of the agent between calls only the two of `SHORT_TEXTS` stay:
+  the one before `compare` and the one that names the winner.
+- `profile`, `plan` and `create_cv` share one row (`SHORT_GROUP`): the names
+  of the three tools, without arguments, and one line with a fragment of
+  each response. They are still three calls; no call is invented.
+- `compare` and `get_code` show one line of fragments (`SHORT_EXCERPTS`).
 - The paragraphs of the final answer in `SHORT_ANSWER_OMITS` become a line
   `⋯ N paragraphs trimmed ⋯`; the table, the requirements and the script stay.
 

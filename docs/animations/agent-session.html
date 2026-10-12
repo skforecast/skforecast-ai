@@ -12,7 +12,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>A real agent session with the MCP server</title>
-<meta name="description" content="Replay of a real session of a coding agent with the skforecast-ai MCP server: the request in plain language, the calls to profile, plan, create_cv, compare, forecast and get_code, and the final answer with the leaderboard, the baseline and the script.">
+<meta name="description" content="Replay of a real session of a coding agent with the skforecast-ai MCP server: the request in plain language, the calls to profile, plan, create_cv, compare and get_code, and the final answer with the leaderboard, the baseline and the script.">
 <link rel="stylesheet" href="skf-anim.css">
 </head>
 <body>
@@ -33,8 +33,9 @@ const {cl, lin, P, lerp, r2, V, esc, text, rect, line, header} = SkfAnim;
 // shortened with an ellipsis, and lines of the answer replaced by a line that
 // counts them. The workspace of the session is shown as ~/project.
 // ?cut=short plays the abridged cut of the README: the request, the calls to
-// the server and the answer, without the calls of the client, the messages of
-// the agent between calls and the paragraphs of the answer the script omits.
+// the server (the first three as one row), two messages of the agent and the
+// answer without the paragraphs the script omits. It has more air between
+// blocks, so that each one reads at a glance.
 const D = window.AGENT_SESSION_DATA;
 if (!D){
   document.querySelector('.skf-anim').textContent =
@@ -51,7 +52,7 @@ const PX0 = 40, PX1 = 1240, PY0 = 112, PY1 = H - 46, BAR = 34;   // terminal pan
 const VY0 = PY0 + BAR + 14, VY1 = PY1 - 12, VH = VY1 - VY0;      // visible rows
 const FS = 19, LH = 27, CW = 0.6*FS;                             // JetBrains Mono: 0.6 em advance
 const TX = 64, COLS = Math.floor((PX1 - 24 - TX)/CW);
-const GAP = 0.5*LH, BLANK = 0.45*LH;
+const GAP = (SHORT ? 1 : 0.5)*LH, BLANK = 0.45*LH;
 
 /* ------------------------------------------------- text runs and wrapping */
 // A run is [text, style]; a row is a list of runs drawn with one <text>.
@@ -143,14 +144,18 @@ for (const e of C.entries){
     add('user', rows, typing + 1.0*PACE, {typing, chars});
   } else if (e.kind === 'text'){
     const rows = prefixed('● ', ST.agent, inline(e.text));
-    add('text', rows, 0.8 + e.text.length/100, {stagger:.08});
+    add('text', rows, (0.8 + e.text.length/100)*PACE, {stagger:.08});
   } else if (e.kind === 'client'){
     const runs = [[e.call, ST.client]];
     if (e.trimmed) runs.push([' …)', ST.mark]);
     add('client', prefixed('◇ ', ST.client, runs), 0.6);
   } else {
-    const name = e.call.slice(0, e.call.indexOf('('));
-    const callRows = prefixed('◆ ', ST.tool, [[name, ST.tool], [e.call.slice(name.length), ST.call]]);
+    // A group of calls is drawn as the names of its tools, without arguments.
+    const name = e.group ? e.group[0] : e.call.slice(0, e.call.indexOf('('));
+    const callRuns = e.group
+      ? e.group.flatMap((g, k) => k ? [['  →  ', ST.mark], [g, ST.tool]] : [[g, ST.tool]])
+      : [[name, ST.tool], [e.call.slice(name.length), ST.call]];
+    const callRows = prefixed('◆ ', ST.tool, callRuns);
     // The server is busy for the real duration of the call, shown faster.
     const busy = (e.seconds >= 5 ? 2.2 : 0.7)*PACE;
     const res = [];
@@ -312,19 +317,19 @@ function transcript(t, o){
 }
 
 /* -------------------------------------------------------------- captions */
-const T_PROFILE = toolAt.profile, T_COMPARE = toolAt.compare, T_FORECAST = toolAt.forecast;
+const T_PROFILE = toolAt.profile, T_COMPARE = toolAt.compare, T_CODE = toolAt.get_code;
 const CAPTIONS = [
   [0.0, T_PROFILE - .2, 'You ask in plain language. The agent brings the language model and calls the server as tools.'],
   [T_PROFILE - .2, T_COMPARE - .2, 'profile, plan and create_cv: every decision comes from the deterministic rules of skforecast-ai.'],
-  [T_COMPARE - .2, T_FORECAST - .2, 'compare backtests the candidates on the same folds, next to a seasonal naive baseline.'],
-  [T_FORECAST - .2, ANSWER.t0 - .2, 'The winner forecasts the next 12 months, and get_code returns the script that ran.'],
+  [T_COMPARE - .2, T_CODE - .2, 'compare backtests the candidates on the same folds, next to a seasonal naive baseline.'],
+  [T_CODE - .2, ANSWER.t0 - .2, 'get_code returns the script of the winner, to run it without the server.'],
   [ANSWER.t0 - .2, 999, 'The final answer, as the agent wrote it: every figure comes from a response of the server.'],
 ];
 
 /* ---------------------------------------------------------------- run */
 const S = D.source;
 const FOOTER = SHORT
-  ? `Session ${S.run} / ${S.session} (skforecast-ai ${S.skforecast_ai}), abridged to the server calls and the answer. … and ⋯ mark the cuts.`
+  ? `Session ${S.run} / ${S.session} (skforecast-ai ${S.skforecast_ai}), abridged: the first three calls share a row; … and ⋯ mark the cuts.`
   : `Recorded session ${S.run} / ${S.session} (skforecast-ai ${S.skforecast_ai}). … and ⋯ mark the trimmed text.`;
 // The loop starts with the title, the panel and the first caption already
 // drawn: the first frame of the GIF is what a README shows while the file
@@ -334,10 +339,10 @@ SkfAnim.run({
   title: 'A real agent session with the MCP server',
   desc: `Replay of a real session of a coding agent with the skforecast-ai MCP server (run ${S.run}, session ` +
         `${S.session} of the agent check). The user asks: "${C.entries[0].text}" The agent loads the skill of ` +
-        'the server and calls profile, plan, create_cv, compare, forecast and get_code. Its final answer ranks five ' +
-        'candidates by MAE next to a seasonal naive baseline and gives the script that produced the forecast of ' +
+        'the server and calls profile, plan, create_cv, compare and get_code. Its final answer ranks five ' +
+        'candidates by MAE next to a seasonal naive baseline and gives the script that forecasts with ' +
         'the winner. Responses and the script are trimmed where an ellipsis marks it.' +
-        (SHORT ? ' This cut is abridged: it leaves out the messages of the agent between calls and part of its answer.' : ''),
+        (SHORT ? ' This cut is abridged: it draws the first three calls as one row and leaves out some messages of the agent and part of its answer.' : ''),
   total: TOTAL - LEAD,
   height: H,
   still: TOTAL - LEAD - 1,
