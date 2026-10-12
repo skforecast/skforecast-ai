@@ -6,7 +6,8 @@
 ################################################################################
 
 from __future__ import annotations
-from typing import Any
+from collections.abc import Callable
+from typing import Any, NamedTuple
 import numpy as np
 import pandas as pd
 from .._constants import (
@@ -17,7 +18,7 @@ from .._constants import (
     FOUNDATION_FORECASTERS,
 )
 from .._foundation import foundation_backend_installed, resolve_foundation_model
-from .._utils import long_training_message
+from .._utils import discarded_plan_edits, long_training_message, plan_override_value
 from .._validation import is_symmetric_interval
 from ..exceptions import InvalidInputError, InvalidInputTypeError
 from ..recommendation import (
@@ -30,7 +31,15 @@ from ..schemas import (
     BacktestResult,
     CandidateConfig,
     ForecastingProfile,
+    ForecastPlan,
 )
+
+
+# Name of the row that runs the plan a strategy of `create_cv()` was created
+# for, when `compare()` without `candidates` adds it to the candidates of the
+# profile (see `add_strategy_candidate()`). The automatic candidates are
+# named after their forecaster, so the name never collides with them.
+STRATEGY_PLAN_NAME = "Strategy plan"
 
 
 # Forecasters whose backtest metrics measure the same thing can be ranked
@@ -238,6 +247,269 @@ def resolve_compare_candidates(
 
     return resolved
 
+
+def strategy_candidate_config(plan: ForecastPlan) -> CandidateConfig:
+    """
+    Configuration of a candidate whose plan holds the decisions of `plan`.
+
+    The forecaster, the estimator and its keyword arguments, the lags and
+    the window features are carried over always; `use_exog`,
+    `differentiation`, `calendar_features`, `target_transformer` and
+    `dropna_from_series` only when the user chose them
+    (`plan.overridden_fields`), so the rules decide them again as they did
+    for `plan`. These are the decisions `refine_plan()` carries over to a
+    plan of the same forecaster. The interval and the metric are not
+    carried over: they are those of the comparison.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan to turn into a candidate, usually the plan a strategy of
+        `create_cv()` was created for (`CVResult.plan`).
+
+    Returns
+    -------
+    config : CandidateConfig
+        Configuration accepted by `compare()`, without None values.
+    """
+
+    config: CandidateConfig = {"forecaster": plan.forecaster}
+    if plan.estimator is not None:
+        config["estimator"] = plan.estimator
+    if plan.estimator_kwargs:
+        config["estimator_kwargs"] = dict(plan.estimator_kwargs)
+    for name in ("lags", "window_features"):
+        value = plan.forecaster_kwargs.get(name)
+        if value is not None:
+            config[name] = value
+    for name in (
+        "use_exog",
+        "differentiation",
+        "calendar_features",
+        "target_transformer",
+        "dropna_from_series",
+    ):
+        if name in plan.overridden_fields:
+            value = plan_override_value(plan, name)
+            if value is not None:
+                config[name] = value
+
+    return config
+
+
+def _same_plan_decisions(first: ForecastPlan, second: ForecastPlan) -> bool:
+    """
+    Whether two plans make the same decisions, so they render the same
+    script: the explanation, the warnings and the marks of who made each
+    decision are not compared.
+    """
+
+    return (
+        not discarded_plan_edits(first, second, set())
+        and first.forecaster_kwargs == second.forecaster_kwargs
+    )
+
+
+def add_strategy_candidate(
+    candidates: list[tuple[str, CandidateConfig]],
+    strategy_plan: ForecastPlan,
+    profile: ForecastingProfile,
+    build_plan: Callable[[CandidateConfig], ForecastPlan],
+) -> tuple[list[tuple[str, CandidateConfig]], str | None, str | None]:
+    """
+    Add the plan a strategy was created for to the automatic candidates.
+
+    `compare()` without `candidates` compares the configurations the
+    profile recommends. When its strategy comes from `create_cv()` for
+    another plan (one refined with another estimator or other lags, for
+    example), that plan is the one the user means to compare, so it is
+    appended as the row `STRATEGY_PLAN_NAME`, with the configuration of
+    `strategy_candidate_config()`. When the plan makes the same decisions
+    as one of the automatic candidates, nothing is appended and that
+    candidate is its row. A plan of another forecaster family is not
+    comparable with the candidates, so it is left out, and the note says
+    so.
+
+    Parameters
+    ----------
+    candidates : list of tuple of (str, CandidateConfig)
+        Automatic candidates, as returned by `resolve_compare_candidates()`.
+    strategy_plan : ForecastPlan
+        Plan the strategy was created for (`CVResult.plan`).
+    profile : ForecastingProfile
+        Shared profile used for every candidate.
+    build_plan : Callable
+        Function that builds the plan of a candidate configuration as the
+        comparison does (same profile, steps, interval and metric). Its
+        warnings are the caller's to silence. A configuration it rejects
+        is never equal to the plan; the candidate then fails when it runs,
+        with its own reason.
+
+    Returns
+    -------
+    candidates : list of tuple of (str, CandidateConfig)
+        Candidates with the plan of the strategy appended last when it is
+        none of them.
+    strategy_name : str, None
+        Name of the row that runs the plan of the strategy: the appended
+        `STRATEGY_PLAN_NAME`, or the automatic candidate it matches. None
+        when the plan is left out.
+    note : str, None
+        Sentence explaining why the plan is left out, or which of its
+        values its row does not run (edited by hand, which `plan()` does
+        not rebuild). None otherwise.
+    """
+
+    n_series = profile.data_profile.n_series
+    family = _comparison_family(strategy_plan.forecaster, n_series)
+    families = {
+        _comparison_family(config.get("forecaster") or profile.forecaster, n_series)
+        for _, config in candidates
+    }
+    if family not in families:
+        note = (
+            f"The plan the strategy was created for "
+            f"({strategy_plan.forecaster}) is not in the comparison: its "
+            f"metrics are not comparable with those of the candidates the "
+            f"profile recommends (a multivariate forecaster is scored on the "
+            f"single series it predicts, a multi-series forecaster on the "
+            f"average across all series). Backtest it, or compare it with "
+            f"`candidates` of its family."
+        )
+        return candidates, None, note
+
+    config = strategy_candidate_config(strategy_plan)
+    try:
+        rebuilt = build_plan(config)
+    except Exception:
+        # It fails again when it runs, and its row records why.
+        return [*candidates, (STRATEGY_PLAN_NAME, config)], STRATEGY_PLAN_NAME, None
+
+    # The interval and the metric are the comparison's for every row.
+    discarded = discarded_plan_edits(strategy_plan, rebuilt, {"interval", "metric"})
+    if discarded:
+        note = (
+            f"The row '{STRATEGY_PLAN_NAME}' runs the plan the strategy was "
+            f"created for as `plan()` rebuilds it, which changes these values "
+            f"of that plan: {discarded}. Pass the plan to `backtest()` to "
+            f"measure it as it is."
+        )
+        return [*candidates, (STRATEGY_PLAN_NAME, config)], STRATEGY_PLAN_NAME, note
+
+    for name, candidate_config in candidates:
+        try:
+            candidate_plan = build_plan(candidate_config)
+        except Exception:
+            continue
+        if _same_plan_decisions(rebuilt, candidate_plan):
+            return candidates, name, None
+
+    return [*candidates, (STRATEGY_PLAN_NAME, config)], STRATEGY_PLAN_NAME, None
+
+
+class DefaultCandidates(NamedTuple):
+    """
+    Candidates that `compare()` without `candidates` runs, before the
+    baseline, as returned by `resolve_default_candidates()`.
+
+    Attributes
+    ----------
+    candidates : list of tuple of (str, CandidateConfig)
+        `(name, config)` pairs, in the order they run.
+    strategy_name : str, None
+        Name of the row that runs the plan the strategy was created for,
+        or None when no row runs it.
+    backend_note : str, None
+        Why a foundation candidate was left out, see
+        `missing_foundation_backend()`.
+    strategy_note : str, None
+        Why the plan of the strategy was left out, or which of its values
+        its row does not run, see `add_strategy_candidate()`.
+    budget_note : str, None
+        Which candidates were left out for exceeding the fit budget, see
+        `exclude_costly_candidates()`.
+    """
+
+    candidates: list[tuple[str, CandidateConfig]]
+    strategy_name: str | None
+    backend_note: str | None
+    strategy_note: str | None
+    budget_note: str | None
+
+
+def resolve_default_candidates(
+    profile: ForecastingProfile,
+    strategy_plan: ForecastPlan | None,
+    build_plan: Callable[[CandidateConfig], ForecastPlan],
+    n_fits: int,
+    steps: int,
+    n_folds: int,
+) -> DefaultCandidates:
+    """
+    Resolve the candidates of `compare()` without `candidates`.
+
+    The one sequence that decides what such a comparison runs, shared by
+    `compare()` and by the cost the MCP server announces in `create_cv`, so
+    the two never disagree: the candidates of the profile without a
+    foundation model whose backend is not installed, the plan of the
+    strategy when it is none of them, and without the alternatives above
+    the fit budget (the recommended forecaster and the plan of the strategy
+    always run). The baseline is added afterwards.
+
+    Parameters
+    ----------
+    profile : ForecastingProfile
+        Shared profile used for every candidate.
+    strategy_plan : ForecastPlan, None
+        Plan the strategy was created for (`CVResult.plan`), or None when
+        the strategy is a `TimeSeriesFold`.
+    build_plan : Callable
+        Function that builds the plan of a candidate configuration as the
+        comparison does, see `add_strategy_candidate()`.
+    n_fits : int
+        Number of folds in which a forecaster is trained under the shared
+        strategy, see `count_cv_fits`.
+    steps : int
+        Forecast horizon of each fold.
+    n_folds : int
+        Number of folds of the shared strategy.
+
+    Returns
+    -------
+    resolved : DefaultCandidates
+        Candidates, the row of the plan of the strategy and the notes of
+        what was left out.
+    """
+
+    excluded, backend_note = missing_foundation_backend(profile)
+    candidates = resolve_compare_candidates(None, profile, exclude=excluded)
+    strategy_name = None
+    strategy_note = None
+    if strategy_plan is not None:
+        candidates, strategy_name, strategy_note = add_strategy_candidate(
+            candidates    = candidates,
+            strategy_plan = strategy_plan,
+            profile       = profile,
+            build_plan    = build_plan,
+        )
+    candidates, budget_note = exclude_costly_candidates(
+        candidate_configs = candidates,
+        preferred         = profile.forecaster,
+        n_fits            = n_fits,
+        steps             = steps,
+        n_folds           = n_folds,
+        keep              = frozenset({strategy_name} - {None}),
+    )
+
+    return DefaultCandidates(
+        candidates    = candidates,
+        strategy_name = strategy_name,
+        backend_note  = backend_note,
+        strategy_note = strategy_note,
+        budget_note   = budget_note,
+    )
+
+
 def aggregate_metrics(metrics: pd.DataFrame | None) -> dict[str, Any]:
     """
     Reduce a backtest metrics DataFrame to one scalar per metric.
@@ -442,6 +714,7 @@ def exclude_costly_candidates(
     steps: int,
     budget: int | None = None,
     n_folds: int | None = None,
+    keep: frozenset[str] = frozenset(),
 ) -> tuple[list[tuple[str, CandidateConfig]], str | None]:
     """
     Leave out the automatic candidates that would fit too many estimators.
@@ -450,7 +723,8 @@ def exclude_costly_candidates(
     also keeps their cost bounded: with a strategy that refits in every
     fold, a direct forecaster fits one estimator per step and fold, which
     can take hours. The recommended forecaster is always kept, since the
-    comparison exists to measure the alternatives against it.
+    comparison exists to measure the alternatives against it, and so are
+    the candidates in `keep` (the plan the strategy was created for).
 
     Parameters
     ----------
@@ -470,11 +744,13 @@ def exclude_costly_candidates(
         Number of folds of the shared strategy. skforecast refits
         `ForecasterStats` in every fold, so its cost is `n_folds` when
         given, see `count_estimator_fits`.
+    keep : frozenset of str, default frozenset()
+        Names of the candidates never left out, whatever their cost.
 
     Returns
     -------
     kept : list of tuple of (str, CandidateConfig)
-        Candidates within the budget, in input order.
+        Candidates within the budget or in `keep`, in input order.
     note : str, None
         Sentence explaining the exclusion, or None when nothing is left out.
     """
@@ -491,7 +767,7 @@ def exclude_costly_candidates(
                              steps      = steps,
                              n_folds    = n_folds,
                          )
-        if forecaster != preferred and estimator_fits > budget:
+        if forecaster != preferred and name not in keep and estimator_fits > budget:
             costs.append(
                 f"'{name}': "
                 f"{long_training_message(estimator_fits, n_fits, forecaster, steps)}"
@@ -522,6 +798,8 @@ def build_comparison_explanation(
     backend_note: str | None = None,
     budget_note: str | None = None,
     differentiation_note: str | None = None,
+    strategy_row: str | None = None,
+    strategy_note: str | None = None,
 ) -> str:
     """
     Build the deterministic `compare()` summary explanation.
@@ -540,8 +818,9 @@ def build_comparison_explanation(
     cv_explanation : str
         Description of the shared cross-validation strategy.
     baseline_name : str, default None
-        Name of the baseline candidate. When given, the summary says
-        whether the best configuration beats it and by how much.
+        Name of the baseline candidate. When given, the summary says how
+        many configurations beat it, which ones, and by how much the best
+        one does (see `_baseline_sentence()`).
     baseline_note : str, default None
         Sentence explaining why no baseline was added, appended as is.
     backend_note : str, default None
@@ -553,6 +832,15 @@ def build_comparison_explanation(
     differentiation_note : str, default None
         Sentence naming the candidates that ran on a copy of the strategy
         with their own differentiation order, appended as is.
+    strategy_row : str, default None
+        Name of the row added to run the plan the strategy was created for
+        (`STRATEGY_PLAN_NAME`). When given, the summary says that this row
+        is that plan, where it ranks, and that the rows named after a
+        forecaster are the configurations the profile recommends.
+    strategy_note : str, default None
+        Sentence explaining why the plan the strategy was created for is
+        not in the comparison, or which of its values its row does not
+        run, appended as is.
 
     Returns
     -------
@@ -587,7 +875,13 @@ def build_comparison_explanation(
         # the baseline sentence, which quotes the same margin.
         runner_name, _, runner_value = ranked[1]
         if np.isfinite(runner_value) and runner_name != baseline_name:
-            if np.isfinite(best_value) and runner_value != 0:
+            if best_value == runner_value:
+                # Two candidates with the same value are a tie: "0.0%
+                # ahead" would present the first of them as better.
+                best_sentence += (
+                    f", tied with '{runner_name}' ({runner_value:.4f})"
+                )
+            elif np.isfinite(best_value) and runner_value != 0:
                 margin = 100 * (runner_value - best_value) / abs(runner_value)
                 best_sentence += (
                     f", {margin:.1f}% ahead of '{runner_name}' "
@@ -601,9 +895,30 @@ def build_comparison_explanation(
 
     parts = [
         f"Compared {n_candidates} {noun}, ranked ascending by "
-        f"{metric_desc}.",
-        f"Shared cross-validation strategy: {cv_explanation}",
+        f"{metric_desc}."
     ]
+    # The row of the plan the strategy was created for is named here, with
+    # its rank, so it is not taken for the row of its forecaster, which runs
+    # the plan the profile recommends.
+    if strategy_row is not None:
+        positions = {name: position for position, (name, _, _) in enumerate(ranked)}
+        if strategy_row in positions:
+            _, strategy_result, strategy_value = ranked[positions[strategy_row]]
+            strategy_label = strategy_result.plan.forecaster
+            if strategy_result.plan.estimator:
+                strategy_label += f" / {strategy_result.plan.estimator}"
+            standing = (
+                f"({strategy_label}), ranked {positions[strategy_row] + 1} of "
+                f"{n_candidates} ({strategy_value:.4f})"
+            )
+        else:
+            standing = "and failed to run"
+        parts.append(
+            f"'{strategy_row}' runs the plan the strategy was created for "
+            f"{standing}; the rows named after a forecaster run the "
+            f"configurations the profile recommends, not that plan."
+        )
+    parts.append(f"Shared cross-validation strategy: {cv_explanation}")
     # The shared strategy describes trained models; a foundation model is
     # not trained, so its window and refit settings mean nothing for it.
     if any(
@@ -633,6 +948,8 @@ def build_comparison_explanation(
         parts.append(_baseline_sentence(ranked, baseline_name, ranking_metric))
     if baseline_note is not None:
         parts.append(baseline_note)
+    if strategy_note is not None:
+        parts.append(strategy_note)
     if backend_note is not None:
         parts.append(backend_note)
     if budget_note is not None:
@@ -662,7 +979,10 @@ def _baseline_sentence(
     A candidate beats the baseline only when its ranking value is finite
     and strictly lower, which is when it ranks above it (the baseline wins
     ties, see `compare_sort_key()`). A non-finite baseline value ranks
-    last and cannot be compared.
+    last and cannot be compared. With more than one configuration, the
+    sentence states how many of them beat the baseline and names the
+    shorter list (those that beat it, or those that do not), so the best
+    one is never read as the only one.
 
     Parameters
     ----------
@@ -702,28 +1022,51 @@ def _baseline_sentence(
         for name, value in models
         if np.isfinite(value) and value < baseline_value
     ]
+    reference = f"the baseline '{baseline_name}' ({baseline_value:.4f})"
     if not beating:
         return (
-            f"No configuration beats the baseline '{baseline_name}' "
-            f"({baseline_value:.4f}): the added complexity is not justified "
-            f"on this data."
+            f"No configuration beats {reference}: the added complexity is not "
+            f"justified on this data."
         )
 
     # `ranked` is sorted ascending, so the first candidate that beats the
     # baseline is the best one.
     best_name, best_value = beating[0]
-    sentence = (
-        f"'{best_name}' beats the baseline '{baseline_name}' "
-        f"({baseline_value:.4f})"
-    )
+    margin = ""
     if baseline_value != 0:
         improvement = 100 * (baseline_value - best_value) / abs(baseline_value)
-        sentence += f" by {improvement:.1f}%"
-    sentence += "."
+        margin = f" by {improvement:.1f}%"
+    if len(models) == 1:
+        return f"'{best_name}' beats {reference}{margin}."
 
-    n_not_beating = len(models) - len(beating)
-    if n_not_beating == 1:
-        sentence += " 1 configuration does not beat it."
-    elif n_not_beating > 1:
-        sentence += f" {n_not_beating} configurations do not beat it."
+    # The count of those that beat it is always stated, so the best one is
+    # not read as the only one. The shorter list is named: those that beat
+    # it, or those that do not.
+    beating_names = [name for name, _ in beating]
+    others = [name for name, _ in models if name not in beating_names]
+    if len(beating) == len(models):
+        every = "Both" if len(models) == 2 else f"All {len(models)}"
+        sentence = f"{every} configurations beat {reference}."
+    else:
+        verb = "beats" if len(beating) == 1 else "beat"
+        sentence = f"{len(beating)} of {len(models)} configurations {verb} {reference}"
+        if len(beating) <= len(others):
+            sentence += f": {_quoted_list(beating_names)}."
+        else:
+            verb = "does" if len(others) == 1 else "do"
+            sentence += f"; {_quoted_list(others)} {verb} not."
+    if len(beating) > 1:
+        sentence += f" The best, '{best_name}', beats it{margin}."
+    elif margin:
+        # One beats it, and the sentence ends with its name.
+        sentence = f"{sentence[:-1]},{margin}."
     return sentence
+
+
+def _quoted_list(names: list[str]) -> str:
+    """Quote candidate names and join them as an English list."""
+    quoted = [f"'{name}'" for name in names]
+    if len(quoted) <= 2:
+        return " and ".join(quoted)
+
+    return ", ".join(quoted[:-1]) + f" and {quoted[-1]}"

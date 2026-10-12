@@ -618,7 +618,9 @@ def check_quoted_numbers(result, cv_result, comparison, plan) -> None:
     explanation = comparison.explanation
     gaps = {
         "gap to the runner-up (%)": r"([\d.]+)% ahead of",
-        "gap to the baseline (%)": r"beats the baseline .* by ([\d.]+)%",
+        # The best row beats the baseline by this much, written as "beats
+        # the baseline ... by" or, when several beat it, "beats it by".
+        "gap to the baseline (%)": r"beats (?:the baseline .*?|it) by ([\d.]+)%",
     }
     actual = {
         "forecast MAE": round(float(result.metrics.iloc[0]["MAE"]), 1),

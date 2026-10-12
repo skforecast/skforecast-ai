@@ -11,6 +11,7 @@ from skforecast.model_selection import TimeSeriesFold
 from skforecast_ai import CodeGenerationResult, ForecastingAssistant
 from skforecast_ai.exceptions import InvalidInputError, InvalidInputTypeError
 
+from tests.fixtures_csv_dialect import df_dialect, write_dialect
 from tests.fixtures_assistant import (
     df_multi_long,
     df_multi_wide,
@@ -744,3 +745,25 @@ def test_backtest_code_output_when_the_assistant_has_no_kept_profiles():
 
     assert result.profile is profile
     assert len(plain._fresh_profiles) == 1
+
+
+def test_backtest_code_reads_csv_with_the_dialect_of_the_file(tmp_path):
+    """
+    Test that backtest_code() on a CSV with ';' and a decimal comma returns a
+    script that reads it with `sep=';', decimal=','`, and one that names no
+    `sep` for a comma CSV.
+    """
+    path = write_dialect(tmp_path, df_dialect, "semicolon_comma")
+    comma_path = tmp_path / "us.csv"
+    df_dialect.to_csv(comma_path, index=False)
+    cv = TimeSeriesFold(steps=5, initial_train_size=40, verbose=False)
+
+    result = assistant.backtest_code(data=path, cv=cv, target="y")
+    comma = assistant.backtest_code(data=comma_path, cv=cv, target="y")
+
+    assert f"data = pd.read_csv({path!r}, sep=';', decimal=',')\n" in result.code
+    assert f"data = pd.read_csv({str(comma_path)!r})\n" in comma.code
+    assert "sep=" not in comma.code
+    assert "decimal=" not in comma.code
+    assert result.profile.data_profile.csv_sep == ";"
+    assert result.profile.data_profile.csv_decimal == ","

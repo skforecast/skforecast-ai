@@ -1,8 +1,9 @@
 <!doctype html>
 <!--
   Social preview card of the documentation home page (1200 x 630 px), rendered
-  to docs/img/social-card-home.png by make_social_card.mjs. The query string
-  `?stage=<file URL>` points to a screenshot of the home page animation.
+  to docs/img/social-card-home.png by make_social_card.mjs, which sets the
+  source of `#stage` to a screenshot of the home page animation. The page
+  reads nothing from its URL, so it cannot be pointed at another resource.
   Same layout as the card of the skforecast documentation.
 -->
 <html lang="en">
@@ -63,12 +64,9 @@
 </head>
 <body>
   <div class="text">
-    <div class="brand"><img src="../../docs/img/logo-skforecast-white-no-backgound.png" alt="">skforecast-ai</div>
+    <div class="brand"><img src="../../../docs/img/logo-skforecast-white-no-backgound.png" alt="">skforecast-ai</div>
     <h1>The forecasting assistant<br>that shows its work</h1>
   </div>
   <div class="stage"><img id="stage" alt=""></div>
-  <script>
-    document.getElementById("stage").src = new URLSearchParams(location.search).get("stage");
-  </script>
 </body>
 </html>

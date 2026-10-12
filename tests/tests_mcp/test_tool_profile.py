@@ -9,6 +9,7 @@ from skforecast_ai import ForecastingAssistant
 from skforecast_ai.mcp import create_server, server as server_module
 from skforecast_ai.mcp.models import ToolNotice
 
+from ..fixtures_csv_dialect import df_dialect, write_dialect
 from ..fixtures_datasets import df_items_sales_long, df_mixed_date_formats
 from .fixtures_mcp import (
     DATA_WARNING,
@@ -617,3 +618,138 @@ def test_tool_profile_without_target_checks_the_path_and_the_file_first(tmp_path
     assert codes == [
         "path_not_allowed", "data_not_found", "file_too_large", "data_unreadable",
     ]
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["semicolon_comma", "semicolon_dot", "tab_dot", "tab_comma", "tsv",
+     "gz_comma_dot", "gz_semicolon_comma"],
+)
+def test_tool_profile_output_when_file_has_another_dialect(tmp_path, name):
+    """
+    Test that `profile` reads a ';' or tab file, with a decimal comma, a
+    '.tsv' file and gzip files as the Python API does, and that its summary is
+    that of the comma file.
+    """
+    path = write_dialect(tmp_path, df_dialect, name)
+    comma_path = write_csv(tmp_path, "us.csv", df_dialect)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    result = content_of(call(server, "profile", {"data_path": path, "target": "y"}))
+    expected = content_of(
+        call(server, "profile", {"data_path": comma_path, "target": "y"})
+    )
+
+    assert result["kind"] == "profile"
+    assert result["summary"] == expected["summary"]
+    assert result["summary"] == ForecastingAssistant().profile(
+        path, target="y"
+    ).describe()
+    assert result["notices"] == []
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [{"sep": ";", "decimal": ","}, {"sep": ";"}, {"decimal": ","}],
+    ids=["both", "sep", "decimal"],
+)
+def test_tool_profile_output_when_sep_and_decimal_given(tmp_path, arguments):
+    """
+    Test that `sep` and `decimal` are passed to the profile, the one not given
+    being detected.
+    """
+    path = write_dialect(tmp_path, df_dialect, "semicolon_comma")
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    result = content_of(
+        call(server, "profile", {"data_path": path, "target": "y", **arguments})
+    )
+
+    assert result["summary"] == ForecastingAssistant().profile(
+        path, target="y"
+    ).describe()
+
+
+def test_tool_profile_error_when_dialect_is_ambiguous(tmp_path):
+    """
+    Test that a file whose separator cannot be told is `data_unreadable`,
+    naming `data_path`, with the hint of the library that says how to give
+    `sep` and `decimal`, also when `target` is not given; giving `sep` reads
+    it.
+    """
+    path = tmp_path / "ambiguous.csv"
+    df_dialect.rename(columns={"y": "y,x"}).to_csv(
+        path, sep=";", decimal=",", index=False
+    )
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    errors = [
+        error_of(call(server, "profile", {"data_path": str(path), **target}), "profile")
+        for target in ({"target": "y,x"}, {})
+    ]
+    result = content_of(
+        call(server, "profile", {"data_path": str(path), "target": "y,x", "sep": ";"})
+    )
+
+    for error in errors:
+        assert error == {
+            "code": "data_unreadable",
+            "message": (
+                f"The separator of the CSV file '{path.resolve()}' cannot be "
+                f"told: its header reads with ',' (2 columns) and ';' "
+                f"(2 columns)."
+            ),
+            "field": "data_path",
+            "hint": (
+                "Profile the file saying how it is written, with `sep` (',', "
+                "';' or a tabulator) and `decimal` ('.' or ',') in "
+                "`profile()`, `--sep` and `--decimal` in the `profile` "
+                "command, or `sep` and `decimal` in the `profile` tool of the "
+                "MCP server, and use that profile."
+            ),
+            "details": None,
+        }
+    assert result["kind"] == "profile"
+
+
+@pytest.mark.parametrize(
+    "arguments, field",
+    [
+        ({"sep": "|"}, "sep"),
+        ({"decimal": ";"}, "decimal"),
+        ({"sep": ",", "decimal": ","}, "decimal"),
+    ],
+    ids=["sep", "decimal", "decimal comma with sep comma"],
+)
+def test_tool_profile_error_when_sep_or_decimal_not_valid(tmp_path, arguments, field):
+    """
+    Test that a `sep` or `decimal` that is not accepted, or a decimal comma
+    with `sep` ',', is `invalid_argument` naming the argument.
+    """
+    path = write_dialect(tmp_path, df_dialect, "semicolon_comma")
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    error = error_of(
+        call(server, "profile", {"data_path": path, "target": "y", **arguments}),
+        "profile",
+    )
+
+    assert error["code"] == "invalid_argument"
+    assert error["field"] == field
+
+
+def test_tool_profile_without_target_lists_the_columns_of_a_semicolon_file(tmp_path):
+    """
+    Test that `profile` without `target` reads the columns of a ';' file with
+    its dialect, and so names 'date' and 'y' instead of one column.
+    """
+    path = write_dialect(tmp_path, df_dialect, "semicolon_comma")
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    error = error_of(call(server, "profile", {"data_path": path}), "profile")
+
+    assert error["code"] == "invalid_argument"
+    assert error["field"] == "target"
+    assert "'date'" in error["message"]
+    assert "'y'" in error["message"]
+    assert "date;y" not in error["message"]

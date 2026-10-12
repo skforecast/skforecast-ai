@@ -6,17 +6,21 @@
 ################################################################################
 
 from __future__ import annotations
+import gzip
 import hashlib
 import os
 import re
 import unicodedata
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
-from .._future_exog import _shown
+from typing import TYPE_CHECKING
+from .._constants import COMMENT_ESCAPED_CATEGORIES
 from ..exceptions import InvalidInputError
-from ..rendering._helpers import _COMMENT_ESCAPED_CATEGORIES
-from ..schemas.profiles import ForecastingProfile
 from ._errors import ServerError
+
+if TYPE_CHECKING:
+    from ..schemas.profiles import ForecastingProfile
 
 # Any `scheme://` prefix: pandas would download it. URLs are not accepted
 # (section 10.7 of the design); the agent downloads the file and passes its
@@ -30,7 +34,7 @@ _NUMBER_PATTERN = re.compile(r"\s*[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?\s*")
 
 # Unicode categories of the characters that break a line or control the
 # terminal: the ones `_comment_text` escapes in the scripts.
-_CONTROL_CATEGORIES = _COMMENT_ESCAPED_CATEGORIES
+_CONTROL_CATEGORIES = COMMENT_ESCAPED_CATEGORIES
 
 
 @dataclass(frozen=True)
@@ -198,12 +202,27 @@ def _outside_hint(allowed: AllowedDir) -> str:
     )
 
 
+# Extensions of the files the server reads: CSV and TSV text, plain or
+# compressed with gzip, which the core reads from the extension.
+CSV_SUFFIXES = (".csv", ".tsv", ".csv.gz", ".tsv.gz")
+_SUFFIXES_TEXT = "'.csv', '.tsv', '.csv.gz' or '.tsv.gz'"
+
+
+def _is_csv_name(path: str) -> bool:
+    """
+    Return whether the name of a file has one of `CSV_SUFFIXES` after a
+    name: a file called just '.csv' has no extension, as before.
+    """
+    name = os.path.basename(path).lower()
+    return name.endswith(CSV_SUFFIXES) and name not in CSV_SUFFIXES
+
+
 def resolve_csv_path(raw: str, allowed: AllowedDir, field: str) -> str:
     """
     Check a path given by the agent and return the file to read.
 
-    The path must be absolute, end in `.csv` and be inside the allowed
-    directory. Whether it is inside is checked on the path as written,
+    The path must be absolute, end in one of `CSV_SUFFIXES` and be inside
+    the allowed directory. Whether it is inside is checked on the path as written,
     before looking at the file system, so a path outside the directory is
     rejected without saying whether it exists, and again once its symbolic
     links are resolved, so a link cannot lead outside. URLs are rejected.
@@ -247,9 +266,10 @@ def resolve_csv_path(raw: str, allowed: AllowedDir, field: str) -> str:
             details = {"path": raw, "allowed_dir": allowed.path},
         )
     normalized = os.path.normpath(raw)
-    if Path(normalized).suffix.lower() != ".csv":
+    if not _is_csv_name(normalized):
         raise ServerError(
-            f"The path {raw!r} is not a CSV file: it must end in '.csv'.",
+            f"The path {raw!r} is not a CSV file: it must end in "
+            f"{_SUFFIXES_TEXT}.",
             code    = "invalid_path",
             field   = field,
             details = {"path": raw},
@@ -263,7 +283,7 @@ def resolve_csv_path(raw: str, allowed: AllowedDir, field: str) -> str:
             details = {"path": raw, "allowed_dir": allowed.path},
         )
     real = os.path.realpath(normalized)
-    if not allowed.contains(real, real=True) or Path(real).suffix.lower() != ".csv":
+    if not allowed.contains(real, real=True) or not _is_csv_name(real):
         raise ServerError(
             f"The path {raw!r} is a link to a file outside the directory the "
             f"server may read, or to a file that is not a CSV.",
@@ -290,9 +310,32 @@ def resolve_csv_path(raw: str, allowed: AllowedDir, field: str) -> str:
     return real
 
 
+def _decompressed_size_exceeds(path: str, max_bytes: int) -> bool:
+    """
+    Return whether the content of a gzip file is larger than `max_bytes`,
+    decompressing it in blocks and keeping none, and stopping at the limit.
+    A file that cannot be decompressed is not larger: the core reports it.
+    """
+    size = 0
+    try:
+        with gzip.open(path, "rb") as handle:
+            for block in iter(lambda: handle.read(1 << 20), b""):
+                size += len(block)
+                if size > max_bytes:
+                    return True
+    except (OSError, EOFError, zlib.error):
+        return False
+
+    return False
+
+
 def check_file_size(path: str, max_bytes: int, field: str) -> None:
     """
     Reject a file larger than the limit of the server, before reading it.
+
+    The limit also holds for the content of a file compressed with gzip,
+    which is decompressed in blocks up to the limit: a small file that
+    expands to a large one is rejected without holding it in memory.
 
     Parameters
     ----------
@@ -316,6 +359,21 @@ def check_file_size(path: str, max_bytes: int, field: str) -> None:
         raise ServerError(
             f"The file is {size / (1024 * 1024):.1f} MB, more than the "
             f"{limit_mb} MB the server reads. Nothing was read.",
+            code    = "file_too_large",
+            field   = field,
+            hint    = (
+                "Pass a smaller file (for example the recent history only), "
+                "or ask the user to restart the server with a larger "
+                "`--max-file-mb` (0 for no limit)."
+            ),
+            details = {"size_bytes": size, "max_file_mb": limit_mb},
+        )
+    if path.lower().endswith(".gz") and _decompressed_size_exceeds(path, max_bytes):
+        limit_mb = max_bytes // (1024 * 1024)
+        raise ServerError(
+            f"The file is {size / (1024 * 1024):.1f} MB compressed and more "
+            f"than the {limit_mb} MB the server reads once decompressed. "
+            f"Nothing was read.",
             code    = "file_too_large",
             field   = field,
             hint    = (
@@ -455,6 +513,8 @@ def check_text_argument(value: str | list[str] | None, field: str) -> None:
     None
     """
 
+    from .._future_exog import _shown
+
     values = [value] if isinstance(value, str) else list(value or [])
     bad = [text for text in values if has_control_characters(text)]
     if bad:
@@ -485,6 +545,8 @@ def check_profile_names(profile: ForecastingProfile) -> None:
     -------
     None
     """
+
+    from .._future_exog import _shown
 
     data_profile = profile.data_profile
     targets = data_profile.target

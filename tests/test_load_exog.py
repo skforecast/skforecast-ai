@@ -7,11 +7,14 @@ import pandas as pd
 import pytest
 
 from skforecast_ai._utils import load_exog
+from skforecast_ai.profiling.csv_dialect import EXOG_DIALECT_HINT
 from skforecast_ai.exceptions import (
     DataContentError,
     DataNotFoundError,
     InvalidInputError,
 )
+
+from tests.fixtures_csv_dialect import df_dialect_exog, write_dialect
 
 _EXPECTED = pd.DataFrame(
     {"temp": [1, 2]},
@@ -396,8 +399,8 @@ def test_load_exog_InvalidInputError_when_file_unreadable(tmp_path, content, rea
     assert exc_info.value.code == "data_unreadable"
     assert exc_info.value.field == "exog"
     assert exc_info.value.hint == (
-        "Pass a comma-separated text file in UTF-8 with a header row, and the "
-        "same number of fields in every row."
+        "Pass a text file in UTF-8 separated by ',', ';' or tabulators, with a "
+        "header row and the same number of fields in every row."
     )
 
 
@@ -461,3 +464,110 @@ def test_load_exog_DataContentError_when_date_column_missing(tmp_path):
     assert (exc_info.value.code, exc_info.value.field) == (
         "invalid_argument", "exog"
     )
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["semicolon_comma", "semicolon_dot", "tab_dot", "tab_comma", "tsv",
+     "gz_comma_dot", "gz_semicolon_comma"],
+)
+def test_load_exog_output_when_file_has_another_dialect(tmp_path, name):
+    """
+    Test that an exog file with ';' or tabulators, a decimal comma, a '.tsv'
+    extension or gzip compression gives the same frame as the comma file.
+    """
+    path = write_dialect(tmp_path, df_dialect_exog, name)
+    comma_path = tmp_path / "us.csv"
+    df_dialect_exog.to_csv(comma_path, index=False)
+
+    result = load_exog(path)
+
+    expected = pd.DataFrame(
+        {"temp": [1.5, 2.25, 3.5, 4.75, 5.5, 6.25, 7.5, 8.75, 9.5, 10.25]},
+        index=pd.date_range("2023-03-02", periods=10, freq="D", name="date"),
+    )
+    pd.testing.assert_frame_equal(result, expected, check_freq=False)
+    pd.testing.assert_frame_equal(result, load_exog(comma_path), check_freq=False)
+
+
+def test_load_exog_output_when_dates_are_the_first_column_and_dialect_is_semicolon(
+    tmp_path,
+):
+    """
+    Test that the index of an exog file written with `to_csv()` (dates in the
+    first column, not named) is read with the dialect of the file.
+    """
+    path = tmp_path / "eu.csv"
+    path.write_text("date;temp\n2023-01-01;1,5\n2023-01-02;2,5\n")
+
+    result = load_exog(path)
+
+    expected = pd.DataFrame(
+        {"temp": [1.5, 2.5]},
+        index=pd.DatetimeIndex(["2023-01-01", "2023-01-02"], name="date"),
+    )
+    pd.testing.assert_frame_equal(result, expected, check_freq=False)
+
+
+def test_load_exog_InvalidInputError_when_separator_is_ambiguous(tmp_path):
+    """
+    Test that an exog file whose header reads with ',' and with ';' raises
+    an InvalidInputError with the code 'data_unreadable', the field 'exog'
+    and the hint of the exog file.
+    """
+    path = tmp_path / "exog.csv"
+    path.write_text("date;temp,x\n2023-01-01;1,5\n2023-01-02;2,5\n")
+
+    err_msg = re.escape(
+        f"The separator of the CSV file '{path}' cannot be told: its header "
+        f"reads with ',' (2 columns) and ';' (2 columns)."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg + "$") as exc_info:
+        load_exog(path)
+
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.field == "exog"
+    assert exc_info.value.hint == EXOG_DIALECT_HINT
+    assert EXOG_DIALECT_HINT == (
+        "Write the file with ',' as separator and '.' as decimal mark, as "
+        "`DataFrame.to_csv()` writes it, without ';' or tabulators in the "
+        "column names."
+    )
+
+
+def test_load_exog_InvalidInputError_when_decimal_is_ambiguous(tmp_path):
+    """
+    Test that an exog file with numbers written as '1,5' and as '2.5' raises
+    an InvalidInputError with the field 'exog' and the exog hint.
+    """
+    path = tmp_path / "exog.csv"
+    path.write_text("date;a;b\n2023-01-01;1,5;2.5\n")
+
+    err_msg = re.escape(
+        f"The decimal mark of the CSV file '{path}' cannot be told: it holds "
+        f"numbers written with ',' (such as '1,5') and with '.' (such as "
+        f"'2.5')."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg + "$") as exc_info:
+        load_exog(path)
+
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.field == "exog"
+    assert exc_info.value.hint == EXOG_DIALECT_HINT
+
+
+def test_load_exog_output_when_integer_dates_and_dialect_is_semicolon(tmp_path):
+    """
+    Test that integer dates (20230101) of an exog file with ';' and a decimal
+    comma are read as dates, the index being read again with the dialect.
+    """
+    path = tmp_path / "eu.csv"
+    path.write_text("date;temp\n20230101;1,5\n20230102;2,5\n")
+
+    result = load_exog(path)
+
+    expected = pd.DataFrame(
+        {"temp": [1.5, 2.5]},
+        index=pd.DatetimeIndex(["2023-01-01", "2023-01-02"], name="date"),
+    )
+    pd.testing.assert_frame_equal(result, expected, check_freq=False)

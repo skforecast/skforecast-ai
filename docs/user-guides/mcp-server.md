@@ -2,6 +2,12 @@
 
 Coding agents such as Claude Code, Cursor or Claude Desktop can call **skforecast-ai** as a set of tools through the [Model Context Protocol](https://modelcontextprotocol.io) (MCP). The agent brings the language model: it reads your request, calls the tools and explains the results. skforecast-ai brings the forecasting: every decision (forecaster, estimator, lags, metric, cross-validation) is made by the same deterministic rules as in Python, and every result comes with the script that produced it.
 
+The animation follows one request from the installation to the answer. Click a step, or use the arrow keys, to go to it.
+
+<div class="skf-anim-embed" style="--skf-ratio: 0.5625">
+  <iframe src="../animations/mcp-overview.html" title="Animation: your agent asks, skforecast-ai decides" loading="lazy" allowfullscreen></iframe>
+</div>
+
 Once the server is connected, you ask in plain language:
 
 - *"Forecast the next 12 months of `data/sales.csv` and tell me how accurate it is."*
@@ -25,7 +31,13 @@ Pick the tab of your agent. Every setup gives the server one directory, `--allow
     /plugin install skforecast-ai@skforecast-ai
     ```
 
-    The plugin starts `uvx skforecast-ai-mcp==<version> --allow-project-dir`, where `<version>` is the version of the plugin (`claude plugin list` shows it).
+    The plugin starts `uvx skforecast-ai-mcp==<version> --allow-project-dir`, where `<version>` is the version of the plugin (`claude plugin list` shows it). The first start downloads the server and its dependencies, and Claude Code waits 30 seconds for it to connect and list its tools. To install them before, run this once in a terminal, with that version:
+
+    ```bash
+    uvx skforecast-ai-mcp==<version> --help
+    ```
+
+    **If the first connection times out**, `/mcp` shows the server as failed or pending: open `/mcp`, select `skforecast-ai` and reconnect. Everything is installed by then, and the second start connects in a few seconds. Restarting Claude Code is not enough: it does not try a server that failed again for 15 minutes, and the reconnection from `/mcp` does.
 
     !!! warning "The plugin can read every CSV file of your project"
         The allowed directory is the project you open in Claude Code, the directory you start it in: `--allow-project-dir` reads it from the environment variable `CLAUDE_PROJECT_DIR`, which Claude Code sets. That includes an export of credentials or of personal data saved as `.csv`, whose values an error or a summary can quote. The server does not start in your home directory or in the root of a disk: open Claude Code in the folder of the project.
@@ -143,13 +155,13 @@ The path of `--allow-dir` must be absolute: the client starts the server from a 
     In the configurations above, that is `"args": ["skforecast-ai-mcp", "--allow-dir", "/absolute/path/to/project"]`; pin a version with `skforecast-ai-mcp==<version>`.
 
 !!! tip "Warm up uvx before the first start"
-    **The first start is slow.** `uvx` downloads and installs the package and its dependencies the first time, and Python loads them for the first time: about 30 seconds with a fast connection, more with a slow one. A client may give up on a server that takes that long to start: Claude Code waits 30 seconds by default. Run this once before connecting the agent, so later starts take a few seconds (the first one up to 10, the next ones about 2). With the plugin of Claude Code, use `"skforecast-ai[mcp]==<version>"`:
+    **The first start is slow.** `uvx` downloads and installs the package and its dependencies the first time (about 900 MB: a few seconds with a fast connection, a minute or more with a slow one), and Python compiles every module the first time it loads it. The server answers its client before it loads pandas, scikit-learn and skforecast, which it does in the background: that loading no longer delays the connection, and the first tool waits for it instead. That wait is long only the first time after an installation: some 6 seconds on Linux and about 30 on macOS, where the second start still takes some 7 seconds and the later ones 1 or 2. A client may give up on a server that takes long to start: Claude Code waits 30 seconds by default for it to connect and list its tools. Run this once before connecting the agent, so the download is done by then and the server connects in a few seconds (the command does not load those libraries, so the first tool still waits for them). With the plugin of Claude Code, use the command of its tab, `uvx skforecast-ai-mcp==<version> --help`:
 
     ```bash
     uvx --from "skforecast-ai[mcp]" skforecast-ai --version
     ```
 
-    In Claude Code, the `MCP_TIMEOUT` environment variable, in milliseconds, makes it wait longer instead: `MCP_TIMEOUT=120000 claude`.
+    If the first connection fails anyway, reconnect the server once the download has ended (in Claude Code, `/mcp`, select the server and reconnect). In Claude Code, the `MCP_TIMEOUT` environment variable, in milliseconds, makes it wait longer instead: `MCP_TIMEOUT=120000 claude`; a plugin cannot set it.
 
 **Install the skill.** [The skill](#the-skill) teaches the agent how to use the tools. The plugin of Claude Code already includes it. For Cursor, VS Code, Codex and other agents, install it with the [skills](https://github.com/vercel-labs/skills) command:
 
@@ -184,10 +196,12 @@ You ask, for example, *"Forecast the next 12 months of `/path/to/data/h2o.csv` a
 1. `profile(data_path="/path/to/data/h2o.csv", target="x")`: the frequency, the series, the exogenous columns and the recommended forecaster, as a profile id. Every column other than the target, the date and the series ids is an exogenous variable, unless `exog_columns` names the ones to use.
 2. `plan(profile_id=..., steps=12)`: lags, window features, metric and preprocessing, as a plan id.
 3. `create_cv(plan_id=...)`: the cross-validation strategy, with its cost (estimator fits, or inference windows for a foundation model, which is never trained). A notice warns when the backtest will be long.
-4. `backtest(cv_id=...)` and, to compare configurations, `compare(cv_id=...)`.
+4. `backtest(cv_id=...)` and, to compare configurations, `compare(cv_id=...)`. Without `candidates`, `compare` ranks the configurations the profile recommends, a seasonal naive baseline and, when the strategy was created for another plan (one from `refine_plan`), that plan as the row `Strategy plan`.
 5. `forecast(plan_id=...)`: the forecast of the next 12 months.
 
 Each of these tools returns an id for the next ones, a plain-text summary (the one `describe()` gives in Python) and the warnings of the call. The summary of a backtest or a forecast carries its metrics and statistics of the predictions, and that of a comparison its leaderboard; the predictions themselves, row by row, go to CSV files in the output directory, listed in `files`. `get_code` returns the script that ran, which you can run yourself without the server. The [API reference](../api/mcp.md) lists every tool, its arguments and its errors.
+
+To see it with a real agent, watch [a recorded session](../img/agent-session.gif) of the agent check of skforecast-ai 0.4.0: Claude Code with the server and its skill, asked to compare models for the next 12 months of a monthly series and to hand over the script of the best one. It is the session `compare_code__r2` of the run `0.4.0-final2`, in [`tools/mcp/agent_reports/`](https://github.com/skforecast/skforecast-ai/tree/main/tools/mcp/agent_reports); the responses of the server and the script are trimmed where an ellipsis marks it, and nothing else is edited.
 
 **Long calls.** `compare` sends a progress notification when each candidate starts and ends. Any long call (a backtest, a forecast, a candidate of `compare`) also sends one every 5 seconds while it runs, naming what runs and for how long ("ForecasterStats: running (35 s)"), so a client does not give up on a request that is still working, as long as it asked for progress. Cancelling a call waits for the candidate or the backtest in progress to end: a cancelled `compare` skips its remaining candidates, and a cancelled call registers nothing. Until it ends, only the read tools (`get_code`, `get_failure`, `list_objects`, `describe_object`) answer; the others wait their turn.
 
@@ -208,8 +222,8 @@ skforecast-ai mcp --allow-dir /path/to/data
 | `--output-dir` | a new temporary directory | Where the server writes predictions, metrics, leaderboards and long texts. It is also the working directory of the server, and it is kept when the server stops. Its path is logged when the server starts. |
 | `--max-objects` | 256 | Most objects (profiles, plans, results) the server keeps. |
 | `--max-memory-mb` | 1024 | Memory the objects may take. Beyond either limit, the least recently used objects are removed. |
-| `--max-file-mb` | 256 | Largest CSV file (data or future exogenous values) the server reads, checked on the size of the file before reading it. 0 for no limit. |
-| `--allow-model` | (none) | Model ID prefix of a foundation model that the server does not run by default, for example `google/timesfm-3.0`. Repeat it for several. See [Foundation models and licenses](#foundation-models-and-licenses). |
+| `--max-file-mb` | 256 | Largest CSV file (data or future exogenous values) the server reads, checked on the size of the file before reading it, and on the size of its content when it is compressed (`.gz`). 0 for no limit. |
+| `--allow-model` | (none) | Model ID prefix of a foundation model that the server does not run by default, for example `google/timesfm-3.0`. Repeat it for several. The server checks it against skforecast before it answers its client, which makes its start a few seconds slower. See [Foundation models and licenses](#foundation-models-and-licenses). |
 
 When it starts, the server checks that it can write to the output directory and stops with an error otherwise. It writes its log to the standard error, one line per event: the directories it uses when it starts, the message and traceback of an unexpected error with its id, and one line when the client disconnects (it then exits with code 0, also in the middle of a call).
 
@@ -296,11 +310,11 @@ In the checks of this release a small model tried to copy a file from outside th
 
 | Symptom | Cause | Fix |
 |:--|:--|:--|
-| The server does not appear, or fails to start the first time | `uvx` is still downloading the package when the client gives up | Run the warm up command of [Install](#install) once, then restart the client. In Claude Code, `MCP_TIMEOUT=120000 claude` also gives it time. In Codex, set `startup_timeout_sec` |
+| The server does not appear, or fails to start the first time | `uvx` is still downloading the package when the client gives up | Reconnect it (in Claude Code, `/mcp`, select the server and reconnect), or run the warm up command of [Install](#install) once and restart the client. In Claude Code, `MCP_TIMEOUT=120000 claude` also gives it time. In Codex, set `startup_timeout_sec` |
 | The client cannot find `uvx` or `skforecast-ai` | The client starts the server with a `PATH` that is not the one of your terminal | Give the absolute path of the command (`which uvx`, `which skforecast-ai`) |
 | The server stops as soon as it starts | `--allow-dir` is missing, relative or not a directory, the output directory is not writable, or, with the plugin of Claude Code, the session was opened in the home directory or in the root of a disk | Give an absolute path, or open Claude Code in the folder of the project; the log of the server (stderr, shown by the client) says which |
 | `path_not_allowed` | The file is outside `--allow-dir` | Copy the file there yourself, or restart the server with another `--allow-dir` |
-| `invalid_path` or `url_not_allowed` | The path is relative, is not a `.csv` file or is a URL | Give the absolute path of a CSV file; download a URL first |
+| `invalid_path` or `url_not_allowed` | The path is relative, does not end in `.csv`, `.tsv`, `.csv.gz` or `.tsv.gz`, or is a URL | Give the absolute path of a CSV file; download a URL first |
 | `model_not_allowed` | The license of the foundation model restricts its use | Read its license and add `--allow-model` with its prefix |
 | `missing_dependency` | The backend of a foundation model is not installed where the server runs | Install the package the hint names, or add it with `--with` to `uvx` |
 | `unknown_id` | The server restarted, or removed the object to stay within its limits | Ask the agent to profile the data again |
@@ -321,7 +335,8 @@ A failed call returns an error whose text is `Error executing tool <name>: ` fol
 ## Limits
 
 - Calls run one at a time; a call waits for the previous one to end.
-- The server reads CSV files of at most `--max-file-mb` (256 MB by default), and a horizon (`steps`) longer than the longest series is rejected when the plan is built.
+- The server reads `.csv`, `.tsv`, `.csv.gz` and `.tsv.gz` files, separated by `,`, `;` or tabulators and with `.` or `,` as decimal mark (what a spreadsheet exports in most of Europe). `profile` detects the separator and the decimal mark, and takes them as `sep` and `decimal` when a file reads in more than one way. Parquet and Excel files are not read. The file must be UTF-8 (in Excel, "CSV UTF-8"), and dates written day first (`31/01/2024`) are read month first or rejected: write them in ISO 8601 (`2024-01-31`).
+- The server reads files of at most `--max-file-mb` (256 MB by default), counted also on the content of a `.gz` file, and a horizon (`steps`) longer than the longest series is rejected when the plan is built.
 - Ids live while the server runs. An id of a previous run, or of an object removed to stay within `--max-objects` and `--max-memory-mb`, gives `unknown_id` saying which.
 - A summary, a script or a failure longer than 20,000 characters is cut in the response; the full text is written to the output directory.
 - Foundation models (`ForecasterFoundation`) need their backend package where the server runs: Chronos-2, the default, needs `chronos-forecasting` (the `foundation` extra). Without it, `backtest` and `forecast` answer `missing_dependency`, whose hint gives the `pip install` command and the `--with` option of `uvx`.

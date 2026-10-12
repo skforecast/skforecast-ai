@@ -60,14 +60,14 @@ from .exceptions import (
 from .execution import run_backtest, run_forecast
 from .execution.backtesting_runner import render_backtesting_script
 from .execution.comparison import (
+    STRATEGY_PLAN_NAME,
     add_baseline_candidate,
     aggregate_metrics,
     build_comparison_explanation,
     build_comparison_table,
     compare_sort_key,
-    exclude_costly_candidates,
-    missing_foundation_backend,
     resolve_compare_candidates,
+    resolve_default_candidates,
 )
 from .execution.forecast_runner import render_forecast_script
 from .rendering.backtesting import _emit_cv_configuration
@@ -178,6 +178,7 @@ from ._utils import (
     _apply_interval_to_plan,
     _check_plan_overrides,
     _data_path_of_run,
+    _dialect_read,
     _revalidate_plan,
     discarded_plan_edits,
     plan_override_value,
@@ -210,6 +211,7 @@ def _cv_provenance_fields(
     cv_config: dict,
     plan: ForecastPlan | None,
     profile: ForecastingProfile,
+    created_for_row: str | None = None,
 ) -> dict[str, object]:
     """
     Fields of a `BacktestResult` or a `ComparisonResult` that say where the
@@ -232,6 +234,9 @@ def _cv_provenance_fields(
     profile : ForecastingProfile
         Profile of the data that ran, which can have more observations
         than the ones the strategy was created on.
+    created_for_row : str, default None
+        Row of a comparison that runs the plan the strategy was created
+        for, named by the text. None when no row runs it.
 
     Returns
     -------
@@ -251,6 +256,7 @@ def _cv_provenance_fields(
         overridden      = list(cv_result.overridden_fields),
         llm_configured  = cv_result.llm_configured,
         n_observations  = profile.data_profile.span_index_length,
+        created_for_row = created_for_row,
     )
 
     return {
@@ -410,7 +416,8 @@ def _profile_values(data_profile: DataProfile) -> dict[str, str]:
     Return the fields of a data profile that describe the values of the
     data, each as text, to tell whether two profiles describe the same data.
 
-    `data_path`, `warnings` and `unused_columns` are left out: the path is
+    `data_path`, `csv_sep`, `csv_decimal`, `warnings` and `unused_columns`
+    are left out: the path and how its file is written are
     set by the caller, the warnings derive from the values (and hold the
     note of an earlier refresh), and the columns the data holds besides
     those of the profile are compared by `_refresh_profile` itself. The
@@ -430,7 +437,9 @@ def _profile_values(data_profile: DataProfile) -> dict[str, str]:
     """
 
     values = data_profile.model_dump(
-        exclude={"data_path", "warnings", "unused_columns"}
+        exclude={
+            "data_path", "csv_sep", "csv_decimal", "warnings", "unused_columns"
+        }
     )
     for name in ("exog_columns", "categorical_exog"):
         values[name] = sorted(values[name])
@@ -655,6 +664,8 @@ class ForecastingAssistant:
         series_id_column: str | None = None,
         *,
         exog_columns: list[str] | None = None,
+        sep: str | None = None,
+        decimal: str | None = None,
     ) -> ForecastingProfile:
         """
         Profile a dataset and select the recommended forecaster and estimator.
@@ -687,16 +698,44 @@ class ForecastingAssistant:
             the generated script uses them. A plan built from this profile
             records the selection (`ForecastPlan.exog_columns`), so it runs
             on the same columns when it is given without its profile.
+        sep : str, default None
+            Separator of the fields of a CSV file: `','`, `';'` or a
+            tabulator (`'\\t'`). If None, it is detected from the first
+            lines of the file. Ignored for data passed in memory.
+        decimal : str, default None
+            Decimal mark of a CSV file: `'.'` or `','` (only when the
+            separator is not `','`). If None, it is detected from the
+            first lines of the file. Ignored for data passed in memory.
 
         Returns
         -------
         profile : ForecastingProfile
             Dataset profile + recommended forecaster + estimator
             (with alternative candidates) + analysis context.
+
+        Notes
+        -----
+        The separator and the decimal mark of a CSV file are recorded in
+        the profile (`DataProfile.csv_sep` and `DataProfile.csv_decimal`):
+        the generated script reads the file with them. A file that reads
+        with more than one separator, or that holds numbers written with
+        both decimal marks, raises `InvalidInputError` (code
+        `'data_unreadable'`) instead of guessing: pass `sep` and `decimal`.
+        The other methods detect how the file they receive is written, and
+        read such a file as the profile passed with it says.
         """
 
         data_path = recorded_data_path(data)
-        data, target = _resolve_data_and_target(data, target, date_column)
+        data, target = _resolve_data_and_target(
+                           data        = data,
+                           target      = target,
+                           date_column = date_column,
+                           sep         = sep,
+                           decimal     = decimal,
+                       )
+        # How the file was read, which the script repeats; nothing for data
+        # passed in memory.
+        sep, decimal = _dialect_read(data_path)
 
         data_profile = create_data_profile(
             data             = data,
@@ -705,6 +744,8 @@ class ForecastingAssistant:
             series_id_column = series_id_column,
             data_path        = data_path,
             exog_columns     = exog_columns,
+            sep              = sep,
+            decimal          = decimal,
         )
         validate_target_numeric(data, data_profile.target)
 
@@ -3302,7 +3343,8 @@ class ForecastingAssistant:
             Cross-validation strategy applied identically to every
             candidate. The `steps` value is inferred from `cv.steps`.
             The `CVResult` returned by `create_cv()` is accepted as well;
-            its `cv` splitter is used.
+            its `cv` splitter is used and, when `candidates` is None, its
+            plan runs too (see `candidates`).
             Its profile must describe data of the same structure (format,
             target, series, frequency, exogenous columns), or `ValueError`
             is raised.
@@ -3342,7 +3384,16 @@ class ForecastingAssistant:
             the same family as the recommended forecaster (with several
             series, `ForecasterRecursiveMultiSeries` and
             `ForecasterFoundation`); when that leaves a single forecaster,
-            its estimator candidates are compared instead.
+            its estimator candidates are compared instead. When `cv` is a
+            `CVResult` created for a plan that makes other decisions than
+            all of those candidates (one refined with another estimator,
+            lags or window features, for example), that plan runs too, as
+            the row `'Strategy plan'`, with its decisions and the `metric`
+            and `interval` of the comparison, and the explanation says
+            where it ranks. `strategy_plan_name` names the row that runs
+            that plan, which is one of the candidates when it makes the
+            same decisions. A plan of a forecaster family that cannot be
+            ranked with the candidates is left out with a warning.
         metric : str, list of str, default None
             Metric(s) computed per candidate. When a list is passed, the
             first metric is used to rank the table. When None, the plan
@@ -3365,7 +3416,8 @@ class ForecastingAssistant:
             Whether to add a `ForecasterEquivalentDate` baseline (seasonal
             naive, or naive when no seasonal period applies) as one more
             row, ranked like the other candidates. The explanation states
-            whether the best configuration beats it and by how much. It is
+            how many configurations beat it, which ones, and by how much
+            the best one does. It is
             not added for multi-series data, which it cannot forecast, nor
             when the target has missing values or missing timestamps, which
             it would repeat as missing predictions (the explanation says
@@ -3410,6 +3462,8 @@ class ForecastingAssistant:
             parameters that were not passed.
             - cv_defaults_explanation: why the strategy parameters that
             were not passed have their value, and which ones were passed.
+            - strategy_plan_name: name of the row that runs the plan of
+            the `CVResult`, or None.
             - best_name: name of the top-ranked candidate.
             - best_candidate: top-ranked candidate as a `BacktestResult`.
 
@@ -3432,6 +3486,14 @@ class ForecastingAssistant:
         -----
         CandidateFailedWarning
             Once per failed candidate.
+        PlanEditsDiscardedWarning
+            When `candidates` is None and the plan of the `CVResult` runs
+            without values that `plan()` does not rebuild from its
+            decisions (values edited by hand, for example).
+        UserWarning
+            When `candidates` is None and the plan of the `CVResult` is left
+            out: a forecaster family whose metrics cannot be ranked with the
+            candidates.
         MissingBackendWarning
             When `candidates` is None and the backend of the default
             foundation model is not installed, so `ForecasterFoundation`
@@ -3485,18 +3547,10 @@ class ForecastingAssistant:
             profile.data_profile.data_path if isinstance(data, (str, Path)) else None
         )
 
-        # Automatic candidates leave out a foundation model whose backend
-        # is not installed, rather than fail on every call; the warning and
-        # the explanation say which package to install.
-        excluded: frozenset[str] = frozenset()
-        backend_note = None
-        if candidates is None:
-            excluded, backend_note = missing_foundation_backend(profile)
-            if backend_note is not None:
-                warnings.warn(backend_note, MissingBackendWarning, stacklevel=2)
-        candidate_configs = resolve_compare_candidates(
-            candidates, profile, exclude=excluded
-        )
+        # Explicit candidates are the user's choice and run as given; they
+        # are checked before anything else.
+        if candidates is not None:
+            candidate_configs = resolve_compare_candidates(candidates, profile)
 
         # Checked once here: an invalid interval would make every candidate
         # fail. Whether a method needs a symmetric interval is checked per
@@ -3509,13 +3563,6 @@ class ForecastingAssistant:
             data_profile = profile.data_profile,
             cv           = cv,
         )
-
-        baseline_name = None
-        baseline_note = None
-        if baseline:
-            candidate_configs, baseline_name, baseline_note = (
-                add_baseline_candidate(candidate_configs, profile, interval)
-            )
 
         # Resolve the ranking metric and the metric columns once, so the
         # table is consistent across candidates regardless of which ones
@@ -3539,20 +3586,65 @@ class ForecastingAssistant:
         cv_config, cv_explanation = resolve_cv_config(cv, profile.data_profile)
         n_fits = cv_config["n_fits"]
 
-        # Automatic candidates are also kept within a fit budget: with a
-        # strategy that refits in every fold a direct forecaster can take
-        # hours. Explicit candidates always run; they only get the warning.
+        # Automatic candidates leave out a foundation model whose backend is
+        # not installed, rather than fail on every call, and the
+        # alternatives above a fit budget (with a strategy that refits in
+        # every fold a direct forecaster can take hours). The plan the
+        # strategy was created for is the one the user means to compare: it
+        # runs as one more row unless it is one of the candidates of the
+        # profile, and the summary names its row. Each note is warned.
+        strategy_plan = cv_result.plan if cv_result is not None else None
+        strategy_name = None
+        backend_note = None
+        strategy_note = None
         budget_note = None
         if candidates is None:
-            candidate_configs, budget_note = exclude_costly_candidates(
-                candidate_configs = candidate_configs,
-                preferred         = profile.forecaster,
-                n_fits            = n_fits,
-                steps             = steps,
-                n_folds           = cv_config["n_folds"],
-            )
+
+            def build_plan(config: CandidateConfig) -> ForecastPlan:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    return self.plan(
+                        profile  = profile,
+                        steps    = steps,
+                        interval = interval,
+                        metric   = metric_override,
+                        **config,
+                    )
+
+            default = resolve_default_candidates(
+                          profile       = profile,
+                          strategy_plan = strategy_plan,
+                          build_plan    = build_plan,
+                          n_fits        = n_fits,
+                          steps         = steps,
+                          n_folds       = cv_config["n_folds"],
+                      )
+            candidate_configs = default.candidates
+            strategy_name = default.strategy_name
+            backend_note = default.backend_note
+            strategy_note = default.strategy_note
+            budget_note = default.budget_note
+            if backend_note is not None:
+                warnings.warn(backend_note, MissingBackendWarning, stacklevel=2)
+            if strategy_note is not None:
+                # Left out (no row), or run without values edited by hand.
+                category = (
+                    UserWarning if strategy_name is None
+                    else PlanEditsDiscardedWarning
+                )
+                warnings.warn(strategy_note, category, stacklevel=2)
             if budget_note is not None:
                 warnings.warn(budget_note, LongTrainingWarning, stacklevel=2)
+        # The row added for that plan, which the summary describes; a
+        # candidate of the profile that is that plan keeps its own name.
+        strategy_row = strategy_name if strategy_name == STRATEGY_PLAN_NAME else None
+
+        baseline_name = None
+        baseline_note = None
+        if baseline:
+            candidate_configs, baseline_name, baseline_note = (
+                add_baseline_candidate(candidate_configs, profile, interval)
+            )
 
         # Warned once per costly candidate here; the warning of each
         # backtest() call is silenced in the loop so it is not repeated.
@@ -3656,7 +3748,19 @@ class ForecastingAssistant:
                 # the user. The forecaster and the estimator of an automatic
                 # candidate and of the baseline are chosen here, by the rules:
                 # only the metric of the comparison is the user's.
-                if candidates is None or name == baseline_name:
+                # The row of the plan of the strategy keeps the decisions the
+                # user made in that plan, and the metric of the comparison.
+                if name == strategy_row and name != baseline_name:
+                    cand_plan.overridden_fields = [
+                        field for field in cand_plan.overridden_fields
+                        if field == "metric" or field in strategy_plan.overridden_fields
+                    ]
+                    cand_plan.llm_refined_fields = [
+                        field for field in strategy_plan.llm_refined_fields
+                        if cand_plan.forecaster_kwargs.get(field)
+                        == strategy_plan.forecaster_kwargs.get(field)
+                    ]
+                elif candidates is None or name == baseline_name:
                     cand_plan.overridden_fields = [
                         field for field in cand_plan.overridden_fields
                         if field == "metric"
@@ -3762,18 +3866,23 @@ class ForecastingAssistant:
                 f"{cv.differentiation}): {own_differentiation}."
                 if own_differentiation else None
             ),
+            strategy_row         = strategy_row,
+            strategy_note        = strategy_note,
         )
 
         return ComparisonResult(
-            profile        = profile,
-            cv_config      = cv_config,
-            results        = results,
-            candidates     = candidate_results,
-            failures       = failures,
-            ranking_metric = ranking_metric,
-            explanation    = explanation,
-            baseline_name  = baseline_name,
-            **_cv_provenance_fields(cv_result, cv, cv_config, None, profile),
+            profile            = profile,
+            cv_config          = cv_config,
+            results            = results,
+            candidates         = candidate_results,
+            failures           = failures,
+            ranking_metric     = ranking_metric,
+            explanation        = explanation,
+            baseline_name      = baseline_name,
+            strategy_plan_name = strategy_name,
+            **_cv_provenance_fields(
+                cv_result, cv, cv_config, None, profile, created_for_row=strategy_name
+            ),
         )
 
     def ask(

@@ -607,6 +607,26 @@ def test_render_comparison_overview_section_names_the_baseline():
     assert "Baseline" not in render_comparison_overview_section(comparison)
 
 
+def test_render_comparison_overview_section_names_the_strategy_plan_row():
+    """
+    Test that the overview names the row that runs the plan the strategy was
+    created for and says the rows named after a forecaster do not run it,
+    and says nothing about it when the comparison has no such row.
+    """
+    comparison = make_comparison_result(assistant)
+    with_strategy = comparison.model_copy(
+        update={"strategy_plan_name": "Strategy plan"}
+    )
+
+    assert (
+        "- Plan the strategy was created for: the row 'Strategy plan'. The rows "
+        "named after a forecaster run the configurations the profile recommends."
+    ) in render_comparison_overview_section(with_strategy)
+    assert "Plan the strategy was created for" not in (
+        render_comparison_overview_section(comparison)
+    )
+
+
 def test_render_plan_section_includes_baseline_offset():
     """
     Test that the plan section of a baseline plan states its offset, which

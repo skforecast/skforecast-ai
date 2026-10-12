@@ -98,8 +98,9 @@ def test_create_server_instructions_name_the_allowed_dir(tmp_path):
     instructions = " ".join(run_session(server, steps).split())
 
     assert (
-        f"The server reads CSV files only inside '{allowed}' (subdirectories "
-        f"included). Tools take absolute paths: a file the user names by a "
+        f"The server reads CSV files ('.csv', '.tsv', '.csv.gz', '.tsv.gz'; "
+        f"separated by ',', ';' or tabulators, which `profile` detects) only "
+        f"inside '{allowed}' (subdirectories included). Tools take absolute paths: a file the user names by a "
         f"relative path or by its name is looked for there, so build the path "
         f"from that directory instead of searching the file system. When "
         f"the file is outside it, stop and answer the user: only they can "

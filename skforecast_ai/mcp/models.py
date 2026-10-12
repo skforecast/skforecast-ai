@@ -9,7 +9,6 @@ from __future__ import annotations
 import sys
 from typing import Annotated, Any, Literal, get_args
 from pydantic import BaseModel, ConfigDict, Field, with_config
-from skforecast.foundation import list_adapters
 
 if sys.version_info >= (3, 12):
     from typing import TypedDict
@@ -18,6 +17,7 @@ else:
 from .._constants import (
     ALLOWED_METRICS,
     DEFAULT_FOUNDATION_MODEL_ID,
+    FOUNDATION_MODEL_ID_PREFIXES,
     SUPPORTED_ESTIMATORS,
     SUPPORTED_TRANSFORMERS,
     WindowStat,
@@ -41,7 +41,9 @@ ForecasterName = Literal[
 # Descriptions of the arguments shared by `plan`, `refine_plan` and the
 # candidates of `compare`, written for the agent: the schema of a tool is
 # all it reads about an argument. The valid values come from the constants
-# of the core and from skforecast, so they never go out of date.
+# of the core, so they never go out of date; the model ID prefixes are a
+# copy of those of skforecast that a test keeps equal (importing skforecast
+# here would delay the answer to `tools/list`).
 FORECASTER_DESCRIPTION = (
     "skforecast forecaster class: ForecasterRecursive or ForecasterDirect "
     "(one series, machine learning), ForecasterRecursiveMultiSeries (several "
@@ -55,7 +57,7 @@ ESTIMATOR_DESCRIPTION = (
     f"learning forecasters, 'Arima' for ForecasterStats, or the Hugging Face "
     f"model id of a foundation model for ForecasterFoundation (default "
     f"'{DEFAULT_FOUNDATION_MODEL_ID}'; model id prefixes: "
-    f"{[p for info in list_adapters() for p in info.model_id_prefixes]}). "
+    f"{list(FOUNDATION_MODEL_ID_PREFIXES)}). "
     f"ForecasterEquivalentDate takes none."
 )
 ESTIMATOR_KWARGS_DESCRIPTION = (

@@ -11,6 +11,7 @@ import pandas as pd
 from pydantic import BaseModel, Field, field_validator, model_validator
 from .._display import DisplayMixin, render_profile
 from .._validation import validate_frequency
+from ..exceptions import InvalidInputError
 from ._compat import PickleDefaultsMixin
 from .explainable import ExplainableResult
 
@@ -179,6 +180,15 @@ class DataProfile(PickleDefaultsMixin, BaseModel):
         Path to the source CSV file. Derived automatically during
         profiling: if the input is a file path, this stores it; if the
         input is a DataFrame, defaults to `'data.csv'`.
+    csv_sep : str, default ','
+        Separator of the fields of the CSV file of `data_path`: `','`,
+        `';'` or a tabulator. Detected when the file is profiled, or given
+        with `sep`; the generated script reads the file with it. `','` for
+        data passed in memory.
+    csv_decimal : str, default '.'
+        Decimal mark of the CSV file of `data_path`: `'.'` or `','`, the
+        latter only when `csv_sep` is not `','`. Detected or given as
+        `csv_sep`.
     warnings : list
         Human-readable warnings generated during profiling.
     """
@@ -214,6 +224,8 @@ class DataProfile(PickleDefaultsMixin, BaseModel):
 
     # -- Source --
     data_path: str = "data.csv"
+    csv_sep: Literal[",", ";", "\t"] = ","
+    csv_decimal: Literal[".", ","] = "."
 
     # -- Train/test split --
     start_date: str | None = None
@@ -242,6 +254,19 @@ class DataProfile(PickleDefaultsMixin, BaseModel):
         """
         validate_frequency(value)
         return value
+
+    @model_validator(mode="after")
+    def _check_csv_dialect(self) -> "DataProfile":
+        """
+        Check that the decimal mark is not the separator: the script would
+        read every number with decimals as two fields.
+        """
+        if self.csv_decimal == "," and self.csv_sep == ",":
+            raise InvalidInputError(
+                "`csv_decimal` cannot be ',' when `csv_sep` is ','.",
+                field = "csv_decimal",
+            )
+        return self
 
     @model_validator(mode="after")
     def _populate_observation_counts(self) -> "DataProfile":

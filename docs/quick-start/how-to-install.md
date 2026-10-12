@@ -4,6 +4,8 @@
 
 ![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue) [![PyPI](https://img.shields.io/pypi/v/skforecast-ai)](https://pypi.org/project/skforecast-ai)
 
+To try it before installing anything, open [Your first forecast](first-forecast.ipynb) in Google Colab: its first cell installs the package. [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/skforecast/skforecast-ai/blob/main/docs/quick-start/first-forecast.ipynb)
+
 ## Install
 
 === "Core"
@@ -38,7 +40,7 @@
     pip install "skforecast-ai[foundation]"
     ```
 
-To install a specific version, pin it (`pip install skforecast-ai==0.4.1`). The development version, which may be unstable, installs from GitHub:
+To install a specific version, pin it (`pip install skforecast-ai==0.4.2`). The development version, which may be unstable, installs from GitHub:
 
 ```bash
 pip install git+https://github.com/skforecast/skforecast-ai@main

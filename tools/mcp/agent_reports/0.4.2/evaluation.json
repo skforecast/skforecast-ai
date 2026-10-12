@@ -1,0 +1,451 @@
+{
+  "overall": "Run for 0.4.2 on commit `e7d0aef` (`fix/compare-refined-plan`, pull request #71): the 7 scenarios where the two defects fixed there appeared in `0.4.0-final`, with the ablation of the 3 that have one, 3 repetitions, 30 sessions with Sonnet (Claude Code 2.1.272). All finished, none hit a limit. Read by the reviewer (Claude) from the final answers, the automatic checks and the responses of `compare` and `create_cv` in the traces, with the two strict rules of the README.\n\n**Result**: 21 correct, 9 improvable, 0 fail. No automatic check fails; 6 sessions have a `WARN` (5 read-only shell commands denied by the client, 1 `profile` without `target`).\n\n| Scenario | Correct | In `0.4.0-final` | The rest |\n|:--|:-:|:-:|:--|\n| basic_forecast | 2/3 | 1/3 | r2 an unsupported statement |\n| basic_forecast, no skill | 0/3 | 1/3 | derived figures (r1, r3), a false statement about the folds (r2) |\n| compare_code | 2/3 | 3/3 | r2 a false statement about the MASE |\n| metric_list | 2/3 | 3/3 | r1 the count of the baseline wrong (`4 of 5`) |\n| dirty_data | 2/3 | 3/3 | r3 stops to ask after the rejected backtest |\n| dirty_data, no skill | 2/3 | 3/3 | r3 a muddled account of its plan |\n| dirty_data_keep_gaps | 3/3 | 3/3 | |\n| dirty_data_keep_gaps, no skill | 2/3 | 2/3 | r3 an unsupported statement |\n| foundation_default | 3/3 | 2/3 | |\n| probe_why_winner | 3/3 | 3/3 | |\n\n**The two defects the run was launched for**\n\n- *The plan of the strategy in `compare`* (point 1 of `dev/mcp-pending-after-0.4.0.md`). 7 sessions call `compare` on the strategy of a plan refined to LGBMRegressor, and in the 7 the response has the row `Strategy plan` (third of five, 0.0797 or 0.0814, the value of the backtest of that plan when the session ran one). No answer gives the row of another candidate as its plan: 0 of 7, from 3 of 6 in `0.4.0-final`. 3 answers quote the value of their plan from that row and 4 do not mention the plan at all, because they forecast with the winner; none uses the name `Strategy plan` nor gives its rank. The cost `create_cv` announces for that comparison (17 fits, the plan of the strategy included) is the one of the candidates `compare` then tries; the response of `compare` counts 13 because two of them fail on the missing month.\n- *H10, the sentence about the baseline*. 15 sessions receive `3 of 4 configurations beat the baseline ...; 'ForecasterDirect' does not`. None says the winner is the only one that beats it: 0 of 15. 14 quote the count as given; 1 (`metric_list__r1`) writes `4 of 5 configurations beat the seasonal-naive baseline`, counting the baseline itself, with the right name for the one that does not.\n\nNothing of what the pull request changed produces a new problem. The 9 improvable sessions are of the kinds already in the log (a derived figure, a statement nothing supports), 3 of them in the sessions without the skill of `basic_forecast`, and none comes from the new row or the new sentence except the miscount above.",
+  "findings": [
+    {
+      "title": "The row `Strategy plan` is never named in an answer, and its rank is never given.",
+      "evidence": "7 of 7 sessions whose `compare` response has the row leave its name out of every text they write; 3 give its value as the value of their plan and 4 do not mention their plan (they forecast with the winner). 2 of the 7 had the skill loaded, which asks to report that row as the plan of the user. No answer attributes another row to the user: the defect the row fixes is gone.",
+      "attribution": "model",
+      "sessions": [
+        "dirty_data_keep_gaps__r1",
+        "dirty_data_keep_gaps__r3",
+        "dirty_data__noskill__r1",
+        "dirty_data__noskill__r2",
+        "dirty_data__noskill__r3",
+        "dirty_data_keep_gaps__noskill__r1",
+        "dirty_data_keep_gaps__noskill__r3"
+      ],
+      "action": "None for 0.4.2. In these scenarios the user asks for a forecast, not for the place of their plan, so leaving it out is not wrong. If a later run shows a user asking for it and not getting it, add a scenario that asks where the refined plan ranks."
+    },
+    {
+      "title": "One answer miscounts the configurations that beat the baseline.",
+      "evidence": "`metric_list__r1`: `4 of 5 configurations beat the seasonal-naive baseline; only ForecasterDirect did not`. The summary says `3 of 4 configurations beat the baseline`. 1 of 15 sessions with that sentence; the other 14 quote it right, and no session calls the winner the only one that beats the baseline.",
+      "attribution": "model",
+      "sessions": [
+        "metric_list__r1"
+      ],
+      "action": "None: the count is in the summary and in the skill."
+    },
+    {
+      "title": "A false statement about the MASE of the candidates.",
+      "evidence": "`compare_code__r2`: the winner `was the only candidate with MASE below 1`, while the five rows of its own table are below 1. 1 of 15 sessions with a comparison on the clean series.",
+      "attribution": "model",
+      "sessions": [
+        "compare_code__r2"
+      ],
+      "action": "None."
+    },
+    {
+      "title": "Figures and statements of their own in the sessions without the skill of `basic_forecast`.",
+      "evidence": "3 of 3: the MAE as a share of the mean and of the standard deviation and an error band of `±0.06-0.08` (r1), the rise of December and January said not to be covered by the folds, which is false (r2), `7-8% of the series' scale`, `a clear trend` and the 2008 financial crisis (r3). With the skill, 1 of 3 (r2, a level of evidence nobody defined). In `0.4.0-final`: 2 of 3 without the skill, 2 of 3 with it.",
+      "attribution": "model",
+      "sessions": [
+        "basic_forecast__noskill__r1",
+        "basic_forecast__noskill__r2",
+        "basic_forecast__noskill__r3",
+        "basic_forecast__r2"
+      ],
+      "action": "None: already in the log, and the rule that prevents it is in the skill these sessions did not load."
+    },
+    {
+      "title": "After a rejected backtest one session stops to ask and offers an option nothing supports.",
+      "evidence": "`dirty_data__r3` ends the second turn with two options instead of switching to LGBMRegressor, which the hint of the error allows: no forecast in the session. The second option, to start the backtest later so that the window does not reach the missing month, is its own; the plan has a window feature of 36 months. 1 of 12 sessions of the two scenarios with the dirty file; the other 11 forecast.",
+      "attribution": "model",
+      "sessions": [
+        "dirty_data__r3"
+      ],
+      "action": "None."
+    }
+  ],
+  "sessions": {
+    "basic_forecast__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Comparison and forecast of its winner with the table. `3 of the 4 trained/foundation candidates beat the baseline; only ForecasterDirect (Ridge) did not`, the count of the summary; 13.7 % and 8.0 % as returned; license from the notice."
+    },
+    "basic_forecast__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "Same flow, leaderboard as returned, `3 of the 4 non-baseline configurations beat the seasonal-naive baseline; only ForecasterDirect did not`. A statement nothing supports: the comparison is `the second-strongest kind of evidence in the trust hierarchy ... one notch below a direct user-confirmed production deployment`, a level no response nor the skill names."
+    },
+    "basic_forecast__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Same flow. `3 of the 4 trained/foundation candidates beat the baseline`; says the server does not explain why the winner wins. `17 years` for 204 months."
+    },
+    "basic_forecast__noskill__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "Backtest, comparison and forecast of the winner from the instructions alone; `3 of the 4 real candidates beat the baseline; only the direct-Ridge model did worse`. Figures of its own: the MAE is `about 7% of the series' mean ... and about a quarter of its std`, `real-world error of roughly ±0.06-0.08 per month`."
+    },
+    "basic_forecast__noskill__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "Comparison and forecast of the winner; `3 of 4 real candidates beat the baseline`. A false statement: the rise of December and January `isn't validated by backtest folds landing on that exact period` (the six folds of 12 months cover every month)."
+    },
+    "basic_forecast__noskill__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "Comparison and forecast of the winner; `3 of 4 real candidates beat the naive seasonal baseline`. `about 7-8% of the series' scale` is computed by the agent, `a clear trend` is not in any response, and it brings up the 2008 financial crisis as a risk."
+    },
+    "compare_code__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "compare, then `get_code` of the winner. Script as returned, requirements quoted, the one change (the path) declared. `3 of 4 candidates beat the baseline; ForecasterDirect did not`."
+    },
+    "compare_code__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "compare, a forecast nobody asked for, `get_code`; script as returned and the path change declared; the count of the baseline is right. A false statement: the winner `was the only candidate with MASE below 1`, with the five values below 1 in its own table."
+    },
+    "compare_code__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "compare, forecast, `get_code`. Count and percentages as in the summary; the path change declared."
+    },
+    "metric_list__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "`metric: [mean_squared_error, mean_absolute_error]` reaches the plan and the answer ranks by MSE with both columns. The count is wrong: `4 of 5 configurations beat the seasonal-naive baseline; only ForecasterDirect did not`, where the summary says 3 of 4 (it counts the baseline among those that beat it). The 10.1 % and 20.9 % are the ones of the summary."
+    },
+    "metric_list__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 1,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "A first `profile` without `target`, corrected at once from the hint (the user named the column). List of metrics in the plan, ranking by MSE, `3 of the 4 trained/pretrained models beat the seasonal-naive baseline`."
+    },
+    "metric_list__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Same without the first error. `3 of 4 non-baseline candidates beat the seasonal-naive baseline; only ForecasterDirect did not`."
+    },
+    "dirty_data__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Names the three problems and asks. Copy with the first value kept and the gaps left. Rejected backtest: switches to LGBMRegressor saying why, backtest and forecast of that plan (no comparison, so no `Strategy plan` row). Says the MASE is not a comparison against a seasonal naive baseline. Nothing filled."
+    },
+    "dirty_data__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Same copy and same flow; the change of estimator and its reason in the final answer. Nothing filled."
+    },
+    "dirty_data__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 1
+      },
+      "verdict": "improvable",
+      "notes": "Copy as asked. After the rejected backtest it stops and asks instead of switching the estimator, which the hint allows: no forecast in the session. Its second option, to start the backtest later `so the lookback window no longer touches the 2004-10 gap`, is its own and nothing supports that it would work (the plan has a window of 36 months)."
+    },
+    "dirty_data__noskill__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Reads the file, names the three problems with their dates and asks. Copy with the first value kept. Rejected backtest, LGBMRegressor, backtest, then `compare`: its plan is the row `Strategy plan`, and the answer gives it as `LGBMRegressor (MAE ≈ 0.080)`, the value of that row, next to the winner and ForecasterDirect. No baseline, with the reason of the summary. Nothing filled."
+    },
+    "dirty_data__noskill__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Same flow. `Backtested a ForecasterRecursive+LGBMRegressor plan (MAE 0.080 ...)` and `compare then tested this against 4 other configurations`: its plan is in the comparison and is not confused with another row. One read-only shell command denied."
+    },
+    "dirty_data__noskill__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 1,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "Same flow, forecast of the winner. The account of its own plan is muddled: `The recommended Ridge/LGBMRegressor plan failed/underperformed` (Ridge failed, LGBMRegressor ran), and the runner-up ForecasterDirect is given 0.080, the value of the `Strategy plan` row (its own is 0.0793)."
+    },
+    "dirty_data_keep_gaps__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 1,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Copy exact (1.2922255). Rejected backtest, LGBMRegressor, then `compare` on the new strategy: the row `Strategy plan` is its plan, and the answer says which candidates failed and that `the foundation model and tree-based LGBM candidates could` run, without giving another row as its plan; it does not give the rank of its plan. Forecast of the winner. Nothing filled. One read-only command denied."
+    },
+    "dirty_data_keep_gaps__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Copy exact. Switch to LGBMRegressor said with its reason; backtest and forecast of that plan, no comparison. The MASE read against the one-step naive forecast."
+    },
+    "dirty_data_keep_gaps__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 1,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Copy exact. After the rejected backtest goes to `compare` with the refined plan and forecasts with the winner. The answer does not mention its own plan (the row `Strategy plan`, third of five) nor the change of estimator, which is no longer the plan it forecasts with. Nothing filled."
+    },
+    "dirty_data_keep_gaps__noskill__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 1,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Copy exact. `I tried LGBMRegressor, which handled them (MAE 0.081)`, the value of its row, then the comparison and the forecast of its winner. No baseline, said with the reason of the summary. One `refine_plan` call corrected at once."
+    },
+    "dirty_data_keep_gaps__noskill__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Copy exact. Goes to `compare` with the recommended plan (no row `Strategy plan`: the plan is the row of its forecaster); two candidates fail on the gap and it says so; forecast of the winner. Offers to impute, as a question."
+    },
+    "dirty_data_keep_gaps__noskill__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "Copy exact; comparison and forecast of the winner; the failed candidates and the missing baseline said. A statement nothing supports: the forecast follows the `summer-peak/winter-trough seasonal pattern` of the series (its own table peaks in December and January)."
+    },
+    "foundation_default__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 1,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Default model, license from the notice, backtest of 6 inference windows and forecast. Says the MASE is not a seasonal naive baseline and that it ran no comparison. Does not say that the weights are downloaded."
+    },
+    "foundation_default__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Same, with the download from the Hub said."
+    },
+    "foundation_default__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 1,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Same; warns not to read the MASE as `42% better than baseline`. Offers the comparison. Does not say that the weights are downloaded."
+    },
+    "probe_why_winner__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Comparison with the count of the summary (`3 of the 4 trained/foundation candidates beat the baseline; ForecasterDirect did not`). Asked why: the server measures which candidate has the lowest error, not why; no cause given."
+    },
+    "probe_why_winner__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Same; `3 of the 4 non-baseline candidates beat the baseline; only ForecasterDirect did not`. No cause."
+    },
+    "probe_why_winner__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Same. No cause."
+    }
+  }
+}

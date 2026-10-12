@@ -14,7 +14,7 @@
       "additionalProperties": false,
       "properties": {
         "data_path": {
-          "description": "Absolute path of a CSV file inside the directory the server may read. URLs are not accepted.",
+          "description": "Absolute path of a CSV file ('.csv', '.tsv', '.csv.gz' or '.tsv.gz') inside the directory the server may read. URLs are not accepted.",
           "type": "string"
         },
         "target": {
@@ -73,6 +73,39 @@
           ],
           "default": null,
           "description": "Columns to use as exogenous variables, an empty list for none. When null, every column that is not the target, the date or the series ids. The other columns are not used."
+        },
+        "sep": {
+          "anyOf": [
+            {
+              "enum": [
+                ",",
+                ";",
+                "\t"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Separator of the fields of the file: ',', ';' or a tabulator. When null, it is detected from the file; pass it only when an error says it cannot be told."
+        },
+        "decimal": {
+          "anyOf": [
+            {
+              "enum": [
+                ".",
+                ","
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Decimal mark of the file: '.' or ',' (only when the separator is not ','). When null, it is detected from the file."
         }
       },
       "required": [
@@ -1417,7 +1450,7 @@
             }
           ],
           "default": null,
-          "description": "Configurations to compare, each {'name': ..., 'config': {...}}, e.g. [{'name': 'ridge', 'config': {'estimator': 'Ridge'}}]. Null for the candidates recommended by the profile: the forecasters of its family (with several series, ForecasterRecursiveMultiSeries and ForecasterFoundation), or the estimators of the recommended forecaster when that leaves one, without those above 500 estimator fits. A candidate that fails is ranked last with its error."
+          "description": "Configurations to compare, each {'name': ..., 'config': {...}}, e.g. [{'name': 'ridge', 'config': {'estimator': 'Ridge'}}]. Null for the candidates recommended by the profile: the forecasters of its family (with several series, ForecasterRecursiveMultiSeries and ForecasterFoundation), or the estimators of the recommended forecaster when that leaves one, without those above 500 estimator fits; plus the plan the strategy was built for, in the row 'Strategy plan', when it is none of them. The summary names the row of that plan. A candidate that fails is ranked last with its error."
         },
         "interval": {
           "anyOf": [
