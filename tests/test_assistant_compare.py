@@ -3045,11 +3045,16 @@ def test_compare_strategy_plan_row_when_plan_was_refined(monkeypatch):
     assert list(result.results["estimator"]) == [
         "Ridge", "Arima", None, "Ridge", "LGBMRegressor"
     ]
+    # The Arima fit of ForecasterStats ends where its optimizer stops, which
+    # moves in the fifth decimal from one CI runner to another (0.063813 and
+    # 0.063819); the other rows are exact to six decimals.
+    maes = result.results["mean_absolute_error"].to_numpy()
     np.testing.assert_array_almost_equal(
-        result.results["mean_absolute_error"].to_numpy(),
-        np.array([0.061982, 0.063817, 0.066072, 0.076281, 0.082949]),
+        maes[[0, 2, 3, 4]],
+        np.array([0.061982, 0.066072, 0.076281, 0.082949]),
         decimal=6,
     )
+    assert np.isclose(maes[1], 0.063817, atol=1e-5)
     assert result.strategy_plan_name == "Strategy plan"
     strategy_row = result.candidates["Strategy plan"]
     assert np.isclose(
