@@ -102,11 +102,14 @@ const TOOLS = ['profile', 'plan', 'create_cv', 'compare', 'forecast', 'get_code'
 // What the language model of the agent does, and when: it is lit only during
 // these moments, [start, end, what it does], and off while the server works.
 const MODEL = [[T.read, T.pick, 'reads your request'], [T.pick, CALLS[0].at + .3, 'picks profile']];
+// It reads every response, but that is said once, after profile (the privacy
+// step): a second text in the short gap before each call could not be read.
 CALLS.slice(1).forEach((c, i) => {
-  const from = CALLS[i].back[1], pick = c.at - .6;
-  MODEL.push([from, pick, i ? 'reads the summary' : 'reads the summary, not the file'], [pick, c.at + .3, 'picks ' + c.tool]);
+  const from = CALLS[i].back[1];
+  if (i) MODEL.push([from, c.at + .3, 'picks ' + c.tool]);
+  else MODEL.push([from, c.at - .6, 'reads the summary, not the file'], [c.at - .6, c.at + .3, 'picks ' + c.tool]);
 });
-MODEL.push([T.codeBack[1], T.answerIn[0], 'reads the script'], [T.answerIn[0], T.answerIn[1] + .4, 'writes the answer']);
+MODEL.push([T.codeBack[1], T.answerIn[1] + .4, 'writes the answer']);
 
 /* ---------------------------------------------------------------- layout */
 const MX0 = 30, MY0 = 124, MX1 = 1250, MY1 = 681;         // your machine
@@ -182,7 +185,7 @@ function model(t, o, a){
   o.push(text(x0 + 30, y, 'Language model', {size:13, weight:700, fill:V('llm'), op:a*lerp(.55, 1, on)}));
   o.push(text(x0 + 30 + mw('Language model', 13, 700) + 8, y, 'local or cloud', {size:12, fill:V('muted'), op:a}));
   if (seg) o.push(text(x1 - 14, y, seg[2], {size:12.5, cls:'m', weight:700, anchor:'end', fill:V('llm'), op:a*on}));
-  else o.push(text(x1 - 14, y, busy ? 'waits for the server' : 'reads what the agent reads',
+  else o.push(text(x1 - 14, y, busy ? 'waits for the server' : t > T.answerIn[1] ? 'wrote the answer' : 'reads what the agent reads',
     {size:12.5, cls:'m', anchor:'end', fill:V('muted'), op:a*(1 - on)}));
 }
 

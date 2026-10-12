@@ -257,7 +257,10 @@ at the first response (`T.privacy`): the summary of `profile` is on the
 server with its "no rows" tag, the strip says "reads the summary, not the
 file", and "204 rows: they stay in the file" turns green in the project
 folder. The gap between `profile` and `plan` is longer than the others to
-give it time.
+give it time. That the model reads each response is said only there: before
+the other calls the strip shows "picks plan", "picks compare" and so on,
+since a second text in a gap of one second could not be read. After the
+answer the strip is off and says "wrote the answer".
 
 The figures are real. `generate_mcp_overview_data.py` starts the server of
 this checkout, opens an in-memory MCP client against it (as
