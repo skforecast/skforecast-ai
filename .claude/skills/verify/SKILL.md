@@ -78,7 +78,10 @@ project, so a new warning fails here too.
 - LLM layer changed: `PY -m pytest tests/tests_llm/test_golden_context.py -q`.
   If goldens differ on purpose, follow `/llm-context-change`.
 - Docs changed: `PYTHONPATH=. mkdocs build -q -d <scratchpad>/site` (never
-  into the repo). Report warnings about broken links or references.
+  into the repo). Report warnings about broken links or references. Also run
+  `PY tools/docs/hooks/page_meta.py`: a new or renamed page needs its search
+  engine title and description in `tools/docs/hooks/page_meta.yml` (CI runs
+  the same check on pull requests).
 - Harness changed (`.claude/hooks/`): `PY -m pytest .claude/hooks -q -p
   no:cacheprovider` (outside `testpaths`, so the full suite does not run it).
 - User-visible change (API, CLI output, generated scripts, warnings) and no
