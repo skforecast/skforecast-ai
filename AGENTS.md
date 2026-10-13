@@ -83,6 +83,7 @@ ruff check skforecast_ai tests                   # lint (must be clean; CI runs 
 python tools/ai/update_golden_contexts.py        # regenerate LLM context goldens
 python tools/ai/check_ask_context.py --dry-run   # ask() contexts, no LLM call
 PYTHONPATH=. mkdocs build -q -d /tmp/site        # docs build check
+python tools/docs/hooks/page_meta.py             # docs titles and descriptions
 ```
 
 ## Code style
@@ -148,6 +149,10 @@ Follow `.github/instructions/testing.instructions.md`. In short:
   `GIT_COMMITTER_*`; do not override it.
 - Any user-visible change (API, CLI output, generated scripts, warnings)
   gets an entry in `docs/releases/releases.md` under the unreleased version.
+- A new, renamed or removed docs page updates its search engine title and
+  description in `tools/docs/hooks/page_meta.yml` (notebooks cannot carry
+  front matter); `python tools/docs/hooks/page_meta.py` checks the coverage
+  and the rules written at the top of the YAML.
 - A change to `llm/context.py`, `llm/prompts.py` or the rendered
   explanations needs a run of `tools/ai/check_ask_context.py` against a real
   model before the release (it costs money, so the user launches it), and
