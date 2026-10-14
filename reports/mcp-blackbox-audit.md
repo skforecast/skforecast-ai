@@ -17,14 +17,26 @@ symlinks a fichero y a directorio, URLs, caracteres de control, `/proc`), los
 errores de esquema llegan en el JSON documentado con `field`, y los umbrales
 de coste (50 ajustes, 2000 ventanas) caen exactamente donde dice el skill.
 
-Lo que los 62 ficheros de `tests/tests_mcp/` no ven está casi todo en dos
-sitios: **la lectura de CSV reales** y **los consejos que el servidor da al
-agente**.
+Lo que los 62 ficheros de `tests/tests_mcp/` no ven está casi todo en tres
+sitios: **la lectura de CSV reales**, **los casos multiserie menos comunes** y
+**los consejos que el servidor da al agente**.
 
-- **Un fallo grave, silencioso**: en un CSV con `;` y cantidades enteras con
-  punto de miles (`1.020`), `profile` lee `1.020` como `1.02` sin error ni
-  notice; el agente pronostica y reporta sobre un objetivo errado en un factor
-  1000 (V08). Es la exportación típica de Excel en España.
+- **Dos fallos graves**:
+  - En un CSV con `;` y cantidades enteras con punto de miles (`1.020`),
+    `profile` lee `1.020` como `1.02` sin error ni notice; el agente pronostica
+    y reporta sobre un objetivo errado en un factor 1000 (V08). Es la
+    exportación típica de Excel en España.
+  - En datos largos con ids de serie numéricos (`001`, `1`), todo `backtest`,
+    `forecast` y `compare` falla con un `KeyError: 1` interno de skforecast, y
+    los ceros a la izquierda se pierden (G02). Los ids de tienda o SKU suelen
+    ser así; el agente queda bloqueado sin pista de la causa.
+- **Resultados incorrectos sin aviso en multiserie**: ForecasterDirectMultiVariate
+  hereda el estimador elegido para las series agrupadas y su backtest repite un
+  modelo constante (G01); una serie demasiado corta desaparece del backtest y
+  de su media "across series" sin notice, y luego `forecast` falla por ella
+  (G03).
+- **Un `internal_error` con una entrada normal**: `forecast` con `test_size`
+  como fecha con zona horaria (`...Z`) responde "do not retry" (G04).
 - **Ficheros mal formados que no dan `data_unreadable`**: filas con un campo
   más que la cabecera (separador final, o campo extra solo en la primera fila)
   producen un error falso ("el objetivo no tiene valores") o un perfil basura
@@ -43,18 +55,24 @@ agente**.
   MAPE en fracción sin aviso (V20).
 - **Promesas del contrato que no se cumplen**: `missing_dependency` sin `hint`
   para XGBoost y CatBoost (V02), un `compare` por defecto multiserie que
-  siempre lleva un candidato XGBoost que no puede instalarse (V01), claves
+  casi siempre lleva un candidato XGBoost que no puede instalarse (V01), claves
   desconocidas de `window_features` ignoradas y además mostradas como elegidas
   (V25), `refine_plan` que descarta `estimator_kwargs` omitidos (V29), y varias
   frases del SKILL.md o de los esquemas que ya no describen el comportamiento
   (V06, V19, V21, V24).
 
 Cifras: 6 ejes explorados por agentes cliente de caja negra, 45 hallazgos
-brutos, 34 tras deduplicar, **28 confirmados** por mayoría de 3 escépticos
-independientes (6 refutados), más la ronda de huecos del crítico de
-completitud (sección "Segunda ronda"). Por categoría de los 28: 8 bugs,
-8 fricciones para agentes, 8 desajustes del skill o los esquemas, 4 mejoras.
-Por prioridad: 1 alta, 10 media, 17 baja.
+brutos, 34 tras deduplicar, 28 confirmados por mayoría de 3 escépticos
+independientes (6 refutados); el crítico de completitud abrió 8 huecos y su
+ronda añadió 5 hallazgos, los 5 confirmados por 2 de 2 escépticos. **Total: 33
+confirmados**: 13 bugs, 8 fricciones para agentes, 8 desajustes del skill o
+los esquemas, 4 mejoras; 2 de prioridad alta, 13 media y 18 baja.
+
+Si solo se arreglan cinco cosas: V08 y G02 (datos reales que rompen el flujo o
+lo falsean), V28 (ficheros mal formados), G01 y G03 (números multiserie
+incorrectos sin aviso). Los arreglos de redacción del SKILL.md y de los
+esquemas (V06, V19, V21, V24, V29) son baratos y evitan que el agente afirme
+cosas falsas.
 
 ## Método
 
@@ -626,7 +644,166 @@ líneas citadas son de `0.4.x` en el momento de la auditoría.
   `_validate_params()` en `plan` (`skforecast_ai/_validation.py:299-375`).
 - Test: `tests/tests_mcp/test_tool_plan.py`.
 
-SEGUNDA_RONDA_PLACEHOLDER
+## Segunda ronda: crítico de completitud
+
+El crítico revisó cobertura, notas de "no cubierto" de cada explorador y los
+tests, y marcó 8 huecos relevantes y sondeables aquí: ForecasterDirectMultiVariate
+de extremo a extremo, codificaciones y dialectos no UTF-8, progreso y
+cancelación en ejecuciones largas reales, fechas con zona horaria y
+frecuencias no diarias, `data_changed` más allá de lo que cubren los tests,
+datos largos multiserie difíciles, límites del almacén de objetos y
+combinaciones de argumentos de `compare`. Un explorador de caja negra los
+sondeó todos (scripts en `reports/mcp-blackbox-audit/g_gaps/`) y 2 escépticos
+xhigh verificaron sus 5 hallazgos; ninguno quedó empatado, así que no hizo
+falta desempate. Los 5 sobreviven (2/2). Datos crudos en `gaps_round2.json`.
+
+### Prioridad alta
+
+#### G02. Ids de serie numéricos (`001`, `1`) hacen fallar todo backtest, forecast y compare con `KeyError: 1`
+
+- Herramientas: `profile`, `backtest`, `forecast`, `compare`, `get_code`.
+  Categoría: bug. Votos: 2/2.
+- Reproducción: `reports/mcp-blackbox-audit/g_gaps/g_02_numeric_series_ids_fail_every_run.py`.
+  Datos largos `store,date,sales` con tiendas `001`, `002`, `010` (96 meses
+  cada una): `profile {target: "sales", series_id_column: "store"}`, `plan
+  {steps: 12}`, `create_cv`, `backtest`, `forecast`, `compare`; control con
+  ids `S01`, `S02`, `S10`.
+- Observado: el perfil llama a las series `1`, `2`, `10` (se pierden los
+  ceros) sin notices. `backtest` y `forecast`: `execution_failed`, `field` y
+  `hint` nulos; `compare`: `all_candidates_failed`; `get_failure`: `KeyError:
+  1` dentro de skforecast (`encoding_mapping_[series_name_k]`). El script de
+  `get_code` falla igual fuera del servidor. Con ids enteros sin ceros
+  (`1`, `2`, `10`) pasa lo mismo; con letras funciona.
+- Esperado: conservar los ids como texto del fichero y ejecutar como con
+  letras; como mínimo, un error previo con `field: "series_id_column"` y un
+  `hint`.
+- Impacto: los ids de tienda, SKU o sensor suelen ser numéricos o con ceros a
+  la izquierda. El flujo entero queda bloqueado: la traza que el skill manda
+  leer no apunta a los ids, el agente no puede proponer el arreglo y además
+  reporta `1` y `2` a un usuario que conoce `001` y `002`.
+- Causa: la columna de ids se lee sin `dtype` al perfilar
+  (`skforecast_ai/_utils.py:894`, `:1026`) y en el `read_csv` generado
+  (`skforecast_ai/rendering/_helpers.py:540`, reshape en `:1395-1430`);
+  skforecast 0.26 construye `encoding_mapping_` con claves `str` y busca con
+  el entero.
+- Arreglo propuesto: leer `series_id_column` con `dtype=str` en el perfil y en
+  el script (o emitir `astype(str)` antes del reshape), con su golden de
+  renderizado.
+- Test: `tests/tests_rendering/` (script byte a byte),
+  `tests/test_integration_standalone_script.py` y
+  `tests/tests_mcp/test_tool_backtest.py` con ids `001`.
+
+### Prioridad media
+
+#### G01. ForecasterDirectMultiVariate hereda el estimador elegido para las series agrupadas y su backtest repite un modelo constante
+
+- Herramientas: `plan`, `backtest`. Categoría: bug. Votos: 2/2.
+- Reproducción: `reports/mcp-blackbox-audit/g_gaps/g_01_direct_multivariate_keeps_pooled_estimator.py`.
+  3 series mensuales anchas de 96 fechas: `profile {target: [a, b, c]}`,
+  `plan {steps: 12, forecaster: "ForecasterDirectMultiVariate"}`,
+  `create_cv`, `backtest`, `compare` con el estimador del plan frente a Ridge.
+- Observado: el plan mantiene "Estimator: LGBMRegressor" con la razón "288
+  observations" (las tres series agrupadas), aunque DMV entrena con una fila
+  por fecha (96, 67 en la primera ventana); la misma serie sola recibe Ridge
+  por ser pequeña. Las predicciones del backtest son idénticas en todos los
+  folds (LGBM no encuentra ningún corte): MASE 3.587, frente a 0.488 de DMV
+  con Ridge en los mismos folds. Ningún notice.
+- Esperado: la regla del estimador debe usar las filas con las que entrena DMV
+  (daría Ridge), y la explicación no debe dar una razón falsa.
+- Impacto: el agente deja el estimador a las reglas, como manda el skill,
+  reporta MASE 3.59 como la precisión de DMV y repite al usuario una razón que
+  no se aplica.
+- Causa: `skforecast_ai/assistant.py:1088-1095` recalcula el estimador al
+  cambiar a la tarea `multivariate` con `data_profile.n_total_observations`;
+  la razón sale de `skforecast_ai/recommendation/explanation.py:306`.
+- Arreglo propuesto: para `multivariate`, pasar `span_index_length` a
+  `select_estimator_and_candidates` y a la explicación.
+- Test: `tests/test_assistant_plan.py` (hoy solo comprueba el forecaster).
+
+#### G03. Una serie demasiado corta desaparece en silencio de un backtest multiserie, y luego `forecast` falla por ella
+
+- Herramientas: `profile`, `create_cv`, `backtest`, `forecast`. Categoría:
+  bug. Votos: 2/2 (una media, una baja).
+- Reproducción: `reports/mcp-blackbox-audit/g_gaps/g_03_short_series_dropped_from_backtest.py`
+  (y `verify/g03_summaries.py`). Datos largos con S01 y S10 de 96 meses y S02
+  con los últimos 20.
+- Observado: perfil y plan dicen "Short series: only 20 observations" sin
+  nombrar la serie; `create_cv` sin notices; el backtest termina con "Results
+  (average across series): ... mean_absolute_scaled_error: 0.4715", una fila
+  de S02 toda NaN en `files.metrics` y ninguna fila de S02 en las predicciones.
+  `forecast` del mismo plan: `insufficient_data` "('S02': 20)".
+- Esperado: nombrar la serie corta en el perfil y que `create_cv` o el
+  backtest digan que S02 no se pronostica en ningún fold y que un `forecast`
+  fallará; no presentar una media "across series" que la excluye.
+- Impacto: siguiendo el skill (sin baseline, leer las filas por serie y
+  nombrar la peor), el agente reporta la precisión de las tres tiendas y no
+  puede nombrar la peor, que es la que nunca se pronosticó.
+- Causa: `skforecast_ai/_last_window.py:816` salta la comprobación de
+  longitud en backtesting (intencionado para series que empiezan tarde, pero
+  también deja pasar series que nunca superan la ventana);
+  `skforecast_ai/execution/backtesting_runner.py:212` promedia ignorando NaN.
+- Arreglo propuesto: en backtesting, detectar series cuyo tramo nunca supera
+  la ventana y lanzar `insufficient_data` o emitir un notice que las nombre.
+- Test: `tests/test_validate_series_lengths.py` y
+  `tests/tests_mcp/test_tool_backtest.py`.
+
+#### G04. `forecast` con `test_size` como fecha ISO con zona horaria da `internal_error`
+
+- Herramienta: `forecast`. Categoría: bug. Votos: 2/2.
+- Reproducción: `reports/mcp-blackbox-audit/g_gaps/g_04_test_size_with_time_zone_internal_error.py`.
+  Serie horaria con fechas `2024-03-20T00:00:00Z`: `plan {steps: 24,
+  estimator: "Ridge"}`, `forecast {test_size: "2024-04-09T00:00:00Z"}`, luego
+  `+00:00`, luego sin zona; lo mismo sobre una copia sin zona.
+- Observado: con `Z` o `+00:00`, `internal_error` (TypeError), `hint` "Report
+  it to the user with the id; do not retry with the same inputs"; el log del
+  servidor dice "Cannot compare tz-naive and tz-aware timestamps"
+  (`resolve_end_train`). Sin zona funciona. `create_cv` acepta
+  `initial_train_size` con zona en datos UTC, y en datos sin zona responde un
+  `invalid_argument` claro.
+- Esperado: el mismo tratamiento que `create_cv`; nunca `internal_error` para
+  una entrada del usuario.
+- Impacto: el skill manda pasar la fecha ISO en la que empieza el test; con
+  datos UTC el agente la escribe con `Z`, recibe "no reintentes" y reporta un
+  fallo del servidor en vez de quitar la zona.
+- Causa: `skforecast_ai/assistant.py:4498-4503` llama a `resolve_end_train`
+  sin la zona de los datos; `skforecast_ai/profiling/data_profile.py:4043-4047`
+  compara fuera del `try`.
+- Arreglo propuesto: pasar `DataProfile.time_zone` y construir el índice como
+  en `create_cv` (`_aware_index`); en datos sin zona, `InvalidInputError` en
+  `test_size`.
+- Test: `tests/tests_profiling/test_resolve_end_train.py` y
+  `tests/test_assistant_forecast.py`.
+
+### Prioridad baja
+
+#### G05. El primer `get_code` de la sesión bloquea el bucle de eventos durante una ejecución larga
+
+- Herramienta: `get_code` (y, de rebote, las demás de lectura). Categoría: bug.
+  Votos: 2/2.
+- Reproducción: `reports/mcp-blackbox-audit/g_gaps/g_05_first_get_code_waits_for_stats_run.py`
+  (y `verify/g05_event_loop_blocked.py`). Backtest de ForecasterStats de 10
+  folds (unos 20 s) y, 2 s después, en paralelo `list_objects`,
+  `describe_object` y `get_code`; control con un `get_code` previo.
+- Observado: `list_objects` y `describe_object` responden en 0.1 s;
+  `get_code` tarda unos 19 a 22 s (el backtest termina a los 21 a 24 s), sin
+  progreso. Un escéptico mostró que es peor: un `list_objects` enviado 1 s
+  después de ese `get_code` también espera, porque se bloquea todo el bucle de
+  eventos. En el control responde en 0.1 s.
+- Esperado: el SKILL.md dice que durante una ejecución larga responden las
+  herramientas de lectura, `get_code` incluida.
+- Impacto: riesgo de timeout del cliente en una llamada que el agente espera
+  instantánea, y bloqueo del resto de lecturas.
+- Causa: `get_code` es asíncrona y llama a `_requirements` en el bucle de
+  eventos (`skforecast_ai/mcp/server.py:2673`); la primera vez,
+  `_distributions()` hace un `importlib.metadata.packages_distributions()` en
+  frío (`server.py:1293`) que, compitiendo por el GIL con el hilo de
+  ForecasterStats, tarda decenas de segundos.
+- Arreglo propuesto: precalentar `_distributions()` en el hilo de precarga
+  (`skforecast_ai/mcp/_preload.py`) o ejecutar `_requirements` con
+  `anyio.to_thread.run_sync`.
+- Test: `tests/tests_mcp/test_concurrency.py` (una lectura durante una
+  ejecución, con la caché de `_distributions` vacía).
+
 
 ## Descartados
 
@@ -639,11 +816,48 @@ SEGUNDA_RONDA_PLACEHOLDER
 | V32 | `compare` ejecuta candidatos que `plan` rechazaría y `all_candidates_failed` solo nombra la clase | 1/3 | Con el baseline por defecto el resumen y el leaderboard muestran el mensaje completo; `get_failure` lo da en el caso de todos fallidos. Un escéptico sí encontró un bug real en la segunda parte: `InvalidInputError` se reporta como `ValueError` (`skforecast_ai/exceptions.py:141-169`), así que `skforecast_ai/mcp/_errors.py:304-307` no reconoce el mensaje propio y lo omite, y el test `test_failure_text.py` construye a mano un `CandidateFailure` que `compare` nunca produce. Queda anotado como observación, no como hallazgo confirmado. |
 | V34 | Un id con un carácter mal escrito se atribuye a "otra ejecución del servidor" | 1/3 | El `hint` manda a `list_objects` y la tabla del skill pone esa acción primero; rehacer el objeto es inofensivo porque todo es determinista. |
 
-DESCARTADOS_RONDA2_PLACEHOLDER
+En la segunda ronda no se descartó ningún hallazgo. El explorador sí anotó,
+sin registrarlos como hallazgos, el comportamiento de una petición encolada
+tras una ejecución larga (no recibe progreso mientras espera su turno, lo que
+el skill documenta) y `get_failure(comparison_id)` sin candidato, que responde
+"has no failed candidate named None" con la lista de candidatos fallidos
+(filtra un `None` de Python y `hint` nulo, pero el agente puede recuperarse).
 
 ## Qué no se pudo cubrir
 
-NO_CUBIERTO_PLACEHOLDER
+- **Modelos fundacionales en ejecución**: sin `chronos` ni red solo se
+  observaron `missing_dependency`, `model_not_allowed` y el
+  `ModelDownloadNotice` del plan. No se probaron la inferencia, el
+  `ModelLicenseNotice`, `--allow-model` con prefijos restringidos ni
+  `HF_HUB_OFFLINE`.
+- **XGBoost y CatBoost funcionando**: no están instalados; solo se vio su
+  camino de fallo (V01, V02).
+- **Límites de truncado**: resumen de 20.000 caracteres (120 candidatos con
+  nombres largos dieron 12.132), notice de 1.000, `hint` de 1.000 y texto de
+  `details` de 500. El servidor resume las listas ("first 5 of N") antes de
+  llegar ahí, así que ninguna entrada de caja negra los alcanzó. Sí se vio el
+  corte del mensaje a 4.000 y `notices_omitted` con más de 20 notices.
+- **`internal_error`** provocado por una entrada normal: solo G04. No se pudo
+  observar la forma de `details.error_id` en otro caso.
+- **Expulsión por memoria** (`--max-memory-mb 1`): no expulsó nada ni con un
+  perfil de 100.000 filas y un backtest de 1.600 folds; el caso de un objeto
+  mayor que el límite queda sin observar. La expulsión por número sí se probó.
+- **Ficheros de cientos de MB** y `--max-file-mb 0` con un fichero grande real;
+  un cliente que se desconecta durante el perfil de un `.gz` grande; un cliente
+  que deja de leer stdout (contrapresión); carrera de symlink entre la
+  comprobación y la lectura; hosts Windows.
+- **Un cliente con timeout real**: se midió el silencio de una llamada encolada
+  y el de G05, pero no se provocó un timeout ni un objeto huérfano.
+- **Restos menores sin script**: fechas `00:00:00` en el
+  `HoldoutEvaluationNotice`, `mean_absolute_scaled_error` NaN con "Mean of
+  empty slice", fechas día-primero en el `exog_future` de datos largos, DMV con
+  `refit: true`.
+
+Presupuesto de agentes: el encargo pedía unos 12; se usaron 16 (6
+exploradores, 6 escépticos en la primera ronda, crítico, explorador de huecos y
+2 escépticos). La diferencia viene de verificar los 34 hallazgos en dos lotes
+para que cada escéptico pudiera ejecutar todos los scripts de su lote.
+
 
 ## Comportamientos comprobados como correctos
 
@@ -683,6 +897,18 @@ probaron y funcionó como promete el contrato:
   `exog_path`. Arranque con `--allow-dir` a un fichero, inexistente o
   relativo: error claro. Un cliente que muere (SIGKILL o SIGTERM) a mitad de
   un backtest no deja procesos huérfanos.
+- **Segunda ronda**: ForecasterDirectMultiVariate dice qué serie predice y
+  reordenar `target` la cambia de forma coherente; `compare` rechaza mezclar
+  familias con un mensaje claro. cp1252 y UTF-16 dan `data_unreadable` con
+  `hint` de UTF-8; CRLF, cabeceras entrecomilladas con el separador y
+  cabeceras con espacios funcionan. El latido de progreso sale cada 5 s con el
+  texto prometido; un `compare` cancelado no deja ficheros. Días hábiles con
+  `test_size` en sábado, DST con desfases mezclados, UTC `Z`, fin de mes y
+  trimestres funcionan o dan errores claros. `data_changed` no da falsos
+  positivos con `touch` ni reescritura atómica idéntica y salta en `backtest`,
+  `compare` y `forecast` tras añadir una fila. Un `compare` registra 2 objetos
+  sea cual sea el número de candidatos, y los ids que el agente sigue usando
+  sobreviven a la expulsión.
 - **Errores**: unos 150 errores provocados en las 11 herramientas. Las
   violaciones de esquema (argumentos que faltan, desconocidos, tipos, enums,
   `candidates: []`) llegan como JSON documentado con `field`; los ids del tipo

@@ -16,9 +16,16 @@ seeds).
 - `smoke.py`: profile, plan, create_cv, backtest and forecast on a monthly
   series.
 - One directory per axis (`a_happy_path/`, `b_hard_data/`, `c_notices/`,
-  `d_limits_security/`, `e_skill_coherence/`, `f_errors/`, and the later
-  rounds), with `make_data.py` (writes the small datasets to `data/`), the
-  datasets and one `<axis>_<NN>_<slug>.py` per finding.
+  `d_limits_security/`, `e_skill_coherence/`, `f_errors/`, and `g_gaps/` for
+  the round of the completeness critic), with `make_data.py` (writes the small
+  datasets to `data/`), the datasets and one `<axis>_<NN>_<slug>.py` per
+  finding.
+- `verify/`: smaller reproductions written by the skeptics.
+- `findings_explored.json`: the 34 deduplicated findings of the first round
+  (keys `V01` to `V34`), with the merged duplicates.
+- `verdicts_round1.json`: the three votes of each of them.
+- `gaps_round2.json`: the gaps of the critic, the findings of the gap round
+  (`g-01` to `g-05`) and their votes.
 
 ## Running a script
 
