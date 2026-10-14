@@ -1,0 +1,1396 @@
+[
+ {
+  "key": "V01",
+  "votes": [
+   {
+    "lens": "repro",
+    "key": "V01",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Script prints REPRODUCED: profile proposes ['XGBRegressor','Ridge'], create_cv compare_estimator_fits=3 counts XGB, and the leaderboard row 'ForecasterRecursiveMultiSeries+XGBRegressor' fails with \"XGBRegressor needs the 'xgboost' package\", while the same response leaves ForecasterFoundation out with a MissingBackendWarning. pyproject.toml lists xgboost in no dependency or extra. resolve_default_candidates only calls missing_foundation_backend(profile) to exclude candidates. 'Always' is slightly overstated: XGB is only proposed when n_total_observations >= 250 (forecaster_selection.py:177), but that covers most multi-series data.",
+    "covered_by_test": "tests/tests_mcp/test_tool_compare.py::test_tool_compare_default_candidates_of_the_profile accepts the bad behaviour (comment 'A candidate whose library is not installed (XGBoost) fails, as it may') and only checks parity with the Python API.",
+    "adjusted_category": "agent_friction",
+    "adjusted_severity": "medium",
+    "root_cause": "skforecast_ai/execution/comparison.py:484 excludes only foundation models whose backend is missing; skforecast_ai/recommendation/forecaster_selection.py:181-185 always lists XGBRegressor. Fix: also exclude estimators whose SUPPORTED_ESTIMATORS package is not importable from the default candidates (with a MissingBackendWarning-style note), or leave them out of estimator_candidates."
+   },
+   {
+    "lens": "documented",
+    "key": "V01",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "The script printed REPRODUCED. The leaderboard row 'ForecasterRecursiveMultiSeries+XGBRegressor' failed with \"XGBRegressor needs the 'xgboost' package...\", create_cv counted it in compare_estimator_fits=3, and the same response left ForecasterFoundation out with a MissingBackendWarning. pyproject.toml lists xgboost in no dependency or extra. releases.md:140 gives the reason the foundation model is left out: 'instead of running a candidate that fails'. That reason applies just as much to XGBoost, so the different handling is not a documented choice.",
+    "covered_by_test": "tests/tests_mcp/test_tool_compare.py::test_tool_compare_default_candidates_of_the_profile sees this and accepts it as fine (comment line 325: 'A candidate whose library is not installed (XGBoost) fails, as it may'), so it would not catch it.",
+    "adjusted_category": "agent_friction",
+    "adjusted_severity": "medium",
+    "root_cause": "skforecast_ai/recommendation/forecaster_selection.py:181-185 always proposes XGBRegressor (for 250 or more observations), and skforecast_ai/execution/comparison.py:440-510 (resolve_default_candidates) drops only a missing foundation backend (missing_foundation_backend, line 484). Fix: leave out default estimator candidates whose SUPPORTED_ESTIMATORS package cannot be imported, with a MissingBackendWarning-style note (and the same in the compare_estimator_fits count), or propose HistGradientBoostingRegressor instead."
+   },
+   {
+    "lens": "impact",
+    "key": "V01",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Script prints REPRODUCED: xgboost is not importable and is in no dependency or extra of pyproject.toml, yet the profile offers 'Alternative estimators: ['XGBRegressor', 'Ridge']'. The default multi-series compare ranks 'ForecasterRecursiveMultiSeries+XGBRegressor' last with 'needs the xgboost package', while ForecasterFoundation is left out with a MissingBackendWarning. The reason is already in <failed_candidates> of the summary, so a careful agent does not need get_failure and reports two valid candidates. What remains is noise: every default multi-series compare in a standard install shows '1 configuration failed', create_cv counts the extra fit in compare_estimator_fits, and the agent passes on a 'pip install xgboost' that does not help a uvx server (see V02). This is friction, not a wrong result.",
+    "covered_by_test": "tests/tests_mcp/test_tool_compare.py::test_tool_compare_default_candidates_of_the_profile accepts it ('A candidate whose library is not installed (XGBoost) fails, as it may'), so the suite treats it as intended.",
+    "adjusted_category": "agent_friction",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/execution/comparison.py:484 (resolve_default_candidates) checks only missing_foundation_backend, and skforecast_ai/recommendation/forecaster_selection.py:180-186 always lists XGBRegressor. Leave a default candidate out when its estimator package fails find_spec, with the same kind of notice used for the foundation backend, or do not propose an uninstalled estimator in the profile."
+   }
+  ],
+  "n_votes": 3,
+  "not_refuted": 3,
+  "survives": true
+ },
+ {
+  "key": "V02",
+  "votes": [
+   {
+    "lens": "repro",
+    "key": "V02",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "All three scripts (a_02, d_08, e_03) print REPRODUCED. plan with estimator 'XGBRegressor' or 'CatBoostRegressor' returns notices [], and backtest and forecast fail with {code: missing_dependency, field: 'estimator', hint: null, details: null}. The foundation case instead gets a pip and uvx hint and details {model_id, package}. The SKILL.md Errors table promises \"`hint` says how, for pip and for uvx\". The message alone says 'pip install xgboost', which is the wrong advice for a server started with uvx. field 'estimator' is not an argument of forecast or backtest.",
+    "covered_by_test": "none at the MCP level for ML estimators; tests/test_validation.py (around lines 268-281) only asserts code and field of the core check; tests/tests_mcp/test_tool_backtest.py::test_tool_backtest_missing_dependency_of_a_foundation_model covers foundation only.",
+    "adjusted_category": "skill_mismatch",
+    "adjusted_severity": "medium",
+    "root_cause": "skforecast_ai/_validation.py:416-422 (check_estimator_installed) raises without hint or details, and the MCP server only wraps foundation backends (skforecast_ai/mcp/_foundation.py:408-441). Fix: give the estimator case the same server-side hint (pip and uvx --with, restart), details {package}, field plan_id, and ideally a notice at plan."
+   },
+   {
+    "lens": "documented",
+    "key": "V02",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "All three scripts (a_02, d_08, e_03) printed REPRODUCED. plan with estimator XGBRegressor gives no notice. backtest and forecast return missing_dependency with hint null, details null and field 'estimator', which is not an argument of forecast. SKILL.md Errors says '`missing_dependency` | ... `hint` says how, for pip and for uvx', and docs/api/exceptions.md:36 says the code also covers the estimator's package. Only the foundation path goes through the server check that adds a hint, details and field=plan_id.",
+    "covered_by_test": "tests/tests_mcp/test_tool_backtest.py::test_tool_backtest_missing_dependency_of_a_foundation_model covers only foundation models; no test for an ML estimator package (none).",
+    "adjusted_category": "skill_mismatch",
+    "adjusted_severity": "medium",
+    "root_cause": "skforecast_ai/mcp/server.py:2107-2116 (_run_plan_locally) calls only state.models.check_backend, which handles foundation models only (skforecast_ai/mcp/_foundation.py:408). The core check at skforecast_ai/_validation.py:415-422 then raises without a hint and with field 'estimator'. Fix: in _run_plan_locally, also check SUPPORTED_ESTIMATORS packages and raise ServerError(code missing_dependency, field=argument, the pip/uvx/restart hint, details={'package': ...}). Optionally add a notice at plan time."
+   },
+   {
+    "lens": "impact",
+    "key": "V02",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Reproduced: plan with estimator 'XGBRegressor' succeeds with notices [], and backtest and forecast then fail with {code: missing_dependency, field: 'estimator', hint: null, details: null}. SKILL.md promises '`hint` says how, for pip and for uvx', and the foundation case delivers that. plugin/.mcp.json launches the server with `uvx skforecast-ai-mcp==0.4.2`, so the only advice the agent gets, 'pip install xgboost', does nothing for the plugin route and says nothing about a restart. The user can install the package and still be stuck, which is a plausible case because the schema of plan lists XGBRegressor and CatBoostRegressor. The field 'estimator' is not an argument of forecast; that part is cosmetic.",
+    "covered_by_test": "tests/test_validation.py (test of check_estimator_installed) pins only the message, code and field 'estimator', not the hint. tests/tests_mcp/test_tool_backtest.py::test_tool_backtest_missing_dependency_of_a_foundation_model covers only foundation models. No test would catch the null hint.",
+    "adjusted_category": "skill_mismatch",
+    "adjusted_severity": "medium",
+    "root_cause": "skforecast_ai/_validation.py:412-421 raises missing_dependency without a hint or details; only skforecast_ai/mcp/_foundation.py:427-440 adds the pip/uvx hint, and only for foundation models. Add the same hint (pip, `uvx --with <pkg>`, restart) and details {package}, and run check_estimator_installed at plan time so the problem shows up there."
+   }
+  ],
+  "n_votes": 3,
+  "not_refuted": 3,
+  "survives": true
+ },
+ {
+  "key": "V03",
+  "votes": [
+   {
+    "lens": "repro",
+    "key": "V03",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Script prints REPRODUCED. get_code(forecast_id) has data = pd.read_csv('<abs>/exog_hist.csv') but exog_future = pd.read_csv('exog_future.csv'). Run in the allowed dir, it fails with FileNotFoundError, and the get_code response says nothing about it. This is documented only in the forecast.exog_path schema description (server.py:2489: 'The script of get_code reads them from exog_future.csv in its working directory'). The SKILL says 'Hand the script as it is' so the user can reproduce without the server. The error is self-explanatory (a fixed file name to copy), so I lower the severity.",
+    "covered_by_test": "tests/tests_mcp/golden/tool_schemas.json pins the exog_path description only; no test runs the get_code script of a forecast with exog_path standalone.",
+    "adjusted_category": "skill_mismatch",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/rendering/_helpers.py:766 hardcodes path='exog_future.csv' for the standalone script, and get_code (skforecast_ai/mcp/server.py:2631) does not substitute the exog_path that ran. Fix: render the absolute exog_path of the run in get_code, or add a note or field naming the file to copy, and mention it in SKILL.md."
+   },
+   {
+    "lens": "documented",
+    "key": "V03",
+    "reproduced": true,
+    "refuted": true,
+    "reason": "The symptom reproduces: the script reads pd.read_csv('exog_future.csv') and fails with FileNotFoundError when run elsewhere. But this is documented, intended behaviour, and the agent sees the documentation exactly when it passes exog_path. The forecast.exog_path schema description (server.py:2489, tool_catalog.md:1095) says: \"The script of `get_code` reads them from 'exog_future.csv' in its working directory.\" docs/api/mcp.md:25 and docs/user-guides/mcp-server.md:343 say 'copy the file there to run it'. The rendered script loads it under the comment '# Load future exogenous variables covering the forecast horizon' (rendering/_helpers.py:751-767). A careful agent can tell the user. Repeating the note in the get_code response would be a small improvement, not a defect.",
+    "covered_by_test": "none (no MCP test runs the get_code script of a forecast with exog_path as a standalone file)",
+    "adjusted_category": "improvement",
+    "adjusted_severity": "low",
+    "root_cause": "Intended design in skforecast_ai/rendering/_helpers.py:751-767 (fixed path 'exog_future.csv'). If changed: have get_code of a forecast with exog_path note in its response which file to copy as exog_future.csv."
+   },
+   {
+    "lens": "impact",
+    "key": "V03",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Reproduced: the get_code script reads the data by absolute path but reads `pd.read_csv('exog_future.csv')`, and running it as handed over fails with FileNotFoundError. The behaviour is intended and documented only in the exog_path description of forecast ('The script of get_code reads them from exog_future.csv in its working directory'). The get_code response (files: {}) and SKILL.md ('reproduce any result without the server... Hand the script as it is') say nothing about it. An agent that follows SKILL.md hands over a script that crashes. The error is explicit and the fix is trivial for the user, so this is low-impact friction rather than a wrong result.",
+    "covered_by_test": "tests/tests_mcp/golden/tool_schemas.json pins the exog_path description that documents 'exog_future.csv' as intended. No test runs an MCP get_code script with exog standalone.",
+    "adjusted_category": "skill_mismatch",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/rendering/_helpers.py:766 hard-codes path='exog_future.csv'. In the MCP forecast, render the exog_path that ran (as is done for the data path), or have get_code/SKILL.md say which file the script expects and where."
+   }
+  ],
+  "n_votes": 3,
+  "not_refuted": 2,
+  "survives": true
+ },
+ {
+  "key": "V04",
+  "votes": [
+   {
+    "lens": "repro",
+    "key": "V04",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Script prints REPRODUCED. Single series: create_cv notice 'leaves 43 row(s) ... intervals tend to be too narrow'. Three series with the same plan: notices [] and 5 of 87 backtest rows have pred outside [lower_bound, upper_bound]. warn_interval_residuals only fires for _RESIDUAL_INTERVAL_FORECASTERS = (ForecasterRecursive, ForecasterDirect, ForecasterEquivalentDate), but resolve_interval_method gives multi-series plans 'bootstrapping' too, so the exclusion is an omission. Points outside the interval also occur in the single-series case (4/29), so they are a symptom of few residuals, not of the missing notice. The SKILL already tells agents to treat intervals as estimates, so I downgrade.",
+    "covered_by_test": "tests/tests_recommendation/test_warn_interval_residuals.py covers single-series forecasters only; no multi-series case.",
+    "adjusted_category": "agent_friction",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/recommendation/backtesting.py:1508-1510 leaves ForecasterRecursiveMultiSeries (and other bootstrapping multi-series forecasters) out of _RESIDUAL_INTERVAL_FORECASTERS. Fix: include them, counting residual rows per series in the first window."
+   },
+   {
+    "lens": "documented",
+    "key": "V04",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "The script printed REPRODUCED. The single-series case gets the residual-count UserWarning at create_cv. The same plan on three series gets notices [], and 5 of 87 backtest rows have pred outside [lower_bound, upper_bound]. skforecast 0.26 ForecasterRecursiveMultiSeries also uses binned in-sample residuals (I checked: binner_kwargs, use_binned_residuals), so the reason for the warning (43 residuals per series, fewer than 100) applies. releases.md:132 describes the warning generically for 'a plan with prediction intervals estimated from residuals'.",
+    "covered_by_test": "tests/tests_recommendation/test_warn_interval_residuals.py covers recursive, direct, baseline and stats plans only; no multi-series case (none that would catch it).",
+    "adjusted_category": "agent_friction",
+    "adjusted_severity": "medium",
+    "root_cause": "skforecast_ai/recommendation/backtesting.py:1508-1510: _RESIDUAL_INTERVAL_FORECASTERS leaves out ForecasterRecursiveMultiSeries (and ForecasterDirectMultiVariate), so warn_interval_residuals returns early at line 1549. Fix: include the multi-series forecasters and count the first-window training rows per series."
+   },
+   {
+    "lens": "impact",
+    "key": "V04",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Reproduced: with one series, create_cv warns 'leaves 43 row(s)... intervals tend to be too narrow'. With three series and the same plan, notices are [], and 5 of 87 backtest rows have pred outside [lower_bound, upper_bound]. skforecast 0.26's ForecasterRecursiveMultiSeries takes binner_kwargs and keeps in_sample_residuals_by_bin_ per series, so the same per-bin shortage applies. Window size 24 is the default suggestion for monthly data, so multi-series with an interval on about 100 rows per series is plausible. The agent reports the intervals 'as estimates' without the too-narrow caveat it would have had for a single series.",
+    "covered_by_test": "tests/tests_recommendation/test_warn_interval_residuals.py covers only single-series forecasters; no multi-series case.",
+    "adjusted_category": "bug",
+    "adjusted_severity": "medium",
+    "root_cause": "skforecast_ai/recommendation/backtesting.py:1508-1510: _RESIDUAL_INTERVAL_FORECASTERS excludes ForecasterRecursiveMultiSeries, so warn_interval_residuals returns early (line 1549). Include the multi-series forecasters and count training rows per series (the shortest series in the first window)."
+   }
+  ],
+  "n_votes": 3,
+  "not_refuted": 3,
+  "survives": true
+ },
+ {
+  "key": "V05",
+  "votes": [
+   {
+    "lens": "repro",
+    "key": "V05",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "a_05 and e_05 both print REPRODUCED. backtest files.metrics uses skforecast names and 'levels'. forecast(test_size) files.metrics has ['series','MAE','MSE','MASE','MAPE'] (['series','MASE','MAE'] for multi-series), while the MetricReferenceNotice of the same response names `mean_absolute_scaled_error`. The server knows about the alias (SCALED_METRICS maps 'MASE' at server.py:134-139 and MAPE_NAMES at :143), but neither SKILL.md nor the tool catalog mentions the short names. Impact is low because MASE, MAE and MAPE are recognisable, but MedAE and the different id column need guessing.",
+    "covered_by_test": "tests/tests_mcp/test_tool_forecast.py asserts parity with the Python API metrics (csv_of(expected.metrics)), so it would not catch the naming difference.",
+    "adjusted_category": "agent_friction",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/rendering/_helpers.py:90-124 ('label': 'MSE', 'MASE', 'MedAE' ...) and the 'series' key at _helpers.py:874/921 and execution/forecast_runner.py:139 name the hold-out metrics differently from backtesting. Fix: use the skforecast metric names and 'levels' in the hold-out metrics, or document the mapping in SKILL.md."
+   },
+   {
+    "lens": "documented",
+    "key": "V05",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Both scripts (a_05, e_05) printed REPRODUCED. backtest metrics columns are skforecast names with 'levels'. forecast(test_size) metrics columns are ['series','MAE','MSE','MASE','MAPE'] (and 'MedAE'), while the MetricReferenceNotice of the same response names `mean_absolute_scaled_error`. The server knows about the split: mcp/server.py:134-143 maps both 'MASE' and 'mean_absolute_scaled_error'. But SKILL.md and the docs never tell the agent, and SKILL Inputs says metrics are the skforecast names. The impact is low because the abbreviations are mostly guessable.",
+    "covered_by_test": "tests/tests_mcp/test_tool_forecast.py asserts parity with the Python result (text_of(files.metrics) == csv_of(expected.metrics), line 64), so it accepts the abbreviated names and would not catch this.",
+    "adjusted_category": "agent_friction",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/rendering/_helpers.py:80-140: the evaluation script of forecast(test_size) labels metrics with short names ('MAE', 'MASE', 'MedAE') and a 'series' column. Fix: use the skforecast metric names and 'levels' in the evaluation output, or have the MCP layer rename the columns of files.metrics and the summary table."
+   },
+   {
+    "lens": "impact",
+    "key": "V05",
+    "reproduced": true,
+    "refuted": true,
+    "reason": "Reproduced (the holdout CSV has ['series','MAE','MSE','MASE','MAPE'] while backtest uses the skforecast names), but it is cosmetic for an LLM agent. The values and units are the same: both come from the same sklearn/skforecast functions, and skforecast_ai/mcp/server.py:134-143 maps 'MASE'->mean_absolute_scaled_error and 'MAPE' explicitly, so the MetricReferenceNotice and MetricUnitNotice fire for the short names too. A capable agent reads the CSV header before using it and maps MASE/MedAE to the long names without error. Nothing false reaches the user.",
+    "covered_by_test": "tests/tests_mcp/test_tool_forecast.py asserts parity with the Python API result (csv_of(expected.metrics)), so the short labels are the intended output of the rendered holdout script.",
+    "adjusted_category": "improvement",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/rendering/_helpers.py:80-140 METRIC labels ('MAE','MASE','MedAE') are used as column names of the holdout metrics; optionally use the skforecast names and 'levels' for consistency."
+   }
+  ],
+  "n_votes": 3,
+  "not_refuted": 2,
+  "survives": true
+ },
+ {
+  "key": "V06",
+  "votes": [
+   {
+    "lens": "repro",
+    "key": "V06",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "a_06 and e_06 both print REPRODUCED. With two Ridge candidates, compare cost is {n_fits: 1, estimator_fits: 2}. With refit=true and three candidates it is {n_fits: 3, estimator_fits: 42}. So estimator_fits is summed over candidates but n_fits is the strategy plan's. The output schema does say '`n_fits` (trainings of the forecaster in the shared strategy)', so the value is intended. But SKILL.md says compare 'costs about the sum of theirs (its response reports the totals)', which is wrong for n_fits. The impact is small: the cost thresholds use estimator_fits, not n_fits.",
+    "covered_by_test": "tests/tests_mcp/test_tool_compare.py:92 and :722 pin n_fits 1 with estimator_fits 13, i.e. assert the current semantics as intended.",
+    "adjusted_category": "skill_mismatch",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/mcp/skills/skforecast-ai-forecasting/SKILL.md Cost section ('its response reports the totals') contradicts the per-strategy n_fits of compare. Fix: say in SKILL.md that n_fits stays the shared strategy's count in a comparison, or sum n_fits over the candidates like estimator_fits."
+   },
+   {
+    "lens": "documented",
+    "key": "V06",
+    "reproduced": true,
+    "refuted": true,
+    "reason": "The symptom reproduces (compare cost n_fits 1 with two candidates, n_fits 3 with three candidates), but it is documented, intended behaviour. The output schema clients receive (ToolResult.cost in tool_catalog.json, models.py:396-404) says: '`n_fits` (trainings of the forecaster in the shared strategy) ... for a comparison, the last two are sums over its candidates', so only estimator_fits and inference_windows are totals. tests/tests_mcp/test_tool_compare.py:91 pins {'n_folds': 6, 'n_fits': 1, 'estimator_fits': 13}. The SKILL phrase 'its response reports the totals' is loose but does not contradict the field-level contract.",
+    "covered_by_test": "tests/tests_mcp/test_tool_compare.py (test of compare ranking, line 91) asserts cost n_fits 1 for several candidates: intended behaviour.",
+    "adjusted_category": "improvement",
+    "adjusted_severity": "low",
+    "root_cause": "Intended (skforecast_ai/mcp/models.py:396-404, server.py:2435). At most, the SKILL.md Cost wording could say that n_fits is the shared strategy's count and estimator_fits/inference_windows are the totals."
+   },
+   {
+    "lens": "impact",
+    "key": "V06",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Both scripts reproduce it: compare cost n_fits is 1 for two Ridge candidates, and 3 for three candidates with refit=true, where 9 forecaster trainings ran, while estimator_fits is the total (2 and 42). SKILL.md defines n_fits as 'trainings of the forecaster' and says compare 'reports the totals'. An agent that follows SKILL.md and quotes n_fits would therefore under-report the trainings. Gating uses estimator_fits, which is correct, and agents rarely quote n_fits after a run, so the impact is low.",
+    "covered_by_test": "tests/tests_mcp/test_tool_compare.py:91 pins {'n_folds': 6, 'n_fits': 1, 'estimator_fits': 13, ...}, so the per-strategy value is intended by the tests; the mismatch is with SKILL.md wording.",
+    "adjusted_category": "skill_mismatch",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/mcp/server.py:2433-2438 sets cost.n_fits from result.cv_config['n_fits'] (the shared strategy). Either sum the forecaster trainings over the candidates, counting ForecasterStats as n_folds, or say in SKILL.md and the compare description that n_fits is per candidate."
+   }
+  ],
+  "n_votes": 3,
+  "not_refuted": 2,
+  "survives": true
+ },
+ {
+  "key": "V07",
+  "votes": [
+   {
+    "lens": "repro",
+    "key": "V07",
+    "reproduced": true,
+    "refuted": true,
+    "reason": "The error reproduces (invalid_argument, field cv_id, hint null, message '... Create the strategy from this plan with `create_cv()`, or pass the same `differentiation`'). But my repro reports/mcp-blackbox-audit/verify/V07_both_options.py shows both options in the message work through the tools. create_cv(plan_id=B) then backtest succeeds, and refine_plan(B, {differentiation: null}) then backtest on the old strategy also succeeds ('pass the same differentiation' to the plan). SKILL.md step 2 already says to build the strategy of create_cv from the differenced plan, so an agent that follows it never hits the error. At worst one call to create_cv with differentiation is wasted, and its error is explicit.",
+    "covered_by_test": "tests/tests_mcp/test_tool_backtest.py::test_tool_backtest_differentiation_of_the_plan_and_of_the_strategy asserts code and field only.",
+    "adjusted_category": "improvement",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/assistant.py:4709-4716 (message written for the Python API). Optional: an MCP hint such as 'call create_cv with this plan_id'."
+   },
+   {
+    "lens": "documented",
+    "key": "V07",
+    "reproduced": true,
+    "refuted": true,
+    "reason": "The error reproduces with hint null. But the first option of the message ('Create the strategy from this plan with `create_cv()`') works directly. SKILL.md step 2 already says 'build the strategy of `create_cv` from that plan, since a backtest needs the same order in both', and docs/api/mcp.md:40 documents the invalid_argument. SKILL also warns that library messages name the Python API. The second option can still be followed through MCP by making the plan's differentiation match (refine_plan). A careful agent is not misled; at worst it makes one extra call, as the finding itself concedes.",
+    "covered_by_test": "tests/tests_mcp/test_tool_backtest.py::test_tool_backtest_differentiation_of_the_plan_and_of_the_strategy checks code and field only (not message or hint).",
+    "adjusted_category": "improvement",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/assistant.py:4708-4716: core message written for the Python API. If changed: add an MCP hint ('call create_cv with this plan_id and backtest on that cv_id')."
+   },
+   {
+    "lens": "impact",
+    "key": "V07",
+    "reproduced": true,
+    "refuted": true,
+    "reason": "Reproduced: the message offers 'or pass the same `differentiation`', which create_cv rejects with 'Extra inputs are not permitted', and the hint is null. But the first option in the same message ('Create the strategy from this plan with `create_cv()`') is directly actionable. SKILL.md step 2 already says to 'build the strategy of `create_cv` from that plan, since a backtest needs the same order in both'. A careful agent therefore takes the working path, and at worst spends one call on a clear rejection. Cosmetic wording.",
+    "covered_by_test": "tests/tests_mcp/test_tool_backtest.py::test_tool_backtest_differentiation_of_the_plan_and_of_the_strategy checks only code and field, not the message or hint.",
+    "adjusted_category": "agent_friction",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/assistant.py:4712-4714 message written for the Python API; the MCP layer could add a hint 'call create_cv with this plan_id' (wording only)."
+   }
+  ],
+  "n_votes": 3,
+  "not_refuted": 0,
+  "survives": false
+ },
+ {
+  "key": "V08",
+  "votes": [
+   {
+    "lens": "repro",
+    "key": "V08",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Script prints REPRODUCED: profile of a ';' file with '870', '987', '1.020', '1.234' gives 'min 1.01, max 990', notices []; forecast notices [] too. detect_csv_dialect returns (';','.') for integer amounts with '.' thousands. I checked with both mixed magnitudes and an all-above-1000 sample ('1.870;1.020;2.987'), so even a uniform 1/1000 misread is silent. '1.020,25' is detected as decimal ',' and fails loudly, so the silent case is integer amounts written with '.' grouping, a common European Excel export. No agent input fixes it (decimal=',' leaves the values as text), and SKILL.md says not to pass sep or decimal without an error. This contradicts the docstring 'the dialect is never guessed', and the server already raises for the symmetric ',' thousands case in tab files.",
+    "covered_by_test": "tests/tests_profiling/test_detect_csv_dialect.py covers ',' thousands (tab error, ';' read as three decimals) but has no case for '.' thousands in a ';' file.",
+    "adjusted_category": "bug",
+    "adjusted_severity": "high",
+    "root_cause": "skforecast_ai/profiling/csv_dialect.py:346-371 only looks for ambiguity when the sample has a ','. Fix: in non-',' files, treat numbers that all match the '.' thousands pattern (\\d{1,3}(\\.\\d{3})+) as ambiguous and raise data_unreadable (or at least a DataProfileWarning), mirroring only_thousands_error."
+   },
+   {
+    "lens": "documented",
+    "key": "V08",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "The script printed REPRODUCED. A ';' file with integer amounts using '.' as thousands separator ('1.020') profiles with 'min 1.01, max 990', notices [], and forecast notices []. detect_csv_dialect only looks for ',' numbers when sep is not ','. With no ',' in the sample, decimal defaults to '.', and nothing checks '.'-thousands patterns, unlike the ',' thousands ambiguity that raises data_unreadable for tab files. SKILL says profile detects the decimal mark and to pass it only when an error says it cannot be told, so the agent has no cue at all.",
+    "covered_by_test": "tests/tests_profiling/test_detect_csv_dialect.py covers ',' thousands ('1,841') only; no test for '.' thousands in a ';' file (none).",
+    "adjusted_category": "bug",
+    "adjusted_severity": "high",
+    "root_cause": "skforecast_ai/profiling/csv_dialect.py:345-369 (decimal detection in detect_csv_dialect): when there is no ',' in the sample, decimal is '.', and values that fully match r'[1-9]\\d{0,2}(\\.\\d{3})+' with no other '.' decimals are never treated as ambiguous. Fix: raise data_unreadable (decimal or thousands cannot be told), as only_thousands_error does for ',', or at least add a DataProfileWarning."
+   },
+   {
+    "lens": "impact",
+    "key": "V08",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Reproduced: a ';' file with integer amounts written '870', '1.020', '1.234' profiles as 'min 1.01, max 990' with notices [], and forecast returns predictions from -2.8 to 979.8, also with notices []. Nothing tells the agent the target is wrong by a factor of 1000 in about half the rows, so it reports wrong numbers. detect_csv_dialect (csv_dialect.py:346-371) counts '1.020' as a '.' decimal and never checks the '.'-thousands pattern, although for ',' in tab files it raises data_unreadable. Its own rationale ('a spreadsheet separates with ';' where ',' is the decimal mark') makes a three-digit '.' group in a ';' file suspicious. One part of the finding is wrong: a quoted '1,020' in a ';' file being read as 1.02 is the intended rule, pinned by tests/tests_profiling/test_detect_csv_dialect.py::test_detect_csv_dialect_decimal_comma_when_semicolon_and_only_thousands.",
+    "covered_by_test": "none for '.' thousands in a ';' file; test_detect_csv_dialect.py covers only ',' thousands, and its ';' case asserts the ',' reading as intended.",
+    "adjusted_category": "bug",
+    "adjusted_severity": "high",
+    "root_cause": "skforecast_ai/profiling/csv_dialect.py:346-371 (decimal detection) has no '.'-thousands analogue of THOUSANDS (line 54). When sep is ';' or a tab and every '.' number matches [1-9]\\d{0,2}(\\.\\d{3})+ next to plain integers, raise data_unreadable (decimal mark cannot be told), as only_thousands_error does."
+   }
+  ],
+  "n_votes": 3,
+  "not_refuted": 3,
+  "survives": true
+ },
+ {
+  "key": "V09",
+  "votes": [
+   {
+    "lens": "repro",
+    "key": "V09",
+    "reproduced": true,
+    "refuted": true,
+    "reason": "The surface symptom reproduces: get_code(plan) reads with decimal=',' and get_code(forecast) with decimal='.', and the change shows only as a 'Data warning' line in summary. But the claimed impact is false. My repro reports/mcp-blackbox-audit/verify/V09_same_numbers.py runs the plan script standalone: returncode 0, and its predictions are identical to the forecast's (SAME PREDICTIONS: True), because the '1002.51' text values convert to the same numbers. So the plan script does not fail, and the reported numbers do not come from a different reading. It is also only triggered when the agent passes a wrong decimal against SKILL.md ('pass sep and decimal only when an error says they cannot be told'). Re-detecting the dialect of the file at run time is a documented design choice (_utils.py:1309-1313).",
+    "covered_by_test": "none",
+    "adjusted_category": "improvement",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/_utils.py:1309-1330 re-detects the dialect at run time and uses the profile's sep and decimal only when detection fails; cosmetic at most (the plan script could record the detected dialect)."
+   },
+   {
+    "lens": "documented",
+    "key": "V09",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "The script printed REPRODUCED. profile with decimal ',' on a '.'-decimal ';' file gives target_dtype 'categorical' and no error. validate_target_numeric uses pd.to_numeric, which accepts '1002.51' text, and tests/tests_profiling/test_validate_target_numeric.py asserts that such text is accepted. get_code(plan) reads with decimal=',', while forecast and backtest detect the dialect again and run with decimal='.'. The only trace is a 'Data warning' line in the summary, with notices []. Detecting the dialect again at run time is documented in the profile() docstring (assistant.py:717-726), but the plan's script then is not 'the one that would run' (SKILL get_code). Severity is lowered because the trigger is an explicit decimal, which SKILL says to pass only when an error asks for it.",
+    "covered_by_test": "tests/tests_profiling/test_validate_target_numeric.py::test_validate_target_numeric_output_when_values_are_numbers asserts text that to_numeric converts is accepted (accepts the behaviour); no MCP test for an explicit decimal that does not match the file.",
+    "adjusted_category": "bug",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/profiling/data_profile.py:3371-3381 (validate_target_numeric) accepts a target that stayed text under the decimal passed, and skforecast_ai/_utils.py:1309-1329 and 1450-1458 detect the dialect again at run time over the profile's explicit decimal. Fix: in profile, reject or warn when an explicit sep/decimal leaves a target that to_numeric reads as text, or keep an explicit dialect for the later runs."
+   },
+   {
+    "lens": "impact",
+    "key": "V09",
+    "reproduced": true,
+    "refuted": true,
+    "reason": "Reproduced, but the impact on an agent is minimal. The trigger goes against SKILL.md ('pass sep and decimal only when an error says they cannot be told'), and the runs re-detect the dialect of the file by design (skforecast_ai/_utils.py:1309-1330: 'How a file is written belongs to the file... Only when it cannot be told is the file read as a profile built from a file says'), so the reported numbers come from the correct '.' reading. get_code of the forecast/backtest is the script that ran (decimal='.') and works. The plan summary flags 'The target column is not numeric' and the forecast summary says the profile was recomputed, so the change is not hidden. The only real wart, profile accepting a target that pd.to_numeric can parse, is cosmetic here.",
+    "covered_by_test": "none; tests/tests_mcp/test_tool_profile.py only tests sep/decimal that match the file.",
+    "adjusted_category": "bug",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/profiling/data_profile.py:3371-3395 (validate_target_numeric) accepts an object column that pd.to_numeric parses, so a wrong explicit decimal is not rejected at profile. It could reject a target that is not numeric under the decimal given."
+   }
+  ],
+  "n_votes": 3,
+  "not_refuted": 1,
+  "survives": false
+ },
+ {
+  "key": "V10",
+  "votes": [
+   {
+    "lens": "repro",
+    "key": "V10",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Script prints REPRODUCED. For a target from -10 to 10 with zeros, the default panel includes mean_absolute_percentage_error = 33109663727881.2148, and the only notices are MetricReferenceNotice and MetricUnitNotice ('Multiply it by 100'). For sales_zeros with metric MAPE requested, the backtest reports 6.76e15 with no notice that it is undefined. _target_has_zeros_or_near_zero checks only abs(min) <= 0.01, so a target that crosses zero (min -10) keeps MAPE in the default panel.",
+    "covered_by_test": "tests/tests_recommendation/test_select_metric.py only has min 0.0 or min -0.005 fixtures; tests/tests_mcp/test_mape_notices.py covers the unit notice only. Neither catches it.",
+    "adjusted_category": "bug",
+    "adjusted_severity": "medium",
+    "root_cause": "skforecast_ai/recommendation/metric_selection.py:82-83 tests only the minimum. Fix: exclude MAPE when min <= 0.01 or the target takes values of both signs (or near zero anywhere), and add a plan notice when MAPE is requested explicitly on such a target instead of only the unit notice."
+   },
+   {
+    "lens": "documented",
+    "key": "V10",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "The script printed REPRODUCED. A target from -10 to 10 with exact zeros gets MAPE in the default panel (3.3e13), and the only MAPE notice tells the agent to multiply by 100. select_metric is meant to drop MAPE for targets with zeros, but _target_has_zeros_or_near_zero checks only abs(min) <= 0.01, so a target that crosses zero is missed. An explicit MAPE on a target with zeros gives no plan notice.",
+    "covered_by_test": "tests/tests_recommendation/test_select_metric.py covers min 0.0, 0.005, -0.005 and 5.2; no target crossing zero (none). tests/tests_mcp/test_mape_notices.py covers only the unit notice.",
+    "adjusted_category": "bug",
+    "adjusted_severity": "medium",
+    "root_cause": "skforecast_ai/recommendation/metric_selection.py:81-84: the zero check uses only the series minimum. Fix: treat min < 0 <= max (or any zero or near-zero value) as having zeros. Also add a plan notice when MAPE is requested explicitly on such a target, and do not send the multiply-by-100 MetricUnitNotice for a meaningless value."
+   },
+   {
+    "lens": "impact",
+    "key": "V10",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Reproduced: for a target in [-10, 10] with exact zeros, the default panel includes MAPE and the backtest reports 'mean_absolute_percentage_error: 33109663727881.2148', with a MetricUnitNotice telling the agent to multiply it by 100. The zero check is `abs(min_val) <= 0.01` (metric_selection.py:82), so any target whose minimum is clearly negative keeps MAPE even when it crosses zero. That is plausible for net flows, temperatures or profit. SKILL.md forbids giving causes for a metric, so the agent either quotes an absurd percentage or drops it without a server-given reason. Case B (MAPE requested explicitly on zeros) is weaker, since the user asked for it, but no notice says the value is meaningless.",
+    "covered_by_test": "tests/tests_recommendation/test_select_metric.py tests only min near 0 (e.g. test_negative_near_zero with min -0.005), not a large negative minimum; tests/tests_mcp/test_mape_notices.py covers only the unit notice.",
+    "adjusted_category": "bug",
+    "adjusted_severity": "medium",
+    "root_cause": "skforecast_ai/recommendation/metric_selection.py:80-83 (_target_has_zeros_or_near_zero) tests abs(min) <= 0.01. Test instead whether the range reaches zero (min <= 0.01 and max >= -0.01), and add a plan notice when MAPE is requested on such a target."
+   }
+  ],
+  "n_votes": 3,
+  "not_refuted": 3,
+  "survives": true
+ },
+ {
+  "key": "V11",
+  "votes": [
+   {
+    "lens": "repro",
+    "key": "V11",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Script prints REPRODUCED. Profile notices hold only the unused-columns warning; 'Missing in exog: {x_na: 8}' appears only in summary. create_cv notices are []. The backtest is execution_failed with 'ValueError: Input contains NaN.', and it fails the same way with dropna_from_series=true. My repro verify/V11_where_nan.py shows the traceback ends in sklearn.metrics _check_reg_targets, i.e. NaN predictions from NaN exog in test folds, which dropna_from_series cannot fix. The default plan already sets dropna_from_series=True for Ridge (preprocessing.py select_dropna_from_series), and LGBMRegressor runs fine. One overstatement: the plan advice does say 'or a NaN-tolerant estimator', so the working fix is mentioned.",
+    "covered_by_test": "tests/tests_mcp/test_missing_values_notices.py covers only the target; none for exogenous missing values.",
+    "adjusted_category": "bug",
+    "adjusted_severity": "medium",
+    "root_cause": "skforecast_ai/profiling/data_profile.py:3021-3033 warns about missing values only above a 20% rate, and the create_cv MissingValuesNotice (skforecast_ai/mcp/server.py:366-418) and _check_evaluated_target (_utils.py:1961) consider only the target. Fix: add a DataProfileWarning for missing exogenous values, and a create_cv notice or pre-run invalid_argument naming the column when a non-NaN-tolerant estimator would predict from them."
+   },
+   {
+    "lens": "documented",
+    "key": "V11",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "The script printed REPRODUCED. With 8 'N/A' in exog x_na, profile has only 'Missing in exog' in the summary and no DataProfileWarning (data_profile.py:3021-3032 warns only above a 20% missing rate). create_cv notices are []. backtest fails with execution_failed 'Input contains NaN' even with dropna_from_series=true, which the plan's advice recommends. The create_cv missing-values check covers the target only.",
+    "covered_by_test": "tests/tests_mcp/test_missing_values_notices.py covers target missing values only; none for exogenous missing values.",
+    "adjusted_category": "agent_friction",
+    "adjusted_severity": "medium",
+    "root_cause": "skforecast_ai/_last_window.py:1224-1236 (backtest_missing_values_reason) considers only missing_target/has_gaps, and skforecast_ai/recommendation/preprocessing.py:440-452 advises dropna_from_series=True, which only drops training rows. Fix: extend the reason and the MissingValuesNotice to profile.missing_exog for estimators outside NAN_TOLERANT_ESTIMATORS (name the column), and drop the dropna advice for that case."
+   },
+   {
+    "lens": "impact",
+    "key": "V11",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Reproduced: the profile shows 'Missing in exog: {x_na: 8}' but no DataProfileWarning, and create_cv has notices []. The backtest fails with execution_failed, and the traceback (from get_failure) ends in sklearn's 'Input contains NaN' without naming the column. The plan's own advice 'Use dropna_from_series=True or a NaN-tolerant estimator' lists first an option that fails the same way: dropna_from_series=True is rendered but only drops training rows, and the NaN fall in the prediction windows of the folds. Missing exogenous values are common, and the agent spends calls on advice that cannot work. The second option (LGBMRegressor) does work, so the agent is not permanently stuck.",
+    "covered_by_test": "none; tests/tests_mcp/test_missing_values_notices.py covers only the target.",
+    "adjusted_category": "bug",
+    "adjusted_severity": "medium",
+    "root_cause": "skforecast_ai/recommendation/preprocessing.py:439-446 advises dropna_from_series for missing exog regardless of where the NaN fall, and skforecast_ai/_last_window.py:1225-1238 (backtest_missing_values_reason) considers only the target. Extend the create_cv warning and notice to exogenous NaN for estimators that cannot accept them, and drop the dropna_from_series advice for that case."
+   }
+  ],
+  "n_votes": 3,
+  "not_refuted": 3,
+  "survives": true
+ },
+ {
+  "key": "V12",
+  "votes": [
+   {
+    "lens": "repro",
+    "key": "V12",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Script prints REPRODUCED. exog_columns ['x_pct'] ('0%','1%',...) and ['x_dash'] ('1.5', '-') both give 'Categorical exogenous columns: x_pct' (or x_dash) with no notice. The backtest is execution_failed with 'ValueError: Input contains NaN.' (unseen categories in the test folds give NaN predictions with Ridge). The same '-' in the target is rejected at profile with a clear invalid_argument and hint. detect_categorical_exog treats any object-dtype column as categorical, with no check for numeric-looking text or one level per row.",
+    "covered_by_test": "none",
+    "adjusted_category": "agent_friction",
+    "adjusted_severity": "medium",
+    "root_cause": "skforecast_ai/profiling/data_profile.py:2738-2766 (detect_categorical_exog) classifies object columns as categorical blindly. Fix: when most values of an object exog column parse as numbers after stripping '%' or placeholders, or when it has nearly one level per row, emit a DataProfileWarning (or error) naming the column and sample values."
+   },
+   {
+    "lens": "documented",
+    "key": "V12",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "The script printed REPRODUCED. An exog column of '0%','1%',... or numbers with '-' placeholders is reported only as 'Categorical exogenous columns: x_pct', with no notice. backtest then fails with an opaque execution_failed 'Input contains NaN.' (unseen category levels with Ridge). The same '-' in the target gives a precise invalid_argument. Nothing in SKILL, the docs or the tool descriptions says numeric-looking text exog becomes categorical.",
+    "covered_by_test": "none",
+    "adjusted_category": "agent_friction",
+    "adjusted_severity": "medium",
+    "root_cause": "skforecast_ai/profiling/data_profile.py:2757-2766 (detect_categorical_exog) marks every object column as categorical without checking for numeric-looking text, unlike validate_target_numeric for the target (data_profile.py:3354). Fix: add a DataProfileWarning (or an error) for object exog columns that are mostly numbers written as text ('%', thousands, placeholders), quoting the values."
+   },
+   {
+    "lens": "impact",
+    "key": "V12",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Reproduced: exog_columns ['x_pct'] ('0%','1%',...) or ['x_dash'] (numbers with '-') appear only as 'Categorical exogenous columns: x_pct' with no notice. The backtest with Ridge then fails with execution_failed, and get_failure shows 'Input contains NaN' (unseen categories in the test folds) without naming the column. The same '-' in the target gets a clear invalid_argument with a hint. The agent cannot tell from the response that a numeric driver became a one-level-per-value categorical. If it switches to LGBM the run succeeds with a meaningless feature. Percent-formatted Excel exports are plausible.",
+    "covered_by_test": "none in tests/tests_mcp for numeric-looking text in an exogenous column.",
+    "adjusted_category": "agent_friction",
+    "adjusted_severity": "medium",
+    "root_cause": "skforecast_ai/profiling/data_profile.py:2738-2766 (detect_categorical_exog) classifies every object column as categorical. Detect numbers written as text (percent signs, placeholders, high cardinality) and raise or warn as validate_target_numeric does for the target."
+   }
+  ],
+  "n_votes": 3,
+  "not_refuted": 3,
+  "survives": true
+ },
+ {
+  "key": "V13",
+  "votes": [
+   {
+    "lens": "repro",
+    "key": "V13",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Script prints REPRODUCED. 'date' (20200101) becomes an exogenous column, the plan asks for its future values (FutureExogNotice), and date_column='date' gives invalid_argument 'could not be parsed as timestamps' with hint 'Write the dates in ISO 8601'. The agent impact is overstated: my repro verify/V13_profile_notices.py shows the profile and plan carry a DataProfileWarning 'No datetime index detected', which the SKILL's Data problems section ('a wrong date column') tells the agent to report. The date_column hint is actionable, so the path to a fix exists at the cost of extra round trips. Mostly a feature request (read %Y%m%d).",
+    "covered_by_test": "none",
+    "adjusted_category": "improvement",
+    "adjusted_severity": "low",
+    "root_cause": "Date detection in skforecast_ai/profiling/data_profile.py ignores integer columns that look like compact dates. Fix: detect 8-digit %Y%m%d integers (parse with format) or at least name the column in the 'No datetime index detected' warning and in the date_column error."
+   },
+   {
+    "lens": "documented",
+    "key": "V13",
+    "reproduced": true,
+    "refuted": true,
+    "reason": "It reproduces, but a careful agent has clear and correct signals. The profile carries a DataProfileWarning notice 'No datetime index detected. Frequency inference and seasonality estimation are unavailable.', and its summary shows 'Exogenous columns: date' and 'Frequency: unknown'. Retrying with date_column='date' gives invalid_argument with an actionable hint, 'Write the dates in ISO 8601, such as '2023-03-01'', which matches the documented format (docs/user-guides/mcp-server.md:338) and the SKILL 'Data problems' guidance (a wrong date column: tell the user). Integer yyyymmdd dates are an unsupported format, reported as such, not silently misread.",
+    "covered_by_test": "none",
+    "adjusted_category": "improvement",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/profiling/data_profile.py:1313-1323 (integer columns are not datetime-like). Possible improvement: parse 8-digit %Y%m%d integers, or name the format in the message."
+   },
+   {
+    "lens": "impact",
+    "key": "V13",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Reproduced: integer dates like 20200101 give 'Exogenous columns: date', 'Frequency: unknown', and a plan FutureExogNotice asking the user for future values of 'date'. date_column='date' is rejected with 'could not be parsed as timestamps' and hint 'Write the dates in ISO 8601'. A careful agent that reads 'No datetime index detected' alongside 'Exogenous columns: date' tries date_column, gets the ISO hint, and follows the Data problems procedure, so it gets to the user-side fix with one extra call. A less careful agent asks for future values of the date column or forecasts on a range index. The format is unambiguous and common in database exports, so this is friction, not a wrong result.",
+    "covered_by_test": "none for '%Y%m%d' or epoch date columns.",
+    "adjusted_category": "agent_friction",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/profiling/data_profile.py:1303-1323 (detect_date_column) and the automatic detection (1348-1356) only accept datetime-like or text values. Try format '%Y%m%d' on 8-digit integer columns, or warn that an integer column named like a date is used as an exogenous variable."
+   }
+  ],
+  "n_votes": 3,
+  "not_refuted": 2,
+  "survives": true
+ },
+ {
+  "key": "V14",
+  "votes": [
+   {
+    "lens": "repro",
+    "key": "V14",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Script prints REPRODUCED. Daily ISO dates with 40 random gaps give 'Frequency: unknown' and 'Index irregularities: none detected'. plan raises invalid_argument whose message and hint push day-first and ISO 8601 rewriting ('Write the dates in ISO 8601 (such as 2023-02-13), so they are not read month-first'), although the dates are already ISO 8601. The text is unconditional in _check_frequency_known. The message does start with 'the timestamps are irregular or too few', which limits the harm, so the severity stays low.",
+    "covered_by_test": "tests/test_assistant_plan.py::test_plan_ValueError_when_datetime_index_has_no_frequency pins the message, with non-ISO dates only.",
+    "adjusted_category": "agent_friction",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/assistant.py:398-410 (_check_frequency_known) always adds the day-first advice and hint. Fix: give the day-first advice only when the date column was not ISO 8601; otherwise name the irregular spacing (closest frequency and missing dates)."
+   },
+   {
+    "lens": "documented",
+    "key": "V14",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "The script printed REPRODUCED. Daily ISO 8601 dates with 40 random gaps give plan invalid_argument, whose message talks about day-first dates and whose hint says to 'Write the dates in ISO 8601 ... so they are not read month-first'. The dates are already ISO, and the real problem (irregular spacing) is never named. The profile summary also says 'Index irregularities: none detected'. The message and hint are fixed text whatever the dates look like.",
+    "covered_by_test": "tests/test_assistant_plan.py::test_plan_ValueError_when_datetime_index_has_no_frequency pins the generic message with non-ISO dates; it accepts the text and would not catch the ISO case.",
+    "adjusted_category": "agent_friction",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/assistant.py:388-410 (_check_frequency_known) always gives the day-first message and hint. skforecast_ai/profiling/data_profile.py:2970-2974 records no irregularity detail when the frequency cannot be inferred. Fix: mention day-first only when the dates are not ISO, otherwise describe the irregular spacing (closest frequency and missing count)."
+   },
+   {
+    "lens": "impact",
+    "key": "V14",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Reproduced: daily ISO dates with 40 missing days profile as 'Frequency: unknown' and 'Index irregularities: none detected', with a notice 'spacing is irregular'. plan then fails with a message that blames day-first parsing and hint 'Write the dates in ISO 8601 ... so they are not read month-first'. SKILL.md says to follow the hint, so the agent asks the user to rewrite dates that are already ISO 8601, and nothing names the missing days. The message also says 'irregular or too few', and the date range (150 days, 110 rows) lets a careful agent infer the gaps, so the impact stays low.",
+    "covered_by_test": "tests/test_assistant_plan.py::test_plan_ValueError_when_datetime_index_has_no_frequency pins the day-first message, on non-ISO dates; no ISO case and no test of the hint.",
+    "adjusted_category": "agent_friction",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/assistant.py:388-410 (_check_frequency_known) always adds the day-first advice and ISO hint. Mention day-first only when the source dates are not ISO 8601; otherwise describe the irregular spacing or missing dates. The profile should also not say 'none detected' when no frequency could be inferred."
+   }
+  ],
+  "n_votes": 3,
+  "not_refuted": 3,
+  "survives": true
+ },
+ {
+  "key": "V15",
+  "votes": [
+   {
+    "lens": "repro",
+    "key": "V15",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Script prints REPRODUCED. For '10,025.1' and for '10.0%' the error is invalid_argument with field 'target' and hint \"Leave the cells of missing values empty instead of marking them with text such as '-' or '?'...\". The hint is off-target for thousands separators or percent signs, and an agent told to 'follow the hint' would relay advice about missing-value markers. The message quotes the offending values, so a careful agent can infer the cause; low impact.",
+    "covered_by_test": "tests/tests_profiling/test_validate_target_numeric.py pins the generic hint, with no thousands or percent case.",
+    "adjusted_category": "improvement",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/profiling/data_profile.py:3354 (validate_target_numeric) uses one generic hint. Fix: recognise thousands separators and '%' in the sampled values and give a format-specific hint (field data_path, tell the user, profile a corrected copy only with consent)."
+   },
+   {
+    "lens": "documented",
+    "key": "V15",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "The script printed REPRODUCED. For '10,025.1' and '10.0%' targets the error has field 'target' and the generic hint about missing-value markers ('-', '?'), which does not fit thousands separators or percent signs. The MCP server adds its DATA_PROBLEM_HINT only to profile errors whose field is 'data' (server.py:1680-1684), so this content problem of the file misses the 'ask the user before a corrected copy' guidance. The message quotes the values, so a careful agent can work out the cause: low impact.",
+    "covered_by_test": "tests/tests_profiling/test_validate_target_numeric.py pins the generic hint; no case for thousands or percent (none would catch it).",
+    "adjusted_category": "improvement",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/profiling/data_profile.py:3386-3395 uses a single generic hint. skforecast_ai/mcp/server.py:1680-1684 maps only field 'data' to DATA_PROBLEM_HINT. Fix: give a format-specific hint when the values match thousands or '%' patterns, and apply the data-problem hint to this target-content error too."
+   },
+   {
+    "lens": "impact",
+    "key": "V15",
+    "reproduced": true,
+    "refuted": true,
+    "reason": "Reproduced (field 'target', and the generic missing-marker hint for '10,025.1' and '10.0%'), but a careful agent handles it. The message quotes the offending values ('10,025.1', '11,023.6', '10.0%'), which show thousands separators or percent signs at a glance, and SKILL.md 'Data problems' tells the agent to tell the user and ask before writing a corrected copy. The hint also says 'check that the target is the column of values to forecast', which does no harm. The finding itself rates the impact low and admits the quoted values reveal the cause. Cosmetic.",
+    "covered_by_test": "tests/tests_profiling/test_validate_target_numeric.py pins the generic hint, with no thousands or percent case.",
+    "adjusted_category": "improvement",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/profiling/data_profile.py:3386-3395 uses one generic hint for every non-numeric target; it could detect thousands or '%' patterns and use DATA_PROBLEM_HINT with field data_path."
+   }
+  ],
+  "n_votes": 3,
+  "not_refuted": 2,
+  "survives": true
+ },
+ {
+  "key": "V16",
+  "votes": [
+   {
+    "lens": "repro",
+    "key": "V16",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "c_01 prints REPRODUCED. The Ridge strategy's MissingValuesNotice says LGBMRegressor 'lets `backtest` run on every fold'. After refine_plan to LGBMRegressor, create_cv has notices [], and the backtest fails with invalid_argument 'The target has 1 missing value(s) in the test folds (2017-07-01) ... whatever the estimator'. _check_evaluated_target already computes this from the folds at backtest time but is not used at create_cv. The failure is a clear typed error before running, so no wrong numbers: medium, not high. The c_06 duplicate also reproduces, but its case A 'false alarm' is weak (the warning is conditional: 'raises when a test fold is predicted from one').",
+    "covered_by_test": "tests/tests_mcp/test_missing_values_notices.py and tests/tests_mcp/test_tool_create_cv.py::test_tool_create_cv_missing_values_notice_with_the_warning_of_the_library pin the notice text only on data where LGBMRegressor helps; nothing catches this.",
+    "adjusted_category": "bug",
+    "adjusted_severity": "medium",
+    "root_cause": "skforecast_ai/mcp/server.py:400-405 promises an estimator switch unconditionally. The fold check lives only in skforecast_ai/_utils.py:1961-2080 (_check_evaluated_target), called at backtest. Fix: run that check in create_cv and, when a test fold holds a missing target, emit a notice naming the dates and the real remedies (later initial_train_size, ask the user) instead of the LGBMRegressor advice."
+   },
+   {
+    "lens": "documented",
+    "key": "V16",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "c_01 printed REPRODUCED. The create_cv MissingValuesNotice says an estimator that accepts missing values 'lets `backtest` run on every fold'. After the switch to LGBMRegressor, create_cv is silent and backtest fails because 2017-07-01 (missing target) is inside a test fold, 'whatever the estimator'. c_06 also reproduced: in its case A the library warning is conditional ('raises when a test fold is predicted from one'), so that part is weak, but case B is an opaque training failure. The finding says create_cv 'knows the dates'. That is wrong for the core: the profile stores counts only, and the docstring at _last_window.py:1245-1247 says where they are 'is not known without the data'. The MCP server does have the file, though, and backtest already runs the check (_check_evaluated_target) before anything runs.",
+    "covered_by_test": "tests/tests_mcp/test_missing_values_notices.py and tests/tests_mcp/test_tool_create_cv.py::test_tool_create_cv_missing_values_notice_with_the_warning_of_the_library pin the notice text on data where LGBMRegressor helps; none covers a missing target inside a test fold.",
+    "adjusted_category": "bug",
+    "adjusted_severity": "medium",
+    "root_cause": "skforecast_ai/mcp/server.py:400-406 (_missing_values_notices) promises without condition that a NaN-tolerant estimator lets backtest run on every fold. Fix: in MCP create_cv, run the check of skforecast_ai/_utils.py:1961 (_check_evaluated_target) on the profiled file against the new strategy, and when a test fold holds a missing target, say that no estimator avoids it (a later initial_train_size, or ask the user) instead of suggesting LGBMRegressor."
+   },
+   {
+    "lens": "impact",
+    "key": "V16",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "c-01 reproduced: create_cv of the Ridge plan says LGBMRegressor 'lets `backtest` run on every fold'. After refine_plan to LGBMRegressor, create_cv has notices [] and backtest fails before running with 'The target has 1 missing value(s) in the test folds (2017-07-01)... whatever the estimator'. The agent switches estimator, tells the user it did so 'so the backtest runs' (as the notice asks), and only then learns the switch could not help. A missing target value in the last 30% of the data is common. The c-06 duplicate also reproduced, but its case A is weaker: the UserWarning is conditional ('raises when a test fold is predicted from one'), so it is not a false claim. Case B (opaque 'All samples have been removed due to NaNs', then dropna_from_series=False refused) supports the core claim.",
+    "covered_by_test": "tests/tests_mcp/test_missing_values_notices.py and tests/tests_mcp/test_tool_create_cv.py::test_tool_create_cv_missing_values_notice_with_the_warning_of_the_library pin the notice text, but only on data where LGBMRegressor does help; no test of a missing value inside a test fold at create_cv.",
+    "adjusted_category": "bug",
+    "adjusted_severity": "medium",
+    "root_cause": "skforecast_ai/_last_window.py:1240-1275 (warn_backtest_missing_values; its docstring says where the NaN are 'is not known without the data') and the MissingValuesNotice text in skforecast_ai/mcp/server.py around 178/415 promise that a NaN-tolerant estimator fixes it. Record the dates of missing target values in the profile and run the test-fold check (_utils.py:2057) at create_cv, or qualify the advice and name the later initial_train_size remedy."
+   }
+  ],
+  "n_votes": 3,
+  "not_refuted": 3,
+  "survives": true
+ },
+ {
+  "key": "V17",
+  "votes": [
+   {
+    "lens": "repro",
+    "key": "V17",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Script prints REPRODUCED. A ForecasterStats plan with create_cv(initial_train_size=84, skip_folds=2) is accepted with notices [] and a reduced cost. The backtest returns an opaque execution_failed, and get_failure says \"`skip_folds` is not allowed for ForecasterStats\". A default compare on such a strategy counts Stats in compare_estimator_fits and ranks it last with the same error. The server knows the rule (_utils.py:2150-2156 LongTrainingWarning text). I downgrade because SKILL.md's cheaper-strategy advice names fold_stride and initial_train_size, not skip_folds, and get_failure gives a clear message.",
+    "covered_by_test": "none (no test in tests/tests_mcp combines ForecasterStats with skip_folds).",
+    "adjusted_category": "bug",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/recommendation/backtesting.py:1042 (build_cv via _check_skip_folds) validates skip_folds indexes but not the ForecasterStats restriction, and execution/comparison.py:484-506 does not drop Stats when skip_folds is set. Fix: raise invalid_argument (field skip_folds) in create_cv for a ForecasterStats plan, and leave Stats out of default compare candidates (with a note) when the strategy has skip_folds."
+   },
+   {
+    "lens": "documented",
+    "key": "V17",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "The script printed REPRODUCED. create_cv accepts skip_folds=2 for a ForecasterStats plan (notices [], reduced cost), and backtest then fails with an opaque execution_failed whose traceback says \"`skip_folds` is not allowed for ForecasterStats\". compare without candidates counts Stats in compare_estimator_fits and ranks it last with the same error. The server already knows the rule (_utils.py:2152-2156, pinned in tests/test_warn_long_training.py), but the skip_folds schema states no restriction and nothing validates it.",
+    "covered_by_test": "none (tests/test_warn_long_training.py pins only the remedy text; no create_cv/backtest/compare test combines ForecasterStats with skip_folds).",
+    "adjusted_category": "bug",
+    "adjusted_severity": "medium",
+    "root_cause": "skforecast_ai/recommendation/backtesting.py:968 (build_cv) and create_cv (skforecast_ai/assistant.py:2463) do not reject skip_folds for ForecasterStats, and skforecast_ai/execution/comparison.py:440 (resolve_default_candidates) does not leave Stats out for such a strategy. Fix: raise InvalidInputError(field='skip_folds') for a ForecasterStats plan, and in a default compare leave Stats out with a note (and out of compare_estimator_fits)."
+   },
+   {
+    "lens": "impact",
+    "key": "V17",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Reproduced: create_cv(skip_folds=2) for a ForecasterStats plan succeeds with notices [] and a reduced cost. backtest then returns an opaque execution_failed, and get_failure shows 'skip_folds is not allowed for ForecasterStats'. A default compare on such a strategy runs Stats and ranks it last. The server knows the rule (_utils.py:2155, in its LongTrainingWarning remedy). The impact is limited: SKILL.md's cheaper strategies are fold_stride or initial_train_size, not skip_folds, and the get_failure message is clear and actionable. The cost is one extra round trip, plus a reduced cost that the agent may already have quoted to the user.",
+    "covered_by_test": "none; no test in tests/tests_mcp combines ForecasterStats with skip_folds.",
+    "adjusted_category": "agent_friction",
+    "adjusted_severity": "low",
+    "root_cause": "The create_cv path (skforecast_ai/assistant.py:2463 create_cv and the warnings in skforecast_ai/recommendation/backtesting.py, e.g. warn_first_window at 1467) does not check skip_folds against ForecasterStats. Raise invalid_argument (field skip_folds) for a Stats plan, and leave Stats out of the default compare candidates, with a note, when the strategy has skip_folds."
+   }
+  ],
+  "n_votes": 3,
+  "not_refuted": 3,
+  "survives": true
+ },
+ {
+  "key": "V18",
+  "votes": [
+   {
+    "lens": "repro",
+    "key": "V18",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "c_03 script REPRODUCED: the Stats plan gets estimator_fits 51 and a CostNotice listing \"an integer `refit`, fewer folds, `refit=false`\", while the LongTrainingWarning in the same response says \"skforecast refits it in every fold whatever `refit` says\". create_cv(refit=False) and create_cv(refit=5) both still cost 51 fits. The foundation plan (2050 windows) gets the same refit list. The remedy text in `_cost_notices` is a constant that does not depend on the forecaster or the current refit. I downgraded it to low because the SKILL.md Cost section already says ForecasterStats is refitted whatever `refit` says, and that refit=false is \"no help for ForecasterStats nor for a foundation model\". The LongTrainingWarning in the same response also gives the right remedy. So an attentive agent can resolve the conflict.",
+    "covered_by_test": "tests/tests_mcp/test_tool_create_cv.py::test_tool_create_cv_cost_and_notices_of_inference_windows pins the generic refit wording for a foundation plan, so it asserts the bad text as acceptable. test_tool_create_cv_cost_notice_when_backtest_above_the_threshold pins the same wording, but only for ForecasterDirect, where it is correct.",
+    "adjusted_category": "agent_friction",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/mcp/server.py:422-480 (`_cost_notices`) builds a fixed remedy list. Fix: pass in the plan's forecaster and the cv refit. For ForecasterStats/ForecasterFoundation, offer only fewer folds (and fewer series), and never offer `refit=false` when refit is already false."
+   },
+   {
+    "lens": "documented",
+    "key": "V18",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Script prints REPRODUCED: for ForecasterStats (51 fits) the CostNotice offers 'an integer `refit`, fewer folds, `refit=false`' while the LongTrainingWarning in the same response says skforecast refits it in every fold whatever `refit` says; create_cv(refit=False) and refit=5 still cost 51 fits. The foundation plan (2050 windows) gets the same refit list. SKILL.md caveats only `refit=false` ('no help for ForecasterStats nor for a foundation model') and says nothing for an integer refit in the remedy list, so the notice the agent is told to relay contradicts its neighbour notice. Mitigated because the LongTrainingWarning gives the correct remedy, hence low.",
+    "covered_by_test": "tests/tests_mcp/test_tool_create_cv.py::test_tool_create_cv_cost_and_notices_of_inference_windows pins the generic CostNotice text for a foundation plan (asserts it as acceptable); test_tool_create_cv_cost_notice_when_backtest_above_the_threshold pins it for ForecasterDirect. No test for a ForecasterStats plan.",
+    "adjusted_category": "agent_friction",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/mcp/server.py:422-491 `_cost_notices` builds one fixed remedy list from the cost dict alone. Pass the forecaster of the plan (and the refit in use) and, for ForecasterStats or ForecasterFoundation, offer only fewer folds (and fewer series for foundation), as warn_long_training and warn_long_inference in skforecast_ai/_utils.py already do."
+   },
+   {
+    "lens": "impact",
+    "key": "V18",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Script prints REPRODUCED: the Stats plan costs 51 fits, and create_cv(refit=false) and refit=5 still cost 51 with the CostNotice repeated. The CostNotice says \"tell the user those numbers and the cheaper strategies (an integer `refit`, fewer folds, `refit=false`...)\". The LongTrainingWarning in the same response says \"skforecast refits it in every fold whatever `refit` says\". A careful agent can work this out from SKILL.md (\"no help for ForecasterStats nor for a foundation model\") and from the LongTrainingWarning. But the notice is the text that makes the agent stop, and rule 2 of the server instructions repeats the same generic list. An agent that relays the list verbatim offers the user two remedies that change nothing and wastes a confirmation round. It does not produce wrong numbers, so this is low-severity friction rather than medium.",
+    "covered_by_test": "tests/tests_mcp/test_tool_create_cv.py::test_tool_create_cv_cost_and_notices_of_inference_windows pins the generic refit list for a foundation plan, so it asserts the bad wording as acceptable. The test near line 170 covers a ForecasterDirect plan, where the wording is right.",
+    "adjusted_category": "agent_friction",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/mcp/server.py:470-480 (_cost_notices) builds one fixed remedy list without knowing the forecaster or the current refit. Pass the plan's forecaster (or task type) and refit into it. For ForecasterStats and foundation plans, offer only fewer folds (and fewer series), and drop `refit=false` when refit is already false. Align rule 2 of the server instructions the same way."
+   }
+  ],
+  "n_votes": 3,
+  "not_refuted": 3,
+  "survives": true
+ },
+ {
+  "key": "V19",
+  "votes": [
+   {
+    "lens": "repro",
+    "key": "V19",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "c_04 script REPRODUCED. create_cv reports compare_estimator_fits 48 and no notices (that figure is for a compare without candidates). compare with 3 candidates reports estimator_fits 78, and its only notice is MetricUnitNotice. assistant.compare calls warn_long_training per candidate (assistant.py:3650-3663) but sums inference windows over foundation candidates (3666-3681), so the fit threshold is never applied to the total. That contradicts SKILL.md: \"Above 50 estimator fits ... a run gets a LongTrainingWarning\" and \"a `compare` above those thresholds, stop\". I downgraded it to low for three reasons. The per-candidate behaviour is intentional and tested. SKILL.md gives the arithmetic (\"costs about the sum of theirs\", one estimator per step for direct). Any single candidate above 50 fits is still warned.",
+    "covered_by_test": "tests/test_assistant_compare.py::test_compare_LongTrainingWarning_once_when_explicit_candidate_is_costly asserts the per-candidate warning. No test checks the total of a candidates compare, so nothing would catch this.",
+    "adjusted_category": "skill_mismatch",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/assistant.py:3650-3663 warns per candidate only. Fix: also warn (or add a CostNotice in the MCP compare) when the sum of estimator fits over the candidates exceeds LONG_TRAINING_FITS, as is already done for inference windows. Alternatively, state in SKILL.md (Cost section, around line 156) that the fit threshold applies per candidate."
+   },
+   {
+    "lens": "documented",
+    "key": "V19",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Script prints REPRODUCED: compare with three explicit candidates totals 78 estimator fits and returns only MetricUnitNotice; create_cv reported compare_estimator_fits 48 (no-candidates case) and no notice. The per-candidate threshold is deliberate (assistant.py:3648 'Warned once per costly candidate'), and only inference windows are summed. But SKILL.md says compare 'costs about the sum of theirs' and to stop before 'a compare above those thresholds', and with candidates no tool gives that sum before the run, nor any notice after. The SKILL wording and the per-candidate rule disagree, so the agent cannot apply its cost rule.",
+    "covered_by_test": "tests/test_assistant_compare.py::test_compare_LongTrainingWarning_once_when_explicit_candidate_is_costly (per-candidate warning, intended) and test_compare_LongTrainingWarning_adds_up_the_foundation_candidates (sum only for windows); no test covers the total of fits over candidates. Nothing in tests/tests_mcp/test_tool_compare.py.",
+    "adjusted_category": "skill_mismatch",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/assistant.py:3648-3662 warns per candidate only (warn_long_training per config), while windows are summed at 3666-3680. Either also sum the estimator fits over the candidates and warn (or add a server CostNotice) above LONG_TRAINING_FITS, or reword SKILL.md Cost to say the fit threshold applies per candidate and how to estimate a compare with candidates."
+   },
+   {
+    "lens": "impact",
+    "key": "V19",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Script prints REPRODUCED. create_cv reports compare_estimator_fits 48 and no notice. The compare with 3 candidates reports estimator_fits 78, with MetricUnitNotice as its only notice. In the source, assistant.py:3651-3662 warns per candidate (warn_long_training), while foundation inference windows are added up (3666-3680). SKILL.md tells the agent to stop before \"a `compare` above those thresholds\", but no tool reports the cost of a list of candidates before it runs. A careful agent therefore cannot apply the rule, and adding up per-candidate costs itself would be the derived number SKILL.md forbids. The harm is a run that takes longer than expected without the user's consent; no numbers are wrong, so the severity is low.",
+    "covered_by_test": "none (tests/tests_mcp/test_tool_compare.py has no cost-threshold test for explicit candidates)",
+    "adjusted_category": "skill_mismatch",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/assistant.py:3649-3662 applies LONG_TRAINING_FITS per candidate, not to the total, and the compare tool in skforecast_ai/mcp/server.py has no cost estimate for given candidates. Either warn on the summed estimator fits (as is already done for inference windows), or have SKILL.md say the threshold is per candidate and that a compare with candidates has no pre-run estimate."
+   }
+  ],
+  "n_votes": 3,
+  "not_refuted": 3,
+  "survives": true
+ },
+ {
+  "key": "V20",
+  "votes": [
+   {
+    "lens": "repro",
+    "key": "V20",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "c_05 script REPRODUCED: MAPE 0.011278 and sMAPE 1.136376 come from the same backtest, and the only notice is MetricUnitNotice for MAPE (\"a fraction ... Multiply it by 100\"). A direct check confirms that skforecast's symmetric_mean_absolute_percentage_error returns `100 * np.mean(...)`: 1.00 for a 1 % error, while sklearn MAPE gives 0.01. The agent impact (misreporting sMAPE by analogy) is speculative. The claim itself is accurate: two \"percentage\" metrics differ 100x in scale, and the server states the unit of only one.",
+    "covered_by_test": "tests/tests_mcp/test_mape_notices.py covers MAPE only. No test covers the unit of sMAPE, so none.",
+    "adjusted_category": "improvement",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/mcp/server.py:587-618 (`_mape_notices`) only checks MAPE_NAMES. Fix: add a unit sentence for symmetric_mean_absolute_percentage_error (already a percentage, 0 to 200), or state the units in the metric enum description."
+   },
+   {
+    "lens": "documented",
+    "key": "V20",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Script prints REPRODUCED: MAPE 0.011278 next to sMAPE 1.136376 for the same backtest, and the only notice is the MAPE fraction notice ('Multiply it by 100'). skforecast's symmetric_mean_absolute_percentage_error docstring says 'SMAPE value as a percentage' (my check: y=[100,100], pred=[110,90] gives 10.03). Nothing in SKILL.md, the metric schema or docs/api/mcp.md states the sMAPE unit; docs/api/mcp.md only describes the MAPE notice.",
+    "covered_by_test": "none (tests/tests_mcp/test_mape_notices.py covers MAPE only)",
+    "adjusted_category": "improvement",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/mcp/server.py:586-615 `_mape_notices` only looks at MAPE_NAMES. Add a sentence (or a second notice) when symmetric_mean_absolute_percentage_error is among the metrics: it is already a percentage from 0 to 200, so 1.14 means 1.14 %; optionally state units in the metric schema description."
+   },
+   {
+    "lens": "impact",
+    "key": "V20",
+    "reproduced": true,
+    "refuted": true,
+    "reason": "Reproduced: MAPE 0.011278 and sMAPE 1.136376, and skforecast's sMAPE returns `100 * np.mean(...)`. Only MAPE has a MetricUnitNotice. The rules never choose sMAPE (grep of recommendation/ finds nothing), so it appears only when the user asks for it explicitly. The MAPE notice names `mean_absolute_percentage_error` only, and SKILL.md says \"Never invent a number... Do not derive one either\". A careful agent therefore reports 1.136 as given and does not multiply it. When both metrics are shown, the 100x gap between two similar metrics shows the unit difference. Misreading it needs both an uncommon trigger and an agent that ignores SKILL.md, so it is cosmetic for a client agent.",
+    "covered_by_test": "tests/tests_mcp/test_mape_notices.py covers MAPE only; none for sMAPE",
+    "adjusted_category": "improvement",
+    "adjusted_severity": "low",
+    "root_cause": "Refuted. If addressed: skforecast_ai/mcp/server.py:~605-615, where the MetricUnitNotice exists only for MAPE. Add a matching note that symmetric_mean_absolute_percentage_error is already a percentage (0 to 200), or state the units in the metric enum description."
+   }
+  ],
+  "n_votes": 3,
+  "not_refuted": 2,
+  "survives": true
+ },
+ {
+  "key": "V21",
+  "votes": [
+   {
+    "lens": "repro",
+    "key": "V21",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "All three scripts (c_07, d_07, e_07) REPRODUCED. create_cv with fixed_train_size=true, with refit omitted or false, succeeds with an IgnoredArgumentWarning (\"has no effect\"), and the backtest runs. The schema text at server.py:1945-1950 says \"with `refit` false or null it is an error, as it would not run (ForecasterStats aside)\". The behaviour comes from _utils.py:1733-1770, an intentional warning that is tested. So the schema is the stale side. The impact is small because the notice explains itself.",
+    "covered_by_test": "tests/test__warn_window_without_refit.py pins the warning. tests/tests_mcp/golden/tool_schemas.json pins the wrong schema text, so the golden keeps the mismatch in place.",
+    "adjusted_category": "skill_mismatch",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/mcp/server.py:1945-1950: the fixed_train_size description claims an error. Fix: say it is accepted with no effect and an IgnoredArgumentWarning notice, then regenerate the schema golden."
+   },
+   {
+    "lens": "documented",
+    "key": "V21",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "All three scripts print REPRODUCED: create_cv with fixed_train_size=true and refit false/null succeeds with an IgnoredArgumentWarning ('has no effect') and the backtest runs. The schema of create_cv (server.py:1946-1950) says 'with `refit` false or null it is an error, as it would not run'. The warning is the intended behaviour (releases.md 0.x entry for #33; _utils.py:1741-1770; assistant tests), so the schema text is stale. Impact is small because the notice explains itself.",
+    "covered_by_test": "tests/tests_mcp/golden/tool_schemas.json pins the stale description (asserts it as acceptable); tests/test__warn_window_without_refit.py and tests/test_assistant_create_cv.py assert the warning, i.e. the opposite of the schema text. No MCP test of the non-Stats case.",
+    "adjusted_category": "skill_mismatch",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/mcp/server.py:1946-1950 description of `fixed_train_size`. Reword to 'with `refit` false or null it has no effect and the call carries an IgnoredArgumentWarning notice' and regenerate the schema golden."
+   },
+   {
+    "lens": "impact",
+    "key": "V21",
+    "reproduced": true,
+    "refuted": true,
+    "reason": "All three scripts behave the same way: create_cv accepts fixed_train_size=true with refit false or null and returns an IgnoredArgumentWarning (\"has no effect... Pass `refit=True`...\"), and the backtest runs. The schema at server.py:1945-1949 says \"it is an error, as it would not run\", so the schema text is stale. The practical guidance is the same either way: pass refit for fixed_train_size to matter. The call that the schema calls an error still succeeds with a notice that explains itself. An agent that trusts the schema just passes refit, which is the right call, so nobody gets stuck or receives a wrong number. The only harm is a slightly wrong sentence (\"would not run\" instead of \"has no effect\"), so this is a cosmetic documentation drift.",
+    "covered_by_test": "tests/tests_mcp/golden/tool_schemas.json pins the stale description, so it asserts the bad text. tests/test__warn_window_without_refit.py tests the warning.",
+    "adjusted_category": "skill_mismatch",
+    "adjusted_severity": "low",
+    "root_cause": "Refuted as cosmetic. The cheap fix: skforecast_ai/mcp/server.py:1945-1949, reword the fixed_train_size description to say that with refit false or null it has no effect and returns an IgnoredArgumentWarning, then regenerate the schema golden."
+   }
+  ],
+  "n_votes": 3,
+  "not_refuted": 2,
+  "survives": true
+ },
+ {
+  "key": "V22",
+  "votes": [
+   {
+    "lens": "repro",
+    "key": "V22",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "d_01 script REPRODUCED. With target=\"y\" plus series_id_column=\"sid\", long.csv profiles as 3 series. With target=[\"y\"] the result is invalid_argument on field data_path (\"Found 72 timestamps with more than one row\"), with the hint \"This is a problem of the file of the user\". On wide.csv, target [\"y\",\"y2\"] plus series_id_column \"x\" succeeds; \"Exogenous columns: none\" and no notice mention 'x'. Source: `_resolve_data_format` returns 'wide' for any list target before it looks at series_id_column, and `_validate_series_id_column` never rejects the combination. Following SKILL.md literally (one column for stacked data) avoids it, but the schema allows the list. When it happens, the hint actively misdirects the agent to blame the user's file.",
+    "covered_by_test": "none (tests/tests_mcp/test_tool_profile.py uses series_id_column only with a string target)",
+    "adjusted_category": "bug",
+    "adjusted_severity": "medium",
+    "root_cause": "skforecast_ai/profiling/data_profile.py:1433-1438 (`_resolve_data_format`) and :3279 (`_validate_series_id_column`). Fix: raise InvalidInputError on series_id_column (or target) when target is a list and series_id_column is set, or treat a one-item list like the string."
+   },
+   {
+    "lens": "documented",
+    "key": "V22",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Script prints REPRODUCED: on stacked data, target 'y' with series_id_column 'sid' profiles 3 series, but target ['y'] with the same id column fails as invalid_argument on data_path, with 72 repeated timestamps and a hint that it is a problem of the user's file. On wide data, target ['y','y2'] with series_id_column 'x' succeeds with 'Exogenous columns: none' and never mentions 'x'. No doc says the combination is invalid or ignored: SKILL.md only says target can be a list and series_id_column names the id column when stacked. The agent is steered to blame and 'fix' the user's file.",
+    "covered_by_test": "none (tests/tests_profiling/test_create_data_profile.py and tests/tests_mcp/test_tool_profile.py only use series_id_column with a string target)",
+    "adjusted_category": "bug",
+    "adjusted_severity": "medium",
+    "root_cause": "skforecast_ai/profiling/data_profile.py:1433-1434 `_resolve_data_format` returns 'wide' for any list target without looking at series_id_column, and `_validate_series_id_column` (3279-3322) accepts the pair. Raise InvalidInputError (field 'series_id_column' or 'target') when target is a list and series_id_column is set (or treat a one-item list as the string)."
+   },
+   {
+    "lens": "impact",
+    "key": "V22",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Script prints REPRODUCED. long.csv with target \"y\" and series_id_column \"sid\" gives 3 series. The same call with target [\"y\"] fails with invalid_argument on data_path: \"Found 72 timestamps with more than one row... Aggregate or remove the repeated rows\". Its hint says \"This is a problem of the file of the user... ask before writing a corrected copy\". In the source, data_profile.py:1433-1438 returns 'wide' for any list target and ignores series_id_column without saying so. A one-item list is a plausible agent habit, because the schema accepts str or list. The server then tells the agent outright that the user's valid stacked file is broken, which leads to a false statement to the user and an offer to 'aggregate' away the series. The wide case, where 'x' is silently dropped, is a contradictory input and the less realistic part.",
+    "covered_by_test": "none (tests/tests_mcp/test_tool_profile.py only uses series_id_column with a string target)",
+    "adjusted_category": "bug",
+    "adjusted_severity": "medium",
+    "root_cause": "skforecast_ai/profiling/data_profile.py:1433-1438 (_resolve_data_format) lets a list target override series_id_column. Raise InvalidInputError (field series_id_column or target) when both a list target and series_id_column are given, or treat a one-item list as a string."
+   }
+  ],
+  "n_votes": 3,
+  "not_refuted": 3,
+  "survives": true
+ },
+ {
+  "key": "V23",
+  "votes": [
+   {
+    "lens": "repro",
+    "key": "V23",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Both d_02 and f_01 REPRODUCED. profile with target [\"y\",\"y\"] succeeds with \"Series: 2\" and recommends ForecasterRecursiveMultiSeries. The forecast holds a single level 'y', and pandas warns \"DataFrame columns are not unique\". exog_columns ['x','x'] is rejected by an explicit check (data_profile.py:2674), but no such check exists for target (`_validate_target_exists`, data_profile.py:3413). I downgraded it to low because an agent repeating the target column is an unlikely input. The defect is real and the fix is trivial.",
+    "covered_by_test": "none",
+    "adjusted_category": "bug",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/profiling/data_profile.py:3413 (`_validate_target_exists`) does not check for repeated names. Fix: raise InvalidInputError(field='target') when a target list names a column more than once, matching the exog_columns check at :2674."
+   },
+   {
+    "lens": "documented",
+    "key": "V23",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Both scripts print REPRODUCED: target ['y','y'] profiles as 'Series: 2', recommends ForecasterRecursiveMultiSeries, and the forecast has a single level 'y' with a pandas 'DataFrame columns are not unique' runtime notice. exog_columns ['x','x'] is rejected ('names a column more than once'), and the only duplicate check in profiling is for exog_columns (data_profile.py:2677). Nothing documents a repeated target as accepted.",
+    "covered_by_test": "none (the only 'more than once' test is tests/test_assistant_profile.py for exog_columns)",
+    "adjusted_category": "bug",
+    "adjusted_severity": "medium",
+    "root_cause": "skforecast_ai/profiling/data_profile.py:3413 `_validate_target_exists` (called at 278) checks only missing columns of a list target. Reject repeated names with InvalidInputError field 'target', like the exog_columns check at 2677."
+   },
+   {
+    "lens": "impact",
+    "key": "V23",
+    "reproduced": true,
+    "refuted": true,
+    "reason": "Both scripts print REPRODUCED: target [\"y\",\"y\"] gives 'Series: 2' and a multi-series recommendation, while exog_columns ['x','x'] is rejected. The trigger is an agent writing the same column twice into a list. No user asks for that, and an agent building the list from user text or the profile's columns would hardly produce it. The response shows the mistake plainly (\"- Target: ['y', 'y']\" next to 'Series: 2'), and the forecast adds a 'DataFrame columns are not unique' notice. A careful agent sees its own duplicated argument. This is a validation inconsistency with an unrealistic trigger, not a realistic way to mislead an agent.",
+    "covered_by_test": "none",
+    "adjusted_category": "bug",
+    "adjusted_severity": "low",
+    "root_cause": "Refuted for impact. Trivial fix: skforecast_ai/profiling/data_profile.py near _validate_series_id_column (~3279) or the target validation in profile. Reject a target list with repeated names (invalid_argument on target), as is already done for exog_columns."
+   }
+  ],
+  "n_votes": 3,
+  "not_refuted": 2,
+  "survives": true
+ },
+ {
+  "key": "V24",
+  "votes": [
+   {
+    "lens": "repro",
+    "key": "V24",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "e_02 and d_03 both REPRODUCED. With explicit candidates on the cv of a refined plan (lags 2), the refined plan does not run (its backtest MAE 1.8939 is in no row). The summary only says \"The strategy was created for the plan (ForecasterRecursive + Ridge)\", which matches the label of the 'ridge' row that runs the default lags, and there is no notice. A candidate named 'Strategy plan' is accepted, while the baseline names are reserved. Part of the reason is weak. The schema documents that the strategy plan row exists only when candidates is null (\"Null for ... plus the plan the strategy was built for\"). In SKILL.md step 6 the sentence follows the no-candidates description. The renamed-candidate scenario is contrived, since the agent chose that name. What remains is an ambiguous summary line and an unreserved name.",
+    "covered_by_test": "tests/tests_mcp/test_tool_compare.py::test_tool_compare_runs_the_refined_plan_of_the_strategy_as_a_row covers only the no-candidates case. Nothing covers explicit candidates or a user candidate named 'Strategy plan'.",
+    "adjusted_category": "skill_mismatch",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/mcp/server.py:2290-2300 (the candidates branch adds no strategy row) and skforecast_ai/recommendation/backtesting.py:291 (the summary names the plan without saying it is not ranked). Fix: with explicit candidates, say in the summary or a notice that the plan of the strategy was not compared, reserve STRATEGY_PLAN_NAME like the baseline names, and condition the SKILL.md step 6 sentence on 'without candidates'."
+   },
+   {
+    "lens": "documented",
+    "key": "V24",
+    "reproduced": true,
+    "refuted": true,
+    "reason": "Both scripts reproduce the symptom, but leaving out the plan of the strategy with explicit candidates is documented and tested intent. The compare schema says 'Null for the candidates recommended by the profile ... plus the plan the strategy was built for, in the row Strategy plan'. docs/api/mcp.md:40 and docs/user-guides/mcp-server.md:199 also scope it to 'Without candidates'. SKILL.md step 6 sets it in the 'Without candidates' paragraph and warns that a row is the user's plan 'only when the summary names that row', which the summary does not do here. The residual, that 'Strategy plan' is not a reserved candidate name, only matters when the agent names its own candidate so.",
+    "covered_by_test": "tests/test_assistant_compare.py::test_compare_candidates_explicit_ignore_the_plan_of_the_strategy asserts no 'Strategy plan' row and the 'created for the plan' sentence with explicit candidates (intended); tests/tests_mcp/test_tool_compare.py::test_tool_compare_runs_the_refined_plan_of_the_strategy_as_a_row covers the no-candidates case; no test for a user candidate named 'Strategy plan'.",
+    "adjusted_category": "skill_mismatch",
+    "adjusted_severity": "low",
+    "root_cause": "Residual only: skforecast_ai/execution/comparison.py:42 STRATEGY_PLAN_NAME is not checked against candidate names (only the baseline names are, around 581). Optionally reserve it and add 'without candidates' to the SKILL.md step 6 sentence."
+   },
+   {
+    "lens": "impact",
+    "key": "V24",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Both scripts print REPRODUCED. With explicit candidates, the refined plan (lags 2, MAE 1.89 on that cv) runs in no row and there is no notice. The summary still says \"The strategy was created for the plan (ForecasterRecursive + Ridge)\" while Best is 'ridge' (ForecasterRecursive / Ridge, default lags). The compare schema says the 'Strategy plan' row exists only when candidates is null, so a careful agent that cross-checks the schema is not fooled. However, the SKILL.md sentence (\"that plan runs too... report that row as the user's plan\") and that summary line make it plausible to map the user's plan onto the same-model row and report its MAE. The reserved-name part (d-03) is weak, because the agent picks the name and the config itself.",
+    "covered_by_test": "tests/tests_mcp/test_tool_compare.py (~line 662) covers the server-made 'Strategy plan' row without candidates; explicit candidates and a candidate named 'Strategy plan' are untested",
+    "adjusted_category": "skill_mismatch",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/mcp/server.py:2275-2290 adds the strategy plan only when candidates is None, and skforecast_ai/recommendation/backtesting.py:274-291 still describes the plan with no row. With explicit candidates, say in the summary or a notice that the plan of the strategy was not compared. Reserve STRATEGY_PLAN_NAME as the baseline names are reserved, and make SKILL.md step 6 say 'without candidates' in that sentence."
+   }
+  ],
+  "n_votes": 3,
+  "not_refuted": 2,
+  "survives": true
+ },
+ {
+  "key": "V25",
+  "votes": [
+   {
+    "lens": "repro",
+    "key": "V25",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "d_04 and f_02 REPRODUCED. A plan with window_features [{stats:[mean], window_size:3, min_periods:1}] succeeds with no notice. The plan summary echoes \"Window features: [{... 'min_periods': 1}]\" as chosen by the user, while the get_code script has no min_periods. `_validation.py` checks missing keys and the stats values but never checks extra keys, and the JSON schema items allow additionalProperties. This contradicts the SKILL.md promise \"an unknown argument ... is an error, never ignored\". I set it to low because it only triggers for keys that RollingFeatures has but the tool does not support (min_periods, fillna). The d-04 typo case only passes because 'window_size' is also present.",
+    "covered_by_test": "none",
+    "adjusted_category": "skill_mismatch",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/_validation.py:990-997 checks only `{\"stats\",\"window_size\"} - wf.keys()`. Fix: also reject `wf.keys() - {\"stats\",\"window_size\"}` with InvalidInputError(field) naming the unknown keys, and set additionalProperties false on the items of the window_features schema."
+   },
+   {
+    "lens": "documented",
+    "key": "V25",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Both scripts print REPRODUCED: window_features entries with 'min_periods' or a typo 'windows_size' are accepted with no notice. The script has RollingFeatures(window_sizes=[3, 6]) without them. Per f-02, the plan summary echoes the dict with min_periods under 'Chosen by the user instead of the rules'. SKILL.md promises 'an unknown argument or a wrong type is an error, never ignored', and candidate configs do reject extra keys. So the agent reports a configuration that never ran.",
+    "covered_by_test": "none (no test of extra keys in window_features in tests/tests_mcp/test_tool_plan.py or tests of _validate_window_features)",
+    "adjusted_category": "bug",
+    "adjusted_severity": "medium",
+    "root_cause": "skforecast_ai/_validation.py:943-1000 `_validate_window_features` checks the required keys and the stats but not keys beyond 'stats' and 'window_size'; skforecast_ai/mcp/models.py:117 `WindowFeatures = list[dict[str, list[str] | int]]` admits any key. Reject unknown keys with invalid_argument field 'window_features' (or use a closed TypedDict)."
+   },
+   {
+    "lens": "impact",
+    "key": "V25",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Both scripts print REPRODUCED. plan accepts {'stats':['mean'],'window_size':3,'min_periods':1} with no notice. The summary echoes \"- Window features: [{... 'min_periods': 1}]\" with 'Chosen by the user instead of the rules: window_features', but the script has no min_periods. _validation.py:943-1000 checks only for missing keys, and the schema items allow additionalProperties. SKILL.md promises \"an unknown argument... is an error, never ignored\", and the summary confirms the option, so even a careful agent tells the user min_periods was applied. The trigger is uncommon but plausible (a user asking for a real RollingFeatures option). The 'windows_size' typo next to a valid window_size is less realistic.",
+    "covered_by_test": "none",
+    "adjusted_category": "skill_mismatch",
+    "adjusted_severity": "medium",
+    "root_cause": "skforecast_ai/_validation.py:943-1000 (_validate_window_features) never rejects extra keys. Raise InvalidInputError on window_features naming the keys other than 'stats' and 'window_size', and make the MCP schema items additionalProperties false with those two properties."
+   }
+  ],
+  "n_votes": 3,
+  "not_refuted": 3,
+  "survives": true
+ },
+ {
+  "key": "V26",
+  "votes": [
+   {
+    "lens": "repro",
+    "key": "V26",
+    "reproduced": true,
+    "refuted": true,
+    "reason": "d_05 REPRODUCED. With n_estimators=1e8 the cost is estimator_fits 1 with no notice, and profile stays blocked 20 s after the client cancels the backtest. Both behaviours are documented and do not mislead. `cost` is defined in SKILL.md as a count of fits and windows, not of time. SKILL.md says \"cancelling another tool waits for it to end ... the others wait their turn\". The input (100 million trees) is not something an agent would naturally send. With realistic sizes (hundreds or a few thousand trees on this data) a fit takes seconds. The fix it asks for (cancellable runs in a subprocess, or cost estimates per estimator size) is a design change, not a defect.",
+    "covered_by_test": "none",
+    "adjusted_category": "improvement",
+    "adjusted_severity": "low",
+    "root_cause": "n/a (refuted): documented behaviour (SKILL.md Cost and 'Progress and cancellation') with a contrived input."
+   },
+   {
+    "lens": "documented",
+    "key": "V26",
+    "reproduced": true,
+    "refuted": true,
+    "reason": "Reproduced (estimator_fits 1 for n_estimators=1e8; profile blocked >20 s after the cancel), but both parts are documented. The cost is defined as counts: SKILL.md Cost lists n_folds, n_fits, estimator_fits, and the 50-fit threshold is a count. Cancellation is documented to wait: SKILL.md 'cancelling another tool waits for it to end ... the others wait their turn', docs/api/mcp.md:30 'any other cancelled call waits for its work to end', docs/user-guides/mcp-server.md:206. A careful agent is not misled into thinking a fit count measures model size, and 1e8 trees was an explicit user request.",
+    "covered_by_test": "tests/tests_mcp/test_call_control.py covers the cancellation semantics; no test varies estimator size (none needed for the documented contract).",
+    "adjusted_category": "improvement",
+    "adjusted_severity": "low",
+    "root_cause": "No defect against the documented contract. Optional improvement: a plan notice when estimator_kwargs scale training far beyond the default (n_estimators, iterations, max_iter), since skforecast_ai/_utils.py count_estimator_fits ignores them."
+   },
+   {
+    "lens": "impact",
+    "key": "V26",
+    "reproduced": true,
+    "refuted": true,
+    "reason": "Reproduced: n_estimators=1e8 gives cost estimator_fits 1 with no notice, and profile was still blocked 20 s after the client cancelled. No server process was left afterwards. SKILL.md defines cost as counts (\"`n_fits` (trainings of the forecaster), `estimator_fits`\"), not as time or estimator size. It also states that \"cancelling another tool waits for it to end... the others wait their turn\", so the blocking is documented behaviour. 100 million trees is not a realistic user request, and realistic values (hundreds or thousands of trees) finish quickly. The finding asks for a new feature (estimator-size-aware cost or hard cancellation) rather than reporting a way a real agent gets misled.",
+    "covered_by_test": "none",
+    "adjusted_category": "improvement",
+    "adjusted_severity": "low",
+    "root_cause": "Refuted (documented behaviour, unrealistic trigger). If addressed: a plan-time notice in skforecast_ai/assistant.py plan() when estimator_kwargs set n_estimators or iterations far above defaults, or cancellation that can stop the worker in skforecast_ai/mcp/server.py run_call."
+   }
+  ],
+  "n_votes": 3,
+  "not_refuted": 0,
+  "survives": false
+ },
+ {
+  "key": "V27",
+  "votes": [
+   {
+    "lens": "repro",
+    "key": "V27",
+    "reproduced": true,
+    "refuted": true,
+    "reason": "d_06 REPRODUCED: both a file:// URL inside the allowed directory and an https URL get url_not_allowed, with \"download the file into the allowed directory and pass its absolute path\" and no hint. However, following SKILL.md literally avoids any harm. Its errors table says for url_not_allowed: \"Pass the absolute path of a CSV file ... inside the allowed directory\". Its Inputs section says \"No URLs: download the file first\", which agrees with the message for a remote URL. For a file:// URL that already points inside the directory, the message itself says to pass the absolute path, so stripping the scheme is the obvious action. A file:// data_path is also an unusual input.",
+    "covered_by_test": "tests/tests_mcp/test_resolve_csv_path.py and test_security_regressions.py assert the code url_not_allowed only, not the advice.",
+    "adjusted_category": "agent_friction",
+    "adjusted_severity": "low",
+    "root_cause": "n/a (refuted): the advice in skforecast_ai/mcp/_inputs.py:247 agrees with the SKILL.md Inputs section and errors table."
+   },
+   {
+    "lens": "documented",
+    "key": "V27",
+    "reproduced": true,
+    "refuted": true,
+    "reason": "Reproduced: file:// and https:// both get url_not_allowed with 'download the file into the allowed directory and pass its absolute path'. This is the documented design: SKILL.md Inputs 'No URLs: download the file first', and skforecast_ai/mcp/_inputs.py:25-27 ('section 10.7 of the design; the agent downloads the file and passes its path'). The SKILL error table tells the agent to 'Pass the absolute path of a CSV file ... inside the allowed directory', so for a file:// URL already inside it a careful agent passes the path. The only real tension, a file:// URL outside the allowed directory nudging a copy, is a rare input.",
+    "covered_by_test": "tests/tests_mcp/test_resolve_csv_path.py asserts the code url_not_allowed for https, file and s3 URLs, not the advice.",
+    "adjusted_category": "agent_friction",
+    "adjusted_severity": "low",
+    "root_cause": "Optional: skforecast_ai/mcp/_inputs.py:245-252 could give a file:// URL the path_not_allowed style hint (pass the path without the scheme if it is inside, else ask the user) instead of 'download'."
+   },
+   {
+    "lens": "impact",
+    "key": "V27",
+    "reproduced": true,
+    "refuted": true,
+    "reason": "Reproduced: both the file:// URL and the https URL get url_not_allowed with \"download the file into the allowed directory and pass its absolute path\" and no hint. For the remote URL, this matches SKILL.md Inputs exactly (\"No URLs: download the file first\"). The server-instructions ban on copying is about a local file of the user outside the allowed directory. A file:// URL to a file already inside the allowed directory is an unrealistic agent input, because SKILL.md and the schema ask for absolute paths. A capable agent would just strip the scheme, since the path is in details.path, so there is nothing to download. No agent goes wrong in a realistic case.",
+    "covered_by_test": "tests/tests_mcp/test_resolve_csv_path.py and test_security_regressions.py assert the code only, not the advice",
+    "adjusted_category": "agent_friction",
+    "adjusted_severity": "low",
+    "root_cause": "Refuted. If polished: skforecast_ai/mcp/_inputs.py:247, the url_not_allowed message. For file:// URLs inside the allowed directory, name the absolute path to pass."
+   }
+  ],
+  "n_votes": 3,
+  "not_refuted": 0,
+  "survives": false
+ },
+ {
+  "key": "V28",
+  "votes": [
+   {
+    "lens": "repro",
+    "key": "V28",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "e_01 REPRODUCED, and my minimal verify/V28_trailing_sep.py confirms it. When only the data rows end with ',', profile returns insufficient_data \"Target column 'y' has no values\" (false). An extra field in only the first row gives a successful profile with dates as exog, 119 of 120 targets missing and no datetime index. A middle-row extra field gives data_unreadable, as documented. Cause: pd.read_csv is called without index_col=False, so pandas promotes the first column to the index when the rows have one more field than the header. I downgraded it from high to medium. The common export form (trailing separator on the header too, 'date,y,') profiles correctly, with an 'Unnamed: 2' exog column and a DataProfileWarning. The first-row case comes with loud data warnings (no datetime index, 99.2 % missing).",
+    "covered_by_test": "tests/tests_profiling/test_read_csv_file.py ('more fields than the header') covers only the middle-row case. No test covers the trailing-separator or first-row cases.",
+    "adjusted_category": "bug",
+    "adjusted_severity": "medium",
+    "root_cause": "skforecast_ai/profiling/data_profile.py:3205 and :3214 call `pd.read_csv(path, **csv_read_kwargs(...))` without `index_col=False`. Fix: pass index_col=False (and the same in the rendered loader so scripts match), or detect data rows with more fields than the header and raise data_unreadable."
+   },
+   {
+    "lens": "documented",
+    "key": "V28",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Script prints REPRODUCED. A file whose rows end with a trailing ',' gives insufficient_data \"Target column 'y' has no values\". A file with an extra field only in row 1 profiles successfully with dates as an exogenous column, target min=max=9 and 119 of 120 missing. Only the middle-row case gives data_unreadable. pandas makes the first column the index when data rows have one more field than the header, and read_csv_with_dialect does not guard against it. The SKILL error table promises data_unreadable for 'rows with more fields than the header'. Severity medium rather than high: the first-row case comes with loud 'No datetime index' and 99.2 % missing warnings.",
+    "covered_by_test": "none for these cases; tests/tests_profiling/test_read_csv_file.py only covers an extra field in a middle row ('more fields than the header').",
+    "adjusted_category": "bug",
+    "adjusted_severity": "medium",
+    "root_cause": "skforecast_ai/profiling/data_profile.py:3204 `pd.read_csv(path, **csv_read_kwargs(sep, decimal))` lets pandas infer an implicit index from the first column. Detect a header with fewer fields than the first data row (or an implicit index taken from the first column) and raise data_unreadable, keeping the generated script's read consistent."
+   },
+   {
+    "lens": "impact",
+    "key": "V28",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Script prints REPRODUCED. With a trailing separator on data rows only, profile fails with insufficient_data \"Target column 'y' has no values: every row is missing\", which is false. With an extra field in row 1 only, profile succeeds with garbage: 'Exogenous columns: date', 119 of 120 targets missing, no datetime index. The middle-row case correctly gives data_unreadable. I checked that a trailing comma on every line including the header reads fine (one 'Unnamed: 2' exog column), so the trigger is the less common form where only data rows end in a separator. Both cases lead the agent to tell the user something false about their data: an empty target column, or 99% missing values. The second case is loud, not silent, and the trigger is not the most common export. So this is medium, not high.",
+    "covered_by_test": "tests/tests_profiling/test_read_csv_file.py covers 'more fields than the header' only for a middle row; it would not catch these cases",
+    "adjusted_category": "bug",
+    "adjusted_severity": "medium",
+    "root_cause": "skforecast_ai/profiling/data_profile.py:3205 and 3214 call pd.read_csv without index_col=False, so pandas takes the first column as the index when data rows have one field more than the header. Pass index_col=False (mirrored in the rendered read_csv at skforecast_ai/rendering/_helpers.py:540). Turn pandas' resulting ParserWarning ('loss of data') into data_unreadable or a data notice."
+   }
+  ],
+  "n_votes": 3,
+  "not_refuted": 3,
+  "survives": true
+ },
+ {
+  "key": "V29",
+  "votes": [
+   {
+    "lens": "repro",
+    "key": "V29",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "e_04 REPRODUCED. A plan with LGBMRegressor(n_estimators=50, verbose=-1), refined with only estimator=RandomForestRegressor, gives RandomForestRegressor(random_state=123), with notices [] and the summary listing only 'estimator' as a user choice. The drop is intentional in the Python API (assistant.py:1574 docstring, :1779) and tested. However, the MCP RefinePlanArgs description (mcp/models.py:133) and SKILL.md step 3 say \"An omitted key keeps the value of the plan\" with no exception for estimator_kwargs, and the MCP response gives no signal. Keeping the kwargs would be wrong (verbose=-1 is not a RandomForest parameter), so the fix is documentation or a notice.",
+    "covered_by_test": "tests/test_assistant_refine_plan.py::test_refine_plan_output_drops_estimator_kwargs_when_estimator_changes asserts the drop as intended. No tests_mcp test checks that the agent is told.",
+    "adjusted_category": "skill_mismatch",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/assistant.py:1779 sets carried['estimator_kwargs']=None when the estimator changes. skforecast_ai/mcp/models.py:133 and SKILL.md step 3 do not state the exception. Fix: document it there and add a notice in refine_plan naming the dropped kwargs."
+   },
+   {
+    "lens": "documented",
+    "key": "V29",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Script prints REPRODUCED: refine_plan with only a new estimator turns LGBMRegressor(n_estimators=50, verbose=-1) into RandomForestRegressor(random_state=123), with no notice. The drop is intended in the Python API (assistant.py:1573-1575 docstring; releases.md:252 'a new `estimator` drops the previous `estimator_kwargs`'). But the MCP contract the agent sees says the opposite: RefinePlanArgs (models.py:133) and SKILL.md step 3 say 'An omitted key keeps the value of the plan', with no exception for estimator_kwargs.",
+    "covered_by_test": "tests/test_assistant_refine_plan.py::test_refine_plan_output_drops_estimator_kwargs_when_estimator_changes asserts the drop as intended (Python API); no MCP test.",
+    "adjusted_category": "skill_mismatch",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/mcp/models.py:133-135 (RefinePlanArgs description) and SKILL.md workflow step 3 omit the exception. Add 'a new `estimator` drops the `estimator_kwargs` of the plan unless they are passed again', or have refine_plan emit a notice naming the dropped kwargs."
+   },
+   {
+    "lens": "impact",
+    "key": "V29",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Script prints REPRODUCED: after refine_plan {estimator: 'RandomForestRegressor'}, the script has RandomForestRegressor(random_state=123) without n_estimators=50, and there are no notices. I checked the summaries: neither the original nor the refined one shows kwarg values. The only trace is that 'Chosen by the user instead of the rules' loses 'estimator_kwargs'. The drop is deliberate (assistant.py:1775-1779) and documented in the Python docstring. But SKILL.md step 3 and the refine_plan schema both say \"An omitted key keeps the value of the plan\", and an agent has no visible signal of the change. A user who set the tree count and then switched estimator would be told the old setting still holds. The case is plausible but narrow, so the severity is low.",
+    "covered_by_test": "tests/test_assistant_refine_plan.py::test_refine_plan_output_drops_estimator_kwargs_when_estimator_changes asserts the drop as intended; nothing at MCP level checks a notice",
+    "adjusted_category": "skill_mismatch",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/assistant.py:1778-1779 resets estimator_kwargs when the estimator changes, without a warning. Emit a notice naming the dropped kwargs, and add the exception to SKILL.md step 3 and the RefinePlanArgs description in skforecast_ai/mcp/server.py."
+   }
+  ],
+  "n_votes": 3,
+  "not_refuted": 3,
+  "survives": true
+ },
+ {
+  "key": "V30",
+  "votes": [
+   {
+    "lens": "repro",
+    "key": "V30",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "f_03 REPRODUCED. plan(steps=90) on 120 rows is accepted. forecast(test_size=90) returns execution_failed with field null and hint null, and get_failure shows \"Length of `y` must be greater than the maximum window size ... Length `y`: 30. Max window size: 36.\" create_cv runs a pre-check for the same condition (first_window_issue, recommendation/backtesting.py:1384); the forecast hold-out path does not. I downgraded it to low. The input (a horizon of 75 % of the series, evaluated as a hold-out) is an edge case. Following SKILL.md (get_failure on execution_failed) gives a clear message after one extra call.",
+    "covered_by_test": "none",
+    "adjusted_category": "agent_friction",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/assistant.py:4494-4525: the hold-out split computes end_train but never checks the training length against plan_window_size. Fix: reuse the first_window_issue logic (recommendation/backtesting.py:1384-1415) and raise insufficient_data with field 'test_size' before running the script."
+   },
+   {
+    "lens": "documented",
+    "key": "V30",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Script prints REPRODUCED: plan(steps=90) followed by forecast(test_size=90) on 120 rows fails as execution_failed with no field. Only get_failure shows 'Length `y`: 30. Max window size: 36'. The SKILL error table says 'a series too short for the forecaster (the message names it), is also reported' as insufficient_data, and SKILL step 7 tells the agent to pass test_size=steps. A pre-check exists only for multi-series and foundation plans. Recovery takes one extra get_failure call, hence low.",
+    "covered_by_test": "none (tests/tests_mcp/test_tool_forecast.py has no short-training hold-out case)",
+    "adjusted_category": "agent_friction",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/_last_window.py:754-800 `validate_series_lengths` returns early unless the forecaster is ForecasterRecursiveMultiSeries or a foundation model on several series, so a single-series evaluation (test_size) has no training-length check. In evaluation mode, check the training partition against the window size (plus steps for direct forecasters) and raise insufficient_data with field 'test_size'."
+   },
+   {
+    "lens": "impact",
+    "key": "V30",
+    "reproduced": true,
+    "refuted": true,
+    "reason": "Reproduced: forecast(test_size=90) on 120 rows gives execution_failed with field and hint null. get_failure starts with \"ValueError: Length of `y` must be greater than the maximum window size needed by the forecaster. Length `y`: 30. Max window size: 36.\" SKILL.md maps execution_failed to \"`get_failure(details.failure_id)` returns the traceback and the code\". One extra call gives the agent a clear, plain-language reason it can act on, so a careful agent does not get stuck or mislead the user. The script fails at the first fit, so nothing expensive runs. A horizon of 90 on 120 observations is also an extreme trigger. The cost is one extra call, not a misleading outcome.",
+    "covered_by_test": "none in tests/tests_mcp/test_tool_forecast.py",
+    "adjusted_category": "agent_friction",
+    "adjusted_severity": "low",
+    "root_cause": "Refuted. If polished: the forecast tool in skforecast_ai/mcp/server.py could reuse the create_cv window check (validate_backtest_windows) for the hold-out training part, so the error is insufficient_data with field test_size."
+   }
+  ],
+  "n_votes": 3,
+  "not_refuted": 2,
+  "survives": true
+ },
+ {
+  "key": "V31",
+  "votes": [
+   {
+    "lens": "repro",
+    "key": "V31",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "f_04 and f_05 REPRODUCED. create_cv with only plan_id on a steps=90 plan gives invalid_argument on field 'initial_train_size' with \"If `initial_train_size` is a date, it must be within the index range\", an argument the agent never sent. steps=80 gives the clearer insufficient_data and hold-out hint. gap=30 and skip_folds=50 give insufficient_data with field null and a hint that names neither. `_strategy_error` picks the field from skforecast's message even when the value was defaulted. I set it to low. The invalid_argument hint does mention \"or the `steps` of the plan\", and the gap/skip_folds values are unusual inputs.",
+    "covered_by_test": "tests/tests_mcp/test_tool_create_cv.py::test_tool_create_cv_invalid_argument_when_skforecast_rejects_the_strategy asserts field 'initial_train_size' for an explicit initial_train_size and for gap=190, so it pins the field choice as acceptable. The defaulted case and the hint for gap/skip_folds are not tested.",
+    "adjusted_category": "agent_friction",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/recommendation/backtesting.py:1074-1110 (`_strategy_error` takes the field from the skforecast message even for a defaulted initial_train_size) and :1053-1060 (the insufficient_data hint omits gap/skip_folds). Fix: when initial_train_size was defaulted and two folds of `steps` cannot fit, take the insufficient_data path before building TimeSeriesFold, and name gap/skip_folds in the hint when they were passed."
+   },
+   {
+    "lens": "documented",
+    "key": "V31",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Both scripts print REPRODUCED. A steps=90 plan with only plan_id gives invalid_argument field 'initial_train_size', an argument not sent, with a message about a date. gap=40 also blames initial_train_size; gap=30 and skip_folds=50 get insufficient_data with field null and a hint that omits gap and skip_folds. The code comment in _strategy_error says a message naming several arguments ('`initial_train_size + gap`') should not pick one. But the regex requires a backtick before each name, so it yields only {'initial_train_size'} (verified). Mitigation: the steps=90 hint does mention the `steps` of the plan.",
+    "covered_by_test": "tests/tests_mcp/test_tool_create_cv.py::test_tool_create_cv_invalid_argument_when_skforecast_rejects_the_strategy asserts field 'initial_train_size' for gap=190 (asserts the behaviour as acceptable). The default-argument case and the insufficient_data hint with gap or skip_folds are untested.",
+    "adjusted_category": "agent_friction",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/recommendation/backtesting.py:1066-1069 `_CV_ARGUMENT` only matches a name right after a backtick, so `_strategy_error` (1073-1110) picks initial_train_size from '`initial_train_size + gap`'. It also does not know which arguments were passed. The insufficient_data hint at 1052-1060 never names gap or skip_folds. Match every name inside the backticked expression, leave field None (or 'steps') for a default the caller did not send, and add gap/skip_folds to the hint when set."
+   },
+   {
+    "lens": "impact",
+    "key": "V31",
+    "reproduced": true,
+    "refuted": true,
+    "reason": "Both scripts reproduce. My probe on 120 monthly rows shows the misleading 'date within the index range' message only for steps of 85 or more (over 70% of the series). Steps 60 to 81 give the clear insufficient_data and hold-out hint, and that hint for steps 85 or 90 still names `steps` among the remedies. skip_folds=50 on a 3-fold strategy is not a realistic input. For gap=30, following the hint (a smaller initial_train_size) does yield 2 or more folds, and the message lists 'gap': 30 among the resolved parameters. For gap=40, the message names gap explicitly. Realistic inputs lead a careful agent to a working fix.",
+    "covered_by_test": "tests/tests_mcp/test_tool_create_cv.py::test_tool_create_cv_invalid_argument_when_skforecast_rejects_the_strategy asserts field 'initial_train_size' for gap=190 as intended",
+    "adjusted_category": "agent_friction",
+    "adjusted_severity": "low",
+    "root_cause": "Refuted (unrealistic triggers; hints usable). If polished: skforecast_ai/recommendation/backtesting.py:~1049, plus the default initial_train_size resolution, which turns an impossible default into an out-of-range date. Check 2*steps (+gap) against the series length first and raise insufficient_data with the hold-out hint, and name gap or skip_folds in the hint when they were passed."
+   }
+  ],
+  "n_votes": 3,
+  "not_refuted": 2,
+  "survives": true
+ },
+ {
+  "key": "V32",
+  "votes": [
+   {
+    "lens": "repro",
+    "key": "V32",
+    "reproduced": true,
+    "refuted": true,
+    "reason": "The f_06 symptoms reproduce, but my verify/V32_failed_candidate_visibility.py shows the agent impact is overstated. With the default baseline, the deterministic summary says \"Only the baseline 'Baseline (seasonal naive)' ran successfully. 1 configuration failed to run and is ranked last.\" The leaderboard row also carries the full message \"'Ridg' is not a supported estimator. Supported estimators: [...]\". A skimming agent therefore cannot mistake the baseline for a fair winner. The only remaining case is all_candidates_failed listing class names, which SKILL.md documents (\"`get_failure(details.failure_id)` returns the traceback\"). That costs one documented extra call and does not mislead.",
+    "covered_by_test": "tests/tests_mcp/test_tool_compare.py uses a deliberate 'bad' candidate and checks get_failure/get_code for it. It does not assert the class-only text.",
+    "adjusted_category": "improvement",
+    "adjusted_severity": "low",
+    "root_cause": "n/a (refuted): failures are surfaced in the summary and leaderboard, and the all_candidates_failed path is documented in SKILL.md."
+   },
+   {
+    "lens": "documented",
+    "key": "V32",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Part 1 is documented intent: docs/api/mcp.md:30 says a candidate 'whose configuration is not valid (an unknown estimator...) is ranked last with its error', and the successful compare's summary lists the failure with its message, so the baseline 'win' is not hidden. Part 2 is a real bug. mcp/_errors.py:296-315 is designed to keep the message 'when skforecast-ai wrote it', but CandidateFailure.error_type comes from exceptions.py:_reported_type_name, which reports InvalidInputError as 'ValueError'. So skforecast-ai's own messages ('Ridg' is not a supported estimator, from _validation.py:212; 'Ridge has no parameter') are cut to 'ValueError'. The script shows 'typo_est: ValueError'.",
+    "covered_by_test": "tests/tests_mcp/test_failure_text.py::test_error_payload_names_only_the_type_of_a_failure_not_of_skforecast_ai asserts own messages are kept, but builds CandidateFailure(error_type='InvalidInputError') by hand, which compare never produces, so it misses this; tests/tests_mcp/test_tool_compare.py::test_tool_compare_all_candidates_failed_keeps_the_failures only checks the start of the message.",
+    "adjusted_category": "bug",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/mcp/_errors.py:304-307 tests `failure.error_type in _own_error_names()`, but skforecast_ai/schemas/results.py:849 sets error_type via skforecast_ai/exceptions.py:141-169 `_reported_type_name`, which maps InvalidInputError to 'ValueError'. Record on CandidateFailure whether the root error is a SkforecastAIError (a flag) and use it here; fix the test fixture to build the failure from a real exception."
+   },
+   {
+    "lens": "impact",
+    "key": "V32",
+    "reproduced": true,
+    "refuted": true,
+    "reason": "Reproduced: with baseline=false, all_candidates_failed lists only 'typo_est: ValueError'. I ran the realistic case (default baseline): the summary has a <failed_candidates> section with the full message (\"'Ridg' is not a supported estimator. Supported estimators: [...]\"), and the leaderboard error column carries it too. An agent cannot read that as a real baseline win. In the all-failed case, SKILL.md says to call get_failure, whose first line is \"Candidate 'typo_est' failed: ValueError: 'Ridg' is not a supported estimator...\". A careful agent recovers with one call. The cost is one extra call and no agent is misled.",
+    "covered_by_test": "tests/tests_mcp/test_tool_compare.py uses an invalid-estimator candidate and asserts only the start of the message",
+    "adjusted_category": "agent_friction",
+    "adjusted_severity": "low",
+    "root_cause": "Refuted. If polished: skforecast_ai/mcp/_errors.py:296 (_all_candidates_failed_message) could include each candidate's first message line, or the compare tool could validate candidate estimators up front, as plan does."
+   }
+  ],
+  "n_votes": 3,
+  "not_refuted": 1,
+  "survives": false
+ },
+ {
+  "key": "V33",
+  "votes": [
+   {
+    "lens": "repro",
+    "key": "V33",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "f_07 REPRODUCED. plan with Ridge estimator_kwargs {alpha: 'abc'} succeeds, and forecast fails with execution_failed (InvalidParameterError) with no field. Meanwhile an unknown name ('foo') is rejected at plan time (_validation.py:370), which suggests to the agent that the plan was fully validated. The impact is limited: invalid values are an unusual input, the message is clear in get_failure, and non-sklearn estimators (LightGBM, XGBoost, CatBoost) cannot be value-checked before fit. So this is a low-priority improvement.",
+    "covered_by_test": "none",
+    "adjusted_category": "improvement",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/_validation.py:~350-375 validates only the names of estimator_kwargs. Fix: for scikit-learn estimators, instantiate with the kwargs and call `_validate_params()` at plan time, raising invalid_argument with field 'estimator_kwargs'."
+   },
+   {
+    "lens": "documented",
+    "key": "V33",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "Script prints REPRODUCED: plan accepts Ridge estimator_kwargs {'alpha': 'abc'}, and forecast then fails as execution_failed (InvalidParameterError) with no field. Unknown names are rejected at plan time with field 'estimator_kwargs'. By design the check reads parameter names only ('The class is imported but not instantiated', _validation.py:299-330), and nothing promises value validation, so this is an improvement, not a contract break. Recovery via get_failure is documented.",
+    "covered_by_test": "none (no test passes an invalid estimator_kwargs value)",
+    "adjusted_category": "improvement",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/_validation.py:299-375 checks the names of estimator_kwargs against the constructor signature only. For scikit-learn estimators, instantiate and call `_validate_params()` (no data needed) at plan time and raise invalid_argument field 'estimator_kwargs' with its message."
+   },
+   {
+    "lens": "impact",
+    "key": "V33",
+    "reproduced": true,
+    "refuted": true,
+    "reason": "Reproduced: plan accepts estimator_kwargs {'alpha': 'abc'}, and forecast then fails as execution_failed (InvalidParameterError). get_failure gives scikit-learn's clear message (\"The 'alpha' parameter of Ridge must be a float in the range [0.0, inf)... Got 'abc'\"). A string alpha is an unrealistic input. Negative alpha or n_estimators=0 come from rare user errors and fail at the first fit, so the failure is cheap. SKILL.md routes execution_failed to get_failure, which gives the reason in plain language. The ask is an earlier, nicer error, not a fix for an agent being misled.",
+    "covered_by_test": "none",
+    "adjusted_category": "improvement",
+    "adjusted_severity": "low",
+    "root_cause": "Refuted. If addressed: skforecast_ai/_validation.py validate_estimator (~line 212) could instantiate the estimator and call its scikit-learn _validate_params() at plan time, raising invalid_argument on estimator_kwargs."
+   }
+  ],
+  "n_votes": 3,
+  "not_refuted": 2,
+  "survives": true
+ },
+ {
+  "key": "V34",
+  "votes": [
+   {
+    "lens": "repro",
+    "key": "V34",
+    "reproduced": true,
+    "refuted": false,
+    "reason": "f_08 REPRODUCED. 'plan-2-6b9460', where the real id is 'plan-2-6b9465', gets unknown_id with \"comes from another run of the server: ids do not survive a restart. Create the object again.\" `_store._unknown` (mcp/_store.py:260) treats any well-formed id whose 6-character token differs as coming from another run, which is false for a one-character typo. The hint (\"Call `list_objects`\") lets an agent recover. However, the message states a restart as a fact and tells the agent to recreate objects, which the agent may relay to the user. Low severity; the fix is trivial.",
+    "covered_by_test": "tests/tests_mcp/test_store.py (around line 102) asserts this message for a foreign token. That is intended, but it would not catch the typo case.",
+    "adjusted_category": "improvement",
+    "adjusted_severity": "low",
+    "root_cause": "skforecast_ai/mcp/_store.py:260-264 asserts a restart whenever the token differs. Fix: use a neutral message (\"not registered in this run: mistyped, or from an earlier run\") that puts list_objects first."
+   },
+   {
+    "lens": "documented",
+    "key": "V34",
+    "reproduced": true,
+    "refuted": true,
+    "reason": "Reproduced: a one-character typo in the run token gives \"comes from another run of the server ... Create the object again\". To the server, a typo in the token is indistinguishable from a foreign token, and that message is the tested intent for a foreign suffix. The error carries hint 'Call `list_objects` to see the ids registered now', and the SKILL error table puts 'Use an id from `list_objects`' first. So a careful agent lists the ids and finds its own before rebuilding anything. Weak evidence of harm; at most a wording tweak.",
+    "covered_by_test": "tests/tests_mcp/test_store.py:102 asserts the 'comes from another run of the server' message for a foreign token (intended).",
+    "adjusted_category": "improvement",
+    "adjusted_severity": "low",
+    "root_cause": "Optional wording only: skforecast_ai/mcp/_store.py:248-265 `_unknown` could say 'is not registered in this run (mistyped, or from an earlier run)' for a foreign token."
+   },
+   {
+    "lens": "impact",
+    "key": "V34",
+    "reproduced": true,
+    "refuted": true,
+    "reason": "Reproduced: a one-character change in the suffix gives \"comes from another run of the server... Create the object again\" with the hint \"Call `list_objects` to see the ids registered now.\" Agents copy ids from responses, so a mistyped suffix is rare. If it happens, a careful agent follows the hint, sees the real id in list_objects, and continues. Even 'create the object again' is harmless, because the workflow is deterministic. The only cost is a possibly wrong remark about a restart, so this is cosmetic.",
+    "covered_by_test": "tests/tests_mcp/test_store.py:102 asserts the 'another run' message for a foreign suffix (intended); the typo case is untested",
+    "adjusted_category": "improvement",
+    "adjusted_severity": "low",
+    "root_cause": "Refuted as cosmetic. If polished: skforecast_ai/mcp/_store.py:248-262 (_unknown) could say 'not registered in this run (mistyped, or from an earlier run)' instead of stating a restart."
+   }
+  ],
+  "n_votes": 3,
+  "not_refuted": 1,
+  "survives": false
+ }
+]
