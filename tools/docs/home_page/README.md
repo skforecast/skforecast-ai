@@ -450,9 +450,10 @@ absolute URL to `main`, so a new GIF shows there once it is merged.
 
 ### Update the social preview card and the README image
 
-The Open Graph and Twitter tags in the `extrahead` block of `home.html` make
+The Open Graph and Twitter tags in the `social_meta` block of `home.html` make
 LinkedIn, Slack or X show a preview with `docs/img/social-card-home.png` when
-the home page is shared. The image is the headline plus a screenshot of the
+the home page is shared. The other pages use the same image, with their own
+title and description (`docs/overrides/main.html`). The image is the headline plus a screenshot of the
 animation paused on its last step (the forecast and the `ask()` answer), laid
 out by `social_card.html` like the card of skforecast. The same screenshot,
 without the headline, is saved as `docs/img/skforecast-ai-forecast-ask.png`,
@@ -467,7 +468,8 @@ node tools/docs/home_page/make_social_card.mjs      # default URL: http://127.0.
 
 The tags use absolute URLs to `https://ai.skforecast.org/stable/`, the alias
 mike deploys, because social networks require them. A new image is only
-visible once it is deployed.
+visible once it is deployed. `mike deploy` already sets `site_url` to
+`.../stable`, so the templates add `/stable/` only when it is missing.
 
 The `privacy` plugin (see `mkdocs.yml`) downloads Google Fonts and other
 third-party assets at build time and serves them from the site, so the build

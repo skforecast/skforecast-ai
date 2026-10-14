@@ -67,6 +67,15 @@ extra_javascript:
 
 hooks:
   - tools/docs/hooks/autorefs_cli_filter.py
+  # Sets the search engine title and description of each page from
+  # tools/docs/hooks/page_meta.yml
+  - tools/docs/hooks/page_meta.py
+
+# `mkdocs serve` only watches docs_dir and mkdocs.yml, so the texts of
+# page_meta.yml need to be watched explicitly. Edits to a hook module itself
+# still require a restart of the server.
+watch:
+  - tools/docs/hooks
 
 plugins:
   - mkdocstrings:
