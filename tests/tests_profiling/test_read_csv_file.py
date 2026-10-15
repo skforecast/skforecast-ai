@@ -99,26 +99,30 @@ _EMPTY_COLUMN_HINT = (
 
 
 @pytest.mark.parametrize(
-    "text, fields, cause",
+    "text, header, fields, cause",
     [
         (
             "date,y\n2020-01-01,1,\n2020-02-01,2,\n2020-03-01,3,\n",
+            "2 fields",
             3,
             "the rows end with separators that the header does not have",
         ),
         (
             "date,y\n2020-01-01,1,,\n2020-02-01,2,,\n2020-03-01,3,,\n",
+            "2 fields",
             4,
             "the rows end with separators that the header does not have",
         ),
         (
             "date,y\n2020-01-01,1,9\n2020-02-01,2\n2020-03-01,3\n",
+            "2 fields",
             3,
             "a field too many in the first row, or a header without a name "
             "for the first column",
         ),
         (
             "y\n2020-01-01,1\n2020-02-01,2\n2020-03-01,3\n",
+            "1 field",
             2,
             "a field too many in the first row, or a header without a name "
             "for the first column",
@@ -129,7 +133,7 @@ _EMPTY_COLUMN_HINT = (
 )
 @pytest.mark.parametrize("field", ["data", "exog"])
 def test_read_csv_file_InvalidInputError_when_first_row_longer_than_header(
-    tmp_path, text, fields, cause, field
+    tmp_path, text, header, fields, cause, field
 ):
     """
     Test that a file whose first row has more fields than its header, which
@@ -141,13 +145,11 @@ def test_read_csv_file_InvalidInputError_when_first_row_longer_than_header(
     """
     path = tmp_path / "data.csv"
     path.write_text(text)
-    header = len(text.splitlines()[0].split(","))
 
     err_msg = re.escape(
-        f"The CSV file '{path}' could not be read: its header has {header} "
-        f"field{'s' if header != 1 else ''} and its first row {fields}, so the "
-        f"first column would be read as the row labels and every other column "
-        f"would move one place ({cause})."
+        f"The CSV file '{path}' could not be read: its header has {header} and "
+        f"its first row {fields}, so the first column would be read as the row "
+        f"labels and every other column would move one place ({cause})."
     )
     with pytest.raises(InvalidInputError, match="^" + err_msg + "$") as exc_info:
         read_csv_file(path, field=field)

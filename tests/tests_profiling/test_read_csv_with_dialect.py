@@ -197,23 +197,34 @@ def test_read_csv_with_dialect_output_when_header_is_one_field_short(tmp_path):
     assert (sep, decimal) == (";", ",")
 
 
-def test_read_csv_with_dialect_InvalidInputError_when_header_is_one_field_short(
-    tmp_path,
+@pytest.mark.parametrize(
+    "text, index_first, fields",
+    [
+        ("y;z\n2020-01-01;1,5;10\n2020-01-02;2,5;20\n", False, 3),
+        ("y;z\n2020-01-01;1,5;10\n2020-01-02;2,5\n", True, 3),
+    ],
+    ids=["header one field short", "field too many in the first row only"],
+)
+def test_read_csv_with_dialect_InvalidInputError_when_first_row_longer_than_header(
+    tmp_path, text, index_first, fields
 ):
     """
-    Test that, without `index_first`, a header one field short raises with
-    the code 'data_unreadable' before the decimal mark is looked up, and
-    that, with it, a field too many only in some rows raises too.
+    Test that a header one field short raises with the code 'data_unreadable'
+    without `index_first`, before the decimal mark is looked up, and that a
+    field too many only in the first row raises with it.
     """
     path = tmp_path / "data.csv"
-    path.write_text("y;z\n2020-01-01;1,5;10\n2020-01-02;2,5;20\n")
-    with pytest.raises(InvalidInputError) as exc_info:
-        read_csv_with_dialect(path)
-    assert exc_info.value.code == "data_unreadable"
+    path.write_text(text)
 
-    path.write_text("y;z\n2020-01-01;1,5;10\n2020-01-02;2,5\n")
-    with pytest.raises(InvalidInputError) as exc_info:
-        read_csv_with_dialect(path, index_first=True)
+    err_msg = re.escape(
+        f"The CSV file '{path}' could not be read: its header has 2 fields and "
+        f"its first row {fields}, so the first column would be read as the row "
+        f"labels and every other column would move one place (a field too many "
+        f"in the first row, or a header without a name for the first column)."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        read_csv_with_dialect(path, index_first=index_first)
+
     assert exc_info.value.code == "data_unreadable"
 
 
