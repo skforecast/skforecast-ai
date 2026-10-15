@@ -239,8 +239,8 @@ que además lo acelera.
 
 Estado, 2026-10-15: PR abierto desde el fork de la cuenta personal,
 <https://github.com/punkpeye/awesome-mcp-servers/pull/16493>, con `🤖🤖🤖`
-en el título. Emojis: oficial, Python, local, macOS y Linux (Windows sin
-probar). Pendiente: el bot `glama-check` y la fusión.
+en el título. Emojis: oficial, Python, local, macOS, Windows y Linux.
+Pendiente: el bot `glama-check` y la fusión.
 
 3.4. **cursor.directory** (opcional): ficha autogestionada. Antes conviene
 cerrar lo que el punto 18 de `dev/mcp-pending-after-0.4.0.md` deja sin probar
