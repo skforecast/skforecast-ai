@@ -220,6 +220,9 @@ server cannot be deployed"). Reclamada y con la imagen configurada; la
 configuración y sus motivos están en `packages/README.md` (sección
 Glama). Pendiente: que pase el Deploy, hacer la release 0.4.2 en Glama y
 abrir el PR de 3.3.
+Hecho el mismo día: el Deploy pasa, la release salió como 0.1.0 (la
+numeración de Glama es suya; en la próxima, usar la del paquete), la ficha
+lista las 11 herramientas, "Try in Browser" funciona y la nota es B.
 
 3.3. **awesome-mcp-servers**, después de 3.2: un PR de una línea en la
 categoría que toque. Comprobar antes en su `CONTRIBUTING` si exige la ficha
@@ -233,6 +236,11 @@ Dockerfile dado en Glama), y que la línea lleve la insignia
 El PR espera a que la ficha de Glama exista y pase (3.2). Categoría: Data
 Science Tools. Un agente que abre el PR añade `🤖🤖🤖` al final del título,
 que además lo acelera.
+
+Estado, 2026-10-15: PR abierto desde el fork de la cuenta personal,
+<https://github.com/punkpeye/awesome-mcp-servers/pull/16493>, con `🤖🤖🤖`
+en el título. Emojis: oficial, Python, local, macOS y Linux (Windows sin
+probar). Pendiente: el bot `glama-check` y la fusión.
 
 3.4. **cursor.directory** (opcional): ficha autogestionada. Antes conviene
 cerrar lo que el punto 18 de `dev/mcp-pending-after-0.4.0.md` deja sin probar
