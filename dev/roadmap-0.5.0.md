@@ -29,7 +29,8 @@ herramientas (`dev/mcp-tool-descriptions-plan.md`), que aquí es la fase 6.
 ## Cómo está ordenado
 
 Las fases van por dependencias, no por prioridad: cada una deja la base que
-la siguiente da por buena. Dentro de una fase, los PR son independientes.
+la siguiente da por buena. Dentro de una fase, los PR son independientes,
+salvo el orden que fije la propia fase (la 1 va en tandas).
 
 Tres costes fijos marcan cómo agrupar:
 
@@ -109,8 +110,32 @@ argumento explícito.
   de "casi todo números una vez quitados `%` y `-`", o se marcarían
   categóricas de verdad. *[LLM]* probable (avisos del perfil).
 
-Orden dentro de la fase: 1a y 1b primero; 1d antes que 1e, que toca la misma
-inferencia.
+### Tandas
+
+Una sesión (local o en la nube) por PR, cada una en su rama desde `0.5.x`.
+Varios PR tocan los mismos sitios (el dialecto, los campos del perfil, el
+`read_csv` que emite `rendering/_helpers.py` y los goldens de renderizado),
+así que van en tres tandas; dentro de una tanda, en paralelo, y la siguiente
+empieza cuando la anterior está mergeada.
+
+| Tanda | PR | Por qué así |
+|:--|:--|:--|
+| 1 | 1a (miles), 1b (ids como texto), 1c (filas largas) | 1a es de prioridad alta; 1b toca el reshape multiserie, otra zona; 1c solo detecta y no toca scripts |
+| 2 | 1d (fechas día primero), 1g (exógenas sucias) | 1d añade, como 1a, un campo al perfil y un argumento al `read_csv` del script: va sobre 1a mergeado. 1g solo cambia avisos del perfil |
+| 3 | 1f (cp1252), 1e (frecuencia con huecos) | 1f sigue el mismo patrón que 1a y 1d; 1e va después de 1d porque toca la misma inferencia |
+
+Lo que cada sesión necesita saber (en la nube no hay a quién preguntar):
+
+- Base `0.5.x`, rama `feature/<slug>` o `fix/<slug>`, y abrir la PR al
+  terminar.
+- Seguir el diseño de este fichero y de las decisiones tomadas. Una decisión
+  que no esté cubierta va como pregunta en el cuerpo de la PR, no se adivina.
+- Comprobar el arreglo con el script de la auditoría (`git checkout b400a11
+  -- reports/mcp-blackbox-audit`, sin commitearlo): debe pasar a imprimir
+  `NOT REPRODUCED`. Cada hallazgo lleva su test en `tests/`, en el fichero
+  que propone el informe, y su nota de release.
+- Los PR con *[LLM]* (1b, 1g) regeneran y revisan los goldens de contexto con
+  `/llm-context-change`; el check de pago queda pendiente para la fase 7.
 
 ## Fase 2. Multiserie correcta
 
