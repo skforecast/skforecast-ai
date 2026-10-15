@@ -10,9 +10,19 @@ fix it, and start again from that step. Never report the task as done with a
 failing step; if a failure is unrelated to the change, say so explicitly with
 the output.
 
-Reuse: if this session already ran `verify` with every step green and no
-file changed since (same `git status --short` and same diff), report that
-result again instead of rerunning it, for example right before a commit.
+Reuse: when a run ends with every step green, note the commit it started
+from and a fingerprint of the tree against it:
+
+```bash
+git rev-parse HEAD                                 # <verified-head>
+git diff <verified-head> | shasum; git ls-files --others --exclude-standard
+```
+
+If a later `verify` in this session gets the same hash and the same
+untracked files against that `<verified-head>`, report the previous result
+again instead of rerunning it. Comparing against the noted commit, not
+the current `HEAD`, keeps the result valid after committing exactly the
+verified changes.
 
 ## 0. How to run Python
 
@@ -37,9 +47,10 @@ git diff --name-only HEAD
 git ls-files --others --exclude-standard
 ```
 
-On a working branch, also include the commits not yet in the release
-branch (`X.Y.x`, from `__version__` in `skforecast_ai/__init__.py`), which
-the commands above no longer show once the work is committed:
+Also include the commits not yet in the remote release branch (`X.Y.x`,
+from `__version__` in `skforecast_ai/__init__.py`), which the commands
+above no longer show once the work is committed. The same command covers a
+working branch and unpushed commits on the release branch itself:
 `git diff --name-only origin/<release-branch>...HEAD`.
 
 Classify the changed files: package code (`skforecast_ai/`), tests, docs
