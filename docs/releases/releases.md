@@ -22,19 +22,19 @@ The main changes in this release are:
 
 **Added**
 
-+ New argument `thousands` of [<code>ForecastingAssistant.profile()</code>][assistant] (`--thousands` in the CLI, `thousands` in the `profile` tool of the MCP server), recorded as `DataProfile.csv_thousands` and passed to `pd.read_csv` by the generated script. See the [CLI guide][cli-guide].
++ New argument `thousands` of [<code>ForecastingAssistant.profile()</code>][assistant] (`--thousands` in the CLI, `thousands` in the `profile` tool of the MCP server), recorded as `DataProfile.csv_thousands` and passed to `pd.read_csv` by the generated script. See the [CLI guide][cli-guide] ([#86](https://github.com/skforecast/skforecast-ai/pull/86)).
 
 
 **Changed**
 
-+ A target whose values are numbers written with a thousands separator or with `%` (`10,025.1`, `12.5%`) raises a `DataContentError` that names that format and the file (`field` `data`), instead of the hint about missing value markers.
++ A target whose values are numbers written with a thousands separator or with `%` (`10,025.1`, `12.5%`) raises a `DataContentError` that names that format and the file (`field` `data`), instead of the hint about missing value markers ([#86](https://github.com/skforecast/skforecast-ai/pull/86)).
 
 
 **Fixed**
 
 + Fixed an issue in [<code>ForecastingAssistant.profile()</code>][assistant] and the MCP server where a CSV file whose first row has more fields than its header (a separator at the end of every row, a field too many in the first row) gave a target without values or a profile with the dates as an exogenous variable. It now raises `data_unreadable`, as does a column without name and values, also in the file of future exogenous variables ([#85](https://github.com/skforecast/skforecast-ai/pull/85)).
 
-+ In CSV files separated by `;` or tabulators, `.` between thousands was read as a decimal mark without a warning (`1.020` as 1.02), and `1.705,11` failed as a target that is not numeric. It is now read as thousands separator when the file says so; otherwise `profile()` raises `data_unreadable` and asks for `thousands` or `decimal`. A file whose other values also hold a `.` (dates such as `15.01.2020`) raises `data_unreadable` too.
++ In CSV files separated by `;` or tabulators, `.` between thousands was read as a decimal mark without a warning (`1.020` as 1.02), and `1.705,11` failed as a target that is not numeric. It is now read as thousands separator when the file says so; otherwise `profile()` raises `data_unreadable` and asks for `thousands` or `decimal`. A file whose other values also hold a `.` (dates such as `15.01.2020`) raises `data_unreadable` too ([#86](https://github.com/skforecast/skforecast-ai/pull/86)).
 
 
 ## 0.4.2 <small>Oct 12, 2026</small> { id="0.4.2" }
