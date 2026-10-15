@@ -179,14 +179,15 @@ def test_read_csv_with_dialect_output_when_quoted_fields_hold_other_separators(
 
 def test_read_csv_with_dialect_output_when_header_is_one_field_short(tmp_path):
     """
-    Test that a semicolon file whose header has one field less than its rows
-    (the first column is then the index, as `to_csv(index_label=False)`
-    writes it) is read with ';', as pandas reads the comma file.
+    Test that, with `index_first`, a semicolon file whose header has one
+    field less than its rows (the first column is then the index, as
+    `to_csv(index_label=False)` writes it) is read with ';', as pandas reads
+    the comma file.
     """
     path = tmp_path / "data.csv"
     path.write_text("y;z\n2020-01-01;1,5;10\n2020-01-02;2,5;20\n")
 
-    data, sep, decimal = read_csv_with_dialect(path)
+    data, sep, decimal = read_csv_with_dialect(path, index_first=True)
 
     expected = pd.DataFrame(
         {"y": [1.5, 2.5], "z": [10, 20]},
@@ -194,6 +195,37 @@ def test_read_csv_with_dialect_output_when_header_is_one_field_short(tmp_path):
     )
     pd.testing.assert_frame_equal(data, expected)
     assert (sep, decimal) == (";", ",")
+
+
+@pytest.mark.parametrize(
+    "text, index_first, fields",
+    [
+        ("y;z\n2020-01-01;1,5;10\n2020-01-02;2,5;20\n", False, 3),
+        ("y;z\n2020-01-01;1,5;10\n2020-01-02;2,5\n", True, 3),
+    ],
+    ids=["header one field short", "field too many in the first row only"],
+)
+def test_read_csv_with_dialect_InvalidInputError_when_first_row_longer_than_header(
+    tmp_path, text, index_first, fields
+):
+    """
+    Test that a header one field short raises with the code 'data_unreadable'
+    without `index_first`, before the decimal mark is looked up, and that a
+    field too many only in the first row raises with it.
+    """
+    path = tmp_path / "data.csv"
+    path.write_text(text)
+
+    err_msg = re.escape(
+        f"The CSV file '{path}' could not be read: its header has 2 fields and "
+        f"its first row {fields}, so the first column would be read as the row "
+        f"labels and every other column would move one place (a field too many "
+        f"in the first row, or a header without a name for the first column)."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        read_csv_with_dialect(path, index_first=index_first)
+
+    assert exc_info.value.code == "data_unreadable"
 
 
 def test_read_csv_with_dialect_output_when_single_column(tmp_path, monkeypatch):
