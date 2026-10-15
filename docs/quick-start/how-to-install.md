@@ -40,7 +40,7 @@ To try it before installing anything, open [Your first forecast](first-forecast.
     pip install "skforecast-ai[foundation]"
     ```
 
-To install a specific version, pin it (`pip install skforecast-ai==0.4.2`). The development version, which may be unstable, installs from GitHub:
+To install a specific version, pin it (`pip install skforecast-ai==0.5.0`). The development version, which may be unstable, installs from GitHub:
 
 ```bash
 pip install git+https://github.com/skforecast/skforecast-ai@main

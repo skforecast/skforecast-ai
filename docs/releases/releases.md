@@ -11,6 +11,20 @@ All significant changes to this project are documented in this release file.
 | <span class="badge text-bg-docs">Docs</span>               | Documentation improvement             |
 
 
+## 0.5.0 <small>In development</small> { id="0.5.0" }
+
+The main changes in this release are:
+
+
+**Added**
+
+
+**Changed**
+
+
+**Fixed**
+
+
 ## 0.4.2 <small>Oct 12, 2026</small> { id="0.4.2" }
 
 The main changes in this release are:

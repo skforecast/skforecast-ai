@@ -22,12 +22,12 @@
       "theme": "dark"
     }
   ],
-  "version": "0.4.2",
+  "version": "0.5.0",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "skforecast-ai-mcp",
-      "version": "0.4.2",
+      "version": "0.5.0",
       "runtimeHint": "uvx",
       "transport": {
         "type": "stdio"
