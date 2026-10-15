@@ -55,6 +55,22 @@ the checks until it is judged safe. Notes and plans in `dev/`, the other
 skills and rules in `.claude/`, and the scripts in `tools/ai/`, `tools/mcp/`
 and `tools/perf/` are outside it: no test or build reads them.
 
+When every changed file that counts falls in one of these groups, skip
+steps 2 to 4 and run only its checks (files outside the list above do not
+count):
+
+- Docs only (`docs/`, `mkdocs.yml`, `tools/docs/`): the tests that read
+  the docs, then the docs checks of step 5 (and the release notes check if
+  `docs/releases/releases.md` changed).
+
+  ```bash
+  PY -m pytest tests/test_docs_cli_page.py tests/test_docs_skills_page.py tests/test_mcp_registry_distribution.py tests/tests_mcp/test_skill_md.py -q -p no:cacheprovider
+  ```
+
+- Hooks only (`.claude/hooks/`): the harness check of step 5.
+
+Any other mix runs every step.
+
 ## 2. Lint
 
 ```bash
@@ -83,6 +99,10 @@ PY -m pytest <paths> -q -p no:cacheprovider
 ```bash
 PY -m pytest -n auto -q -p no:cacheprovider
 ```
+
+Use the worker count that `CLAUDE.local.md` names instead of `auto` when it
+names one. When the docs build of step 5 is due, start it in the background
+before this step so both run at once.
 
 It must end with no failures and no errors. Warnings are errors in this
 project, so a new warning fails here too.
