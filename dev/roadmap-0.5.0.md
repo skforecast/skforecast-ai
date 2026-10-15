@@ -291,10 +291,11 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
 - **G02**: ya abierto,
   [#1357](https://github.com/skforecast/skforecast/issues/1357). Falta
   añadirle dos cosas: que `reshape_series_long_to_dict` con ids enteros
-  produce exactamente ese dict, y que las rutas de `predict` (2994, 3149,
-  3377 de `_forecaster_recursive_multiseries.py`) usan
-  `.get(level, np.nan)` con el nombre sin convertir, así que arreglar solo el
-  `fit` podría dar codificaciones NaN en silencio; normalizar a `str` en
+  produce exactamente ese dict, y que las rutas de `predict` también buscan
+  con el nombre sin convertir (`.get(level, np.nan)` en 2994 y 3149,
+  `.get(level, None)` en 3377 y un índice directo en 2928, en
+  `_forecaster_recursive_multiseries.py`), así que arreglar solo el `fit`
+  podría dar codificaciones NaN en silencio; normalizar a `str` en
   `check_preprocess_series` es más seguro.
 - **G03**: nuevo. `backtesting_forecaster_multiseries` no emite ningún aviso,
   ni con `suppress_warnings=False`, cuando una serie no se puede pronosticar
