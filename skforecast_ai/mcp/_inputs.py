@@ -22,9 +22,11 @@ from ._errors import ServerError
 if TYPE_CHECKING:
     from ..schemas.profiles import ForecastingProfile
 
-# Any `scheme://` prefix: pandas would download it. URLs are not accepted
-# (section 10.7 of the design); the agent downloads the file and passes its
-# path instead.
+# Any `scheme://` prefix: pandas would download it. URLs are not accepted:
+# the server would fetch whatever the agent points to (server-side request
+# forgery), with no timeout nor size limit, and a host that never answers
+# would hold the lock of the process for every session. The agent downloads
+# the file and passes its path instead.
 _URL_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9+.\-]*://")
 
 # A number written as text: the core reads a string `test_size` or

@@ -92,3 +92,21 @@ español suele traer dos cosas más que siguen fallando. Cada una en su PR:
 - **Confirmación explícita por encima del umbral de coste** en `backtest` y
   `compare` del servidor MCP (punto 3 de
   `dev/mcp-pending-after-0.4.0.md`). Es un cambio de API.
+
+## 3. Defectos conocidos que ven los usuarios
+
+Vienen de la revisión anterior a la 0.4.0 (`git show
+28ba4ba:dev/mcp-preparation.md`, secciones 13.1 y 19.1) y siguen abiertos
+(comprobado el 2026-10-15 sobre la 0.4.2):
+
+- **Los intervalos de los backtests multiserie cubren mucho menos de lo
+  nominal**: con un intervalo del 80 %, el 56 % con
+  ForecasterRecursiveMultiSeries y el 14 % con ForecasterDirectMultiVariate
+  en `items_sales`, porque los scripts usan residuos dentro de muestra
+  (`store_in_sample_residuals` en `rendering/multi_series.py`). Quien se fía
+  del intervalo se lleva una falsa seguridad. Opciones: residuos fuera de
+  muestra, o al menos un aviso con la cobertura que mide el backtest.
+- **`refine_plan()` descarta sin avisar** la diferenciación, el calendario y
+  el transformador al cambiar a ForecasterStats, al baseline o a
+  ForecasterFoundation, que no los usan. Va contra el principio 3 de
+  `AGENTS.md`: tiene que avisar de lo que deja fuera.

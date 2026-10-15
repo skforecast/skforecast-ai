@@ -1181,8 +1181,7 @@ def _check_steps(steps: Any, profile: Any, argument: str) -> None:
 
     The core accepts such a plan: a backtest of it fails late, since no
     fold fits the data, and a huge `steps` would exhaust the memory of a
-    forecast. The server rejects it when the plan is built (a decision of
-    the author for the server, section 17 of the design).
+    forecast. The server rejects it when the plan is built.
 
     Parameters
     ----------

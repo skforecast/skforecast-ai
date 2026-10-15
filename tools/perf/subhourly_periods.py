@@ -1,8 +1,9 @@
 """
 Seasonal period of data sampled every 5 to 30 minutes: the hour, as
 `estimate_seasonality` puts first, or the day, as
-`FREQUENCY_TO_SEASONAL_PERIOD` says (point 1b of phase 7 in
-dev/mcp-preparation.md).
+`FREQUENCY_TO_SEASONAL_PERIOD` says. Measured for 0.4.0: the results are
+in `results/phase7_*`, the decision in the comment on
+`FREQUENCY_TO_SEASONAL_PERIOD`.
 
 For each dataset and two horizons (one hour and one day), the script
 backtests with the same strategy (the last 14 days, trained once):
