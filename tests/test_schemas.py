@@ -1312,7 +1312,6 @@ def test_data_profile_ValidationError_when_csv_dialect_not_valid(
         )
 
 
-
 def test_data_profile_output_when_json_has_no_csv_thousands():
     """
     Test that a profile saved before `csv_thousands` existed loads without

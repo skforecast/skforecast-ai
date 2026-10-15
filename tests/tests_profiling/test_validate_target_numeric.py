@@ -95,15 +95,13 @@ _PLAIN = "a format that is not read. Write them as plain numbers"
             ["1.705,11", "870", "1.234.567"],
             "Target column 'y' is not numeric: values such as ['1.705,11', "
             "'1.234.567'] are numbers written with a thousands separator, "
-            f"{_PLAIN}, or profile the file with `thousands` '.' when '.' "
-            "separates its thousands and ',' is its decimal mark.",
+            f"{_PLAIN}.",
         ),
         (
             ["1.705,11", "12.5%"],
             "Target column 'y' is not numeric: values such as ['1.705,11', "
             "'12.5%'] are numbers written with a thousands separator or with "
-            f"'%', {_PLAIN}, or profile the file with `thousands` '.' when "
-            "'.' separates its thousands and ',' is its decimal mark.",
+            f"'%', {_PLAIN}.",
         ),
     ],
     ids=[
@@ -122,9 +120,8 @@ def test_validate_target_numeric_DataContentError_when_values_have_format_not_re
     """
     Test that a target whose values that are not numbers are all numbers
     written with a thousands separator ('10,025.1', '1.705,11') or with '%'
-    raises a DataContentError for the field 'data' with no hint, a message
-    that names the format and, when a thousands separator is '.', the option
-    to profile the file with `thousands`.
+    raises a DataContentError for the field 'data' with no hint and a
+    message that names the format.
     """
     data = pd.DataFrame({"y": values})
 

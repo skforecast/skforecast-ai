@@ -279,9 +279,6 @@ def create_data_profile(
         # This handles CSVs exported with df.to_csv() where the date
         # index becomes a regular column.
         data = _try_parse_first_date_column(data, date_column)
-    elif thousands is not None and decimal is None:
-        # '.' between thousands goes with ',' as decimal mark.
-        decimal = ","
 
     # Normalize a MultiIndex (level 0 = series_id, level 1 = datetime) into
     # flat long format so every downstream helper sees named columns.
@@ -3422,13 +3419,16 @@ def read_csv_with_dialect(
     """
     check_csv_dialect(sep, decimal, thousands)
     decimal_given = decimal is not None
+    unchecked = False
     # A thousands separator given is checked against the first lines too:
     # pandas drops every '.' of a value such as '15.01.2020' or '0.5'.
     if sep is None or decimal is None or thousands is not None:
         sample = read_sample(path)
         if sample is None:
-            # Left for pandas to report, or read as before: its error tells
-            # what is wrong with the file, not with the defaults.
+            # Left for pandas to report, or read as before. The defaults are
+            # checked once pandas reads the file, so a file it cannot read
+            # is reported as such and not as a dialect that does not fit.
+            unchecked = True
             sep = DEFAULT_CSV_SEP if sep is None else sep
             decimal = DEFAULT_CSV_DECIMAL if decimal is None else decimal
             decimal = "," if thousands is not None else decimal
@@ -3444,6 +3444,8 @@ def read_csv_with_dialect(
             check_csv_dialect(sep, decimal, thousands)
     try:
         data = pd.read_csv(path, **csv_read_kwargs(sep, decimal, thousands))
+        if unchecked:
+            check_csv_dialect(sep, decimal, thousands)
         # Checked before the decimal mark: a column moved one place would
         # be looked up for numbers that are not its own.
         row_lengths = None
@@ -3685,18 +3687,13 @@ def validate_target_numeric(data: pd.DataFrame, target: str | list[str]) -> None
                     )
                     if found
                 )
-                dot_thousands = texts[with_thousands].str.fullmatch(
-                    DOT_THOUSANDS.pattern
-                )
-                option = (
-                    ", or profile the file with `thousands` '.' when '.' "
-                    "separates its thousands and ',' is its decimal mark"
-                    if dot_thousands.any() else ""
-                )
+                # A file separated by ';' or tabulators already reads '.'
+                # between thousands: what reaches here (a ',' file, data in
+                # memory) is read only once written as plain numbers.
                 raise DataContentError(
                     f"Target column {column!r} is not numeric: values such as "
                     f"{shown} are numbers written {written}, a format that is "
-                    f"not read. Write them as plain numbers{option}.",
+                    f"not read. Write them as plain numbers.",
                     field = "data",
                 )
             raise InvalidInputError(

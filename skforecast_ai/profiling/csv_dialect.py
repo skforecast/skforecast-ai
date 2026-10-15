@@ -1,7 +1,7 @@
 ################################################################################
 #                               CSV dialect                                    #
 #                                                                              #
-# Separator, decimal mark and thousands separator of a CSV file, told from    #
+# Separator, decimal mark and thousands separator of a CSV file, told from     #
 # its first lines                                                              #
 # This work by skforecast team is licensed under the Apache License 2.0        #
 ################################################################################
@@ -407,7 +407,7 @@ def _records(sample: str, sep: str) -> list[list[str]] | None:
         return None
 
 
-def dotted_value(values: list[str]) -> str | None:
+def _dotted_value(values: list[str]) -> str | None:
     """
     Return the first value with a `'.'` that `pandas.read_csv` would read as
     a number without it when `'.'` separates the thousands ('15.01.2020',
@@ -455,7 +455,7 @@ def _number_marks(
     """
     values = [value.strip() for row in rows[1:] for value in row]
     if thousands is not None:
-        other = dotted_value(values)
+        other = _dotted_value(values)
         if other is not None:
             raise dotted_values_error(source, field, other)
         return ",", thousands
@@ -487,7 +487,7 @@ def _number_marks(
         # Given: '1.705' only reads as a number with '.' between thousands.
         if grouped is None:
             return decimal, None
-        other = dotted_value(values)
+        other = _dotted_value(values)
         if other is not None:
             raise dotted_values_error(source, field, other, grouped)
         return decimal, "."
@@ -504,7 +504,7 @@ def _number_marks(
             or (grouped if comma_decimal else None)
         )
         if evidence is not None:
-            other = dotted_value(values)
+            other = _dotted_value(values)
             if other is not None:
                 raise dotted_values_error(source, field, other, evidence)
             return ",", "."
@@ -640,7 +640,12 @@ def detect_csv_dialect(
     else:
         rows = records.get(sep) or _records(sample, sep) or []
         decimal, thousands = _number_marks(
-            rows, source, field, sep, decimal, thousands
-        )
+                                 rows      = rows,
+                                 source    = source,
+                                 field     = field,
+                                 sep       = sep,
+                                 decimal   = decimal,
+                                 thousands = thousands,
+                             )
 
     return sep, decimal, thousands

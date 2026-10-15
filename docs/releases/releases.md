@@ -34,7 +34,7 @@ The main changes in this release are:
 
 + Fixed an issue in [<code>ForecastingAssistant.profile()</code>][assistant] and the MCP server where a CSV file whose first row has more fields than its header (a separator at the end of every row, a field too many in the first row) gave a target without values or a profile with the dates as an exogenous variable. It now raises `data_unreadable`, as does a column without name and values, also in the file of future exogenous variables ([#85](https://github.com/skforecast/skforecast-ai/pull/85)).
 
-+ In CSV files separated by `;` or tabulators, `.` between thousands was read as a decimal mark without a warning (`1.020` as 1.02), and `1.705,11` failed as a target that is not numeric. It is now read as thousands separator when the file says so; otherwise `profile()` raises `data_unreadable` and asks for `thousands` or `decimal`.
++ In CSV files separated by `;` or tabulators, `.` between thousands was read as a decimal mark without a warning (`1.020` as 1.02), and `1.705,11` failed as a target that is not numeric. It is now read as thousands separator when the file says so; otherwise `profile()` raises `data_unreadable` and asks for `thousands` or `decimal`. A file whose other values also hold a `.` (dates such as `15.01.2020`) raises `data_unreadable` too.
 
 
 ## 0.4.2 <small>Oct 12, 2026</small> { id="0.4.2" }

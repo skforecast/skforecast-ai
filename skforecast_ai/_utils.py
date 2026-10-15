@@ -868,6 +868,7 @@ def _read_csv_url(
         Thousands separator the file was read with, or None for none.
     """
     decimal_given = decimal is not None
+    unchecked = False
     if sep is None or decimal is None or thousands is not None:
         data, unread = None, None
         if sep is None and decimal is None and thousands is None:
@@ -885,6 +886,8 @@ def _read_csv_url(
                     return data, DEFAULT_CSV_SEP, DEFAULT_CSV_DECIMAL, None
         sample = read_url_sample(url)
         if sample is None:
+            # Checked once pandas reads the file (see `read_csv_with_dialect`).
+            unchecked = True
             sep = DEFAULT_CSV_SEP if sep is None else sep
             decimal = DEFAULT_CSV_DECIMAL if decimal is None else decimal
             decimal = "," if thousands is not None else decimal
@@ -904,6 +907,8 @@ def _read_csv_url(
                 return data, sep, decimal, thousands
 
     data = pd.read_csv(url, **csv_read_kwargs(sep, decimal, thousands))
+    if unchecked:
+        check_csv_dialect(sep, decimal, thousands)
     if (
         not decimal_given
         and sep != DEFAULT_CSV_SEP

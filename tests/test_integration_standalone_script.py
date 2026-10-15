@@ -970,7 +970,6 @@ def test_forecast_gives_equal_predictions_when_same_data_in_semicolon_and_comma_
     pd.testing.assert_frame_equal(result.predictions, expected.predictions)
 
 
-
 @pytest.mark.parametrize(
     "decimals",
     [True, False],

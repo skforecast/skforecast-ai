@@ -524,6 +524,39 @@ def test_read_csv_with_dialect_InvalidInputError_when_unreadable_and_dialect_giv
     assert exc_info.value.field == "data"
 
 
+@pytest.mark.parametrize(
+    "kwargs, message",
+    [
+        (
+            {"thousands": "."},
+            "`thousands` cannot be '.' when `sep` is ',': '.' separates the "
+            "thousands where ',' is the decimal mark, which cannot also "
+            "separate the fields.",
+        ),
+        (
+            {"decimal": ","},
+            "`decimal` cannot be ',' when `sep` is ',': the same character "
+            "would separate the fields and the decimals.",
+        ),
+    ],
+    ids=["thousands", "decimal comma"],
+)
+def test_read_csv_with_dialect_InvalidInputError_when_no_sample_and_dialect_given(
+    tmp_path, monkeypatch, kwargs, message
+):
+    """
+    Test that a file pandas reads although its start could not be sampled
+    (the separator is then ',') is rejected when the thousands separator or
+    the decimal mark given does not fit that separator.
+    """
+    monkeypatch.setattr(data_profile_module, "read_sample", lambda path: None)
+    path = tmp_path / "data.csv"
+    path.write_text("date,y\n2020-01-01,1\n")
+
+    with pytest.raises(InvalidInputError, match=re.escape(message)):
+        read_csv_with_dialect(path, **kwargs)
+
+
 def test_read_csv_with_dialect_decimal_comma_after_the_sample(tmp_path, monkeypatch):
     """
     Test that a ';' file whose numbers with ',' only come after the lines the
