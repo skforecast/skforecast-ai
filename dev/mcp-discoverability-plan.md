@@ -223,6 +223,8 @@ abrir el PR de 3.3.
 Hecho el mismo día: el Deploy pasa, la release salió como 0.1.0 (la
 numeración de Glama es suya; en la próxima, usar la del paquete), la ficha
 lista las 11 herramientas, "Try in Browser" funciona y la nota es B.
+La nota de cada herramienta (TDQS) y el plan para mejorarla en la próxima
+versión están en `dev/mcp-tool-descriptions-plan.md`.
 
 3.3. **awesome-mcp-servers**, después de 3.2: un PR de una línea en la
 categoría que toque. Comprobar antes en su `CONTRIBUTING` si exige la ficha
