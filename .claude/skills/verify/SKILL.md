@@ -10,19 +10,18 @@ fix it, and start again from that step. Never report the task as done with a
 failing step; if a failure is unrelated to the change, say so explicitly with
 the output.
 
-Reuse: when a run ends with every step green, note the commit it started
-from and a fingerprint of the tree against it:
+Reuse: when a run ends with every step green, note the stamp of the tree,
+the hash of every file that is not ignored, taken on a copy of the index so
+the real one stays untouched:
 
 ```bash
-git rev-parse HEAD                                 # <verified-head>
-git diff <verified-head> | shasum; git ls-files --others --exclude-standard
+t=$(mktemp); cp "$(git rev-parse --git-path index)" "$t"; GIT_INDEX_FILE="$t" git add -A && GIT_INDEX_FILE="$t" git write-tree; rm -f "$t"
 ```
 
-If a later `verify` in this session gets the same hash and the same
-untracked files against that `<verified-head>`, report the previous result
-again instead of rerunning it. Comparing against the noted commit, not
-the current `HEAD`, keeps the result valid after committing exactly the
-verified changes.
+If a later `verify` in this session gets the same stamp, report the
+previous result again instead of rerunning it. The stamp does not depend on
+`HEAD`, so committing the verified files keeps it (new files too), and any
+edit changes it.
 
 ## 0. How to run Python
 

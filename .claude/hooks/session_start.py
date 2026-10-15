@@ -146,8 +146,9 @@ def local_session() -> int:
         "CONDA_PREFIX": f'"{prefix}"',
         "CONDA_DEFAULT_ENV": os.path.basename(os.path.normpath(prefix)),
         # Relative on purpose: Python resolves it against the directory the
-        # command runs from, the repository root or a worktree.
-        "PYTHONPATH": ".",
+        # command runs from, the repository root or a worktree. A value set
+        # before is kept after it.
+        "PYTHONPATH": '".${PYTHONPATH:+:$PYTHONPATH}"',
     })
     try:
         versions = subprocess.run(

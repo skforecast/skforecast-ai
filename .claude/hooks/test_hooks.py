@@ -304,7 +304,7 @@ def test_session_start_local_puts_the_environment_on_path(
         f'export PATH="{prefix / "bin"}:$PATH"\n'
         f'export CONDA_PREFIX="{prefix}"\n'
         "export CONDA_DEFAULT_ENV=skforecast_ai_py13\n"
-        "export PYTHONPATH=.\n"
+        'export PYTHONPATH=".${PYTHONPATH:+:$PYTHONPATH}"\n'
     )
     assert f"Local environment on PATH: {prefix}; versions not available." in out
 
