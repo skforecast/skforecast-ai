@@ -96,9 +96,10 @@ las secciones de abajo:
   cualquier `encoding`, y también con un DataFrame ancho de columnas enteras:
   `_forecaster_recursive_multiseries.py:1520` construye `encoding_mapping_`
   con `str(level)` y la línea 1208 lo consulta con el `y.name` sin convertir.
-  Las rutas de `predict` (2994, 3149, 3377) usan `.get(level, np.nan)`, así
-  que arreglar solo el `fit` upstream podría dar codificaciones NaN en
-  silencio; normalizar los nombres a `str` en `check_preprocess_series` es
+  Las rutas de `predict` también buscan con el nombre sin convertir
+  (`.get(level, np.nan)` en 2994 y 3149, `.get(level, None)` en 3377, índice
+  directo en 2928), así que arreglar solo el `fit` upstream podría dar
+  codificaciones NaN en silencio; normalizar los nombres a `str` en `check_preprocess_series` es
   más seguro. Aquí, pasar los ids a `str` en el cuerpo común del script (no
   solo en el `read_csv` del preámbulo, que no corre con un DataFrame) conserva
   los ceros y esquiva el bug. Cambia los scripts generados.
