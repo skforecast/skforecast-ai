@@ -106,6 +106,19 @@
           ],
           "default": null,
           "description": "Decimal mark of the file: '.' or ',' (only when the separator is not ','). When null, it is detected from the file."
+        },
+        "thousands": {
+          "anyOf": [
+            {
+              "const": ".",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Thousands separator of the file: '.', with ',' as decimal mark (as in '1.705,11'). When null, it is detected from the file; pass it only when an error says it cannot be told."
         }
       },
       "required": [

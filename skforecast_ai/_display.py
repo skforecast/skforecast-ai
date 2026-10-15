@@ -526,9 +526,13 @@ def render_profile(profile: ForecastingProfile) -> RenderableType:
         (dp.csv_sep, dp.csv_decimal) != (",", ".")
     ):
         sep_name = "tabulator" if dp.csv_sep == "\t" else repr(dp.csv_sep)
+        thousands = (
+            "" if dp.csv_thousands is None
+            else f", thousands {dp.csv_thousands!r}"
+        )
         table.add_row(
             "CSV format",
-            escape(f"separator {sep_name}, decimal {dp.csv_decimal!r}"),
+            escape(f"separator {sep_name}, decimal {dp.csv_decimal!r}{thousands}"),
         )
 
     renderables: list[RenderableType] = [table]

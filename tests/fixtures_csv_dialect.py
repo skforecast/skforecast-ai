@@ -65,3 +65,43 @@ def write_dialect(directory, frame: pd.DataFrame, name: str) -> str:
     frame.to_csv(path, index=False, **arguments)
 
     return str(path)
+
+
+# Monthly series of 48 amounts between 870 and about 2,050, the shape of the
+# reproduction of '.' read as a decimal mark: written by `write_thousands`
+# with '.' between thousands, the amounts below 1,000 have none.
+df_dialect_thousands = pd.DataFrame(
+    {
+        "date": pd.date_range("2018-01-01", periods=48, freq="MS").strftime(
+            "%Y-%m-%d"
+        ),
+        "y": np.round(870 + 25 * np.arange(48) + 30 * np.sin(np.arange(48)), 2),
+    }
+)
+
+
+def write_thousands(
+    directory,
+    frame: pd.DataFrame,
+    decimals: bool = True,
+    name: str = "thousands.csv",
+) -> str:
+    """
+    Write the columns 'date' and 'y' of `frame` to `directory` separated by
+    ';', with '.' between thousands and ',' before two decimals
+    ('1.020,50'), or as whole numbers ('1.020') when `decimals` is False,
+    as a spreadsheet of most of Europe exports them, and return the path.
+    pandas cannot write a thousands separator.
+    """
+
+    def written(value: float) -> str:
+        text = f"{value:,.2f}" if decimals else f"{round(value):,}"
+        return text.replace(",", " ").replace(".", ",").replace(" ", ".")
+
+    lines = ["date;y"] + [
+        f"{date};{written(value)}" for date, value in zip(frame["date"], frame["y"])
+    ]
+    path = directory / name
+    path.write_text("\n".join(lines) + "\n")
+
+    return str(path)

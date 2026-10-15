@@ -416,8 +416,8 @@ def _profile_values(data_profile: DataProfile) -> dict[str, str]:
     Return the fields of a data profile that describe the values of the
     data, each as text, to tell whether two profiles describe the same data.
 
-    `data_path`, `csv_sep`, `csv_decimal`, `warnings` and `unused_columns`
-    are left out: the path and how its file is written are
+    `data_path`, `csv_sep`, `csv_decimal`, `csv_thousands`, `warnings` and
+    `unused_columns` are left out: the path and how its file is written are
     set by the caller, the warnings derive from the values (and hold the
     note of an earlier refresh), and the columns the data holds besides
     those of the profile are compared by `_refresh_profile` itself. The
@@ -438,7 +438,8 @@ def _profile_values(data_profile: DataProfile) -> dict[str, str]:
 
     values = data_profile.model_dump(
         exclude={
-            "data_path", "csv_sep", "csv_decimal", "warnings", "unused_columns"
+            "data_path", "csv_sep", "csv_decimal", "csv_thousands", "warnings",
+            "unused_columns",
         }
     )
     for name in ("exog_columns", "categorical_exog"):
@@ -666,6 +667,7 @@ class ForecastingAssistant:
         exog_columns: list[str] | None = None,
         sep: str | None = None,
         decimal: str | None = None,
+        thousands: str | None = None,
     ) -> ForecastingProfile:
         """
         Profile a dataset and select the recommended forecaster and estimator.
@@ -706,6 +708,11 @@ class ForecastingAssistant:
             Decimal mark of a CSV file: `'.'` or `','` (only when the
             separator is not `','`). If None, it is detected from the
             first lines of the file. Ignored for data passed in memory.
+        thousands : str, default None
+            Thousands separator of a CSV file: `'.'`, with `','` as decimal
+            mark (`'1.705,11'`). If None, it is detected from the first
+            lines of the file, and the file has none when `decimal` is
+            `'.'`. Ignored for data passed in memory.
 
         Returns
         -------
@@ -715,14 +722,20 @@ class ForecastingAssistant:
 
         Notes
         -----
-        The separator and the decimal mark of a CSV file are recorded in
-        the profile (`DataProfile.csv_sep` and `DataProfile.csv_decimal`):
-        the generated script reads the file with them. A file that reads
-        with more than one separator, or that holds numbers written with
-        both decimal marks, raises `InvalidInputError` (code
-        `'data_unreadable'`) instead of guessing: pass `sep` and `decimal`.
-        The other methods detect how the file they receive is written, and
-        read such a file as the profile passed with it says.
+        The separator, the decimal mark and the thousands separator of a
+        CSV file are recorded in the profile (`DataProfile.csv_sep`,
+        `DataProfile.csv_decimal` and `DataProfile.csv_thousands`): the
+        generated script reads the file with them. A file that reads with
+        more than one separator, or that holds numbers written with both
+        decimal marks, raises `InvalidInputError` (code `'data_unreadable'`)
+        instead of guessing: pass `sep` and `decimal`. So does a file whose
+        numbers with a `'.'` all read both as thousands and as numbers with
+        three decimals (`'1.705'`): pass `thousands='.'` or `decimal='.'`.
+        `'.'` is read as thousands separator when the file says so: numbers
+        such as `'1.705,11'` or `'1.234.567'`, a column with `'870'` and
+        `'1.020'`, or `','` as decimal mark. The other methods detect how
+        the file they receive is written, and read such a file as the
+        profile passed with it says.
         """
 
         data_path = recorded_data_path(data)
@@ -732,10 +745,11 @@ class ForecastingAssistant:
                            date_column = date_column,
                            sep         = sep,
                            decimal     = decimal,
+                           thousands   = thousands,
                        )
         # How the file was read, which the script repeats; nothing for data
         # passed in memory.
-        sep, decimal = _dialect_read(data_path)
+        sep, decimal, thousands = _dialect_read(data_path)
 
         data_profile = create_data_profile(
             data             = data,
@@ -746,6 +760,7 @@ class ForecastingAssistant:
             exog_columns     = exog_columns,
             sep              = sep,
             decimal          = decimal,
+            thousands        = thousands,
         )
         validate_target_numeric(data, data_profile.target)
 

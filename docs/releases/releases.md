@@ -15,14 +15,26 @@ All significant changes to this project are documented in this release file.
 
 The main changes in this release are:
 
++ <span class="badge text-bg-danger">Fix</span> CSV files separated by `;` or tabulators read `.` as thousands separator when the file says so (`870` next to `1.020`, or `1.705,11`): `1.020` was read as 1.02 without a warning. See the [CLI guide][cli-guide].
+
+!!! warning "Before upgrading"
+
+    Some code needs to be updated: [<code>ForecastingAssistant.profile()</code>][assistant] of a file separated by `;` or tabulators whose only numbers with a `.` have three decimals (`1.870`) raises `data_unreadable` instead of reading them as decimals. Pass `decimal='.'` to read them as before. See **Fixed**.
+
 
 **Added**
+
++ New argument `thousands` of [<code>ForecastingAssistant.profile()</code>][assistant] (`--thousands` in the CLI, `thousands` in the `profile` tool of the MCP server), recorded as `DataProfile.csv_thousands` and passed to `pd.read_csv` by the generated script. See the [CLI guide][cli-guide].
 
 
 **Changed**
 
++ A target whose values are numbers written with a thousands separator or with `%` (`10,025.1`, `12.5%`) raises a `DataContentError` that names that format and the file (`field` `data`), instead of the hint about missing value markers.
+
 
 **Fixed**
+
++ In CSV files separated by `;` or tabulators, `.` between thousands was read as a decimal mark without a warning (`1.020` as 1.02), and `1.705,11` failed as a target that is not numeric. It is now read as thousands separator when the file says so; otherwise `profile()` raises `data_unreadable` and asks for `thousands` or `decimal`.
 
 
 ## 0.4.2 <small>Oct 12, 2026</small> { id="0.4.2" }

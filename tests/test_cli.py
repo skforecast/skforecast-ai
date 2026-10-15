@@ -28,7 +28,12 @@ from skforecast_ai.cli import (
 from skforecast_ai.exceptions import ForecastExecutionError
 from skforecast_ai.assistant import ForecastingAssistant
 
-from .fixtures_csv_dialect import df_dialect, write_dialect
+from .fixtures_csv_dialect import (
+    df_dialect,
+    df_dialect_thousands,
+    write_dialect,
+    write_thousands,
+)
 from .fixtures_assistant import (
     df_categorical_exog,
     df_multi_long,
@@ -2525,5 +2530,74 @@ class TestCsvDialects:
         assert result.exit_code == 0, result.stderr
         code = code_path.read_text()
         assert f"data = pd.read_csv({csv_path!r}, sep=';', decimal=',')\n" in code
+        ast.parse(code)
+
+    def test_profile_error_json_and_thousands_when_thousands_are_ambiguous(
+        self, tmp_path
+    ):
+        """
+        A file whose numbers with a '.' all read as thousands and as three
+        decimals exits with code 1, the code 'data_unreadable' and the hint
+        that names `--thousands`; giving `--thousands .` reads them as
+        thousands and records it in the JSON.
+        """
+        csv_path = tmp_path / "thousands.csv"
+        csv_path.write_text(
+            "date;y\n"
+            + "".join(f"2023-01-{day:02d};{day}.{day:03d}\n" for day in range(1, 29))
+        )
+        failed = runner.invoke(
+            app,
+            ["profile", str(csv_path), "--target", "y", "--format", "json",
+             "--quiet"],
+        )
+        result = runner.invoke(
+            app,
+            ["profile", str(csv_path), "--target", "y", "--thousands", ".",
+             "--format", "json", "--quiet"],
+        )
+        assert failed.exit_code == 1
+        error = json.loads(failed.stderr)["error"]
+        assert error["code"] == "data_unreadable"
+        assert "`--thousands` or `--decimal` in the `profile` command" in error["hint"]
+        assert result.exit_code == 0, result.stderr
+        data_profile = json.loads(result.stdout)["data_profile"]
+        assert data_profile["csv_decimal"] == ","
+        assert data_profile["csv_thousands"] == "."
+        assert data_profile["target_stats"]["y"]["max"] == 28028.0
+
+    def test_profile_error_when_thousands_is_not_valid(self, tmp_path):
+        """
+        An invalid `--thousands` exits with code 1 and the field 'thousands'.
+        """
+        csv_path = write_dialect(tmp_path, df_dialect, "semicolon_comma")
+        result = runner.invoke(
+            app,
+            ["profile", csv_path, "--target", "y", "--thousands", ",",
+             "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 1
+        error = json.loads(result.stderr)["error"]
+        assert error["field"] == "thousands"
+        assert error["message"] == "`thousands` must be '.', got ','."
+
+    def test_forecast_output_code_on_file_with_thousands(self, tmp_path):
+        """
+        `forecast --output-code` on a ';' file with '.' between thousands
+        writes a script that reads it with `thousands='.'`.
+        """
+        csv_path = write_thousands(tmp_path, df_dialect_thousands)
+        code_path = tmp_path / "script.py"
+        result = runner.invoke(
+            app,
+            ["forecast", csv_path, "--target", "y", "--steps", "3",
+             "--output-code", str(code_path), "--quiet"],
+        )
+        assert result.exit_code == 0, result.stderr
+        code = code_path.read_text()
+        assert (
+            f"data = pd.read_csv({csv_path!r}, sep=';', decimal=',', "
+            f"thousands='.')\n" in code
+        )
         ast.parse(code)
 

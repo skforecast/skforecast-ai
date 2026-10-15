@@ -27,7 +27,9 @@ from tests.fixtures_datasets import (
 from tests.fixtures_csv_dialect import (
     df_dialect,
     df_dialect_monthly,
+    df_dialect_thousands,
     write_dialect,
+    write_thousands,
 )
 from tests.fixtures_assistant import (
     df_categorical_exog,
@@ -1392,3 +1394,110 @@ def test_profile_InvalidInputError_when_sep_not_valid_for_data_in_memory():
         ForecastingAssistant().profile(data, target="y", sep="x")
 
     assert exc_info.value.field == "sep"
+
+
+@pytest.mark.parametrize(
+    "decimals",
+    [True, False],
+    ids=["thousands and decimal comma", "whole numbers with and without separator"],
+)
+def test_profile_records_the_thousands_separator_of_the_csv_file(tmp_path, decimals):
+    """
+    Test that profile() reads a ';' file with '.' between thousands as the
+    amounts it holds and records ';', ',' and '.' as its dialect.
+    """
+    path = write_thousands(tmp_path, df_dialect_thousands, decimals=decimals)
+    amounts = df_dialect_thousands["y"]
+    amounts = amounts if decimals else amounts.round()
+
+    result = ForecastingAssistant().profile(path, target="y")
+
+    data_profile = result.data_profile
+    assert (data_profile.csv_sep, data_profile.csv_decimal) == (";", ",")
+    assert data_profile.csv_thousands == "."
+    assert data_profile.target_dtype == "numeric"
+    assert data_profile.target_stats["y"]["min"] == pytest.approx(amounts.min())
+    assert data_profile.target_stats["y"]["max"] == pytest.approx(amounts.max())
+    assert data_profile.target_stats["y"]["mean"] == pytest.approx(amounts.mean())
+
+
+@pytest.mark.parametrize(
+    "kwargs, expected",
+    [
+        ({"thousands": "."}, (",", ".", [1870.0, 1020.0])),
+        ({"decimal": ","}, (",", ".", [1870.0, 1020.0])),
+        ({"decimal": "."}, (".", None, [1.87, 1.02])),
+    ],
+    ids=["thousands", "decimal comma", "decimal point"],
+)
+def test_profile_output_when_thousands_ambiguous_and_dialect_given(
+    tmp_path, kwargs, expected
+):
+    """
+    Test that a file whose numbers all read both as thousands and as three
+    decimals raises an InvalidInputError with the code 'data_unreadable',
+    and that profile() reads it as the caller says: `thousands` '.' or
+    `decimal` ',' as thousands, `decimal` '.' as three decimals. A decimal
+    mark ',' given that reads '1.870' as text no longer leaves the target as
+    text.
+    """
+    path = tmp_path / "thousands.csv"
+    path.write_text(
+        "date;y\n" + "".join(
+            f"2020-{month:02d}-01;{'1.870' if month % 2 else '1.020'}\n"
+            for month in range(1, 13)
+        )
+    )
+    decimal, thousands, values = expected
+    assistant = ForecastingAssistant()
+
+    with pytest.raises(InvalidInputError, match="cannot be told") as exc_info:
+        assistant.profile(path, target="y")
+    result = assistant.profile(path, target="y", **kwargs)
+
+    assert exc_info.value.code == "data_unreadable"
+    assert result.data_profile.csv_decimal == decimal
+    assert result.data_profile.csv_thousands == thousands
+    assert result.data_profile.target_dtype == "numeric"
+    assert result.data_profile.target_stats["y"]["max"] == pytest.approx(values[0])
+    assert result.data_profile.target_stats["y"]["min"] == pytest.approx(values[1])
+
+
+def test_profile_thousands_is_ignored_for_data_in_memory():
+    """
+    Test that a DataFrame is profiled without thousands separator whatever
+    `thousands` says, because there is no file to read.
+    """
+    result = ForecastingAssistant().profile(
+        df_dialect.assign(date=pd.to_datetime(df_dialect["date"])),
+        target="y",
+        thousands=".",
+    )
+
+    assert result.data_profile.csv_thousands is None
+    assert result.data_profile.csv_decimal == "."
+
+
+@pytest.mark.parametrize(
+    "kwargs, message",
+    [
+        ({"thousands": ","}, "`thousands` must be '.', got ','."),
+        (
+            {"thousands": ".", "decimal": "."},
+            "`thousands` cannot be '.' when `decimal` is '.': the same "
+            "character would separate the thousands and the decimals.",
+        ),
+    ],
+    ids=["comma", "with decimal point"],
+)
+def test_profile_InvalidInputError_when_thousands_not_valid(tmp_path, kwargs, message):
+    """
+    Test that profile() raises InvalidInputError naming `thousands` when it
+    is not '.', or when it is the decimal mark.
+    """
+    path = write_dialect(tmp_path, df_dialect, "semicolon_comma")
+
+    with pytest.raises(InvalidInputError, match=re.escape(message)) as exc_info:
+        ForecastingAssistant().profile(path, target="y", **kwargs)
+
+    assert exc_info.value.field == "thousands"

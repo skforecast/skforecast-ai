@@ -23,3 +23,22 @@ def test_csv_read_kwargs_output(sep, decimal, expected):
     otherwise.
     """
     assert csv_read_kwargs(sep, decimal) == expected
+
+
+@pytest.mark.parametrize(
+    "sep, decimal, thousands, expected",
+    [
+        (",", ".", None, {}),
+        (";", ",", None, {"sep": ";", "decimal": ","}),
+        (";", ",", ".", {"sep": ";", "decimal": ",", "thousands": "."}),
+        ("\t", ",", ".", {"sep": "\t", "decimal": ",", "thousands": "."}),
+    ],
+    ids=lambda dt: f"{dt!r}",
+)
+def test_csv_read_kwargs_output_when_thousands(sep, decimal, thousands, expected):
+    """
+    Test that `thousands` is returned only when it is not None, next to `sep`
+    and `decimal`, and that no argument is returned for the default dialect
+    without thousands separator.
+    """
+    assert csv_read_kwargs(sep, decimal, thousands) == expected

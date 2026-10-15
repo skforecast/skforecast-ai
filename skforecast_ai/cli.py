@@ -74,6 +74,7 @@ DropnaOption = Annotated[str | None, typer.Option("--dropna-from-series", help="
 ExogColumnsOption = Annotated[str | None, typer.Option("--exog-columns", help="Comma-separated columns to use as exogenous variables, 'none' for none, or 'auto' for every column that is not the target, the date or the series id. The other columns are not used.")]
 SepOption = Annotated[str | None, typer.Option("--sep", help="Separator of the CSV file: ',', ';' or 'tab'. Detected from the file when omitted.")]
 DecimalOption = Annotated[str | None, typer.Option("--decimal", help="Decimal mark of the CSV file: '.' or ',' (only when the separator is not ','). Detected from the file when omitted.")]
+ThousandsOption = Annotated[str | None, typer.Option("--thousands", help="Thousands separator of the CSV file: '.' (with ',' as decimal mark, as in '1.705,11'). Detected from the file when omitted.")]
 FromPlanOption = Annotated[str | None, typer.Option("--from-plan", help="Load plan bundle from JSON file or '-' for stdin.")]
 FromProfileOption = Annotated[str | None, typer.Option("--from-profile", help="Load profile from JSON file or '-' for stdin.")]
 # CV options default to None so that only the flags actually passed reach
@@ -999,6 +1000,7 @@ def profile(
     exog_columns: ExogColumnsOption = None,
     sep: SepOption = None,
     decimal: DecimalOption = None,
+    thousands: ThousandsOption = None,
     format: TableFormatOption = "table",
     output: OutputOption = None,
     quiet: QuietOption = False,
@@ -1015,7 +1017,7 @@ def profile(
                 data=data, target=parsed_target, date_column=date_column,
                 series_id_column=series_id_column,
                 exog_columns=parsed_exog_columns,
-                sep=_parse_sep(sep), decimal=decimal,
+                sep=_parse_sep(sep), decimal=decimal, thousands=thousands,
             )
 
         if format == "json":

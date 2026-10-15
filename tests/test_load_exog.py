@@ -571,3 +571,50 @@ def test_load_exog_output_when_integer_dates_and_dialect_is_semicolon(tmp_path):
         index=pd.DatetimeIndex(["2023-01-01", "2023-01-02"], name="date"),
     )
     pd.testing.assert_frame_equal(result, expected, check_freq=False)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "date;temp\n2023-01-01;870\n2023-01-02;1.020\n2023-01-03;1.705\n",
+        "date;temp\n2023-01-01;870,0\n2023-01-02;1.020,0\n2023-01-03;1.705,0\n",
+    ],
+    ids=["whole numbers", "decimal comma"],
+)
+def test_load_exog_output_when_point_separates_thousands(tmp_path, text):
+    """
+    Test that an exog file with '.' between thousands is read as the amounts
+    it holds, as the data are.
+    """
+    path = tmp_path / "exog.csv"
+    path.write_text(text)
+
+    result = load_exog(path)
+
+    np.testing.assert_array_equal(result["temp"].to_numpy(), [870, 1020, 1705])
+    pd.testing.assert_index_equal(
+        result.index,
+        pd.DatetimeIndex(["2023-01-01", "2023-01-02", "2023-01-03"], name="date"),
+    )
+
+
+def test_load_exog_InvalidInputError_when_thousands_are_ambiguous(tmp_path):
+    """
+    Test that an exog file whose numbers with a '.' all read as thousands
+    and as three decimals raises an InvalidInputError with the field 'exog'
+    and the exog hint.
+    """
+    path = tmp_path / "exog.csv"
+    path.write_text("date;temp\n2023-01-01;1.870\n2023-01-02;1.020\n")
+
+    err_msg = re.escape(
+        f"The thousands separator of the CSV file '{path}' cannot be told: its "
+        f"numbers with a '.' (such as '1.870') read both as thousands and as "
+        f"numbers with three decimals."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg + "$") as exc_info:
+        load_exog(path)
+
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.field == "exog"
+    assert exc_info.value.hint == EXOG_DIALECT_HINT

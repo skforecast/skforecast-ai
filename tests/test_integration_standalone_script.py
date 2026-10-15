@@ -21,7 +21,12 @@ from tests.fixtures_assistant import (
     df_no_exog,
     df_single,
 )
-from tests.fixtures_csv_dialect import df_dialect, write_dialect
+from tests.fixtures_csv_dialect import (
+    df_dialect,
+    df_dialect_thousands,
+    write_dialect,
+    write_thousands,
+)
 from tests.fixtures_datasets import df_h2o, df_items_sales_long
 
 
@@ -964,3 +969,36 @@ def test_forecast_gives_equal_predictions_when_same_data_in_semicolon_and_comma_
 
     pd.testing.assert_frame_equal(result.predictions, expected.predictions)
 
+
+
+@pytest.mark.parametrize(
+    "decimals",
+    [True, False],
+    ids=["thousands and decimal comma", "whole numbers with and without separator"],
+)
+def test_standalone_script_matches_forecast_when_csv_separates_thousands(
+    tmp_path, decimals
+):
+    """
+    Test that the script of a ';' file with '.' between thousands ('1.020,50'
+    or '870' next to '1.020'), run as a real file, reads it with
+    `thousands='.'` and yields the same predictions as forecast(), which
+    are those of the same amounts written with ',' and '.'.
+    """
+    csv_path = write_thousands(tmp_path, df_dialect_thousands, decimals=decimals)
+    comma_path = tmp_path / "us.csv"
+    df_dialect_thousands.assign(
+        y=df_dialect_thousands["y"] if decimals else df_dialect_thousands["y"].round()
+    ).to_csv(comma_path, index=False)
+    assistant = ForecastingAssistant()
+
+    code = assistant.forecast_code(data=csv_path, target="y", steps=5).code
+    executed = assistant.forecast(data=csv_path, target="y", steps=5)
+    expected = assistant.forecast(data=str(comma_path), target="y", steps=5)
+
+    assert (
+        f"data = pd.read_csv({csv_path!r}, sep=';', decimal=',', thousands='.')\n"
+        in code
+    )
+    _assert_same_predictions(_run_standalone(code, tmp_path), executed.predictions)
+    pd.testing.assert_frame_equal(executed.predictions, expected.predictions)

@@ -1637,6 +1637,11 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             "Decimal mark of the file: '.' or ',' (only when the separator "
             "is not ','). When null, it is detected from the file."
         ))] = None,
+        thousands: Annotated[Literal["."] | None, Field(description=(
+            "Thousands separator of the file: '.', with ',' as decimal mark "
+            "(as in '1.705,11'). When null, it is detected from the file; "
+            "pass it only when an error says it cannot be told."
+        ))] = None,
         ctx: Context = None,
     ) -> ToolResult:
         _inputs.check_text_argument(target, "target")
@@ -1652,7 +1657,12 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             if target is None:
                 # Agents called `profile` with a made up target to read the
                 # columns in its error: the same answer, without guessing.
-                frame = read_csv_file(path, sep=sep, decimal=decimal)
+                frame = read_csv_file(
+                            path      = path,
+                            sep       = sep,
+                            decimal   = decimal,
+                            thousands = thousands,
+                        )
                 columns = [str(column) for column in frame.columns]
                 raise ServerError(
                     f"`target` was not given. Columns of the file: "
@@ -1674,6 +1684,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                     exog_columns     = exog_columns,
                     sep              = sep,
                     decimal          = decimal,
+                    thousands        = thousands,
                 )
             except SkforecastAIError as exc:
                 # Every error of a profile on `data` is about the file:

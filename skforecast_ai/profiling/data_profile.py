@@ -28,16 +28,19 @@ from .._dates import (
     training_end,
 )
 from ..schemas import DataProfile
-from ..exceptions import InvalidInputError, InvalidInputTypeError
+from ..exceptions import DataContentError, InvalidInputError, InvalidInputTypeError
 from .csv_dialect import (
     DECIMAL_NUMBERS,
     DECOMPRESSION_ERRORS,
     DEFAULT_CSV_DECIMAL,
     DEFAULT_CSV_SEP,
+    DOT_THOUSANDS,
+    DOTTED_NUMBER,
     THOUSANDS,
     check_csv_dialect,
     decimal_in_both_error,
     detect_csv_dialect,
+    dotted_values_error,
     only_thousands_error,
     read_sample,
 )
@@ -182,6 +185,7 @@ def create_data_profile(
     exog_columns: list[str] | None = None,
     sep: str | None = None,
     decimal: str | None = None,
+    thousands: str | None = None,
 ) -> DataProfile:
     """
     Generate a deterministic data profile from a dataset.
@@ -217,6 +221,11 @@ def create_data_profile(
         Decimal mark of the CSV file: `'.'` or `','`. If None, it is
         detected when `data` is a path, and `'.'` is recorded for a
         DataFrame. The profile records it as `csv_decimal`.
+    thousands : str, default None
+        Thousands separator of the CSV file: `'.'`, with `','` as decimal
+        mark. If None, it is detected when `data` is a path, and none is
+        recorded for a DataFrame. The profile records it as
+        `csv_thousands`.
 
     Returns
     -------
@@ -257,13 +266,21 @@ def create_data_profile(
     of a day or coarser and in UTC for a finer one, as pandas puts them on a
     grid.
     """
-    check_csv_dialect(sep, decimal)
+    check_csv_dialect(sep, decimal, thousands)
     if isinstance(data, (str, Path)):
-        data, sep, decimal = read_csv_with_dialect(data, sep=sep, decimal=decimal)
+        data, sep, decimal, thousands = read_csv_with_dialect(
+                                            path      = data,
+                                            sep       = sep,
+                                            decimal   = decimal,
+                                            thousands = thousands,
+                                        )
         # Attempt to parse the first object-dtype column as datetime.
         # This handles CSVs exported with df.to_csv() where the date
         # index becomes a regular column.
         data = _try_parse_first_date_column(data, date_column)
+    elif thousands is not None and decimal is None:
+        # '.' between thousands goes with ',' as decimal mark.
+        decimal = ","
 
     # Normalize a MultiIndex (level 0 = series_id, level 1 = datetime) into
     # flat long format so every downstream helper sees named columns.
@@ -493,6 +510,7 @@ def create_data_profile(
         data_path=data_path,
         csv_sep=DEFAULT_CSV_SEP if sep is None else sep,
         csv_decimal=DEFAULT_CSV_DECIMAL if decimal is None else decimal,
+        csv_thousands=thousands,
         # Train/test split
         start_date=start_date,
         time_zone=time_zone,
@@ -3043,11 +3061,17 @@ _MAX_LISTED_COLUMNS = 20
 _MAX_QUOTED_VALUES = 5
 
 
-def csv_read_kwargs(sep: str, decimal: str) -> dict[str, str]:
+def csv_read_kwargs(
+    sep: str,
+    decimal: str,
+    thousands: str | None = None,
+) -> dict[str, str]:
     """
     Return the arguments `pandas.read_csv` needs to read a CSV file written
-    with a separator and a decimal mark, as the generated script passes
-    them: none for `','` and `'.'`, both otherwise.
+    with a separator, a decimal mark and a thousands separator, as the
+    generated script passes them: none for `','`, `'.'` and no thousands
+    separator, `sep` and `decimal` otherwise, and `thousands` when there is
+    one.
 
     Parameters
     ----------
@@ -3055,15 +3079,24 @@ def csv_read_kwargs(sep: str, decimal: str) -> dict[str, str]:
         Separator of the fields.
     decimal : str
         Decimal mark.
+    thousands : str, default None
+        Thousands separator, or None for none.
 
     Returns
     -------
     kwargs : dict
-        Empty, or `sep` and `decimal`.
+        Empty, or `sep` and `decimal`, with `thousands` when it is given.
     """
-    if sep == DEFAULT_CSV_SEP and decimal == DEFAULT_CSV_DECIMAL:
+    if (
+        sep == DEFAULT_CSV_SEP
+        and decimal == DEFAULT_CSV_DECIMAL
+        and thousands is None
+    ):
         return {}
-    return {"sep": sep, "decimal": decimal}
+    kwargs = {"sep": sep, "decimal": decimal}
+    if thousands is not None:
+        kwargs["thousands"] = thousands
+    return kwargs
 
 
 def decimal_after_sample(
@@ -3080,8 +3113,11 @@ def decimal_after_sample(
     The decimal mark is detected from the start of the file. A column
     that holds whole numbers there and `'2,5'` further down is read as
     text, and would be taken for a categorical variable without a word.
-    The columns read as text are looked up for numbers written with `','`:
-    when there are some, the file is to be read again with `','`.
+    The columns read as text are looked up for numbers written with `','`,
+    or with `'.'` between thousands in a way that cannot read with `'.'` as
+    decimal mark (`'1.705,11'`, `'1.234.567'`): when there are some, the
+    file is to be read again with `','` (see `thousands_after_sample` for
+    the thousands).
 
     Parameters
     ----------
@@ -3114,7 +3150,13 @@ def decimal_after_sample(
         if not is_text(values):
             continue
         values = values.dropna().astype(str).str.strip()
-        found = values[values.str.fullmatch(DECIMAL_NUMBERS[","].pattern)]
+        found = values[
+            values.str.fullmatch(DECIMAL_NUMBERS[","].pattern)
+            | (
+                values.str.fullmatch(DOT_THOUSANDS.pattern)
+                & ~values.str.fullmatch(DECIMAL_NUMBERS["."].pattern)
+            )
+        ]
         if found.empty:
             continue
         if with_comma is None:
@@ -3139,22 +3181,90 @@ def decimal_after_sample(
     return ","
 
 
+def thousands_after_sample(
+    data: pd.DataFrame,
+    source: str,
+    field: str,
+) -> str | None:
+    """
+    Tell whether a CSV file read with `','` as decimal mark and no
+    thousands separator has `'.'` between thousands, from every value and
+    not only from its first lines.
+
+    With `','` as decimal mark, a number such as `'1.705'` or `'1.705,11'`
+    only reads with `'.'` between thousands. pandas leaves its column as
+    text, which would be taken for a categorical variable without a word:
+    when a column read as text holds one, the file is to be read again with
+    `'.'` as thousands separator.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Content of the file, read with `','` as decimal mark and no
+        thousands separator.
+    source : str
+        Path or URL of the file, named by the error.
+    field : str
+        Argument that named the file, reported with the error.
+
+    Returns
+    -------
+    thousands : str, None
+        `'.'` when a column holds numbers written with it, None otherwise.
+
+    Notes
+    -----
+    A column read as text that also holds a value with a `'.'` that does
+    not separate thousands (`'15.01.2020'`, `'0.5'`), which pandas would
+    read as a number without it, raises `InvalidInputError` with code
+    `'data_unreadable'`.
+    """
+    grouped = None
+    texts = []
+    for column in data.columns:
+        values = data[column]
+        if not is_text(values):
+            continue
+        values = values.dropna().astype(str).str.strip()
+        texts.append(values)
+        found = values[values.str.fullmatch(DOT_THOUSANDS.pattern)]
+        if grouped is None and not found.empty:
+            grouped = found.iloc[0]
+    if grouped is None:
+        return None
+    for values in texts:
+        other = values[
+            values.str.contains(".", regex=False)
+            & values.str.fullmatch(DOTTED_NUMBER.pattern)
+            & ~values.str.fullmatch(DOT_THOUSANDS.pattern)
+        ]
+        if not other.empty:
+            raise dotted_values_error(source, field, other.iloc[0], grouped)
+
+    return "."
+
+
 def read_csv_with_dialect(
     path: str | Path,
     field: str = "data",
     sep: str | None = None,
     decimal: str | None = None,
-) -> tuple[pd.DataFrame, str, str]:
+    thousands: str | None = None,
+) -> tuple[pd.DataFrame, str, str, str | None]:
     """
     Read a CSV file with `pandas.read_csv`, as the generated script reads
     it, and return how it is written.
 
-    The separator (`','`, `';'` or a tabulator) and the decimal mark (`'.'`
-    or `','`) are told from the first lines of the file unless they are
-    given (see `detect_csv_dialect`). A file written with `','` and `'.'`
-    is read with the same call as before. A file with another separator
-    whose numbers with `','` only come after those lines is read again with
-    `','` as decimal mark (see `decimal_after_sample`).
+    The separator (`','`, `';'` or a tabulator), the decimal mark (`'.'`
+    or `','`) and the thousands separator (none or `'.'`) are told from the
+    first lines of the file unless they are given (see
+    `detect_csv_dialect`). A file written with `','` and `'.'` is read with
+    the same call as before. A file with another separator whose numbers
+    with `','` only come after those lines is read again with `','` as
+    decimal mark (see `decimal_after_sample`), and one with `','` as
+    decimal mark whose numbers with `'.'` between thousands only come after
+    them, or whose decimal mark `','` is given, is read again with `'.'` as
+    thousands separator (see `thousands_after_sample`).
 
     Parameters
     ----------
@@ -3166,6 +3276,9 @@ def read_csv_with_dialect(
         Separator of the fields. If None, it is detected.
     decimal : str, default None
         Decimal mark. If None, it is detected.
+    thousands : str, default None
+        Thousands separator. If None, it is detected, except when `decimal`
+        is `'.'`: the file then has none.
 
     Returns
     -------
@@ -3175,34 +3288,41 @@ def read_csv_with_dialect(
         Separator the file was read with.
     decimal : str
         Decimal mark the file was read with.
+    thousands : str, None
+        Thousands separator the file was read with, or None for none.
 
     Notes
     -----
     A file that pandas cannot read as a CSV (empty, binary, not UTF-8, with
     rows of more fields than the others, or compressed and damaged) raises
     `InvalidInputError` with code `'data_unreadable'`, still a `ValueError`
-    as the errors of pandas were, and so does a file whose separator or
-    decimal mark cannot be told.
+    as the errors of pandas were, and so does a file whose separator,
+    decimal mark or thousands separator cannot be told.
     """
-    check_csv_dialect(sep, decimal)
+    check_csv_dialect(sep, decimal, thousands)
     decimal_given = decimal is not None
-    if sep is None or decimal is None:
+    # A thousands separator given is checked against the first lines too:
+    # pandas drops every '.' of a value such as '15.01.2020' or '0.5'.
+    if sep is None or decimal is None or thousands is not None:
         sample = read_sample(path)
         if sample is None:
-            # Left for pandas to report, or read as before.
+            # Left for pandas to report, or read as before: its error tells
+            # what is wrong with the file, not with the defaults.
             sep = DEFAULT_CSV_SEP if sep is None else sep
             decimal = DEFAULT_CSV_DECIMAL if decimal is None else decimal
+            decimal = "," if thousands is not None else decimal
         else:
-            sep, decimal = detect_csv_dialect(
-                               sample  = sample,
-                               source  = str(path),
-                               field   = field,
-                               sep     = sep,
-                               decimal = decimal,
-                           )
-        check_csv_dialect(sep, decimal)
+            sep, decimal, thousands = detect_csv_dialect(
+                                          sample    = sample,
+                                          source    = str(path),
+                                          field     = field,
+                                          sep       = sep,
+                                          decimal   = decimal,
+                                          thousands = thousands,
+                                      )
+            check_csv_dialect(sep, decimal, thousands)
     try:
-        data = pd.read_csv(path, **csv_read_kwargs(sep, decimal))
+        data = pd.read_csv(path, **csv_read_kwargs(sep, decimal, thousands))
         if (
             not decimal_given
             and sep != DEFAULT_CSV_SEP
@@ -3212,6 +3332,14 @@ def read_csv_with_dialect(
             # Numbers with ',' beyond the lines the dialect was told from.
             decimal = ","
             data = pd.read_csv(path, **csv_read_kwargs(sep, decimal))
+        if (
+            thousands is None
+            and decimal == ","
+            and thousands_after_sample(data, str(path), field) is not None
+        ):
+            # '1.705' beyond those lines, or with ',' given as decimal mark.
+            thousands = "."
+            data = pd.read_csv(path, **csv_read_kwargs(sep, decimal, thousands))
     except (
         pd.errors.EmptyDataError,
         pd.errors.ParserError,
@@ -3230,7 +3358,7 @@ def read_csv_with_dialect(
             ),
         ) from exc
 
-    return data, sep, decimal
+    return data, sep, decimal, thousands
 
 
 def read_csv_file(
@@ -3238,6 +3366,7 @@ def read_csv_file(
     field: str = "data",
     sep: str | None = None,
     decimal: str | None = None,
+    thousands: str | None = None,
 ) -> pd.DataFrame:
     """
     Read a CSV file with `pandas.read_csv`, as the generated script reads it.
@@ -3253,6 +3382,9 @@ def read_csv_file(
         is detected from the first lines of the file.
     decimal : str, default None
         Decimal mark: `'.'` or `','`. If None, it is detected.
+    thousands : str, default None
+        Thousands separator: `'.'`, with `','` as decimal mark. If None, it
+        is detected.
 
     Returns
     -------
@@ -3263,7 +3395,13 @@ def read_csv_file(
     -----
     See `read_csv_with_dialect` for the errors.
     """
-    return read_csv_with_dialect(path, field=field, sep=sep, decimal=decimal)[0]
+    return read_csv_with_dialect(
+               path      = path,
+               field     = field,
+               sep       = sep,
+               decimal   = decimal,
+               thousands = thousands,
+           )[0]
 
 
 def _listed_columns(columns: list) -> str:
@@ -3351,6 +3489,14 @@ def _validate_target_has_values(
             )
 
 
+# Numbers written in a format that pandas does not read: with a thousands
+# separator ('10,025.1', '1.705,11') or with '%' ('12.5%').
+_THOUSANDS_NUMBER = re.compile(
+    rf"{THOUSANDS.pattern}(?:\.\d+)?|{DOT_THOUSANDS.pattern}"
+)
+_PERCENT_NUMBER = re.compile(r"[+-]?(?:\d+(?:[.,]\d+)?|[.,]\d+)\s*%")
+
+
 def validate_target_numeric(data: pd.DataFrame, target: str | list[str]) -> None:
     """
     Validate that each target column holds numbers.
@@ -3367,6 +3513,18 @@ def validate_target_numeric(data: pd.DataFrame, target: str | list[str]) -> None
         Input dataset.
     target : str, list
         Name(s) of the target column(s), already known to exist.
+
+    Returns
+    -------
+    None
+
+    Notes
+    -----
+    A column whose values that are not numbers are all numbers written with
+    a thousands separator (`'10,025.1'`, `'1.705,11'`) or with `'%'`
+    (`'12.5%'`) raises `DataContentError` for `data`, with a message that
+    names the format: the file is at fault, not the target chosen. Any
+    other text raises `InvalidInputError` for `target`.
     """
     targets = target if isinstance(target, list) else [target]
     for column in dict.fromkeys(targets):
@@ -3383,6 +3541,31 @@ def validate_target_numeric(data: pd.DataFrame, target: str | list[str]) -> None
                 _quoted_value(value)
                 for value in not_numbers.unique()[:_MAX_QUOTED_VALUES]
             ]
+            texts = pd.Series(not_numbers.unique()).astype(str).str.strip()
+            with_thousands = texts.str.fullmatch(_THOUSANDS_NUMBER.pattern)
+            with_percent = texts.str.fullmatch(_PERCENT_NUMBER.pattern)
+            if (with_thousands | with_percent).all():
+                written = " or ".join(
+                    name for name, found in (
+                        ("with a thousands separator", with_thousands.any()),
+                        ("with '%'", with_percent.any()),
+                    )
+                    if found
+                )
+                dot_thousands = texts[with_thousands].str.fullmatch(
+                    DOT_THOUSANDS.pattern
+                )
+                option = (
+                    ", or profile the file with `thousands` '.' when '.' "
+                    "separates its thousands and ',' is its decimal mark"
+                    if dot_thousands.any() else ""
+                )
+                raise DataContentError(
+                    f"Target column {column!r} is not numeric: values such as "
+                    f"{shown} are numbers written {written}, a format that is "
+                    f"not read. Write them as plain numbers{option}.",
+                    field = "data",
+                )
             raise InvalidInputError(
                 f"Target column {column!r} is not numeric: values such as "
                 f"{shown} are not numbers.",

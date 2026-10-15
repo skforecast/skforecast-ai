@@ -189,6 +189,10 @@ class DataProfile(PickleDefaultsMixin, BaseModel):
         Decimal mark of the CSV file of `data_path`: `'.'` or `','`, the
         latter only when `csv_sep` is not `','`. Detected or given as
         `csv_sep`.
+    csv_thousands : str, None, default None
+        Thousands separator of the CSV file of `data_path`: `'.'`, only
+        with `','` as `csv_decimal`, or None when its numbers have none.
+        Detected or given as `csv_sep`.
     warnings : list
         Human-readable warnings generated during profiling.
     """
@@ -226,6 +230,7 @@ class DataProfile(PickleDefaultsMixin, BaseModel):
     data_path: str = "data.csv"
     csv_sep: Literal[",", ";", "\t"] = ","
     csv_decimal: Literal[".", ","] = "."
+    csv_thousands: Literal["."] | None = None
 
     # -- Train/test split --
     start_date: str | None = None
@@ -258,13 +263,21 @@ class DataProfile(PickleDefaultsMixin, BaseModel):
     @model_validator(mode="after")
     def _check_csv_dialect(self) -> "DataProfile":
         """
-        Check that the decimal mark is not the separator: the script would
-        read every number with decimals as two fields.
+        Check that the decimal mark is not the separator, and that a
+        thousands separator goes with `','` as decimal mark: the script would
+        read every number with decimals as two fields, or drop the decimal
+        mark of every number.
         """
         if self.csv_decimal == "," and self.csv_sep == ",":
             raise InvalidInputError(
                 "`csv_decimal` cannot be ',' when `csv_sep` is ','.",
                 field = "csv_decimal",
+            )
+        if self.csv_thousands is not None and self.csv_decimal != ",":
+            raise InvalidInputError(
+                f"`csv_thousands` cannot be {self.csv_thousands!r} when "
+                f"`csv_decimal` is {self.csv_decimal!r}.",
+                field = "csv_thousands",
             )
         return self
 
