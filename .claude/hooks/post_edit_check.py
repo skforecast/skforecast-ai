@@ -35,12 +35,20 @@ RUFF_DIRS = ("skforecast_ai/", "tests/")
 def ruff_command() -> list[str] | None:
     """
     Return the ruff command to use, or None when ruff is not available.
-    `RUFF_BIN` (set in `.claude/settings.local.json`) wins, so a local
-    session can point to the ruff of its conda environment.
+    The ruff of the local environment comes first: `RUFF_BIN`, or the
+    `bin/` of `SKFORECAST_AI_PYTHON_ENV` (both from the `env` of
+    `.claude/settings.local.json`), because hooks run with the system
+    `python3` and its `PATH`, where ruff is usually missing.
     """
 
-    if os.environ.get("RUFF_BIN") and os.path.isfile(os.environ["RUFF_BIN"]):
-        return [os.environ["RUFF_BIN"]]
+    candidates = [os.environ.get("RUFF_BIN", "")]
+    if os.environ.get("SKFORECAST_AI_PYTHON_ENV"):
+        candidates.append(
+            os.path.join(os.environ["SKFORECAST_AI_PYTHON_ENV"], "bin", "ruff")
+        )
+    for candidate in candidates:
+        if candidate and os.path.isfile(candidate):
+            return [candidate]
     if shutil.which("ruff"):
         return ["ruff"]
     try:

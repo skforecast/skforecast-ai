@@ -10,6 +10,10 @@ fix it, and start again from that step. Never report the task as done with a
 failing step; if a failure is unrelated to the change, say so explicitly with
 the output.
 
+Reuse: if this session already ran `verify` with every step green and no
+file changed since (same `git status --short` and same diff), report that
+result again instead of rerunning it, for example right before a commit.
+
 ## 0. How to run Python
 
 - Cloud session (`CLAUDE_CODE_REMOTE=true`): `python -m pytest`,
@@ -17,9 +21,11 @@ the output.
   and exports `SKFORECAST_AI_DOCS_PRIVACY=false`, so `mkdocs build` skips
   the privacy plugin, whose downloads the network policy may block. If
   `mkdocs` is missing, install the extra first: `pip install -e ".[docs]"`.
-- Local session: use the environment and the command prefix in
-  `CLAUDE.local.md` (`PYTHONPATH=.` and the conda env binaries). If it does
-  not exist, ask which conda environment to use.
+- Local session: when `.claude/settings.local.json` sets
+  `SKFORECAST_AI_PYTHON_ENV`, the SessionStart hook puts that environment on
+  `PATH` and exports `PYTHONPATH=.`, so `python`, `ruff` and `mkdocs` run
+  directly from the repository root. Otherwise use what `CLAUDE.local.md`
+  says, and if it does not exist, ask which conda environment to use.
 
 Below, `PY` stands for that Python command.
 
@@ -79,6 +85,10 @@ ruff check skforecast_ai tests
 
 ## 3. Affected tests first
 
+Only for quick feedback before the full suite, which runs them again. Skip
+this step when this session already ran the affected tests green and no
+file changed since; running them while iterating is the usual case.
+
 Map each changed module to its tests and run them with `-q`:
 
 - `skforecast_ai/<sub>/<module>.py` -> `tests/tests_<sub>/`
@@ -111,7 +121,7 @@ project, so a new warning fails here too.
 
 - LLM layer changed: `PY -m pytest tests/tests_llm/test_golden_context.py -q`.
   If goldens differ on purpose, follow `/llm-context-change`.
-- Docs changed: `PYTHONPATH=. mkdocs build -q -d <scratchpad>/site` (never
+- Docs changed: `mkdocs build -q -d <scratchpad>/site` (never
   into the repo). Report warnings about broken links or references. Also run
   `PY tools/docs/hooks/page_meta.py`: a new or renamed page needs its search
   engine title and description in `tools/docs/hooks/page_meta.yml` (CI runs

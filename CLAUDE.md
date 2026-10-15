@@ -10,7 +10,11 @@ Claude Code harness in `.claude/`.
 
 - Local session: `CLAUDE.local.md` (not versioned) names the conda
   environment and how to run commands on this machine; use it instead of
-  asking. Without it, follow "Python environment" in `AGENTS.md`.
+  asking. Without it, follow "Python environment" in `AGENTS.md`. Setting
+  `SKFORECAST_AI_PYTHON_ENV` (the prefix of the environment) in the `env`
+  of `.claude/settings.local.json` makes the SessionStart hook put it on
+  `PATH` and export `PYTHONPATH=.`, so commands need no `conda run` and
+  no prefix; the edit hook takes ruff from there too.
 - Cloud session (`CLAUDE_CODE_REMOTE=true`): the SessionStart hook has
   already installed the package with `[test,llm,docs]` and ruff, and exports
   `SKFORECAST_AI_DOCS_PRIVACY=false` so the docs build without the privacy
@@ -56,6 +60,10 @@ Claude Code harness in `.claude/`.
 - Path-scoped rules in `.claude/rules/` load when you touch tests, the LLM
   layer, rendering or execution.
 - Definition of done: run `/verify` before reporting a task as finished.
+  Before a commit, run it unless every changed file is outside its scope
+  (step 1 of the skill: `dev/`, the skills and rules in `.claude/`, the
+  scripts in `tools/ai/`, `tools/mcp/` and `tools/perf/`), and reuse a
+  green run from this session when no file changed since.
 - Skills: `/verify`, `/release-note`, `/llm-context-change`,
   `/open-pr`, `/sync-skforecast-assets` (user only), `/handoff` (user
   only), `/release-bump` (user only).

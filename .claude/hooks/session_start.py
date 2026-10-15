@@ -3,8 +3,16 @@ SessionStart hook.
 
 In Claude Code on the web (`CLAUDE_CODE_REMOTE=true`) it installs the package
 with the test, llm and docs extras plus ruff, so the session can run the same
-checks as a local one (`/verify`). Locally it does nothing: the environment
-comes from `CLAUDE.local.md` (conda).
+checks as a local one (`/verify`).
+
+Locally, the shell of the Bash tool does not inherit the conda environment
+of the developer's terminal, and every `conda run` costs almost a second and
+holds the output until the command ends. When `SKFORECAST_AI_PYTHON_ENV`
+(the prefix of the environment, in the `env` of `.claude/settings.local.json`)
+is set, the hook puts its `bin/` first on `PATH` and exports `PYTHONPATH=.`,
+so `python -m pytest` runs this checkout (or the worktree it runs from)
+rather than whatever checkout the environment installed. Without the
+variable it does nothing.
 
 It also runs after a compaction (matcher in `.claude/settings.json`), so the
 environment and branch notes stay in context; the install is skipped when
@@ -37,6 +45,18 @@ ALLOWED_PREFIXES = ("feature/", "fix/", "docs/", "chore/")
 # GitHub avatars) that the network policy of a cloud environment may block;
 # it only matters for the published site, so checks build without it.
 DOCS_ENV = {"SKFORECAST_AI_DOCS_PRIVACY": "false"}
+PYTHON_ENV_VAR = "SKFORECAST_AI_PYTHON_ENV"
+REPORTED_PACKAGES = ("skforecast", "pandas", "numpy", "pydantic-ai", "mcp")
+VERSIONS_SCRIPT = (
+    "import importlib.metadata as m, platform, sys\n"
+    "out = ['Python ' + platform.python_version()]\n"
+    "for name in sys.argv[1:]:\n"
+    "    try:\n"
+    "        out.append(name + ' ' + m.version(name))\n"
+    "    except m.PackageNotFoundError:\n"
+    "        pass\n"
+    "print(', '.join(out))\n"
+)
 
 
 def git(*args: str, cwd: str) -> str:
@@ -105,9 +125,48 @@ def export_env(values: dict[str, str]) -> None:
                 fh.write(line + "\n")
 
 
+def local_session() -> int:
+    """Put the environment of `SKFORECAST_AI_PYTHON_ENV` on `PATH`."""
+
+    prefix = os.environ.get(PYTHON_ENV_VAR, "").strip()
+    if not prefix:
+        return 0
+
+    python = os.path.join(prefix, "bin", "python")
+    if not os.path.isfile(python):
+        print(
+            f"WARNING: {PYTHON_ENV_VAR}={prefix} has no bin/python. Fix it in "
+            "the `env` of .claude/settings.local.json; meanwhile run Python "
+            "as `CLAUDE.local.md` says."
+        )
+        return 0
+
+    export_env({
+        "PATH": f'"{os.path.join(prefix, "bin")}:$PATH"',
+        "CONDA_PREFIX": f'"{prefix}"',
+        "CONDA_DEFAULT_ENV": os.path.basename(os.path.normpath(prefix)),
+        # Relative on purpose: Python resolves it against the directory the
+        # command runs from, the repository root or a worktree.
+        "PYTHONPATH": ".",
+    })
+    try:
+        versions = subprocess.run(
+            [python, "-c", VERSIONS_SCRIPT, *REPORTED_PACKAGES],
+            capture_output=True, text=True, timeout=60, check=True,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        versions = "versions not available"
+    print(
+        f"Local environment on PATH: {prefix}; {versions}. Run `python`, "
+        "`ruff` and `mkdocs` directly, from the repository root, without "
+        "`conda run` or a `PYTHONPATH=.` prefix."
+    )
+    return 0
+
+
 def main() -> int:
     if os.environ.get("CLAUDE_CODE_REMOTE", "").lower() != "true":
-        return 0
+        return local_session()
 
     cwd = os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
     status = install(cwd)
