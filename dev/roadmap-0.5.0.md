@@ -62,10 +62,11 @@ argumento explícito.
   explícito el objetivo queda categórico, sin estadísticas y sin aviso
   (`validate_target_numeric` lo acepta porque `pd.to_numeric("1.705")`
   funciona); y `1.705,11`, la forma más común del Excel en español, falla
-  con el consejo de marcadores de faltantes (V15). Decisión D1. Ojo: el
-  patrón `[1-9]\d{0,2}(\.\d{3})+` también encaja con valores de tres
-  decimales exactos (`12.345`), y el error no puede usar `DIALECT_HINT`
-  porque ningún `sep` ni `decimal` lo arregla. *[script]* si se lee.
+  con el consejo de marcadores de faltantes (V15). Se lee cuando es
+  inequívoco (decisión D1). Ojo: el patrón `[1-9]\d{0,2}(\.\d{3})+` también
+  encaja con valores de tres decimales exactos (`12.345`), que es el caso
+  ambiguo, y su error no puede usar `DIALECT_HINT` porque ningún `sep` ni
+  `decimal` lo arregla. *[script]*
 - **1b. Ids de serie como texto (G02).** Con ids numéricos (`001`, `1`), todo
   `backtest`, `forecast` y `compare` falla con `KeyError: 1` y se pierden los
   ceros. Dos causas: aquí, `read_csv` sin `dtype` (`_utils.py:894`,
@@ -78,7 +79,8 @@ argumento explícito.
   de serie).
 - **1c. Filas con un campo más que la cabecera (V28).** Un separador final o
   un campo extra en la primera fila dan "el objetivo no tiene valores" o un
-  perfil basura con éxito. Decisión D2.
+  perfil basura con éxito. Solo detección, sin tocar los scripts (decisión
+  D2).
 - **1d. Fechas con el día primero (`dd/mm/yyyy`).** Hoy se leen mes primero, o
   se rechazan cuando una fecha posterior no encaja. Los datos mensuales
   (`01/02/2020`) valen en los dos órdenes en todas las filas: se perfilan
@@ -265,18 +267,23 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
 5. Tras publicar: Deploy y Make Release en Glama y apuntar el TDQS nuevo
    (paso 8 del plan de descripciones).
 
+## Decisiones tomadas
+
+- **D1. V08: leer el `.` de miles cuando es inequívoco** (2026-10-15): mezcla
+  de valores con y sin separador, o con `,` decimal como `1.705,11`. Se
+  guarda `thousands` en el perfil y se emite en el script solo cuando no es
+  el de hoy. Cuando es ambiguo (todos los valores con tres cifras tras el
+  punto), `data_unreadable` con hint. El rechazo a secas solo es el plan B de
+  una 0.4.3.
+- **D2. V28: solo detección** (2026-10-15): las filas más largas que la
+  cabecera dan `data_unreadable` con hint, sin tocar los scripts.
+  `index_col=False` leería bien el separador final, pero tendría que ir
+  también en el script y rehacer todos los goldens de renderizado.
+
 ## Decisiones abiertas
 
-- **D1. V08: rechazar o leer el `.` de miles.** Propuesta: leerlo cuando es
-  inequívoco (mezcla de valores con y sin separador, o con `,` decimal como
-  `1.705,11`), con `thousands` en el perfil y en el script solo cuando no es
-  el de hoy, y `data_unreadable` con hint cuando es ambiguo (todos los
-  valores con tres cifras tras el punto). El rechazo solo es el plan B de una
-  0.4.3.
-- **D2. V28: detectar o leer.** `index_col=False` lee bien el separador final
-  sin aviso, pero tiene que ir también en el script, y eso rehace todos los
-  goldens de renderizado. Propuesta: solo detección (filas más largas que la
-  cabecera dan `data_unreadable` con hint), sin tocar scripts.
+Se toman en el PR que las necesita y se pasan a la sección de arriba.
+
 - **D3. Forma de la confirmación de coste**: un argumento `confirm_cost` (o
   similar) que el servidor exige por encima del umbral, o un `cost_id` que
   devuelve la estimación y que la ejecución tiene que citar. Afecta a la API
