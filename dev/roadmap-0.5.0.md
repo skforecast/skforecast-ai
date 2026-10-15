@@ -127,7 +127,8 @@ Resultados incorrectos sin aviso, el peor tipo de fallo después de la fase 1.
   pronostica en ningún fold, la media "across series" la excluye y luego
   `forecast` falla por ella. `insufficient_data` que la nombre (como
   `forecast`), y el perfil debe nombrar la serie corta. skforecast también la
-  descarta sin avisar: issue nuevo (ver "Issues a skforecast"). *[LLM]* si
+  descarta sin avisar:
+  [#1406](https://github.com/skforecast/skforecast/issues/1406). *[LLM]* si
   cambia el texto del backtest.
 - **2c. Intervalos de los backtests multiserie.** Defecto conocido: con un
   intervalo del 80 %, cubren el 56 % con ForecasterRecursiveMultiSeries y el
@@ -296,15 +297,17 @@ Se toman en el PR que las necesita y se pasan a la sección de arriba.
 ## Issues a skforecast
 
 - **G02**: ya abierto,
-  [#1357](https://github.com/skforecast/skforecast/issues/1357). Falta
-  añadirle dos cosas: que `reshape_series_long_to_dict` con ids enteros
+  [#1357](https://github.com/skforecast/skforecast/issues/1357). Se le
+  añadieron dos cosas en un comentario (2026-10-15): que
+  `reshape_series_long_to_dict` con ids enteros
   produce exactamente ese dict, y que las rutas de `predict` también buscan
   con el nombre sin convertir (`.get(level, np.nan)` en 2994 y 3149,
   `.get(level, None)` en 3377 y un índice directo en 2928, en
   `_forecaster_recursive_multiseries.py`), así que arreglar solo el `fit`
   podría dar codificaciones NaN en silencio; normalizar a `str` en
   `check_preprocess_series` es más seguro.
-- **G03**: nuevo. `backtesting_forecaster_multiseries` no emite ningún aviso,
+- **G03**: [#1406](https://github.com/skforecast/skforecast/issues/1406).
+  `backtesting_forecaster_multiseries` no emite ningún aviso,
   ni con `suppress_warnings=False`, cuando una serie no se puede pronosticar
   en ningún fold: su fila de métricas sale NaN, no aparece en las
   predicciones y la fila `average` se calcula sin ella.
