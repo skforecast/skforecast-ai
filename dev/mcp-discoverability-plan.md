@@ -245,8 +245,8 @@ en el título. Emojis: oficial, Python, local, macOS, Windows y Linux.
 Pendiente: el bot `glama-check` y la fusión.
 
 3.4. **cursor.directory** (opcional): ficha autogestionada. Antes conviene
-cerrar lo que el punto 18 de `dev/mcp-pending-after-0.4.0.md` deja sin probar
-en Cursor.
+cerrar lo que la sección 5 de `dev/roadmap-0.5.0.md` deja sin probar en
+Cursor.
 
 3.5. **GitHub MCP Registry** (`github.com/mcp`): no hay vía de envío
 documentada. Mirar una semana después de 2.3 si la ficha aparece sola.

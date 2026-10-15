@@ -7,9 +7,10 @@ from .fixtures_datasets import df_h2o
 
 assistant = ForecastingAssistant()
 
-# --- Minimal case of dev/mcp-pending-after-0.4.0.md: h2o (monthly), the plan
-# --- recommended by the profile and the plan refined with another estimator
-# --- and other lags, which is the one the strategy is created for.
+# --- Minimal case of `compare` on a refined plan (fixed in 0.4.2): h2o
+# --- (monthly), the plan recommended by the profile and the plan refined
+# --- with another estimator and other lags, which is the one the strategy
+# --- is created for.
 profile_h2o = assistant.profile(data=df_h2o, target="x")
 plan_h2o = assistant.plan(profile=profile_h2o, steps=12)
 plan_h2o_refined = assistant.refine_plan(
