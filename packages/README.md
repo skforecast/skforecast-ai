@@ -185,7 +185,7 @@ The other fields keep their defaults. Why it is written this way:
   `pyproject.toml` would make `uv run` install `skforecast-ai` from the
   source instead of the package of PyPI.
 - The build step fills the cache of uv in the image, so the server does
-  not download its 64 packages when it starts.
+  not download its packages (67 on Linux) when it starts.
 - The directory is fixed: Glama sets no `CLAUDE_PROJECT_DIR`, and the
   server needs one.
 - The package has no version, so every build takes the latest one of
