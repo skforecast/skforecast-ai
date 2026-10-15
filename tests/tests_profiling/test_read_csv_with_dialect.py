@@ -179,14 +179,15 @@ def test_read_csv_with_dialect_output_when_quoted_fields_hold_other_separators(
 
 def test_read_csv_with_dialect_output_when_header_is_one_field_short(tmp_path):
     """
-    Test that a semicolon file whose header has one field less than its rows
-    (the first column is then the index, as `to_csv(index_label=False)`
-    writes it) is read with ';', as pandas reads the comma file.
+    Test that, with `index_first`, a semicolon file whose header has one
+    field less than its rows (the first column is then the index, as
+    `to_csv(index_label=False)` writes it) is read with ';', as pandas reads
+    the comma file.
     """
     path = tmp_path / "data.csv"
     path.write_text("y;z\n2020-01-01;1,5;10\n2020-01-02;2,5;20\n")
 
-    data, sep, decimal = read_csv_with_dialect(path)
+    data, sep, decimal = read_csv_with_dialect(path, index_first=True)
 
     expected = pd.DataFrame(
         {"y": [1.5, 2.5], "z": [10, 20]},
@@ -194,6 +195,26 @@ def test_read_csv_with_dialect_output_when_header_is_one_field_short(tmp_path):
     )
     pd.testing.assert_frame_equal(data, expected)
     assert (sep, decimal) == (";", ",")
+
+
+def test_read_csv_with_dialect_InvalidInputError_when_header_is_one_field_short(
+    tmp_path,
+):
+    """
+    Test that, without `index_first`, a header one field short raises with
+    the code 'data_unreadable' before the decimal mark is looked up, and
+    that, with it, a field too many only in some rows raises too.
+    """
+    path = tmp_path / "data.csv"
+    path.write_text("y;z\n2020-01-01;1,5;10\n2020-01-02;2,5;20\n")
+    with pytest.raises(InvalidInputError) as exc_info:
+        read_csv_with_dialect(path)
+    assert exc_info.value.code == "data_unreadable"
+
+    path.write_text("y;z\n2020-01-01;1,5;10\n2020-01-02;2,5\n")
+    with pytest.raises(InvalidInputError) as exc_info:
+        read_csv_with_dialect(path, index_first=True)
+    assert exc_info.value.code == "data_unreadable"
 
 
 def test_read_csv_with_dialect_output_when_single_column(tmp_path, monkeypatch):

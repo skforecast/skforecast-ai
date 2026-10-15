@@ -77,29 +77,9 @@ def test_load_exog_DataNotFoundError_when_file_missing(tmp_path):
             "with the format of the first one. Write every date in the same "
             "format, such as '2023-01-02'.",
         ),
-        (
-            "date,temp\n2023-01-01,1,,\n2023-01-02,2,,\n",
-            None,
-            "have more fields than its header (often separators at the end of "
-            "the rows).",
-        ),
-        (
-            "date,temp\n2023-01-01,1,\n2023-01-02,2,\n",
-            None,
-            "have more fields than its header (often separators at the end of "
-            "the rows).",
-        ),
-        (
-            "date,temp\n2023-01-01,1,\n2023-01-02,2,\n",
-            "date",
-            "have more fields than its header (often separators at the end of "
-            "the rows).",
-        ),
     ],
     ids=["empty_date_cell", "mixed_offsets", "missing_date_column",
-         "date_column_without_dates", "mixed_formats", "mixed_formats_named",
-         "more_fields_than_header", "separator_at_row_end",
-         "separator_at_row_end_named"],
+         "date_column_without_dates", "mixed_formats", "mixed_formats_named"],
 )
 def test_load_exog_InvalidInputError_when_dates_wrong(
     tmp_path, text, date_column, err_msg
@@ -108,10 +88,7 @@ def test_load_exog_InvalidInputError_when_dates_wrong(
     Test that the dates are read as the CSV loader of the data reads them:
     an empty date cell and offsets that change raise, and so do a named date
     column that is missing or holds no dates, instead of a raw `KeyError`,
-    dates in mixed formats, which the generated script cannot read, and rows
-    with more fields than the header (instead of a raw `TypeError`), also
-    one more field that leaves the last column empty (a separator at the
-    end of every row), which was read as a header one field short.
+    and dates in mixed formats, which the generated script cannot read.
     """
     path = tmp_path / "exog.csv"
     path.write_text(text)
@@ -238,6 +215,71 @@ def test_load_exog_output_when_integer_dates_and_text_dates(tmp_path):
 
     expected = _EXPECTED.assign(updated="2022-12-15")
     pd.testing.assert_frame_equal(load_exog(path), expected)
+
+
+@pytest.mark.parametrize(
+    "text, date_column, err_msg",
+    [
+        (
+            "date,temp\n2023-01-01,1,,\n2023-01-02,2,,\n",
+            None,
+            "its header has 2 fields and its first row 4, so the first column "
+            "would be read as the row labels and every other column would move "
+            "one place (the rows end with separators that the header does not "
+            "have).",
+        ),
+        (
+            "date,temp\n2023-01-01,1,\n2023-01-02,2,\n",
+            None,
+            "its header has 2 fields and its first row 3, so the first column "
+            "would be read as the row labels and every other column would move "
+            "one place (the rows end with separators that the header does not "
+            "have).",
+        ),
+        (
+            "date,temp\n2023-01-01,1,\n2023-01-02,2,\n",
+            "date",
+            "its header has 2 fields and its first row 3",
+        ),
+        (
+            "date,temp\n2023-01-01,1,9\n2023-01-02,2\n2023-01-03,3\n",
+            None,
+            "its header has 2 fields and its first row 3, so the first column "
+            "would be read as the row labels and every other column would move "
+            "one place (a field too many in the first row, or a header without "
+            "a name for the first column).",
+        ),
+        (
+            "date,temp,\n2023-01-01,1,\n2023-01-02,2,\n",
+            None,
+            "column 'Unnamed: 2' has no name in the header and no values (often "
+            "a separator at the end of every line, the header included).",
+        ),
+    ],
+    ids=["more_fields_than_header", "separator_at_row_end",
+         "separator_at_row_end_named", "field_too_many_in_first_row",
+         "separator_at_line_end_with_header"],
+)
+def test_load_exog_InvalidInputError_when_rows_longer_than_header(
+    tmp_path, text, date_column, err_msg
+):
+    """
+    Test that, as for the data, rows with more fields than the header that
+    are not a header one field short (separators at the end of every row, a
+    field too many only in the first row) and a column without name and
+    values (a separator at the end of every line, the header included) raise
+    with the code 'data_unreadable' and a hint, instead of a raw `TypeError`
+    or future exogenous variables moved one column.
+    """
+    path = tmp_path / "exog.csv"
+    path.write_text(text)
+
+    with pytest.raises(InvalidInputError, match=re.escape(err_msg)) as exc_info:
+        load_exog(path, date_column=date_column)
+
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.field == "exog"
+    assert "only with their permission" in exc_info.value.hint
 
 
 def test_load_exog_output_when_header_one_field_short(tmp_path):

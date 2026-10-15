@@ -44,6 +44,7 @@ from ._dates import is_text, parse_text_dates, row_dates, training_end
 from .profiling.data_profile import (
     _read_date_column,
     _try_parse_first_date_column,
+    check_csv_fields,
     csv_read_kwargs,
     date_issue_hint,
     decimal_after_sample,
@@ -1015,6 +1016,7 @@ def _resolve_data_and_target(
                     code  = None if isinstance(e, OSError) else "data_unreadable",
                     field = "data",
                 ) from e
+            check_csv_fields(df, data_str)
             _READ_CSV_DIALECT.set((recorded_data_path(data), sep, decimal))
             return _try_parse_first_date_column(df, date_column), target
         path = Path(data_str)
@@ -1087,10 +1089,12 @@ def load_exog(
     index before, except for long-format data (`series_id_column`), whose
     first column may hold the series ids. Dates in mixed formats, which the
     generated script cannot read, raise. A header one field short
-    (`to_csv(index_label=False)`, R's `write.csv`) is read as before, unless
-    its last column is then empty, which comes from a separator at the end
-    of every row and raises; rows made only of separators (a spreadsheet
-    saved as CSV) are dropped,
+    (`to_csv(index_label=False)`, R's `write.csv`) is read as before when
+    every row has one field more than the header and its last column is
+    not then empty; other rows longer than the header (a separator at the
+    end of every row, a field too many in the first row) and a column
+    without name and values raise (see `check_csv_fields`); rows made only
+    of separators (a spreadsheet saved as CSV) are dropped,
     as they hold no date and no value. The dates become the index, sorted.
 
     Parameters
@@ -1117,19 +1121,9 @@ def load_exog(
             field = "exog",
         )
 
-    exog, sep, decimal = read_csv_with_dialect(path, field="exog")
-    # Rows one field longer than the header shift every column; when the
-    # last column is then empty, the extra field is a separator at the end
-    # of each row, not the index of `to_csv(index_label=False)`.
-    shifted = not isinstance(exog.index, pd.RangeIndex) and (
-        len(exog.columns) and exog.iloc[:, -1].isna().all()
-    )
-    if isinstance(exog.index, pd.MultiIndex) or shifted:
-        raise DataContentError(
-            f"The rows of the exog CSV '{path}' have more fields than its header "
-            f"(often separators at the end of the rows).",
-            field = "exog",
-        )
+    # Rows longer than the header raise, except a header one field short
+    # (see `check_csv_fields`).
+    exog, sep, decimal = read_csv_with_dialect(path, field="exog", index_first=True)
     if not isinstance(exog.index, pd.RangeIndex):
         # A header one field short: pandas reads the first field as the
         # index, as `index_col=0` read it before; with `date_column`, the

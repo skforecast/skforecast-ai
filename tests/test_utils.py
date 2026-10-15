@@ -1779,6 +1779,43 @@ def test_resolve_data_and_target_reads_url_once_when_start_cannot_be_downloaded(
     assert list(data.columns) == ["date;y"]
 
 
+@pytest.mark.parametrize(
+    "frame, message",
+    [
+        (
+            pd.DataFrame(
+                {"date": [1.0, 2.0], "y": [None, None]},
+                index=pd.Index(["2020-01-01", "2020-02-01"]),
+            ),
+            "its header has 2 fields and its first row 3",
+        ),
+        (
+            pd.DataFrame(
+                {"date": ["2020-01-01"], "y": [1.0], "Unnamed: 2": [None]}
+            ),
+            "column 'Unnamed: 2' has no name in the header and no values",
+        ),
+    ],
+    ids=["separator at the end of every row", "column without name and values"],
+)
+def test_resolve_data_and_target_InvalidInputError_when_url_rows_longer_than_header(
+    monkeypatch, frame, message
+):
+    """
+    Test that a URL whose first row has more fields than its header, or with
+    a column without name and values, raises with the code 'data_unreadable',
+    as a local file does.
+    """
+    url = "https://example.com/a.csv"
+    _fake_read_csv(monkeypatch, [frame])
+
+    with pytest.raises(InvalidInputError, match=re.escape(message)) as exc_info:
+        _resolve_data_and_target(url, "y")
+
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.field == "data"
+
+
 def test_resolve_data_and_target_reads_url_with_given_sep(monkeypatch):
     """
     Test that a URL read with a `sep` given reads once with the dialect, the
