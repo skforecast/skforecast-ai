@@ -85,16 +85,16 @@ def test_read_csv_file_field_is_data_by_default(tmp_path):
 
 
 _ROW_FIELDS_HINT = (
-    "Every row needs as many fields as the header. Show the user the first "
-    "lines of the file and, only with their permission, write a copy without "
-    "the extra fields (or with a name for the first column in the header) "
-    "and pass that copy."
+    "Every row needs as many fields as the header. Write a copy of the file "
+    "without the extra fields (or with a name for the first column in the "
+    "header) and pass that copy; if the file is not yours, ask its owner "
+    "before writing it."
 )
 
 _EMPTY_COLUMN_HINT = (
-    "Show the user the first lines of the file and, only with their "
-    "permission, write a copy without that column (often the separator at "
-    "the end of every line) and pass that copy."
+    "Write a copy of the file without that column (often the separator at "
+    "the end of every line) and pass that copy; if the file is not yours, "
+    "ask its owner before writing it."
 )
 
 
@@ -136,7 +136,7 @@ def test_read_csv_file_InvalidInputError_when_first_row_longer_than_header(
     pandas reads with the first column as the index and every other column
     moved one place, raises an InvalidInputError with the code
     'data_unreadable', the cause, the argument that named the file and a hint
-    that asks for the permission of the user to write a copy, instead of
+    that asks the owner of the file before a copy is written, instead of
     reading a target without values or dates as an exogenous variable.
     """
     path = tmp_path / "data.csv"

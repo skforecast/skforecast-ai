@@ -3140,20 +3140,21 @@ def decimal_after_sample(
     return ","
 
 
-# Remedy of a CSV file whose rows have more fields than its header. Only the
-# user may change their file, so the agent asks before writing a copy.
+# Remedy of a CSV file whose rows have more fields than its header, read by
+# people and agents alike. The file belongs to whoever gave it, so a copy is
+# written only with their consent.
 ROW_FIELDS_HINT = (
-    "Every row needs as many fields as the header. Show the user the first "
-    "lines of the file and, only with their permission, write a copy without "
-    "the extra fields (or with a name for the first column in the header) "
-    "and pass that copy."
+    "Every row needs as many fields as the header. Write a copy of the file "
+    "without the extra fields (or with a name for the first column in the "
+    "header) and pass that copy; if the file is not yours, ask its owner "
+    "before writing it."
 )
 
 # Remedy of a CSV file with a column without name and values.
 EMPTY_COLUMN_HINT = (
-    "Show the user the first lines of the file and, only with their "
-    "permission, write a copy without that column (often the separator at "
-    "the end of every line) and pass that copy."
+    "Write a copy of the file without that column (often the separator at "
+    "the end of every line) and pass that copy; if the file is not yours, "
+    "ask its owner before writing it."
 )
 
 

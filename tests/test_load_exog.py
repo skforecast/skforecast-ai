@@ -279,7 +279,7 @@ def test_load_exog_InvalidInputError_when_rows_longer_than_header(
 
     assert exc_info.value.code == "data_unreadable"
     assert exc_info.value.field == "exog"
-    assert "only with their permission" in exc_info.value.hint
+    assert "ask its owner before writing it" in exc_info.value.hint
 
 
 def test_load_exog_output_when_header_one_field_short(tmp_path):
