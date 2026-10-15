@@ -13,7 +13,9 @@ Dónde está lo demás:
 - **El cuaderno completo** (fichas de cada hallazgo, redacción final de cada
   hint con las muestras que la respaldan, decisiones de cada fase): en el
   historial, `git show 3098b6d:dev/mcp-agent-check-findings-0.4.0.md`.
-- **El diseño del check**: `dev/mcp-agent-check-plan.md`.
+- **El diseño del check**: `tools/mcp/README.md`, que tiene también sus
+  motivos. El plan original, en el historial: `git show
+  d2f0708:dev/mcp-agent-check-plan.md`.
 
 ## Códigos que cita el log
 

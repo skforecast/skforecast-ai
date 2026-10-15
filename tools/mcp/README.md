@@ -15,8 +15,21 @@ security and every tool; none of them runs an agent.
 
 It is a manual, pre-release tool. It spends the usage quota of a Claude
 subscription, needs network access and its answers are not deterministic,
-so it is not part of the test suite. The design and its reasons are in
-`dev/mcp-agent-check-plan.md`.
+so it is not part of the test suite. It follows the pattern of
+`tools/ai/check_ask_context.py` for `ask()`: a paid check before the
+release, with acceptance criteria and a log per release.
+
+Three choices of its design, and why:
+
+- **Repetitions.** An agent is not deterministic, so one session proves
+  nothing: a release run repeats every scenario 3 times and the report
+  gives the rate (3 of 3, 2 of 3), not a yes or a no.
+- **A weaker model.** The critical scenarios run again with a smaller model
+  (`haiku`), which shows an ambiguous description or rule sooner than the
+  default one.
+- **The ablation.** Some scenarios also run without the skill, with only
+  the instructions of the server: that is what a user who adds the server
+  by hand to another client gets.
 
 ## When to run it
 
