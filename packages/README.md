@@ -38,6 +38,8 @@ updates them.
 5. Merge the pull request into `main`.
 6. Select **Publish** for the new version in the plugin directory of
    Anthropic (see below).
+7. Optional: **Deploy** and **Make Release** in Glama, so its listing
+   tests and scans the new version (see below).
 
 ## The publishing workflow
 
@@ -155,6 +157,47 @@ So, in every release, once the release branch is merged into `main`:
    the previous version.
 
 Both settings can be changed in the **Settings** tab of the plugin.
+
+## Glama (step 7)
+
+The server is listed in Glama (<https://glama.ai/mcp/servers/skforecast/skforecast-ai>),
+claimed through `glama.json`, which names the maintainers by their GitHub
+user: Glama gives the listing of a repository of an organization only to
+them. awesome-mcp-servers lists a server only when its Glama listing
+starts the server and lists its tools.
+
+Glama builds a Docker image from a spec written in its web, not in this
+repository (**Dockerfile** in the admin of the listing):
+
+| Field | Value |
+|:--|:--|
+| Python version | `3.13` |
+| Build steps | `["uv run --no-project --with skforecast-ai-mcp skforecast-ai-mcp --help"]` |
+| CMD arguments | `["mcp-proxy", "--", "uv", "run", "--no-project", "--with", "skforecast-ai-mcp", "skforecast-ai-mcp", "--allow-dir", "/tmp"]` |
+| Environment variables JSON schema | `{"type": "object", "properties": {}, "required": []}` |
+| Placeholder parameters | `{}` |
+
+The other fields keep their defaults. Why it is written this way:
+
+- Glama refuses `uvx` in the command and asks for `uv run`; `--with`
+  makes the same temporary environment. `--no-project` is needed because
+  Glama runs the command in a clone of this repository, whose
+  `pyproject.toml` would make `uv run` install `skforecast-ai` from the
+  source instead of the package of PyPI.
+- The build step fills the cache of uv in the image, so the server does
+  not download its 64 packages when it starts.
+- The directory is fixed: Glama sets no `CLAUDE_PROJECT_DIR`, and the
+  server needs one.
+- The package has no version, so every build takes the latest one of
+  PyPI and the spec does not change in a release. The commit that Glama
+  pins in the clone does not matter for the same reason.
+- Glama read `--allow-dir` from `server.json` and proposed it as an
+  environment variable. It is an argument, so the schema stays empty.
+
+A release in Glama is a snapshot of a successful build: **Deploy** builds
+the image and starts the server, then **Make Release** publishes it with a
+version. Repeating it after a release of the package is optional; the
+listing stays valid without it.
 
 ## Publishing to PyPI by hand
 

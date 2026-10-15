@@ -215,6 +215,12 @@ cuando esté en `main`: "Claim ownership" en la ficha y configurar cómo
 arranca el servidor en su imagen Docker (necesita `--allow-dir`; ahí no
 vale `--allow-project-dir`).
 
+Estado, 2026-10-15: Glama publicó la ficha (nota B, sin reclamar, "This
+server cannot be deployed"). Reclamada y con la imagen configurada; la
+configuración y sus motivos están en `packages/README.md` (sección
+Glama). Pendiente: que pase el Deploy, hacer la release 0.4.2 en Glama y
+abrir el PR de 3.3.
+
 3.3. **awesome-mcp-servers**, después de 3.2: un PR de una línea en la
 categoría que toque. Comprobar antes en su `CONTRIBUTING` si exige la ficha
 de Glama (lo dice una guía de terceros, sin verificar).
@@ -234,6 +240,9 @@ en Cursor.
 
 3.5. **GitHub MCP Registry** (`github.com/mcp`): no hay vía de envío
 documentada. Mirar una semana después de 2.3 si la ficha aparece sola.
+
+Estado, 2026-10-15: no aparece (`api.mcp.github.com/v0.1/servers?search=skforecast`
+devuelve 0 resultados). Volver a mirar en la revisión de 4.3.
 
 ## Fase 4: el canal propio
 
