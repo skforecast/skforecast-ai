@@ -37,9 +37,23 @@ the commands above no longer show once the work is committed:
 `git diff --name-only origin/<release-branch>...HEAD`.
 
 Classify the changed files: package code (`skforecast_ai/`), tests, docs
-(`docs/`, `mkdocs.yml`), LLM layer (`skforecast_ai/llm/`,
+(`docs/`, `mkdocs.yml`, `tools/docs/`), LLM layer (`skforecast_ai/llm/`,
 `recommendation/explanation.py`, `execution/backtesting_runner.py`,
 `execution/comparison.py`), rendering (`skforecast_ai/rendering/`).
+
+If no changed file is under one of these paths, nothing can break: report
+"nothing to verify" with the list of files and stop here.
+
+- `skforecast_ai/`, `tests/`, `pyproject.toml`
+- `docs/`, `mkdocs.yml`, `tools/docs/`
+- `README.md`, `AGENTS.md`, `CLAUDE.md`, `plugin/`, `.claude-plugin/`,
+  `packages/`, `server.json` (tests read them)
+- `.claude/hooks/`
+
+The list names what can break rather than what cannot, so a new folder runs
+the checks until it is judged safe. Notes and plans in `dev/`, the other
+skills and rules in `.claude/`, and the scripts in `tools/ai/`, `tools/mcp/`
+and `tools/perf/` are outside it: no test or build reads them.
 
 ## 2. Lint
 
