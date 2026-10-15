@@ -291,6 +291,44 @@ def read_sample(path: str | Path) -> str | None:
     return sample_text(raw)
 
 
+def read_row_lengths(path: str | Path, sep: str) -> list[int] | None:
+    """
+    Count the fields of every row of a CSV file after its header, as
+    `pandas.read_csv` splits them, decompressed when its extension says it
+    is compressed.
+
+    `pandas.read_csv` fills the missing fields of a row shorter than the
+    header with missing values, so its result cannot tell an empty last
+    field from a missing one; the counts can.
+
+    Parameters
+    ----------
+    path : str, Path
+        Path of the file.
+    sep : str
+        Separator of the fields.
+
+    Returns
+    -------
+    lengths : list of int, None
+        Number of fields of each row after the header, blank lines left
+        out as pandas leaves them out. None when the file cannot be opened,
+        decompressed or decoded here.
+    """
+
+    opener = _OPENERS.get(Path(str(path)).suffix.lower(), open)
+    try:
+        with opener(path, "rt", encoding="utf-8", newline="") as handle:
+            rows = csv.reader(handle, delimiter=sep)
+            next(rows, None)
+            return [
+                len(row) for row in rows
+                if len(row) > 1 or (row and row[0].strip())
+            ]
+    except (OSError, UnicodeDecodeError, csv.Error, *DECOMPRESSION_ERRORS):
+        return None
+
+
 def read_url_sample(url: str) -> str | None:
     """
     Read the start of a CSV file served at a URL, as `read_sample` reads

@@ -305,6 +305,23 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
   cabecera dan `data_unreadable` con hint, sin tocar los scripts.
   `index_col=False` leería bien el separador final, pero tendría que ir
   también en el script y rehacer todos los goldens de renderizado.
+  Concretado en [#85](https://github.com/skforecast/skforecast-ai/pull/85)
+  (2026-10-15):
+  - Cabecera con un campo menos (`to_csv(index_label=False)`): en los datos
+    da `data_unreadable`, porque su perfil nunca funcionó (sin fechas ni
+    frecuencia); en las exógenas se sigue aceptando, como documentaban 0.3.x
+    y 0.4.x, solo si todas las filas tienen exactamente un campo más y la
+    última columna no queda vacía.
+  - Una columna sin nombre y sin valores (`Unnamed: N`, separador al final
+    de todas las líneas) da `data_unreadable` nombrándola, en cualquier
+    posición, no solo al final: ignorarla en silencio iría contra el
+    principio 3.
+  - Un único hint neutro, para personas y agentes, igual en datos y
+    exógenas: escribir una copia sin los campos sobrantes y pedir permiso al
+    dueño del fichero si no es propio. El servidor MCP no lo sustituye por
+    `EXOG_FILE_HINT`: quitar separadores no cambia ningún valor.
+  - Nota de release solo en **Fixed**, sin destacado ni "Before upgrading";
+    el destacado se decide al consolidar las notas de la fase 1.
 
 ## Decisiones abiertas
 

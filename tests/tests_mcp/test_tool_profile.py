@@ -760,6 +760,82 @@ def test_tool_profile_without_target_lists_the_columns_of_a_semicolon_file(tmp_p
     assert "date;y" not in error["message"]
 
 
+def _monthly_lines(n: int = 36) -> list[str]:
+    """
+    Lines of a monthly CSV file with a date and a target column.
+    """
+    dates = pd.date_range("2015-01-01", periods=n, freq="MS").strftime("%Y-%m-%d")
+    return ["date,y"] + [f"{date},{100 + i * 0.5}" for i, date in enumerate(dates)]
+
+
+_LINES = _monthly_lines()
+
+
+@pytest.mark.parametrize(
+    "lines, message",
+    [
+        (
+            [_LINES[0]] + [line + "," for line in _LINES[1:]],
+            "its header has 2 fields and its first row 3, so the first column "
+            "would be read as the row labels and every other column would move "
+            "one place (the rows end with separators that the header does not "
+            "have).",
+        ),
+        (
+            _LINES[:1] + [_LINES[1] + ",9"] + _LINES[2:],
+            "its header has 2 fields and its first row 3, so the first column "
+            "would be read as the row labels and every other column would move "
+            "one place (a field too many in the first row, or a header without "
+            "a name for the first column).",
+        ),
+        (
+            _LINES[:20] + [_LINES[20] + ",9"] + _LINES[21:],
+            "Error tokenizing data. C error: Expected 2 fields in line 21, saw 3",
+        ),
+        (
+            [line + "," for line in _LINES],
+            "column 'Unnamed: 2' has no name in the header and no values (often "
+            "a separator at the end of every line, the header included).",
+        ),
+    ],
+    ids=["separator at the end of every row", "field too many in the first row",
+         "field too many in a middle row", "separator at the end of every line"],
+)
+def test_tool_profile_data_unreadable_when_rows_longer_than_header(
+    tmp_path, lines, message
+):
+    """
+    Test that a file whose rows have more fields than its header is
+    `data_unreadable` naming `data_path`, with or without `target`, instead
+    of a target without values or a profile with the dates as an exogenous
+    variable, and that the same file without the extra fields is profiled.
+    """
+    path = tmp_path / "data.csv"
+    path.write_text("\n".join(lines) + "\n")
+    fixed = tmp_path / "fixed.csv"
+    fixed.write_text("\n".join(_LINES) + "\n")
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    errors = [
+        error_of(call(server, "profile", {"data_path": str(path), **target}), "profile")
+        for target in ({"target": "y"}, {})
+    ]
+    result = content_of(
+        call(server, "profile", {"data_path": str(fixed), "target": "y"})
+    )
+
+    for error in errors:
+        assert error["code"] == "data_unreadable"
+        assert error["field"] == "data_path"
+        assert error["message"] == (
+            f"The CSV file '{path.resolve()}' could not be read: {message}"
+        )
+        assert error["hint"]
+    assert result["kind"] == "profile"
+    assert "- Frequency: MS" in result["summary"]
+    assert "- Exogenous columns: none" in result["summary"]
+
+
 @pytest.mark.parametrize(
     "decimals",
     [True, False],

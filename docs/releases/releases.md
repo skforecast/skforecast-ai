@@ -15,8 +15,6 @@ All significant changes to this project are documented in this release file.
 
 The main changes in this release are:
 
-+ <span class="badge text-bg-danger">Fix</span> CSV files separated by `;` or tabulators read `.` as thousands separator when the file says so (`870` next to `1.020`, or `1.705,11`): `1.020` was read as 1.02 without a warning. See the [CLI guide][cli-guide].
-
 !!! warning "Before upgrading"
 
     Some code needs to be updated: [<code>ForecastingAssistant.profile()</code>][assistant] of a file separated by `;` or tabulators whose only numbers with a `.` have three decimals (`1.870`) raises `data_unreadable` instead of reading them as decimals. Pass `decimal='.'` to read them as before. See **Fixed**.
@@ -33,6 +31,8 @@ The main changes in this release are:
 
 
 **Fixed**
+
++ Fixed an issue in [<code>ForecastingAssistant.profile()</code>][assistant] and the MCP server where a CSV file whose first row has more fields than its header (a separator at the end of every row, a field too many in the first row) gave a target without values or a profile with the dates as an exogenous variable. It now raises `data_unreadable`, as does a column without name and values, also in the file of future exogenous variables ([#85](https://github.com/skforecast/skforecast-ai/pull/85)).
 
 + In CSV files separated by `;` or tabulators, `.` between thousands was read as a decimal mark without a warning (`1.020` as 1.02), and `1.705,11` failed as a target that is not numeric. It is now read as thousands separator when the file says so; otherwise `profile()` raises `data_unreadable` and asks for `thousands` or `decimal`.
 

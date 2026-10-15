@@ -42,6 +42,7 @@ from .csv_dialect import (
     detect_csv_dialect,
     dotted_values_error,
     only_thousands_error,
+    read_row_lengths,
     read_sample,
 )
 
@@ -3244,12 +3245,126 @@ def thousands_after_sample(
     return "."
 
 
+# Remedy of a CSV file whose rows have more fields than its header, read by
+# people and agents alike. The file belongs to whoever gave it, so a copy is
+# written only with their consent.
+ROW_FIELDS_HINT = (
+    "Every row needs as many fields as the header. Write a copy of the file "
+    "without the extra fields (or with a name for the first column in the "
+    "header) and pass that copy; if the file is not yours, ask its owner "
+    "before writing it."
+)
+
+# Remedy of a CSV file with a column without name and values.
+EMPTY_COLUMN_HINT = (
+    "Write a copy of the file without that column (often the separator at "
+    "the end of every line) and pass that copy; if the file is not yours, "
+    "ask its owner before writing it."
+)
+
+
+def check_csv_fields(
+    data: pd.DataFrame,
+    source: str,
+    field: str = "data",
+    index_first: bool = False,
+    row_lengths: list[int] | None = None,
+) -> None:
+    """
+    Check that the rows of a CSV file read with `pandas.read_csv` have the
+    fields of its header.
+
+    When the first row has more fields than the header, pandas reads the
+    first columns as the index and moves every other column: a separator at
+    the end of every row empties the last column, and a field too many in
+    the first row only fills it with missing values. A separator at the end
+    of every line, the header included, gives instead a column without name
+    and values (`'Unnamed: 2'`). Both are checked here, as the generated
+    script would read the file the same way; rows longer than the header
+    further down already make pandas fail.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Content of the file, read without `index_col`.
+    source : str
+        Path or URL of the file, named by the error.
+    field : str, default 'data'
+        Argument that named the file, reported with the error.
+    index_first : bool, default False
+        Whether a header one field short (`to_csv(index_label=False)`) is
+        read, with the first field of every row as the index, as the future
+        exogenous variables are. It is when every row has one field more
+        than the header and the last column is not empty.
+    row_lengths : list of int, default None
+        Number of fields of every row after the header (see
+        `read_row_lengths`), to tell a header one field short from a field
+        too many in some rows. If None, only the last column is looked at.
+
+    Returns
+    -------
+    None
+
+    Notes
+    -----
+    Both problems raise `InvalidInputError` with code `'data_unreadable'`.
+    """
+    n_header = len(data.columns)
+    if not isinstance(data.index, pd.RangeIndex):
+        last_empty = n_header > 0 and bool(data.iloc[:, -1].isna().all())
+        header_one_short = (
+            index_first
+            and data.index.nlevels == 1
+            and not last_empty
+            and (
+                row_lengths is None
+                or all(length == n_header + 1 for length in row_lengths)
+            )
+        )
+        if not header_one_short:
+            cause = (
+                "the rows end with separators that the header does not have"
+                if last_empty else
+                "a field too many in the first row, or a header without a "
+                "name for the first column"
+            )
+            raise InvalidInputError(
+                f"The CSV file '{source}' could not be read: its header has "
+                f"{n_header} field{'s' if n_header != 1 else ''} and its first "
+                f"row {n_header + data.index.nlevels}, so the first column "
+                f"would be read as the row labels and every other column "
+                f"would move one place ({cause}).",
+                code  = "data_unreadable",
+                field = field,
+                hint  = ROW_FIELDS_HINT,
+            )
+
+    # pandas names a column without a name in the header after its position.
+    empty = [
+        column for position, column in enumerate(data.columns)
+        if column == f"Unnamed: {position}" and data[column].isna().all()
+    ]
+    if empty:
+        names = ", ".join(repr(column) for column in empty)
+        plural = len(empty) > 1
+        raise InvalidInputError(
+            f"The CSV file '{source}' could not be read: column"
+            f"{'s' if plural else ''} {names} {'have' if plural else 'has'} "
+            f"no name in the header and no values (often a separator at the "
+            f"end of every line, the header included).",
+            code  = "data_unreadable",
+            field = field,
+            hint  = EMPTY_COLUMN_HINT,
+        )
+
+
 def read_csv_with_dialect(
     path: str | Path,
     field: str = "data",
     sep: str | None = None,
     decimal: str | None = None,
     thousands: str | None = None,
+    index_first: bool = False,
 ) -> tuple[pd.DataFrame, str, str, str | None]:
     """
     Read a CSV file with `pandas.read_csv`, as the generated script reads
@@ -3279,6 +3394,10 @@ def read_csv_with_dialect(
     thousands : str, default None
         Thousands separator. If None, it is detected, except when `decimal`
         is `'.'`: the file then has none.
+    index_first : bool, default False
+        Whether a header one field short (`to_csv(index_label=False)`) is
+        read, with the first field of every row as the index (see
+        `check_csv_fields`).
 
     Returns
     -------
@@ -3296,8 +3415,10 @@ def read_csv_with_dialect(
     A file that pandas cannot read as a CSV (empty, binary, not UTF-8, with
     rows of more fields than the others, or compressed and damaged) raises
     `InvalidInputError` with code `'data_unreadable'`, still a `ValueError`
-    as the errors of pandas were, and so does a file whose separator,
-    decimal mark or thousands separator cannot be told.
+    as the errors of pandas were, and so do a file whose separator,
+    decimal mark or thousands separator cannot be told, a file whose first
+    row has more fields than its header and a file with a column without
+    name and values (see `check_csv_fields`).
     """
     check_csv_dialect(sep, decimal, thousands)
     decimal_given = decimal is not None
@@ -3323,6 +3444,18 @@ def read_csv_with_dialect(
             check_csv_dialect(sep, decimal, thousands)
     try:
         data = pd.read_csv(path, **csv_read_kwargs(sep, decimal, thousands))
+        # Checked before the decimal mark: a column moved one place would
+        # be looked up for numbers that are not its own.
+        row_lengths = None
+        if index_first and not isinstance(data.index, pd.RangeIndex):
+            row_lengths = read_row_lengths(path, sep)
+        check_csv_fields(
+            data        = data,
+            source      = str(path),
+            field       = field,
+            index_first = index_first,
+            row_lengths = row_lengths,
+        )
         if (
             not decimal_given
             and sep != DEFAULT_CSV_SEP
