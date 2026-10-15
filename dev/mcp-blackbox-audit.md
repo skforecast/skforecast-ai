@@ -3,8 +3,15 @@
 Base: `0.4.x` (rama `chore/mcp-blackbox-audit`). Objeto: `skforecast-ai mcp`
 (código en `skforecast_ai/mcp/`), usado desde fuera como lo usaría un agente
 cliente. Solo informe: no se ha tocado nada bajo `skforecast_ai/`, `tests/` ni
-`plugin/`. Scripts, datasets y datos crudos de cada fase en
-`reports/mcp-blackbox-audit/` (ver su `README.md`).
+`plugin/`.
+
+Los scripts, los datasets y los datos crudos de cada fase no están en el
+repositorio: las rutas `reports/mcp-blackbox-audit/...` que cita este informe
+viven en el historial. Para recuperarlos todos, `git checkout b400a11 --
+reports/mcp-blackbox-audit` (su `README.md` explica cómo ejecutarlos, desde la
+raíz del repositorio); uno solo, `git show b400a11:<ruta>`. Un script imprime
+`NOT REPRODUCED` cuando su hallazgo ya está arreglado. El registro de
+regresiones son los tests que se escriban al arreglar cada hallazgo.
 
 ## Resumen ejecutivo
 
@@ -73,6 +80,62 @@ lo falsean), V28 (ficheros mal formados), G01 y G03 (números multiserie
 incorrectos sin aviso). Los arreglos de redacción del SKILL.md y de los
 esquemas (V06, V19, V21, V24, V29) son baratos y evitan que el agente afirme
 cosas falsas.
+
+## Verificación posterior (2026-10-15)
+
+Una segunda revisión volvió a ejecutar cada script sobre esta rama, abrió las
+líneas citadas y juzgó prioridad y arreglo. Los 33 se reproducen; G02, V01 y
+G05 solo en parte, porque su script depende del entorno: con `chronos` y
+`xgboost` instalados, G02 y V01 imprimen `NOT REPRODUCED` (el `compare` por
+defecto corre el modelo fundacional), y G05 depende de lo que dura el backtest
+en la máquina. El fallo de fondo sigue en los tres. Lo que cambia respecto a
+las secciones de abajo:
+
+- **G02 es también un bug de skforecast** (0.26.0, ya en 0.25.0). Con nombres
+  de serie enteros, ForecasterRecursiveMultiSeries falla con `KeyError` con
+  cualquier `encoding`, y también con un DataFrame ancho de columnas enteras:
+  `_forecaster_recursive_multiseries.py:1520` construye `encoding_mapping_`
+  con `str(level)` y la línea 1208 lo consulta con el `y.name` sin convertir.
+  Las rutas de `predict` (2994, 3149, 3377) usan `.get(level, np.nan)`, así
+  que arreglar solo el `fit` upstream podría dar codificaciones NaN en
+  silencio; normalizar los nombres a `str` en `check_preprocess_series` es
+  más seguro. Aquí, pasar los ids a `str` en el cuerpo común del script (no
+  solo en el `read_csv` del preámbulo, que no corre con un DataFrame) conserva
+  los ceros y esquiva el bug. Cambia los scripts generados.
+- **G03**: skforecast también descarta la serie corta sin avisar, incluso con
+  `suppress_warnings=False`; la media "across series" es su fila `average`,
+  que `backtesting_runner.py:212` solo lee. Candidato a issue upstream.
+- **V08 es más amplio**: con `decimal: ","` explícito el objetivo se perfila
+  como categórico, sin estadísticas y sin aviso (`validate_target_numeric`,
+  `data_profile.py:3374-3381`, lo acepta porque `pd.to_numeric("1.705")`
+  funciona). Y `1.705,11` en un fichero `;`, la forma más común del Excel en
+  español, falla con el consejo de marcadores de faltantes (V15). El arreglo
+  propuesto rechazaría también ficheros válidos con tres decimales exactos
+  (`12.345`), y el error no puede reutilizar `DIALECT_HINT`, porque ningún
+  `sep` ni `decimal` lo arregla.
+- **V28**: `index_col=False` no da `data_unreadable` en los tres casos: lee
+  bien el separador final sin aviso y solo avisa con el campo extra en la
+  primera fila. Si se adopta, el script generado necesita la misma opción, y
+  eso reescribe todos los goldens de renderizado. Arreglarlo solo con
+  detección (filas más largas que la cabecera da `data_unreadable`) no toca
+  scripts.
+- **V11**: el consejo engañoso de `dropna_from_series` sale de
+  `recommendation/preprocessing.py:441-454`, que el informe no cita. El fallo
+  ocurre en las métricas (predicciones NaN en los folds), no en el ajuste.
+- **V16**: `create_cv` no conoce las fechas de los huecos; trabaja solo con el
+  perfil, que guarda recuentos. El arreglo barato es condicionar el texto del
+  aviso; el chequeo por fold necesita los datos y cambia el contrato.
+- **V14**: la causa de fondo es `_infer_frequency_with_gaps`
+  (`data_profile.py:129-171`), que exige ventanas de 10 sin huecos. Datos
+  diarios sin domingos (una tienda que cierra) ya caen en este error.
+- **V31**: `default_initial_train_size` (`backtesting.py:102-112`) se salta la
+  cota de dos folds cuando `n - 2*steps <= 0`; un chequeo previo que dé
+  `insufficient_data` es mejor arreglo que reetiquetar el campo.
+- **V30**: el sitio natural del chequeo es `validate_evaluation_partition`
+  (`_last_window.py:921`), no `validate_series_lengths`.
+- **Prioridades**: G04 baja de alta a media (fallo opaco, no números falsos);
+  V14 sube de baja a media; V22, V04 y V16 bajan de media a baja. G01 solo
+  aparece si se pide ForecasterDirectMultiVariate a mano: nunca se elige solo.
 
 ## Método
 
