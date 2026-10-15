@@ -36,7 +36,10 @@ from .csv_dialect import (
     DEFAULT_CSV_SEP,
     DOT_THOUSANDS,
     DOTTED_NUMBER,
+    SHORT_WHOLE_NUMBER,
     THOUSANDS,
+    WHOLE_NUMBER,
+    ambiguous_thousands_error,
     check_csv_dialect,
     decimal_in_both_error,
     detect_csv_dialect,
@@ -44,6 +47,7 @@ from .csv_dialect import (
     only_thousands_error,
     read_row_lengths,
     read_sample,
+    sample_holds_file,
 )
 
 # TODO: Memory Optimization - Mask Filtering
@@ -3217,19 +3221,128 @@ def thousands_after_sample(
     read as a number without it, raises `InvalidInputError` with code
     `'data_unreadable'`.
     """
+    texts = _text_values(data)
     grouped = None
-    texts = []
-    for column in data.columns:
-        values = data[column]
-        if not is_text(values):
-            continue
-        values = values.dropna().astype(str).str.strip()
-        texts.append(values)
+    for values in texts:
         found = values[values.str.fullmatch(DOT_THOUSANDS.pattern)]
-        if grouped is None and not found.empty:
+        if not found.empty:
             grouped = found.iloc[0]
+            break
     if grouped is None:
         return None
+    other = _dotted_text(texts)
+    if other is not None:
+        raise dotted_values_error(source, field, other, grouped)
+
+    return "."
+
+
+def thousands_beyond_sample(
+    path: str | Path,
+    data: pd.DataFrame,
+    source: str,
+    field: str,
+    sep: str,
+) -> str | None:
+    """
+    Tell whether a CSV file read with `'.'` as decimal mark and no
+    thousands separator has `'.'` between thousands in the rows after the
+    lines its dialect was told from.
+
+    pandas reads `'1.020'` as the number 1.02, so a column of whole numbers
+    whose amounts of 1,000 or more only come after those lines (the long
+    format of several series, sorted by series) would hold wrong values
+    without a word. The columns read as numbers with decimals are read again
+    as text and told as `detect_csv_dialect` tells the sample: `'.'`
+    separates thousands when a column holds whole numbers of at most three
+    digits next to numbers such as `'1.020'`, and nothing does when another
+    number has decimals after a `'.'` (`'0.5'`).
+
+    Parameters
+    ----------
+    path : str, Path
+        Path of the CSV file.
+    data : pandas DataFrame
+        Content of the file, read with `'.'` as decimal mark and no
+        thousands separator.
+    source : str
+        Path of the file, named by the error.
+    field : str
+        Argument that named the file, reported with the error.
+    sep : str
+        Separator the file was read with.
+
+    Returns
+    -------
+    thousands : str, None
+        `'.'` when the file is to be read again with it (and `','` as
+        decimal mark), None otherwise.
+
+    Notes
+    -----
+    Numbers whose only `'.'` is followed by three digits, with nothing that
+    settles it, raise `InvalidInputError` with code `'data_unreadable'`, as
+    does a file whose `'.'` separates thousands in one column and is the
+    decimal mark in another, or appears in values that are not numbers
+    (`'15.01.2020'`). A frame whose first column was read as its index (a
+    header one field short) is not looked at.
+    """
+    columns = {
+        str(column) for column in data.columns
+        if pd.api.types.is_float_dtype(data[column])
+    }
+    if not columns or not isinstance(data.index, pd.RangeIndex):
+        return None
+    text = pd.read_csv(
+               path,
+               sep     = sep,
+               dtype   = str,
+               usecols = lambda name: str(name) in columns,
+           )
+    grouped = mixed = point = None
+    for values in _text_values(text):
+        with_groups = values.str.fullmatch(DOT_THOUSANDS.pattern)
+        decimals = values.str.fullmatch(DECIMAL_NUMBERS["."].pattern) & ~with_groups
+        whole = values.str.fullmatch(WHOLE_NUMBER.pattern)
+        if point is None and decimals.any():
+            point = values[decimals].iloc[0]
+        if not with_groups.any():
+            continue
+        if grouped is None:
+            grouped = values[with_groups].iloc[0]
+        short = values.str.fullmatch(SHORT_WHOLE_NUMBER.pattern)
+        if mixed is None and whole.any() and (short | ~whole).all():
+            mixed = values[with_groups].iloc[0]
+    if grouped is None:
+        return None
+    if mixed is not None:
+        other = point or _dotted_text(_text_values(data))
+        if other is not None:
+            raise dotted_values_error(source, field, other, mixed)
+        return "."
+    if point is not None:
+        return None
+    raise ambiguous_thousands_error(source, field, grouped)
+
+
+def _text_values(data: pd.DataFrame) -> list[pd.Series]:
+    """
+    Return the values of every column read as text, without missing values
+    and without the spaces around them.
+    """
+    return [
+        data[column].dropna().astype(str).str.strip()
+        for column in data.columns
+        if is_text(data[column])
+    ]
+
+
+def _dotted_text(texts: list[pd.Series]) -> str | None:
+    """
+    Return the first value with a `'.'` that does not separate thousands
+    and that pandas would read as a number without it when `'.'` separates
+    the thousands ('15.01.2020', '0.5'), or None.
+    """
     for values in texts:
         other = values[
             values.str.contains(".", regex=False)
@@ -3237,9 +3350,8 @@ def thousands_after_sample(
             & ~values.str.fullmatch(DOT_THOUSANDS.pattern)
         ]
         if not other.empty:
-            raise dotted_values_error(source, field, other.iloc[0], grouped)
-
-    return "."
+            return other.iloc[0]
+    return None
 
 
 # Remedy of a CSV file whose rows have more fields than its header, read by
@@ -3376,7 +3488,10 @@ def read_csv_with_dialect(
     decimal mark (see `decimal_after_sample`), and one with `','` as
     decimal mark whose numbers with `'.'` between thousands only come after
     them, or whose decimal mark `','` is given, is read again with `'.'` as
-    thousands separator (see `thousands_after_sample`).
+    thousands separator (see `thousands_after_sample`). When those lines do
+    not hold the whole file and its decimal mark `'.'` was detected, its
+    columns of numbers are read again as text to tell whether `'.'`
+    separates thousands after them (see `thousands_beyond_sample`).
 
     Parameters
     ----------
@@ -3420,6 +3535,7 @@ def read_csv_with_dialect(
     check_csv_dialect(sep, decimal, thousands)
     decimal_given = decimal is not None
     unchecked = False
+    whole_sample = False
     # A thousands separator given is checked against the first lines too:
     # pandas drops every '.' of a value such as '15.01.2020' or '0.5'.
     if sep is None or decimal is None or thousands is not None:
@@ -3442,6 +3558,7 @@ def read_csv_with_dialect(
                                           thousands = thousands,
                                       )
             check_csv_dialect(sep, decimal, thousands)
+            whole_sample = sample_holds_file(path)
     try:
         data = pd.read_csv(path, **csv_read_kwargs(sep, decimal, thousands))
         if unchecked:
@@ -3474,6 +3591,17 @@ def read_csv_with_dialect(
         ):
             # '1.705' beyond those lines, or with ',' given as decimal mark.
             thousands = "."
+            data = pd.read_csv(path, **csv_read_kwargs(sep, decimal, thousands))
+        beyond = (
+            not decimal_given
+            and not whole_sample
+            and thousands is None
+            and sep != DEFAULT_CSV_SEP
+            and decimal == DEFAULT_CSV_DECIMAL
+        )
+        if beyond and thousands_beyond_sample(path, data, str(path), field, sep):
+            # '870' in the sample and '1.020' after it, read as 1.02.
+            decimal, thousands = ",", "."
             data = pd.read_csv(path, **csv_read_kwargs(sep, decimal, thousands))
     except (
         pd.errors.EmptyDataError,

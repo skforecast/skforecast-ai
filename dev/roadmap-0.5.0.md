@@ -90,8 +90,12 @@ argumento explícito.
   error con hint y un argumento explícito. En el mismo PR: el mensaje de V14
   (hoy pide "escribirlas en ISO 8601" a fechas que ya lo están: separar
   "espaciado irregular" de "ambigüedad día y mes"), las fechas `yyyymmdd`
-  enteras que hoy se usan como exógena (V13), y las fechas día primero del
-  `exog_future` de datos largos. *[script]*
+  enteras que hoy se usan como exógena (V13), las fechas día primero del
+  `exog_future` de datos largos, y las fechas con punto junto a miles con
+  punto (el Excel alemán, `15.01.2020;1.234,56`): con `thousands='.'` pandas
+  las lee como el entero 15012020, así que 1a las rechaza con
+  `data_unreadable`; leerlas pide sacar la columna de fechas de `thousands`
+  en el `read_csv` del script (`dtype={'date': str}` o similar). *[script]*
 - **1e. Frecuencia con huecos regulares (V14, de fondo).**
   `_infer_frequency_with_gaps` (`data_profile.py:129-171`) exige ventanas de
   10 sin huecos: datos diarios sin domingos (una tienda que cierra) dan
@@ -301,6 +305,29 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
   el de hoy. Cuando es ambiguo (todos los valores con tres cifras tras el
   punto), `data_unreadable` con hint. El rechazo a secas solo es el plan B de
   una 0.4.3.
+  Concretado en [#86](https://github.com/skforecast/skforecast-ai/pull/86)
+  (2026-10-15):
+  - Solo `thousands='.'`, con `,` decimal: `thousands=','` (`"10,025.1"` en un
+    fichero con `,`) queda fuera; su error nombra el formato, y añadir `,`
+    más tarde no rompe nada.
+  - La mezcla "con y sin separador" se mira por columna: enteros de hasta tres
+    cifras junto a valores como `1.020`; un entero de cuatro cifras sin
+    separador la anula. Pistas que se contradicen (esa columna junto a un
+    `0.5` en otra) dan `data_unreadable`, nunca se elige una.
+  - Con `.` de miles, cualquier otro valor de cifras y puntos (`15.01.2020`,
+    `0.5`) da `data_unreadable`: pandas le quitaría todos los puntos. Las
+    fechas con punto van a 1d.
+  - Más allá de la muestra de 256 KB, si el fichero (con `;` o tabulador y `.`
+    decimal detectado) no cabe en ella, se releen como texto las columnas
+    leídas como `float` con las mismas reglas: unos datos largos ordenados
+    por serie pueden traer los miles solo en series posteriores. Las URL no
+    se releen.
+  - V15: el error de un objetivo con separador de miles o `%` es del fichero
+    (`DataContentError` en `data`), para que el servidor MCP añada
+    `DATA_PROBLEM_HINT`.
+  - Nota de release sin destacado (se decide al consolidar la fase 1), con
+    una línea en "Before upgrading": los ficheros cuyos números con punto
+    tienen todos tres decimales ahora dan error.
 - **D2. V28: solo detección** (2026-10-15): las filas más largas que la
   cabecera dan `data_unreadable` con hint, sin tocar los scripts.
   `index_col=False` leería bien el separador final, pero tendría que ir

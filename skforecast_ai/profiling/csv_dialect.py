@@ -291,6 +291,35 @@ def read_sample(path: str | Path) -> str | None:
     return sample_text(raw)
 
 
+def sample_holds_file(path: str | Path) -> bool:
+    """
+    Tell whether the sample of `read_sample` holds the whole file: one whose
+    content, decompressed when its extension says it is compressed, is at
+    most `SAMPLE_BYTES` bytes long.
+
+    Parameters
+    ----------
+    path : str, Path
+        Path of the file.
+
+    Returns
+    -------
+    holds : bool
+        True when every line of the file is in the sample; False also when
+        the file cannot be opened or decompressed here.
+    """
+
+    path = Path(str(path))
+    opener = _OPENERS.get(path.suffix.lower())
+    try:
+        if opener is None:
+            return path.stat().st_size <= SAMPLE_BYTES
+        with opener(path, "rb") as handle:
+            return len(handle.read(SAMPLE_BYTES + 1)) <= SAMPLE_BYTES
+    except (OSError, *DECOMPRESSION_ERRORS):
+        return False
+
+
 def read_row_lengths(path: str | Path, sep: str) -> list[int] | None:
     """
     Count the fields of every row of a CSV file after its header, as

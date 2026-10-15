@@ -726,6 +726,52 @@ def test_read_csv_with_dialect_thousands_after_the_sample(tmp_path, monkeypatch)
     ]
 
 
+def test_read_csv_with_dialect_thousands_of_whole_numbers_after_the_sample(
+    tmp_path, monkeypatch
+):
+    """
+    Test that a ';' file whose column holds whole numbers below 1,000 in the
+    lines the dialect is told from and numbers such as '1.020' after them,
+    which pandas reads as 1.02, has its columns of numbers read again as text
+    and is read with ',' as decimal mark and '.' as thousands separator.
+    """
+    monkeypatch.setattr("skforecast_ai.profiling.csv_dialect.SAMPLE_BYTES", 40)
+    path = tmp_path / "late.csv"
+    path.write_text(
+        "date;y\n2020-01-01;870\n2020-01-02;945\n2020-01-03;1.020\n"
+        "2020-01-04;2.015\n"
+    )
+    calls = _record_read_csv(monkeypatch)
+
+    data, sep, decimal, thousands = read_csv_with_dialect(path)
+
+    assert data["y"].tolist() == [870, 945, 1020, 2015]
+    assert (sep, decimal, thousands) == (";", ",", ".")
+    assert len(calls) == 3
+    assert calls[0] == ((path,), {"sep": ";", "decimal": "."})
+    assert calls[1][1]["dtype"] is str
+    assert calls[2] == ((path,), {"sep": ";", "decimal": ",", "thousands": "."})
+
+
+def test_read_csv_with_dialect_reads_once_when_the_sample_holds_the_file(
+    tmp_path, monkeypatch
+):
+    """
+    Test that a ';' file read with '.' as decimal mark is read once when the
+    lines its dialect is told from are the whole file: its columns of
+    numbers are not read again as text.
+    """
+    path = tmp_path / "semi.csv"
+    path.write_text("date;y\n2020-01-01;1.5\n2020-01-02;2.25\n")
+    calls = _record_read_csv(monkeypatch)
+
+    data, sep, decimal, thousands = read_csv_with_dialect(path)
+
+    assert data["y"].tolist() == [1.5, 2.25]
+    assert (sep, decimal, thousands) == (";", ".", None)
+    assert calls == [((path,), {"sep": ";", "decimal": "."})]
+
+
 def test_read_csv_with_dialect_InvalidInputError_when_dotted_values_after_the_sample(
     tmp_path, monkeypatch
 ):

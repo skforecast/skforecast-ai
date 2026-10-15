@@ -1501,3 +1501,31 @@ def test_profile_InvalidInputError_when_thousands_not_valid(tmp_path, kwargs, me
         ForecastingAssistant().profile(path, target="y", **kwargs)
 
     assert exc_info.value.field == "thousands"
+
+
+def test_profile_reads_thousands_of_a_series_after_the_sample(tmp_path, monkeypatch):
+    """
+    Test that a long-format ';' file sorted by series, whose first series
+    holds amounts below 1,000 in the lines the dialect is told from and
+    whose second series holds amounts written as '1.020' after them, is
+    profiled with '.' as thousands separator and the amounts of both series.
+    """
+    monkeypatch.setattr("skforecast_ai.profiling.csv_dialect.SAMPLE_BYTES", 400)
+    dates = pd.date_range("2020-01-01", periods=30, freq="D").strftime("%Y-%m-%d")
+    path = tmp_path / "long.csv"
+    path.write_text(
+        "series;date;y\n"
+        + "".join(f"a;{date};{800 + i}\n" for i, date in enumerate(dates))
+        + "".join(f"b;{date};1.{100 + i}\n" for i, date in enumerate(dates))
+    )
+    assert len(path.read_bytes()) > 400
+
+    result = ForecastingAssistant().profile(
+        path, target="y", series_id_column="series"
+    )
+
+    data_profile = result.data_profile
+    assert data_profile.csv_thousands == "."
+    assert data_profile.target_stats["a"]["max"] == 829.0
+    assert data_profile.target_stats["b"]["min"] == 1100.0
+    assert data_profile.target_stats["b"]["max"] == 1129.0
