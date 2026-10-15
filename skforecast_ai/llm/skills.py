@@ -105,11 +105,11 @@ _SKILL_OVERRIDES: dict[str, set[str]] = {
 # Measured token estimates (chars / 4) for each skill (SKILL.md + references/).
 _SKILL_TOKEN_ESTIMATES: dict[str, int] = {
     "autocorrelation-and-lag-selection": 2035,
-    "backtesting-configuration": 2076,
+    "backtesting-configuration": 2641,
     "baseline-forecasting": 1929,
-    "choosing-a-forecaster": 2851,
-    "complete-api-reference": 12674,
-    "deep-learning-forecasting": 4175,
+    "choosing-a-forecaster": 3034,
+    "complete-api-reference": 12683,
+    "deep-learning-forecasting": 6216,
     "drift-detection": 1249,
     "feature-engineering": 11003,
     "feature-selection": 1579,
@@ -123,7 +123,7 @@ _SKILL_TOKEN_ESTIMATES: dict[str, int] = {
     "troubleshooting-common-errors": 2587,
 }
 
-_REFERENCE_TOKEN_ESTIMATE = 8974  # llms-base.txt measured size
+_REFERENCE_TOKEN_ESTIMATE = 9123  # llms-base.txt measured size
 
 # Derived from the prompt rather than hardcoded. A hardcoded figure has to
 # be re-measured by hand after every prompt edit, and silently understates
