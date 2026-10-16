@@ -172,9 +172,11 @@ def test_server_workflow_when_daily_data_closed_on_sundays(tmp_path):
     Test the flow of the server on a year of daily sales of a shop closed on
     Sundays, which had no frequency before (the cause of finding V14 of the
     MCP audit): `profile` infers 'D' and warns about the 51 Sundays missing,
-    `plan` and `forecast` run, `backtest` says that the Sundays asfreq()
-    restores fall in its test folds, as missing days at random do, and the
-    script of `get_code` run as a file gives the predictions of `forecast`.
+    which a forecast predicts too and a business closed on them can fill
+    with 0 after asking the user; `plan` and `forecast` run; `backtest` says
+    that the Sundays asfreq() restores fall in its test folds, with the same
+    advice; and the script of `get_code` run as a file gives the predictions
+    of `forecast`.
     """
     path = write_csv(tmp_path, "shop.csv", df_no_sundays)
     server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
@@ -209,7 +211,10 @@ def test_server_workflow_when_daily_data_closed_on_sundays(tmp_path):
 
     missing = (
         "Missing timestamps: 51 timestamps of frequency 'D' are missing from "
-        "the date range. asfreq() inserts them as rows with missing values."
+        "the date range, all of them on Sundays, when the data never has a "
+        "date. asfreq() inserts them as rows with missing values, and a "
+        "forecast predicts Sundays too. If the business is closed on Sundays, "
+        "they can be filled with 0 in the data, after asking the user."
     )
     assert "- Frequency: D\n" in profile["summary"]
     assert "- Index irregularities: gaps in the index\n" in profile["summary"]
@@ -226,9 +231,11 @@ def test_server_workflow_when_daily_data_closed_on_sundays(tmp_path):
         "The target has 15 missing value(s) in the test folds (2023-09-17 "
         "00:00:00, 2023-09-24 00:00:00, 2023-10-01 00:00:00, 2023-10-08 "
         "00:00:00, 2023-10-15 00:00:00 and 10 more), counting the missing "
-        "timestamps that asfreq() restores. skforecast cannot compute the "
-        "metrics on them, whatever the estimator. Impute the target, or "
-        "evaluate on dates without missing values."
+        "timestamps that asfreq() restores: all of them on Sundays, when the "
+        "target never has a value. skforecast cannot compute the metrics on "
+        "them, whatever the estimator. If the business is closed on Sundays, "
+        "fill them with 0 in the data, after asking the user; otherwise, "
+        "impute the target, or evaluate on dates without missing values."
     )
     assert [notice["category"] for notice in forecast["notices"]] == [
         "UserWarning", "MissingValuesWarning", "MissingValuesWarning",

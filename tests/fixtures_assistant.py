@@ -222,6 +222,14 @@ df_no_sundays = pd.DataFrame(
         ),
     }
 )
+# The same sales in long format, for two shops closed on Sundays.
+df_no_sundays_long = pd.concat(
+    [
+        df_no_sundays.assign(shop="north"),
+        df_no_sundays.assign(shop="south", sales=df_no_sundays["sales"] * 2),
+    ],
+    ignore_index=True,
+)
 
 
 def patch_agent(monkeypatch, assistant, *, output=None, error=None, capture=None):

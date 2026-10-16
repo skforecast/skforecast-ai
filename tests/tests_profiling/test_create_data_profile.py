@@ -18,6 +18,7 @@ from skforecast_ai.schemas import DataProfile
 from ..fixtures_assistant import (
     df_multi_long_integer_ids,
     df_multi_long_numeric_ids,
+    df_no_sundays_long,
 )
 from ..fixtures_csv_dialect import write_cp1252
 from ..fixtures_datasets import df_h2o, df_items_sales_long, df_items_sales_wide
@@ -381,20 +382,40 @@ def test_create_data_profile_output_when_daily_data_closed_on_sundays():
     """
     Test that create_data_profile infers daily data without Sundays (a shop
     closed on them), whose gaps leave no ten days in a row, as daily with
-    gaps: the Sundays are counted and warned about as missing timestamps,
-    as missing days at random are.
+    gaps: the Sundays are counted as missing timestamps, and the warning
+    says that they all fall on Sundays, that a forecast predicts Sundays
+    too, and that a business closed on them can fill them with 0, after
+    asking the user. In long format, each shop is read on its own range.
     """
     dates = pd.date_range("2023-01-02", periods=364, freq="D")
     dates = dates[dates.dayofweek != 6]
     df = pd.DataFrame({"y": np.arange(len(dates), dtype=float)}, index=dates)
 
     profile = create_data_profile(df, target="y")
+    profile_long = create_data_profile(
+        df_no_sundays_long,
+        target           = "sales",
+        date_column      = "date",
+        series_id_column = "shop",
+    )
 
     assert profile.frequency == "D"
     assert profile.has_gaps is True
     assert profile.warnings == [
         "Missing timestamps: 51 timestamps of frequency 'D' are missing from "
-        "the date range. asfreq() inserts them as rows with missing values."
+        "the date range, all of them on Sundays, when the data never has a "
+        "date. asfreq() inserts them as rows with missing values, and a "
+        "forecast predicts Sundays too. If the business is closed on Sundays, "
+        "they can be filled with 0 in the data, after asking the user."
+    ]
+    assert profile_long.frequency == "D"
+    assert profile_long.warnings == [
+        "Missing timestamps: 102 timestamps of frequency 'D' are missing from "
+        "the date range, all of them on Sundays, when the series that miss "
+        "them never have a date. asfreq() inserts them as rows with missing "
+        "values, and a forecast predicts Sundays too. If the business is "
+        "closed on Sundays, they can be filled with 0 in the data, after "
+        "asking the user."
     ]
 
 

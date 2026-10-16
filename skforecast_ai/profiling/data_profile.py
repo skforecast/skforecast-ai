@@ -657,6 +657,13 @@ def create_data_profile(
             else None
         ),
         numbers_as_text        = numbers_as_text,
+        gap_weekdays           = (
+            regular_gap_weekdays(
+                series_dates if series_dates is not None else datetime_index,
+                frequency,
+            )
+            if has_gaps else None
+        ),
     )
     # How the file was read comes first: its encoding, then its dates.
     if encoding == CP1252:
@@ -4055,6 +4062,7 @@ def generate_warnings(
     long_format: bool = False,
     series_ending_early: tuple[str, dict[str, str]] | None = None,
     numbers_as_text: dict[str, tuple[int, int, list, int]] | None = None,
+    gap_weekdays: list[int] | None = None,
 ) -> list[str]:
     """
     Generate human-readable warnings about potential data issues.
@@ -4091,6 +4099,13 @@ def generate_warnings(
     numbers_as_text : dict, default None
         Text exogenous columns that hold numbers written as text (see
         `detect_numbers_as_text`).
+    gap_weekdays : list of int, default None
+        Days of the week (0 for Monday) that every missing timestamp falls
+        on, when the data (each series, for long format) has no date on
+        them (see `regular_gap_weekdays`). The note on missing timestamps
+        then names them, says that a forecast predicts them too, and that
+        a business closed on them can fill them with 0, after asking the
+        user: nothing is filled in.
 
     Returns
     -------
@@ -4123,7 +4138,21 @@ def generate_warnings(
             "spacing is irregular, or there are too few timestamps."
         )
 
-    if n_missing_timestamps > 0:
+    if n_missing_timestamps > 0 and gap_weekdays:
+        days = weekday_names(gap_weekdays)
+        owners = (
+            "the series that miss them never have a date" if long_format
+            else "the data never has a date"
+        )
+        warnings.append(
+            f"Missing timestamps: {n_missing_timestamps} timestamps of "
+            f"frequency '{frequency}' are missing from the date range, all "
+            f"of them on {days}, when {owners}. asfreq() inserts them as "
+            f"rows with missing values, and a forecast predicts {days} too. "
+            f"If the business is closed on {days}, they can be filled with 0 "
+            f"in the data, after asking the user."
+        )
+    elif n_missing_timestamps > 0:
         warnings.append(
             f"Missing timestamps: {n_missing_timestamps} timestamps of "
             f"frequency '{frequency}' are missing from the date range. "
@@ -5423,6 +5452,191 @@ def count_missing_timestamps(
         return 0
 
     return int((~expected.isin(datetime_index)).sum())
+
+
+_WEEKDAY_NAMES = (
+    "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday",
+)
+
+
+def _daily_or_finer(frequency: str | None) -> tuple[bool, bool]:
+    """
+    Return whether a frequency puts a timestamp on every day it covers (a
+    step of a day or less, or business days), and whether it is business
+    days, whose grid has no Saturday or Sunday.
+    """
+    if frequency is None:
+        return False, False
+    try:
+        offset = pd.tseries.frequencies.to_offset(frequency)
+    except ValueError:
+        return False, False
+    if isinstance(offset, pd.offsets.BusinessDay) and offset.n == 1:
+        return True, True
+
+    return isinstance(offset, pd.offsets.Tick) and offset.nanos <= _DAY_NANOS, False
+
+
+def _wall_nanoseconds(dates: pd.DatetimeIndex) -> np.ndarray | None:
+    """
+    Return the sorted, distinct dates as nanoseconds of their wall time (the
+    local time of time zone aware dates), or None when they do not fit in
+    nanoseconds.
+    """
+    dates = pd.DatetimeIndex(dates).dropna()
+    if dates.tz is not None:
+        dates = dates.tz_localize(None)
+    try:
+        return np.unique(dates.as_unit("ns").asi8)
+    except (OverflowError, ValueError):
+        return None
+
+
+def _closed_weekdays_ns(dates: np.ndarray, business: bool) -> np.ndarray:
+    """
+    Return the days of the week (0 for Monday) on which no date of `dates`
+    (sorted wall times in nanoseconds) falls, although at least two of them
+    lie within their range.
+    """
+    days = dates // _DAY_NANOS
+    first, n_days = days[0], days[-1] - days[0] + 1
+    # 1970-01-01, day 0, was a Thursday.
+    counts = np.full(7, n_days // 7)
+    counts[(first + 3 + np.arange(n_days % 7)) % 7] += 1
+    if business:
+        counts[5:] = 0
+    counts[np.unique((days + 3) % 7)] = 0
+
+    return np.flatnonzero(counts >= 2)
+
+
+def _gap_weekdays_ns(
+    dates: np.ndarray,
+    frequency: str,
+    business: bool,
+) -> list[int] | None:
+    """
+    Return the days of the week that every timestamp missing from the grid
+    of `frequency` falls on, when the dates never fall on them (see
+    `_closed_weekdays_ns`): an empty list when no timestamp is missing, and
+    None when some missing timestamp falls on another day.
+    """
+    if len(dates) < 2:
+        return []
+    offset = pd.tseries.frequencies.to_offset(frequency)
+    if not business:
+        steps = (dates - dates[0]) // offset.nanos
+        if steps[-1] + 1 == len(dates):
+            return []
+    closed = _closed_weekdays_ns(dates, business)
+    if len(closed) == 0:
+        return None
+    if business:
+        grid = pd.date_range(
+            pd.Timestamp(dates[0]), pd.Timestamp(dates[-1]), freq=frequency
+        ).asi8
+        missing = np.setdiff1d(grid, dates, assume_unique=True)
+    else:
+        missing = dates[0] + offset.nanos * np.setdiff1d(
+            np.arange(steps[-1] + 1), steps, assume_unique=True
+        )
+    if len(missing) == 0:
+        return []
+    if not np.isin((missing // _DAY_NANOS + 3) % 7, closed).all():
+        return None
+
+    return [int(weekday) for weekday in closed]
+
+
+def closed_weekdays(
+    dates: pd.DatetimeIndex,
+    frequency: str | None,
+) -> list[int]:
+    """
+    Return the days of the week on which dates of a daily or finer frequency
+    never fall, although their range holds at least two of each (a shop
+    closed on Sundays).
+
+    Parameters
+    ----------
+    dates : pandas DatetimeIndex
+        Dates of a series, with a value or a row. Time zone aware dates are
+        read in their local time.
+    frequency : str, None
+        Frequency of the dates.
+
+    Returns
+    -------
+    weekdays : list of int
+        Days of the week (0 for Monday), or an empty list when the frequency
+        is coarser than a day, or not known.
+    """
+    daily, business = _daily_or_finer(frequency)
+    if not daily:
+        return []
+    nanoseconds = _wall_nanoseconds(dates)
+    if nanoseconds is None or len(nanoseconds) < 2:
+        return []
+
+    return [int(day) for day in _closed_weekdays_ns(nanoseconds, business)]
+
+
+def regular_gap_weekdays(
+    dates: pd.DatetimeIndex | dict[object, np.ndarray],
+    frequency: str | None,
+) -> list[int]:
+    """
+    Return the days of the week that every missing timestamp of a daily or
+    finer frequency falls on, when those days have no date at all (a shop
+    closed on Sundays): the gaps are regular, rather than missing at random.
+
+    Parameters
+    ----------
+    dates : pandas DatetimeIndex, dict
+        Dates of a single series (or of the rows of wide-format data), or
+        the dates of each series of long-format data as wall times in
+        nanoseconds (see `_long_series_dates`), each series checked on its
+        own range.
+    frequency : str, None
+        Frequency of the data.
+
+    Returns
+    -------
+    weekdays : list of int
+        Days of the week (0 for Monday) of the missing timestamps, or an
+        empty list when none is missing, when one falls on a day of the
+        week that has dates (in its series), or when the frequency is
+        coarser than a day, or not known.
+    """
+    daily, business = _daily_or_finer(frequency)
+    if not daily:
+        return []
+    if isinstance(dates, dict):
+        series = list(dates.values())
+    else:
+        nanoseconds = _wall_nanoseconds(dates)
+        if nanoseconds is None:
+            return []
+        series = [nanoseconds]
+    weekdays: set[int] = set()
+    for nanoseconds in series:
+        found = _gap_weekdays_ns(nanoseconds, frequency, business)
+        if found is None:
+            return []
+        weekdays.update(found)
+
+    return sorted(weekdays)
+
+
+def weekday_names(weekdays: list[int]) -> str:
+    """
+    Name days of the week in plural (`'Saturdays and Sundays'`).
+    """
+    names = [f"{_WEEKDAY_NAMES[day]}s" for day in sorted(weekdays)]
+    if len(names) == 1:
+        return names[0]
+
+    return ", ".join(names[:-1]) + " and " + names[-1]
 
 
 def _check_duplicate_timestamps(
