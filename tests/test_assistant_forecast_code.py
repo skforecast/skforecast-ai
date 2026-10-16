@@ -28,6 +28,7 @@ from tests.fixtures_datasets import (
     df_h2o,
     df_h2o_daily,
 )
+from tests.fixtures_future_exog import data_long, exog_long
 
 
 # =============================================================================
@@ -311,6 +312,54 @@ def test_forecast_code_ValueError_when_exog_without_exog_data():
             data=df_no_exog, target="sales", date_column="date", steps=10,
             exog=exog,
         )
+
+
+@pytest.mark.parametrize("with_profile", [True, False], ids=["profile", "no_profile"])
+def test_forecast_code_InvalidInputError_when_multiindex_level_unnamed(with_profile):
+    """
+    Test that forecast_code() rejects long-format data indexed by a
+    MultiIndex with a level without a name, also with a profile of the same
+    data with named levels, as forecast() does: the script it returns reads
+    the levels by name from the frame saved with `to_csv()`, which writes an
+    empty header for them.
+    """
+    assistant = ForecastingAssistant()
+    data = df_multi_long.set_index(["series_id", "date"])
+    kwargs = {"target": "value", "steps": 7}
+    if with_profile:
+        kwargs = {"profile": assistant.profile(data=data, target="value"), "steps": 7}
+    err_msg = re.escape(
+        "`data` is indexed by a MultiIndex with levels without a name "
+        "(names ['series_id', None])."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.forecast_code(
+            data = data.rename_axis(["series_id", None]),
+            **kwargs,
+        )
+
+    assert exc_info.value.field == "data"
+
+
+def test_forecast_code_InvalidInputError_when_exog_multiindex_level_unnamed():
+    """
+    Test that forecast_code() rejects future exogenous variables indexed by a
+    MultiIndex with a level without a name, as forecast() does.
+    """
+    exog = exog_long.set_index(["series", "date"]).rename_axis([None, None])
+    err_msg = re.escape(
+        "`exog` is indexed by a MultiIndex with levels without a name "
+        "(names [None, None])."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        ForecastingAssistant().forecast_code(
+            data   = data_long.set_index(["series", "date"]),
+            target = "value",
+            steps  = 7,
+            exog   = exog,
+        )
+
+    assert exc_info.value.field == "exog"
 
 
 # =============================================================================

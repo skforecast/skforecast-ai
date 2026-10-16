@@ -615,6 +615,29 @@ def test_create_data_profile_output_when_multiindex_multi_series():
     assert profile.series_lengths["B"].end == "2023-03-01"
 
 
+@pytest.mark.parametrize(
+    "names",
+    [[None, None], ["series_id", None], [None, "date"]],
+    ids=lambda names: f"names: {names}",
+)
+def test_create_data_profile_InvalidInputError_when_multiindex_level_unnamed(names):
+    """
+    Test create_data_profile rejects a MultiIndex with a level without a
+    name instead of naming it: the generated script reads the levels by name
+    from the frame saved with `to_csv()`, which writes an empty header for
+    them.
+    """
+    data = df_multi_long.set_index(["series_id", "date"]).rename_axis(names)
+    err_msg = re.escape(
+        f"`data` is indexed by a MultiIndex with levels without a name "
+        f"(names {names})."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        create_data_profile(data, target="value")
+
+    assert exc_info.value.field == "data"
+
+
 def test_create_data_profile_output_when_long_series_different_lengths():
     """
     Test create_data_profile records different per-series lengths and

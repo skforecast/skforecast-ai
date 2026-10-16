@@ -21,7 +21,10 @@ The main changes in this release are:
 
     + The scripts of long-format data read the series ids as text and turn them into text before the reshape: one more line (two with future exogenous variables), with the same predictions. See **Changed**.
 
-    And some code needs to be updated: [<code>ForecastingAssistant.profile()</code>][assistant] of a file separated by `;` or tabulators raises `data_unreadable` instead of reading `.` as decimal mark when its only numbers with a `.` have three decimals (`1.870`), or when a column mixes them with whole numbers (`3`, `1.375`) next to other decimals (`0.75`). Pass `decimal='.'` to read them as before. See **Fixed**.
+    And some code needs to be updated:
+
+    + [<code>ForecastingAssistant.profile()</code>][assistant] of a file separated by `;` or tabulators raises `data_unreadable` instead of reading `.` as decimal mark when its only numbers with a `.` have three decimals (`1.870`), or when a column mixes them with whole numbers (`3`, `1.375`) next to other decimals (`0.75`). Pass `decimal='.'` to read them as before. See **Fixed**.
+    + `profile()` of a DataFrame indexed by a MultiIndex with a level without a name raises `InvalidInputError` instead of naming it (`'datetime'`), a column the generated script did not have. Name the levels: `data.rename_axis(['series_id', 'date'])`. See **Fixed**.
 
 
 **Added**
@@ -46,7 +49,7 @@ The main changes in this release are:
 
 + Fixed an issue with long-format data whose series ids are numbers (`001`, `1`, `10`), where every backtest, forecast and comparison failed with `KeyError: 1` and [<code>ForecastingAssistant.profile()</code>][assistant] dropped the leading zeros. The ids are now kept as written; integer ids of a DataFrame become text, so its series are ordered as text (`1`, `10`, `2`). A DataFrame whose series columns are named with integers raises `InvalidInputError` with a hint instead of a validation error ([#90](https://github.com/skforecast/skforecast-ai/pull/90)).
 
-+ Fixed an issue in [<code>ForecastingAssistant.forecast()</code>][assistant], `backtest()` and `compare()` where long-format data indexed by a `(series_id, date)` MultiIndex, which `profile()` accepts, raised `ForecastExecutionError` (`KeyError` on the date column) ([#91](https://github.com/skforecast/skforecast-ai/pull/91)).
++ Fixed an issue with long-format data indexed by a `(series_id, date)` MultiIndex, where [<code>ForecastingAssistant.forecast()</code>][assistant], `backtest()` and `compare()` raised `ForecastExecutionError` (`KeyError` on the date column), and `profile()` raised `KeyError` when the levels had no names. A MultiIndex that is not two levels named with text, also in the future `exog`, now raises `InvalidInputError` in every method, with a hint ([#91](https://github.com/skforecast/skforecast-ai/pull/91), [#94](https://github.com/skforecast/skforecast-ai/pull/94)).
 
 
 ## 0.4.2 <small>Oct 12, 2026</small> { id="0.4.2" }

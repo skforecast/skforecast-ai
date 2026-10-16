@@ -59,36 +59,20 @@ def test_row_dates_column_wins_over_index_of_same_name():
     np.testing.assert_array_equal(dates.to_numpy(), _dates[::-1].to_numpy())
 
 
-def test_row_dates_output_when_date_level_of_multiindex_unnamed():
+@pytest.mark.parametrize(
+    "names",
+    [["series", "when"], ["series", None]],
+    ids=["other_name", "unnamed"],
+)
+def test_row_dates_output_when_no_multiindex_level_matches(names):
     """
-    Test that the second level of a MultiIndex is read as the dates when it
-    has no name, as profiling reads it.
-    """
-    data = pd.DataFrame(
-        {"y": [3.0, 1.0, 2.0]},
-        index=pd.MultiIndex.from_arrays(
-            [["a", "a", "a"], [_dates[2], _dates[0], _dates[1]]],
-            names=["series", None],
-        ),
-    )
-
-    dates = row_dates(data, "datetime")
-
-    np.testing.assert_array_equal(
-        dates.to_numpy(), _dates[[2, 0, 1]].to_numpy()
-    )
-
-
-def test_row_dates_output_when_no_multiindex_level_matches():
-    """
-    Test that a MultiIndex without a level named as the date column, and
-    whose second level has a name, has no dates.
+    Test that a MultiIndex without a level named as the date column has no
+    dates, also when its second level has no name: profiling rejects it
+    instead of reading it as the dates.
     """
     data = pd.DataFrame(
         {"y": [1.0, 2.0, 3.0]},
-        index=pd.MultiIndex.from_arrays(
-            [["a", "a", "a"], _dates], names=["series", "when"]
-        ),
+        index=pd.MultiIndex.from_arrays([["a", "a", "a"], _dates], names=names),
     )
 
     assert row_dates(data, "date") is None

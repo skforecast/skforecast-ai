@@ -764,16 +764,17 @@ def _long_series_ends(
 
 def _row_ids(data: pd.DataFrame, series_id: str | None) -> np.ndarray | None:
     """
-    Return the series id of every row of long-format data: its column, or a
-    level of a MultiIndex (the first one when it has no name).
+    Return the series id of every row of long-format data: its column, or the
+    level of a MultiIndex of the same name.
     """
     if series_id is not None and series_id in data.columns:
         return data[series_id].to_numpy()
-    if isinstance(data.index, pd.MultiIndex):
-        if series_id is not None and series_id in data.index.names:
-            return data.index.get_level_values(series_id).to_numpy()
-        if data.index.names[0] is None:
-            return data.index.get_level_values(0).to_numpy()
+    if (
+        series_id is not None
+        and isinstance(data.index, pd.MultiIndex)
+        and series_id in data.index.names
+    ):
+        return data.index.get_level_values(series_id).to_numpy()
 
     return None
 
