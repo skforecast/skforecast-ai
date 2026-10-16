@@ -15,6 +15,7 @@ from ..fixtures_csv_dialect import (
     write_dialect,
     write_thousands,
 )
+from ..fixtures_assistant import df_multi_long_numeric_ids
 from ..fixtures_datasets import df_items_sales_long, df_mixed_date_formats
 from .fixtures_mcp import (
     DATA_WARNING,
@@ -993,3 +994,25 @@ def test_tool_profile_error_when_target_numbers_are_written_in_another_format(
         "hint": server_module.DATA_PROBLEM_HINT,
         "details": None,
     }
+
+
+def test_tool_profile_output_when_series_ids_are_numbers(tmp_path):
+    """
+    Test that the series ids of long-format data written as numbers ('001',
+    '1', '10') name the series as written in the file, as by the Python API:
+    '001' keeps its zeros and is not the series '1'.
+    """
+    path = write_csv(tmp_path, "stores.csv", df_multi_long_numeric_ids)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    arguments = {"target": "value", "series_id_column": "series_id"}
+
+    result = content_of(call(server, "profile", {"data_path": path, **arguments}))
+    expected = ForecastingAssistant().profile(path, **arguments)
+
+    assert result["summary"] == expected.describe()
+    assert list(expected.data_profile.series_lengths) == ["001", "1", "10"]
+    assert [
+        line.split("(")[1].split(")")[0]
+        for line in result["summary"].splitlines()
+        if line.startswith("- Target statistics (")
+    ] == ["001", "1", "10"]

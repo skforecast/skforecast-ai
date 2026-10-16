@@ -690,7 +690,10 @@ class ForecastingAssistant:
         date_column : str, default None
             Name of the column containing timestamps.
         series_id_column : str, default None
-            Name of the column identifying individual series.
+            Name of the column identifying individual series. The ids are
+            text, as the generated script reads them: a CSV file keeps
+            `'001'` as written, and integer ids of a DataFrame become text
+            (`1` becomes `'1'`).
         exog_columns : list of str, default None
             Columns to use as exogenous variables. If None, every column that
             is not the target, the date or the series id. Otherwise a subset
@@ -741,12 +744,13 @@ class ForecastingAssistant:
 
         data_path = recorded_data_path(data)
         data, target = _resolve_data_and_target(
-                           data        = data,
-                           target      = target,
-                           date_column = date_column,
-                           sep         = sep,
-                           decimal     = decimal,
-                           thousands   = thousands,
+                           data             = data,
+                           target           = target,
+                           date_column      = date_column,
+                           sep              = sep,
+                           decimal          = decimal,
+                           thousands        = thousands,
+                           series_id_column = series_id_column,
                        )
         # How the file was read, which the script repeats; nothing for data
         # passed in memory.
@@ -4793,8 +4797,11 @@ class ForecastingAssistant:
         if unused:
             data = data.drop(columns=unused)
         frame, target = _resolve_data_and_target(
-            data, saved.target, saved.date_column
-        )
+                            data             = data,
+                            target           = saved.target,
+                            date_column      = saved.date_column,
+                            series_id_column = saved.series_id_column,
+                        )
         # The same data profiled with the same columns give the same data
         # profile: it is kept, so a workflow profiles its data once.
         fingerprint = _frame_fingerprint(frame)

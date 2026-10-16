@@ -209,7 +209,9 @@ def create_data_profile(
     series_id_column : str, default None
         Name of the column identifying individual series in long format.
         If None and target is a string, the dataset is treated as a
-        single series.
+        single series. The ids are text, as the generated script reads
+        them: a CSV file is read with this column as text (`'001'`), and
+        the ids of a DataFrame are turned into text (`1` becomes `'1'`).
     data_path : str, default 'data.csv'
         Path to the source CSV file used in generated scripts.
     exog_columns : list of str, default None
@@ -274,21 +276,24 @@ def create_data_profile(
     check_csv_dialect(sep, decimal, thousands)
     if isinstance(data, (str, Path)):
         data, sep, decimal, thousands = read_csv_with_dialect(
-                                            path      = data,
-                                            sep       = sep,
-                                            decimal   = decimal,
-                                            thousands = thousands,
+                                            path             = data,
+                                            sep              = sep,
+                                            decimal          = decimal,
+                                            thousands        = thousands,
+                                            series_id_column = series_id_column,
                                         )
         # Attempt to parse the first object-dtype column as datetime.
         # This handles CSVs exported with df.to_csv() where the date
         # index becomes a regular column.
-        data = _try_parse_first_date_column(data, date_column)
+        data = _try_parse_first_date_column(data, date_column, series_id_column)
 
     # Normalize a MultiIndex (level 0 = series_id, level 1 = datetime) into
     # flat long format so every downstream helper sees named columns.
     data, date_column, series_id_column = _normalize_multiindex(
         data, date_column, series_id_column
     )
+    # The series are named with text, as the generated script names them.
+    data = series_ids_as_text(data, series_id_column)
 
     # Determine data format from user input
     data_format = _resolve_data_format(target, series_id_column)
@@ -524,6 +529,7 @@ def create_data_profile(
 def _try_parse_first_date_column(
     data: pd.DataFrame,
     date_column: str | None = None,
+    series_id_column: str | None = None,
 ) -> pd.DataFrame:
     """
     Try to convert the first object or string dtype column to datetime.
@@ -549,6 +555,9 @@ def _try_parse_first_date_column(
         DataFrame loaded from CSV.
     date_column : str, default None
         Name of the date column, when the caller gives it.
+    series_id_column : str, default None
+        Name of the column of series ids, read as text, which is never the
+        date column: ids such as `'2001'` read as dates.
 
     Returns
     -------
@@ -557,7 +566,7 @@ def _try_parse_first_date_column(
     """
     skipped = []
     for col in data.columns:
-        if not is_text(data[col]):
+        if not is_text(data[col]) or col == series_id_column:
             continue
         parsed, issue = _read_date_column(col, data[col], named=col == date_column)
         if issue is not None:
@@ -3062,18 +3071,27 @@ _MAX_LISTED_COLUMNS = 20
 # Most values of the data quoted in a message.
 _MAX_QUOTED_VALUES = 5
 
+# Remedy of a DataFrame whose series are columns named with numbers.
+_TEXT_COLUMNS_HINT = (
+    "Rename the columns of the DataFrame to text, for example with "
+    "`data.columns = data.columns.astype(str)`, and pass their names as "
+    "text in `target`."
+)
+
 
 def csv_read_kwargs(
     sep: str,
     decimal: str,
     thousands: str | None = None,
-) -> dict[str, str]:
+    series_id_column: str | None = None,
+) -> dict[str, object]:
     """
     Return the arguments `pandas.read_csv` needs to read a CSV file written
     with a separator, a decimal mark and a thousands separator, as the
     generated script passes them: none for `','`, `'.'` and no thousands
     separator, `sep` and `decimal` otherwise, and `thousands` when there is
-    one.
+    one. The column of series ids is read as text (`dtype`), so `'001'`
+    keeps its zeros and the thousands separator does not touch it.
 
     Parameters
     ----------
@@ -3083,22 +3101,81 @@ def csv_read_kwargs(
         Decimal mark.
     thousands : str, default None
         Thousands separator, or None for none.
+    series_id_column : str, default None
+        Column of the series ids of long-format data, or None for none.
 
     Returns
     -------
     kwargs : dict
-        Empty, or `sep` and `decimal`, with `thousands` when it is given.
+        Empty, or `sep` and `decimal`, with `thousands` when it is given,
+        and `dtype` when `series_id_column` is given.
     """
+    kwargs: dict[str, object] = {}
     if (
-        sep == DEFAULT_CSV_SEP
-        and decimal == DEFAULT_CSV_DECIMAL
-        and thousands is None
+        sep != DEFAULT_CSV_SEP
+        or decimal != DEFAULT_CSV_DECIMAL
+        or thousands is not None
     ):
-        return {}
-    kwargs = {"sep": sep, "decimal": decimal}
-    if thousands is not None:
-        kwargs["thousands"] = thousands
+        kwargs = {"sep": sep, "decimal": decimal}
+        if thousands is not None:
+            kwargs["thousands"] = thousands
+    if series_id_column is not None:
+        kwargs["dtype"] = {series_id_column: str}
     return kwargs
+
+
+def without_series_ids(
+    data: pd.DataFrame,
+    series_id_column: str | None,
+) -> pd.DataFrame:
+    """
+    Return the columns of a CSV file read with `csv_read_kwargs` whose
+    numbers tell how it is written: every column but the series ids, which
+    are read as text and never as numbers.
+    """
+    if series_id_column is None or series_id_column not in data.columns:
+        return data
+    return data.drop(columns=series_id_column)
+
+
+def series_ids_as_text(
+    data: pd.DataFrame,
+    series_id_column: str | None,
+) -> pd.DataFrame:
+    """
+    Return long-format data with its series ids as text, as the generated
+    script turns them (`map(str, na_action='ignore')`).
+
+    skforecast names the series with text and looks them up with the ids of
+    the data, so integer ids (`1`, `10`) fail inside it (skforecast issue
+    #1357); a CSV file is read with its ids as text, and data passed in
+    memory gets them here. A missing id stays missing: its rows are left
+    out, as before.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Long-format data, or any other data, returned as it is.
+    series_id_column : str, None
+        Column of the series ids. None, or a column that `data` does not
+        hold, returns `data` as it is.
+
+    Returns
+    -------
+    data : pandas DataFrame
+        `data`, or a copy with the series ids as text.
+    """
+    if series_id_column is None or series_id_column not in data.columns:
+        return data
+    ids = data[series_id_column]
+    if isinstance(ids, pd.DataFrame):
+        # A repeated column name: left to the checks that report it.
+        return data
+    if pd.api.types.infer_dtype(ids, skipna=True) in ("string", "empty"):
+        return data
+    data = data.copy()
+    data[series_id_column] = ids.map(str, na_action="ignore")
+    return data
 
 
 def decimal_after_sample(
@@ -3537,6 +3614,7 @@ def read_csv_with_dialect(
     decimal: str | None = None,
     thousands: str | None = None,
     index_first: bool = False,
+    series_id_column: str | None = None,
 ) -> tuple[pd.DataFrame, str, str, str | None]:
     """
     Read a CSV file with `pandas.read_csv`, as the generated script reads
@@ -3573,6 +3651,11 @@ def read_csv_with_dialect(
         Whether a header one field short (`to_csv(index_label=False)`) is
         read, with the first field of every row as the index (see
         `check_csv_fields`).
+    series_id_column : str, default None
+        Column of the series ids of long-format data, read as text
+        (`'001'` keeps its zeros), as the generated script reads it. Its
+        values are not numbers, so they do not tell how the file is
+        written.
 
     Returns
     -------
@@ -3613,17 +3696,24 @@ def read_csv_with_dialect(
             decimal = "," if thousands is not None else decimal
         else:
             sep, decimal, thousands = detect_csv_dialect(
-                                          sample    = sample,
-                                          source    = str(path),
-                                          field     = field,
-                                          sep       = sep,
-                                          decimal   = decimal,
-                                          thousands = thousands,
+                                          sample           = sample,
+                                          source           = str(path),
+                                          field            = field,
+                                          sep              = sep,
+                                          decimal          = decimal,
+                                          thousands        = thousands,
+                                          series_id_column = series_id_column,
                                       )
             check_csv_dialect(sep, decimal, thousands)
             whole_sample = sample_holds_file(path)
+
+    def read(sep: str, decimal: str, thousands: str | None = None) -> pd.DataFrame:
+        return pd.read_csv(
+                   path, **csv_read_kwargs(sep, decimal, thousands, series_id_column)
+               )
+
     try:
-        data = pd.read_csv(path, **csv_read_kwargs(sep, decimal, thousands))
+        data = read(sep, decimal, thousands)
         if unchecked:
             check_csv_dialect(sep, decimal, thousands)
         # Checked before the decimal mark: a column moved one place would
@@ -3642,19 +3732,23 @@ def read_csv_with_dialect(
             not decimal_given
             and sep != DEFAULT_CSV_SEP
             and decimal == DEFAULT_CSV_DECIMAL
-            and decimal_after_sample(data, str(path), field, sep) != decimal
+            and decimal_after_sample(
+                    without_series_ids(data, series_id_column), str(path), field, sep
+                ) != decimal
         ):
             # Numbers with ',' beyond the lines the dialect was told from.
             decimal = ","
-            data = pd.read_csv(path, **csv_read_kwargs(sep, decimal))
+            data = read(sep, decimal)
         if (
             thousands is None
             and decimal == ","
-            and thousands_after_sample(data, str(path), field) is not None
+            and thousands_after_sample(
+                    without_series_ids(data, series_id_column), str(path), field
+                ) is not None
         ):
             # '1.705' beyond those lines, or with ',' given as decimal mark.
             thousands = "."
-            data = pd.read_csv(path, **csv_read_kwargs(sep, decimal, thousands))
+            data = read(sep, decimal, thousands)
         beyond = (
             not decimal_given
             and not whole_sample
@@ -3662,10 +3756,12 @@ def read_csv_with_dialect(
             and sep != DEFAULT_CSV_SEP
             and decimal == DEFAULT_CSV_DECIMAL
         )
-        if beyond and thousands_beyond_sample(path, data, str(path), field, sep):
+        if beyond and thousands_beyond_sample(
+            path, without_series_ids(data, series_id_column), str(path), field, sep
+        ):
             # '870' in the sample and '1.020' after it, read as 1.02.
             decimal, thousands = ",", "."
-            data = pd.read_csv(path, **csv_read_kwargs(sep, decimal, thousands))
+            data = read(sep, decimal, thousands)
     except (
         pd.errors.EmptyDataError,
         pd.errors.ParserError,
@@ -3932,12 +4028,25 @@ def _validate_target_exists(data: pd.DataFrame, target: str | list[str]) -> None
             field = "target",
         )
     targets = target if isinstance(target, list) else [target]
+    # skforecast names the series with text and looks them up with the
+    # column names (skforecast issue #1357): integer names fail inside it.
+    not_text = [col for col in targets if not isinstance(col, str)]
+    if not_text:
+        raise InvalidInputError(
+            f"Target column(s) {not_text} are not named with text: the series "
+            f"are named after their columns, and their names must be text.",
+            field = "target",
+            hint  = _TEXT_COLUMNS_HINT,
+        )
     missing = [col for col in targets if col not in data.columns]
     if missing:
+        named = {str(col) for col in data.columns if not isinstance(col, str)}
+        as_numbers = all(col in named for col in missing)
         raise InvalidInputError(
             f"Target column(s) {missing} not found in the DataFrame. "
             f"Available columns: {list(data.columns)}",
             field = "target",
+            hint  = _TEXT_COLUMNS_HINT if as_numbers else None,
         )
 
 

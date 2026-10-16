@@ -590,3 +590,205 @@ def test_detect_csv_dialect_decimal_in_both_when_tab_thousands_and_point_thousan
     )
     with pytest.raises(InvalidInputError, match=err_msg + "$"):
         detect_csv_dialect(sample, "my.csv")
+
+
+# Samples of long-format data whose ids ('1.2.3', '1.001', '1,5') look like
+# numbers, and what they give without and with `series_id_column`: the ids
+# are read as text, so they must not tell the dialect nor stop it.
+@pytest.mark.parametrize(
+    "sample, expected",
+    [
+        # ids '1.2.3' are not thousands, and y mixes '870' and '1.020'.
+        (
+            "store;date;y\n1.2.3;2015-01-01;870\n1.2.3;2015-02-01;1.020\n"
+            "1.2.3;2015-03-01;2.015\n",
+            (";", ",", "."),
+        ),
+        # ids '0.5' are not thousands.
+        (
+            "store;date;y\n0.5;2015-01-01;870\n0.5;2015-02-01;1.020\n",
+            (";", ",", "."),
+        ),
+        # ids '1.001' would make the whole y values ambiguous thousands.
+        (
+            "store;date;y\n1.001;2015-01-01;870\n1.002;2015-02-01;945\n",
+            (";", ".", None),
+        ),
+        (
+            "store;date;y\n1.870;2015-01-01;12\n1.870;2015-02-01;13\n",
+            (";", ".", None),
+        ),
+        # ids '1,5' would give a decimal comma next to the decimal point of y.
+        (
+            "store;date;y\n1,5;2015-01-01;1.5\n1,5;2015-02-01;2.5\n",
+            (";", ".", None),
+        ),
+        (
+            "store;date;y\n1,5;2015-01-01;12\n1,5;2015-02-01;13\n",
+            (";", ".", None),
+        ),
+        (
+            "date;store;y\n2015-01-01;1,5;2.5\n2015-02-01;1,5;3.5\n",
+            (";", ".", None),
+        ),
+        # ids '1.001' would make y with decimal comma numbers with thousands.
+        (
+            "store;date;y\n1.001;2015-01-01;1,5\n1.002;2015-02-01;2,5\n",
+            (";", ",", None),
+        ),
+        # Quoted ids with a comma.
+        (
+            'store;date;y\n"1,5";2015-01-01;2.5\n"1,5";2015-02-01;3.5\n',
+            (";", ".", None),
+        ),
+        # A tab separated file.
+        (
+            "store\tdate\ty\n1,841\t2015-01-01\t1.5\n1,841\t2015-02-01\t2.5\n",
+            ("\t", ".", None),
+        ),
+    ],
+    ids=[
+        "dotted ids and thousands in y",
+        "ids below one and thousands in y",
+        "ids with three decimals and whole y",
+        "ids with three digits after the point and whole y",
+        "ids with decimal comma and y with decimal point",
+        "ids with decimal comma and whole y",
+        "ids in the second column",
+        "ids with thousands and y with decimal comma",
+        "quoted ids with a comma",
+        "tab and ids with thousands",
+    ],
+)
+def test_detect_csv_dialect_output_when_series_id_column_given(sample, expected):
+    """
+    Test that the values of the column of series ids, which are read as text,
+    neither tell the decimal mark and the thousands separator nor stop them:
+    only the other columns decide the dialect.
+    """
+    result = detect_csv_dialect(sample, "data.csv", series_id_column="store")
+
+    assert result == expected
+
+
+@pytest.mark.parametrize(
+    "sample, expected",
+    [
+        (
+            "store;date;y\n1.001;2015-01-01;1,5\n1.002;2015-02-01;2,5\n",
+            (";", ",", "."),
+        ),
+        (
+            "store;date;y\n1,5;2015-01-01;12\n1,5;2015-02-01;13\n",
+            (";", ",", None),
+        ),
+    ],
+    ids=["ids taken for thousands", "ids taken for a decimal comma"],
+)
+def test_detect_csv_dialect_series_ids_decide_the_dialect_without_series_id_column(
+    sample, expected
+):
+    """
+    Test that, without `series_id_column`, the same samples give another
+    dialect: the ids are read as numbers (thousands in '1.001', a decimal
+    comma in '1,5').
+    """
+    assert detect_csv_dialect(sample, "data.csv") == expected
+
+
+@pytest.mark.parametrize(
+    "sample, message, expected",
+    [
+        (
+            "store;date;y\n1.2.3;2015-01-01;870\n1.2.3;2015-02-01;1.020\n"
+            "1.2.3;2015-03-01;2.015\n",
+            "The CSV file 'data.csv' cannot be read: it holds numbers with '.' "
+            "between the thousands (such as '1.020') and values with a '.' "
+            "that does not separate thousands (such as '1.2.3'), which pandas "
+            "would read as numbers without it.",
+            (";", ",", "."),
+        ),
+        (
+            "store;date;y\n1.001;2015-01-01;870\n1.002;2015-02-01;945\n",
+            "The thousands separator of the CSV file 'data.csv' cannot be "
+            "told: its numbers with a '.' (such as '1.001') read both as "
+            "thousands and as numbers with three decimals.",
+            (";", ".", None),
+        ),
+        (
+            "store;date;y\n1,5;2015-01-01;1.5\n1,5;2015-02-01;2.5\n",
+            "The decimal mark of the CSV file 'data.csv' cannot be told: it "
+            "holds numbers written with ',' (such as '1,5') and with '.' "
+            "(such as '1.5').",
+            (";", ".", None),
+        ),
+    ],
+    ids=["dotted values", "ambiguous thousands", "decimal in both"],
+)
+def test_detect_csv_dialect_InvalidInputError_when_series_ids_stop_the_dialect(
+    sample, message, expected
+):
+    """
+    Test that, without `series_id_column`, ids such as '1.2.3', '1.001' or
+    '1,5' make the dialect impossible to tell, which the same samples are
+    with the column given.
+    """
+    with pytest.raises(InvalidInputError, match=re.escape(message) + "$"):
+        detect_csv_dialect(sample, "data.csv")
+
+    result = detect_csv_dialect(sample, "data.csv", series_id_column="store")
+
+    assert result == expected
+
+
+@pytest.mark.parametrize(
+    "series_id_column",
+    ["other", "date", "STORE"],
+    ids=lambda dt: f"series_id_column: {dt}",
+)
+def test_detect_csv_dialect_InvalidInputError_when_series_id_column_is_not_the_ids(
+    series_id_column,
+):
+    """
+    Test that the column is matched by its name in the header: another
+    column, a name that is not in the header or a case that differs leaves
+    the ids of the sample to stop the dialect, as without the argument.
+    """
+    sample = "store;date;y\n1,5;2015-01-01;2.5\n1,5;2015-02-01;3.5\n"
+
+    err_msg = re.escape(
+        "The decimal mark of the CSV file 'data.csv' cannot be told: it holds "
+        "numbers written with ',' (such as '1,5') and with '.' (such as "
+        "'2.5')."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg + "$"):
+        detect_csv_dialect(sample, "data.csv", series_id_column=series_id_column)
+
+
+@pytest.mark.parametrize(
+    "kwargs, expected",
+    [
+        ({"thousands": "."}, (";", ",", ".")),
+        ({"decimal": ","}, (";", ",", ".")),
+    ],
+    ids=["thousands given", "decimal comma given"],
+)
+def test_detect_csv_dialect_output_when_series_id_column_and_dialect_given(
+    kwargs, expected
+):
+    """
+    Test that an id below one ('0.5') does not stop a thousands separator or a
+    decimal mark ',' given by the caller, which read '1.705' as thousands
+    when the ids are left out and raise when they are not.
+    """
+    sample = "store;date;y\n0.5;2015-01-01;1.705\n0.5;2015-02-01;1.870\n"
+
+    err_msg = re.escape("(such as '0.5')")
+    with pytest.raises(InvalidInputError, match=err_msg):
+        detect_csv_dialect(sample, "data.csv", **kwargs)
+
+    result = detect_csv_dialect(
+                 sample, "data.csv", series_id_column="store", **kwargs
+             )
+
+    assert result == expected

@@ -619,10 +619,10 @@ def _check_long_dates(
             by_date    = True,
             zone       = zone,
         )
+    # The ids of both are text (see `exog_as_injected`), as the generated
+    # code turns them: `1` in `exog` is the series '1' of the data.
     absent = [name for name in predicted if name not in code_of]
-    as_text = {str(name) for name in names}
-    other_type = bool(absent) and all(str(name) in as_text for name in absent)
-    if foundation and not other_type:
+    if foundation:
         # A series without future values takes its historical exogenous
         # columns as past-only covariates (or skforecast ignores them).
         predicted = {
@@ -630,16 +630,9 @@ def _check_long_dates(
         }
         absent = []
     if absent:
-        hint = ""
-        if other_type:
-            hint = (
-                f" The ids of `exog` are of another type "
-                f"({exog[series_id].dtype}) than those of the data: use the "
-                f"same type."
-            )
         raise DataContentError(
             f"`exog` has no rows for {len(absent)} series of the data: "
-            f"{_shown([str(name) for name in absent])}.{hint}",
+            f"{_shown([str(name) for name in absent])}.",
             field = "exog",
         )
 

@@ -362,6 +362,40 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     `EXOG_FILE_HINT`: quitar separadores no cambia ningún valor.
   - Nota de release solo en **Fixed**, sin destacado ni "Before upgrading";
     el destacado se decide al consolidar las notas de la fase 1.
+- **D5. G02: los ids de serie son texto** (2026-10-16), en la librería y en
+  el script, sin esperar a
+  [#1357](https://github.com/skforecast/skforecast/issues/1357). Concretado
+  en la PR de 1b:
+  - El `read_csv` de la librería y el del preámbulo leen la columna de ids
+    con `dtype={<id>: str}`, después de los argumentos de dialecto, también
+    `exog_future.csv` y el fichero de exógenas futuras de la librería. Se
+    emite siempre que el perfil tenga `series_id_column`, también con una
+    sola serie en formato largo, que no usa la columna: así el script lee el
+    fichero como la librería.
+  - El cuerpo común convierte los ids antes del `to_datetime`, en `data` y
+    en `exog_future`, con `map(str, na_action='ignore')` y no con
+    `astype(str)`: con pandas 2, `astype(str)` haría de un id vacío la serie
+    `'nan'`, y las filas sin id se quedan fuera como antes.
+  - La librería convierte también los ids de un DataFrame (datos y
+    exógenas futuras) antes de perfilar, validar y ejecutar, así el perfil
+    nombra `'1'` y las comprobaciones ven lo que ve el script; en `exec`, la
+    línea del script es la misma conversión. Un DataFrame con ids enteros
+    ordena sus series como texto (`'1'`, `'10'`, `'2'`).
+  - La columna de ids no cuenta para el dialecto (ni en la muestra ni
+    después de ella: un id `1.2.3` no da `data_unreadable`, uno `1.020` no
+    decide los miles) ni para buscar la columna de fechas (`'2001'` se lee
+    como un año).
+  - Exógenas futuras con ids enteros y datos con ids de texto: antes, error
+    con la pista "of another type"; ahora se emparejan como texto (`1` es la
+    serie `'1'`) y `1` frente a `'001'` da "no rows for series '001'". La
+    pista se quitó: ya no se alcanza.
+  - DataFrame ancho con columnas de nombre entero: `InvalidInputError`
+    (`field` `target`) con un hint para renombrarlas, en vez de la
+    `ValidationError` de Pydantic. No se convierten a texto (pregunta abierta
+    en la PR).
+  - Nota de release en **Changed** (scripts) y **Fixed**, con una línea en
+    "Before upgrading" por el cambio de los scripts; sin destacado, que se
+    decide al consolidar la fase 1.
 
 ## Decisiones abiertas
 

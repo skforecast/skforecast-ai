@@ -106,6 +106,27 @@ df_multi_long_staggered = pd.concat([
     df_multi_long[df_multi_long["series_id"] == "store_b"].iloc[60:],
 ])
 
+# Long data whose series ids are numbers written as text, as store or SKU
+# codes are: '001' and '1' are two series (one series 1 if read as integers),
+# and '10' sorts before '2' as text. Three series of 100 days.
+df_multi_long_numeric_ids = pd.DataFrame(
+    {
+        "date": np.tile(_dates_multi, 3),
+        "series_id": np.repeat(["001", "1", "10"], _n_obs_per_series),
+        "value": np.concatenate([
+            10 + np.sin(np.arange(_n_obs_per_series) / 3),
+            20 + 2 * np.cos(np.arange(_n_obs_per_series) / 4),
+            30 + np.arange(_n_obs_per_series) % 7,
+        ]),
+    }
+)
+
+# The same data with the series ids as integers (1, 2 and 10), as a
+# DataFrame may hold them.
+df_multi_long_integer_ids = df_multi_long_numeric_ids.assign(
+    series_id=df_multi_long_numeric_ids["series_id"].map({"001": 2, "1": 1, "10": 10})
+)
+
 # --- Multi-series wide format (2 series as columns) ---
 df_multi_wide = pd.DataFrame(
     {

@@ -398,27 +398,34 @@ def test_validate_future_exog_InvalidInputError_when_long_history_across_dst():
         validate_future_exog(exog, data, profile, plan_long_ridge)
 
 
-def test_validate_future_exog_InvalidInputError_when_foundation_ids_of_another_type():
+@pytest.mark.parametrize(
+    "data, exog, plan",
+    [
+        (data_long, exog_long, plan_long_ridge),
+        (data_long_early, exog_long_early, plan_long_early_foundation),
+    ],
+    ids=["multiseries", "foundation"],
+)
+def test_validate_future_exog_output_when_long_ids_are_integers(data, exog, plan):
     """
-    Test that, for a ForecasterFoundation model, which takes a series without
-    future values, series ids of another type than those of the data still
-    raise with the hint, instead of leaving every series without its future
-    values.
+    Test that long-format future exogenous variables whose series ids are
+    integers, where the data has them as text ('1'), pass and give each
+    series its future values once the generated script has prepared them:
+    the ids of both are text, as the script turns them (skforecast issue
+    #1357).
     """
-    data = data_long_early.assign(series=data_long_early["series"].str[-1])
+    data = data.assign(series=data["series"].str[-1])
     profile = ForecastingAssistant().profile(
         data, target="value", date_column="date", series_id_column="series"
     ).data_profile
-    exog = exog_long_early.assign(
-        series=exog_long_early["series"].str[-1].astype(int)
-    )
+    exog = exog.assign(series=exog["series"].str[-1].astype(int))
 
-    err_msg = re.escape(
-        "The ids of `exog` are of another type (int64) than those of the data: "
-        "use the same type."
-    )
-    with pytest.raises(InvalidInputError, match=err_msg):
-        validate_future_exog(exog, data, profile, plan_long_early_foundation)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        validate_future_exog(exog, data, profile, plan)
+    prepared = _prepared_by_script(exog, profile, plan)
+
+    assert sorted(prepared) == ["1", "2", "3"]
 
 
 def test_validate_future_exog_InvalidInputError_when_pd_na_and_column_of_objects():
@@ -613,21 +620,21 @@ def test_validate_future_exog_InvalidInputError_when_long_exog_wrong(exog, err_m
         validate_future_exog(exog, data_long, profile_long, plan_long_ridge)
 
 
-def test_validate_future_exog_InvalidInputError_when_long_ids_of_another_type():
+def test_validate_future_exog_InvalidInputError_when_long_ids_differ_as_text():
     """
-    Test that long-format future exogenous variables whose series ids are
-    numbers, where the data has them as text, raise with a hint on the type.
+    Test that long-format future exogenous variables whose integer series ids
+    lose the zeros of the ids of the data ('001') raise naming the series
+    without rows: the ids are compared as text, as the generated script reads
+    them.
     """
-    data = data_long.assign(series=data_long["series"].str[-1])
+    data = data_long.assign(series="00" + data_long["series"].str[-1])
     profile = ForecastingAssistant().profile(
         data, target="value", date_column="date", series_id_column="series"
     ).data_profile
     exog = exog_long.assign(series=exog_long["series"].str[-1].astype(int))
 
     err_msg = re.escape(
-        "`exog` has no rows for 3 series of the data: '1', '2', '3'. The ids of "
-        "`exog` are of another type (int64) than those of the data: use the same "
-        "type."
+        "`exog` has no rows for 3 series of the data: '001', '002', '003'."
     )
     with pytest.raises(InvalidInputError, match=err_msg):
         validate_future_exog(exog, data, profile, plan_long_ridge)
