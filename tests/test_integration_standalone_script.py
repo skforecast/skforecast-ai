@@ -538,7 +538,6 @@ def test_standalone_script_matches_forecast_when_long_format_future_exog(tmp_pat
     )
 
 
-
 def test_standalone_script_matches_forecast_when_long_format_multiindex(tmp_path):
     """
     Test that the script of long-format data passed in memory indexed by a

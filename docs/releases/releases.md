@@ -38,7 +38,7 @@ The main changes in this release are:
 
 + In CSV files separated by `;` or tabulators, `.` between thousands was read as a decimal mark without a warning (`1.020` as 1.02), and `1.705,11` failed as a target that is not numeric. It is now read as thousands separator when the file says so; otherwise `profile()` raises `data_unreadable` and asks for `thousands` or `decimal`. A file whose other values also hold a `.` (dates such as `15.01.2020`) raises `data_unreadable` too ([#86](https://github.com/skforecast/skforecast-ai/pull/86)).
 
-+ Fixed an issue in [<code>ForecastingAssistant.forecast()</code>][assistant], `backtest()` and `compare()` where long-format data indexed by a `(series_id, date)` MultiIndex, which `profile()` accepts, failed inside the executed script with `KeyError` on the date column. The levels are now read as columns, as the script reads the frame saved with `to_csv()`.
++ Fixed an issue in [<code>ForecastingAssistant.forecast()</code>][assistant], `backtest()` and `compare()` where long-format data indexed by a `(series_id, date)` MultiIndex, which `profile()` accepts, raised `ForecastExecutionError` (`KeyError` on the date column).
 
 
 ## 0.4.2 <small>Oct 12, 2026</small> { id="0.4.2" }
