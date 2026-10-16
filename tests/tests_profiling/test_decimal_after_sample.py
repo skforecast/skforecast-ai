@@ -7,7 +7,11 @@ import pandas as pd
 import pytest
 
 from skforecast_ai.exceptions import InvalidInputError
-from skforecast_ai.profiling.csv_dialect import DIALECT_HINT, EXOG_DIALECT_HINT
+from skforecast_ai.profiling.csv_dialect import (
+    DIALECT_HINT,
+    DOTTED_VALUES_HINT,
+    EXOG_DIALECT_HINT,
+)
 from skforecast_ai.profiling.data_profile import decimal_after_sample
 
 
@@ -166,3 +170,25 @@ def test_decimal_after_sample_InvalidInputError_when_dot_thousands_and_decimals(
     assert exc_info.value.code == "data_unreadable"
     assert exc_info.value.field == "data"
     assert exc_info.value.hint == DIALECT_HINT
+
+
+def test_decimal_after_sample_InvalidInputError_when_groups_without_comma_and_decimals():
+    """
+    Test that a number with several groups of thousands and no ','
+    ('1.234.567') in a column read as text, next to numbers with decimals
+    after a '.' in a numeric column, raises the error of '.' used both ways,
+    which does not quote it as a number written with ','.
+    """
+    frame = pd.DataFrame({"y": [0.5, 0.25, 1.5], "x": ["1", "2", "1.234.567"]})
+
+    err_msg = re.escape(
+        "The CSV file 'data.csv' cannot be read: it holds numbers with '.' "
+        "between the thousands (such as '1.234.567') and values with a '.' "
+        "that does not separate thousands (such as '0.5'), which pandas "
+        "would read as numbers without it."
+    )
+    with pytest.raises(InvalidInputError, match="^" + err_msg + "$") as exc_info:
+        decimal_after_sample(frame, "data.csv", "data")
+
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.hint == DOTTED_VALUES_HINT

@@ -85,15 +85,22 @@ THOUSANDS_HINT = (
     "Profile the file saying what its '.' is: `thousands` '.' when it "
     "separates the thousands, or `decimal` '.' when it is the decimal mark, "
     "in `profile()`, `--thousands` or `--decimal` in the `profile` command, "
-    "or the `profile` tool of the MCP server, and use that profile."
+    "or `thousands` or `decimal` in the `profile` tool of the MCP server, "
+    "and use that profile."
 )
 
-# Hint of a file that holds '.' both between thousands and elsewhere: no
-# argument reads it, as pandas drops every '.' of a number.
+# Hint of a file that holds '.' both between thousands and elsewhere. When
+# its '.' is the decimal mark (a column of whole numbers and '1.375' next to
+# '0.75'), `decimal` reads it; otherwise only a copy without the other
+# points does, as pandas drops every '.' of a number. The file belongs to
+# whoever gave it, so that copy is written only with their consent.
 DOTTED_VALUES_HINT = (
-    "Write the file again with '.' only between the thousands of its numbers "
-    "(dates such as '2020-01-15'), or without thousands separators, and "
-    "profile that file."
+    "When '.' is the decimal mark of the file, profile it with `decimal` "
+    "'.' (`--decimal` in the `profile` command, `decimal` in the `profile` "
+    "tool of the MCP server). Otherwise write a copy of the file with '.' "
+    "only between the thousands of its numbers (dates such as '2020-01-15') "
+    "and pass that copy; if the file is not yours, ask its owner before "
+    "writing it."
 )
 
 EXOG_DIALECT_HINT = (

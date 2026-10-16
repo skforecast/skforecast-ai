@@ -1341,28 +1341,38 @@ def _resolve_inputs_with_profile(
         target = dp.target
     # The CSV loader checks the date column of the profile, which the script
     # reads, and reports it when its dates cannot be used.
-    # How a file is written belongs to the file, not to the data: the same
-    # data exported again with another separator still fit the profile, so
-    # the dialect of the file given is detected. Only when it cannot be
-    # told is the file read as a profile built from a file says, which is
-    # how `sep`, `decimal` and `thousands` of `profile()` reach the other
-    # methods.
+    # How a file is written belongs to the file, not to the data. The file
+    # the profile was built from is read as the profile says, which is how
+    # `sep`, `decimal` and `thousands` of `profile()` reach the other
+    # methods: detecting it again would undo a `decimal='.'` given against
+    # what the file seemed to say. Another file (the same data exported
+    # again with another separator) is detected, and read as the profile
+    # says only when its dialect cannot be told.
+    dialect = {
+        "sep": dp.csv_sep,
+        "decimal": dp.csv_decimal,
+        "thousands": dp.csv_thousands,
+    }
+    same_file = (
+        dp.data_path != PLACEHOLDER_DATA_PATH
+        and isinstance(data, (str, Path))
+        and recorded_data_path(data) == dp.data_path
+    )
     try:
         data_df, target = _resolve_data_and_target(
                               data        = data,
                               target      = target,
                               date_column = dp.date_column,
+                              **(dialect if same_file else {}),
                           )
     except CsvDialectError:
-        if dp.data_path == PLACEHOLDER_DATA_PATH:
+        if dp.data_path == PLACEHOLDER_DATA_PATH or same_file:
             raise
         data_df, target = _resolve_data_and_target(
                               data        = data,
                               target      = target,
                               date_column = dp.date_column,
-                              sep         = dp.csv_sep,
-                              decimal     = dp.csv_decimal,
-                              thousands   = dp.csv_thousands,
+                              **dialect,
                           )
     if target != dp.target:
         raise InvalidInputError(

@@ -50,7 +50,11 @@ def _saved_without(obj, names):
         ),
         (plan, ["overridden_fields", "exog_columns"], [[], None]),
         (profile.data_profile, ["time_zone", "unused_columns"], [None, []]),
-        (profile.data_profile, ["csv_sep", "csv_decimal"], [",", "."]),
+        (
+            profile.data_profile,
+            ["csv_sep", "csv_decimal", "csv_thousands"],
+            [",", ".", None],
+        ),
     ],
     ids=[
         "CVResult",

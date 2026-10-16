@@ -17,7 +17,7 @@ The main changes in this release are:
 
 !!! warning "Before upgrading"
 
-    Some code needs to be updated: [<code>ForecastingAssistant.profile()</code>][assistant] of a file separated by `;` or tabulators whose only numbers with a `.` have three decimals (`1.870`) raises `data_unreadable` instead of reading them as decimals. Pass `decimal='.'` to read them as before. See **Fixed**.
+    Some code needs to be updated: [<code>ForecastingAssistant.profile()</code>][assistant] of a file separated by `;` or tabulators raises `data_unreadable` instead of reading `.` as decimal mark when its only numbers with a `.` have three decimals (`1.870`), or when a column mixes them with whole numbers (`3`, `1.375`) next to other decimals (`0.75`). Pass `decimal='.'` to read them as before. See **Fixed**.
 
 
 **Added**
@@ -27,7 +27,9 @@ The main changes in this release are:
 
 **Changed**
 
-+ A target whose values are numbers written with a thousands separator or with `%` (`10,025.1`, `12.5%`) raises a `DataContentError` that names that format and the file (`field` `data`), instead of the hint about missing value markers ([#86](https://github.com/skforecast/skforecast-ai/pull/86)).
++ A target whose values are numbers written with a thousands separator or with `%` (`10,025.1`, `12.5%`) raises a `DataContentError` that names that format, as an error of the data and not of `target`, instead of the hint about missing value markers ([#86](https://github.com/skforecast/skforecast-ai/pull/86)).
+
++ The methods that take a saved profile read the file it was built from with its separator, decimal mark and thousands separator, so what was given to [<code>ForecastingAssistant.profile()</code>][assistant] holds for them; another file is still read as it is written ([#86](https://github.com/skforecast/skforecast-ai/pull/86)).
 
 
 **Fixed**

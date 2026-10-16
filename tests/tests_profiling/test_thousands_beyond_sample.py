@@ -147,3 +147,56 @@ def test_thousands_beyond_sample_InvalidInputError_when_point_is_also_elsewhere(
 
     assert exc_info.value.code == "data_unreadable"
     assert exc_info.value.hint == hint
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "date;y\n2020-01-01;12.3456\n2020-01-02;0.75\n",
+        "date;y;x\n2020-01-01;1.020;0.5\n2020-01-02;1500;2.5\n",
+        "date;y\n2020-01-01;870\n2020-01-02;945\n",
+    ],
+    ids=[
+        "more than three decimals and below one",
+        "no column mixes whole numbers below 1,000",
+        "whole numbers only",
+    ],
+)
+def test_thousands_beyond_sample_does_not_read_the_file_when_numbers_settle_it(
+    tmp_path, monkeypatch, text
+):
+    """
+    Test that the file is not read again when the numbers already read
+    settle it: none could come from a number such as '1.020', or one only
+    reads with '.' as decimal mark and no column can mix whole numbers of
+    at most three digits with thousands.
+    """
+    path, data = _read(tmp_path, text)
+    calls = []
+    monkeypatch.setattr(pd, "read_csv", lambda *args, **kwargs: calls.append(args))
+
+    result = thousands_beyond_sample(path, data, "data.csv", "data", ";")
+
+    assert result is None
+    assert calls == []
+
+
+def test_thousands_beyond_sample_InvalidInputError_when_other_column_has_point_zero(
+    tmp_path,
+):
+    """
+    Test that a column of thousands next to another column of numbers
+    written with '.0' ('5.0'), which pandas would read as 50 with '.' as
+    thousands separator, raises an InvalidInputError that quotes it.
+    """
+    path, data = _read(
+        tmp_path, "date;y;z\n2020-01-01;870;5.0\n2020-01-02;1.020;6.0\n"
+    )
+
+    err_msg = re.escape(
+        "values with a '.' that does not separate thousands (such as '5.0')"
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        thousands_beyond_sample(path, data, "data.csv", "data", ";")
+
+    assert exc_info.value.code == "data_unreadable"

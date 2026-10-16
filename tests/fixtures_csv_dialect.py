@@ -1,4 +1,5 @@
-# Fixtures for the tests of the CSV dialects (separator and decimal mark)
+# Fixtures for the tests of the CSV dialects (separator, decimal mark and
+# thousands separator)
 
 import numpy as np
 import pandas as pd

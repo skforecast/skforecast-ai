@@ -2008,12 +2008,26 @@ def test_resolve_data_and_target_reads_url_again_when_text_column_has_thousands(
 
 
 @pytest.mark.parametrize(
-    "kwargs, field",
-    [({"thousands": "."}, "thousands"), ({"decimal": ","}, "decimal")],
+    "kwargs, field, message",
+    [
+        (
+            {"thousands": "."},
+            "thousands",
+            "`thousands` cannot be '.' when `sep` is ',': '.' separates the "
+            "thousands where ',' is the decimal mark, which cannot also "
+            "separate the fields.",
+        ),
+        (
+            {"decimal": ","},
+            "decimal",
+            "`decimal` cannot be ',' when `sep` is ',': the same character "
+            "would separate the fields and the decimals.",
+        ),
+    ],
     ids=["thousands", "decimal comma"],
 )
 def test_resolve_data_and_target_InvalidInputError_when_no_url_sample_and_sep_misfit(
-    monkeypatch, kwargs, field
+    monkeypatch, kwargs, field, message
 ):
     """
     Test that a URL read although its start could not be downloaded (the
@@ -2025,7 +2039,8 @@ def test_resolve_data_and_target_InvalidInputError_when_no_url_sample_and_sep_mi
     _fake_read_csv(monkeypatch, [frame])
     monkeypatch.setattr(utils_module, "read_url_sample", lambda value: None)
 
-    with pytest.raises(InvalidInputError) as exc_info:
+    err_msg = "^" + re.escape(message) + "$"
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
         _resolve_data_and_target(url, "y", **kwargs)
 
     assert not isinstance(exc_info.value, DataNotFoundError)

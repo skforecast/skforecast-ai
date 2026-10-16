@@ -3140,32 +3140,37 @@ def decimal_after_sample(
 
     Notes
     -----
-    As in `detect_csv_dialect`, numbers written with both marks, or (in a
-    file separated by tabulators) numbers with a `','` that all read as
-    thousands too, raise
-    `InvalidInputError` with code `'data_unreadable'`.
+    As in `detect_csv_dialect`, numbers written with both marks, numbers
+    with `'.'` between thousands next to numbers with decimals after a
+    `'.'`, or (in a file separated by tabulators) numbers with a `','` that
+    all read as thousands too, raise `InvalidInputError` with code
+    `'data_unreadable'`.
     """
-    with_comma = None
+    with_comma = grouped = None
     only_thousands = True
-    for column in data.columns:
-        values = data[column]
-        if not is_text(values):
-            continue
-        values = values.dropna().astype(str).str.strip()
-        found = values[
-            values.str.fullmatch(DECIMAL_NUMBERS[","].pattern)
-            | (
-                values.str.fullmatch(DOT_THOUSANDS.pattern)
-                & ~values.str.fullmatch(DECIMAL_NUMBERS["."].pattern)
-            )
+    for values in _text_values(data):
+        # Only the values with a ',' or a '.' are matched: a column of dates
+        # or names holds many and none is a number with them.
+        has_comma = values.str.contains(",", regex=False)
+        dotted = values[values.str.contains(".", regex=False)]
+        # '1.705,11' and '1.234.567' do not read with '.' as decimal mark;
+        # the first also has ',' as decimal mark, the second has none.
+        sure = dotted[
+            dotted.str.fullmatch(DOT_THOUSANDS.pattern)
+            & ~dotted.str.fullmatch(DECIMAL_NUMBERS["."].pattern)
         ]
-        if found.empty:
-            continue
-        if with_comma is None:
+        with_mark = values[has_comma]
+        found = with_mark[
+            with_mark.str.fullmatch(DECIMAL_NUMBERS[","].pattern)
+            | with_mark.index.isin(sure.index)
+        ]
+        if with_comma is None and not found.empty:
             with_comma = found.iloc[0]
         if not found.str.fullmatch(THOUSANDS.pattern).all():
             only_thousands = False
-    if with_comma is None:
+        if grouped is None and not sure.empty:
+            grouped = sure.iloc[0]
+    if with_comma is None and grouped is None:
         return DEFAULT_CSV_DECIMAL
     for column in data.columns:
         values = data[column]
@@ -3174,10 +3179,11 @@ def decimal_after_sample(
         values = values[np.isfinite(values)]
         with_point = values[values % 1 != 0]
         if not with_point.empty:
-            raise decimal_in_both_error(
-                source, field, with_comma, repr(float(with_point.iloc[0]))
-            )
-    if only_thousands and sep == "\t":
+            point = repr(float(with_point.iloc[0]))
+            if with_comma is None:
+                raise dotted_values_error(source, field, point, grouped)
+            raise decimal_in_both_error(source, field, with_comma, point)
+    if with_comma is not None and only_thousands and sep == "\t":
         raise only_thousands_error(source, field, with_comma)
 
     return ","
@@ -3224,7 +3230,8 @@ def thousands_after_sample(
     texts = _text_values(data)
     grouped = None
     for values in texts:
-        found = values[values.str.fullmatch(DOT_THOUSANDS.pattern)]
+        dotted = values[values.str.contains(".", regex=False)]
+        found = dotted[dotted.str.fullmatch(DOT_THOUSANDS.pattern)]
         if not found.empty:
             grouped = found.iloc[0]
             break
@@ -3287,42 +3294,98 @@ def thousands_beyond_sample(
     (`'15.01.2020'`). A frame whose first column was read as its index (a
     header one field short) is not looked at.
     """
-    columns = {
-        str(column) for column in data.columns
-        if pd.api.types.is_float_dtype(data[column])
-    }
-    if not columns or not isinstance(data.index, pd.RangeIndex):
+    if not isinstance(data.index, pd.RangeIndex):
         return None
-    text = pd.read_csv(
-               path,
-               sep     = sep,
-               dtype   = str,
-               usecols = lambda name: str(name) in columns,
-           )
-    grouped = mixed = point = None
-    for values in _text_values(text):
-        with_groups = values.str.fullmatch(DOT_THOUSANDS.pattern)
-        decimals = values.str.fullmatch(DECIMAL_NUMBERS["."].pattern) & ~with_groups
-        whole = values.str.fullmatch(WHOLE_NUMBER.pattern)
-        if point is None and decimals.any():
-            point = values[decimals].iloc[0]
+    # The numbers already read tell which columns to read again: '1.020' was
+    # read as 1.02, at least 1, below 1,000 and with three decimals at most.
+    # A number below 1 or with more decimals only reads with '.' as decimal
+    # mark, and so does a column that cannot mix whole numbers of at most
+    # three digits with thousands: without such a column nothing changes.
+    candidates, others = set(), set()
+    mixable, point = False, None
+    for column in data.columns:
+        values = data[column]
+        if not pd.api.types.is_float_dtype(values):
+            continue
+        values = values[np.isfinite(values)]
+        whole = values % 1 == 0
+        fraction = values[~whole]
+        size = fraction.abs()
+        scaled = size * 1000
+        grouped_like = (
+            (size >= 1) & (size < 1000) & ((scaled - scaled.round()).abs() < 1e-6)
+        )
+        if point is None and not grouped_like.all():
+            point = repr(float(fraction[~grouped_like].iloc[0]))
+        if not grouped_like.any():
+            others.add(str(column))
+            continue
+        candidates.add(str(column))
+        wholes = values[whole]
+        if len(wholes) and (wholes.abs() < 1000).all():
+            mixable = True
+    if not candidates or (point is not None and not mixable):
+        return None
+
+    grouped = mixed = None
+    for values in _text_values(_read_text_columns(path, sep, candidates)):
+        dotted = values.str.contains(".", regex=False)
+        with_point = values[dotted]
+        with_groups = with_point.str.fullmatch(DOT_THOUSANDS.pattern)
+        if point is None:
+            # One number with '.' as decimal mark is enough: stop at it.
+            point = next(
+                (
+                    value for value in with_point[~with_groups]
+                    if DECIMAL_NUMBERS["."].fullmatch(value)
+                ),
+                None,
+            )
         if not with_groups.any():
             continue
         if grouped is None:
-            grouped = values[with_groups].iloc[0]
-        short = values.str.fullmatch(SHORT_WHOLE_NUMBER.pattern)
-        if mixed is None and whole.any() and (short | ~whole).all():
-            mixed = values[with_groups].iloc[0]
+            grouped = with_point[with_groups].iloc[0]
+        plain = values[~dotted]
+        wholes = plain[plain.str.fullmatch(WHOLE_NUMBER.pattern)]
+        if (
+            mixed is None
+            and not wholes.empty
+            and wholes.str.fullmatch(SHORT_WHOLE_NUMBER.pattern).all()
+        ):
+            mixed = with_point[with_groups].iloc[0]
     if grouped is None:
         return None
     if mixed is not None:
+        # Every '.' is checked before it is read as thousands: the other
+        # columns of numbers may hold '870.0', which pandas would read as
+        # 8700.
         other = point or _dotted_text(_text_values(data))
+        if other is None and others:
+            other_columns = _read_text_columns(path, sep, others)
+            other = _dotted_text(_text_values(other_columns))
         if other is not None:
             raise dotted_values_error(source, field, other, mixed)
         return "."
     if point is not None:
         return None
     raise ambiguous_thousands_error(source, field, grouped)
+
+
+def _read_text_columns(
+    path: str | Path,
+    sep: str,
+    columns: set[str],
+) -> pd.DataFrame:
+    """
+    Read some columns of a CSV file as text, to look at how their numbers
+    are written.
+    """
+    return pd.read_csv(
+               path,
+               sep     = sep,
+               dtype   = str,
+               usecols = lambda name: str(name) in columns,
+           )
 
 
 def _text_values(data: pd.DataFrame) -> list[pd.Series]:
@@ -3344,10 +3407,10 @@ def _dotted_text(texts: list[pd.Series]) -> str | None:
     the thousands ('15.01.2020', '0.5'), or None.
     """
     for values in texts:
-        other = values[
-            values.str.contains(".", regex=False)
-            & values.str.fullmatch(DOTTED_NUMBER.pattern)
-            & ~values.str.fullmatch(DOT_THOUSANDS.pattern)
+        dotted = values[values.str.contains(".", regex=False)]
+        other = dotted[
+            dotted.str.fullmatch(DOTTED_NUMBER.pattern)
+            & ~dotted.str.fullmatch(DOT_THOUSANDS.pattern)
         ]
         if not other.empty:
             return other.iloc[0]
@@ -3783,10 +3846,10 @@ def validate_target_numeric(data: pd.DataFrame, target: str | list[str]) -> None
 
     Notes
     -----
-    A column whose values that are not numbers are all numbers written with
-    a thousands separator (`'10,025.1'`, `'1.705,11'`) or with `'%'`
-    (`'12.5%'`) raises `DataContentError` for `data`, with a message that
-    names the format: the file is at fault, not the target chosen. Any
+    When every value of a column that is not a number is a number written
+    with a thousands separator (`'10,025.1'`, `'1.705,11'`) or with `'%'`
+    (`'12.5%'`), it raises `DataContentError` for `data`, with a message
+    that names the format: the file is at fault, not the target chosen. Any
     other text raises `InvalidInputError` for `target`.
     """
     targets = target if isinstance(target, list) else [target]

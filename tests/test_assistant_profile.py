@@ -1397,18 +1397,21 @@ def test_profile_InvalidInputError_when_sep_not_valid_for_data_in_memory():
 
 
 @pytest.mark.parametrize(
-    "decimals",
-    [True, False],
+    "decimals, expected",
+    [
+        (True, {"min": 870.0, "max": 2048.71, "mean": 1458.6779166666665}),
+        (False, {"min": 870.0, "max": 2049.0, "mean": 1458.7083333333333}),
+    ],
     ids=["thousands and decimal comma", "whole numbers with and without separator"],
 )
-def test_profile_records_the_thousands_separator_of_the_csv_file(tmp_path, decimals):
+def test_profile_records_the_thousands_separator_of_the_csv_file(
+    tmp_path, decimals, expected
+):
     """
     Test that profile() reads a ';' file with '.' between thousands as the
     amounts it holds and records ';', ',' and '.' as its dialect.
     """
     path = write_thousands(tmp_path, df_dialect_thousands, decimals=decimals)
-    amounts = df_dialect_thousands["y"]
-    amounts = amounts if decimals else amounts.round()
 
     result = ForecastingAssistant().profile(path, target="y")
 
@@ -1416,9 +1419,8 @@ def test_profile_records_the_thousands_separator_of_the_csv_file(tmp_path, decim
     assert (data_profile.csv_sep, data_profile.csv_decimal) == (";", ",")
     assert data_profile.csv_thousands == "."
     assert data_profile.target_dtype == "numeric"
-    assert data_profile.target_stats["y"]["min"] == pytest.approx(amounts.min())
-    assert data_profile.target_stats["y"]["max"] == pytest.approx(amounts.max())
-    assert data_profile.target_stats["y"]["mean"] == pytest.approx(amounts.mean())
+    for name, value in expected.items():
+        assert data_profile.target_stats["y"][name] == pytest.approx(value)
 
 
 @pytest.mark.parametrize(
@@ -1451,7 +1453,12 @@ def test_profile_output_when_thousands_ambiguous_and_dialect_given(
     decimal, thousands, values = expected
     assistant = ForecastingAssistant()
 
-    with pytest.raises(InvalidInputError, match="cannot be told") as exc_info:
+    err_msg = re.escape(
+        f"The thousands separator of the CSV file '{path}' cannot be told: its "
+        f"numbers with a '.' (such as '1.870') read both as thousands and as "
+        f"numbers with three decimals."
+    )
+    with pytest.raises(InvalidInputError, match="^" + err_msg + "$") as exc_info:
         assistant.profile(path, target="y")
     result = assistant.profile(path, target="y", **kwargs)
 

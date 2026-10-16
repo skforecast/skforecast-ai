@@ -321,7 +321,20 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     decimal detectado) no cabe en ella, se releen como texto las columnas
     leídas como `float` con las mismas reglas: unos datos largos ordenados
     por serie pueden traer los miles solo en series posteriores. Las URL no
-    se releen.
+    se releen. Solo se releen las columnas con valores de 1 a 999 y tres
+    decimales como mucho, y nada si los números ya leídos lo deciden: en un
+    fichero de 73 MB con decimales de precisión, 1,3 s frente a 1,0 s de una
+    lectura simple; en el peor caso (precios con dos decimales, 35 MB),
+    2,7 s frente a 0,6 s.
+  - Con `.` de miles (detectado o dado), los valores con punto que no
+    separan miles (`0.5`) solo se buscan en la muestra: un fichero
+    incoherente, concatenado de dos configuraciones regionales, con un `0.5`
+    tras los 256 KB, lo lee pandas como 5. Cubrirlo exigiría releer todas las
+    columnas numéricas de cualquier fichero grande con miles.
+  - El fichero del que se construyó un perfil (mismo `data_path`) se lee con
+    el dialecto del perfil, también cuando se detectaría otro: así un
+    `decimal='.'` dado contra la regla de mezcla se mantiene en `forecast()`.
+    Otro fichero se detecta, como en la 0.4.2.
   - V15: el error de un objetivo con separador de miles o `%` es del fichero
     (`DataContentError` en `data`), para que el servidor MCP añada
     `DATA_PROBLEM_HINT`.

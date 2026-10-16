@@ -733,9 +733,10 @@ class ForecastingAssistant:
         three decimals (`'1.705'`): pass `thousands='.'` or `decimal='.'`.
         `'.'` is read as thousands separator when the file says so: numbers
         such as `'1.705,11'` or `'1.234.567'`, a column with `'870'` and
-        `'1.020'`, or `','` as decimal mark. The other methods detect how
-        the file they receive is written, and read such a file as the
-        profile passed with it says.
+        `'1.020'`, or `','` as decimal mark. The other methods read the file
+        a profile was built from as that profile says, so what is given
+        here holds for them; another file is read as it is written, and as
+        the profile says only when that cannot be told.
         """
 
         data_path = recorded_data_path(data)

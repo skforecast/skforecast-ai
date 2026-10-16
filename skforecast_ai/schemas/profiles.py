@@ -187,12 +187,14 @@ class DataProfile(PickleDefaultsMixin, BaseModel):
         data passed in memory.
     csv_decimal : str, default '.'
         Decimal mark of the CSV file of `data_path`: `'.'` or `','`, the
-        latter only when `csv_sep` is not `','`. Detected or given as
-        `csv_sep`.
+        latter only when `csv_sep` is not `','`. Detected when the file is
+        profiled, or given with `decimal`; the generated script reads the
+        file with it.
     csv_thousands : str, None, default None
         Thousands separator of the CSV file of `data_path`: `'.'`, only
         with `','` as `csv_decimal`, or None when its numbers have none.
-        Detected or given as `csv_sep`.
+        Detected when the file is profiled, or given with `thousands`; the
+        generated script reads the file with it.
     warnings : list
         Human-readable warnings generated during profiling.
     """
