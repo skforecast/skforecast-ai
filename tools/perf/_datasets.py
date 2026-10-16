@@ -149,8 +149,8 @@ def _madrid_hourly() -> pd.DataFrame:
 # Synthetic single series of the frequency check: frequency, rows and the
 # cycles (in steps) of the seasonal signal. The first block holds
 # frequencies pandas infers for ordinary data, whose seasonal periods must
-# not change; the second, frequencies whose periods phase 7 of
-# dev/mcp-preparation.md unifies.
+# not change; the second, frequencies outside `FREQUENCY_TO_SEASONAL_PERIOD`,
+# whose period comes from `estimate_seasonality`.
 FREQUENCY_SCENARIOS: list[tuple[str, int, tuple[int, ...]]] = [
     ("ME", 120, (12,)),
     ("W-SUN", 260, (52,)),

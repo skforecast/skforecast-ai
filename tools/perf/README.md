@@ -16,7 +16,7 @@ there afterwards.
 | `mcp_startup.py` | Starts the MCP server as the plugin does (the launcher, `--allow-project-dir`, stdio) and times the answers to the handshake, `tools/list` and a first `profile`, with and without compiled bytecode (`PYTHONPYCACHEPREFIX` in an empty directory), from the checkout or with `uvx` and an empty `UV_CACHE_DIR`; `importtime` splits `-X importtime` by the answer each import came before. See its docstring. |
 | `gc_after_test.py` | pytest plugin that collects the garbage after every test, so a `ResourceWarning` (unclosed socket, file or event loop) fails the test that left the resource open. See its docstring. |
 | `_datasets.py` | The datasets both scripts use. |
-| `results/` | Timing outputs of phase 6 (`baseline_*` before any change, `final_*` after the last one), summarized in section 20 of `dev/mcp-preparation.md`, and the measurements of phase 7 (`phase7_*`: 5 to 30 minute data and the cost of foundation models). |
+| `results/` | Timing outputs of phase 6 (`baseline_*` before any change, `final_*` after the last one), summarized in section 20 of the notes of 0.4.0 (`git show 28ba4ba:dev/mcp-preparation.md`), and the measurements of phase 7 (`phase7_*`: 5 to 30 minute data and the cost of foundation models). |
 
 ```bash
 python tools/perf/parity.py dump before.json        # a few minutes

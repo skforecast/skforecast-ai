@@ -1,6 +1,7 @@
 """
 Seasonal periods that each rule gives for every frequency pandas infers
-(question 5 of section 18 of dev/mcp-preparation.md, unified in phase 7).
+(the two tables are kept apart on purpose: see the comments on
+`FREQUENCY_TO_SEASONAL_PERIOD` and `arima_seasonal_period`).
 
 - `FREQUENCY_TO_SEASONAL_PERIOD` (`_constants.py`), read through
   `tabulated_seasonal_period`: the table.

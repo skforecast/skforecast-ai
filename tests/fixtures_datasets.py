@@ -1,5 +1,5 @@
-# Fixtures with real datasets used to reproduce the findings of
-# dev/mcp-preparation.md
+# Fixtures with real datasets, stored as values so the tests do not download
+# them, used to reproduce the findings of the review before 0.4.0.
 
 import numpy as np
 import pandas as pd

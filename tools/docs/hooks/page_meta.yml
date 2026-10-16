@@ -1,0 +1,139 @@
+# Search engine texts of each page, keyed by its path relative to docs/.
+# Read by tools/docs/hooks/page_meta.py, which explains how they are used.
+# Every page needs an entry, except the redirects (template: redirect.html):
+# check them with `python tools/docs/hooks/page_meta.py`.
+#
+# - title: the <title> tag, before " - skforecast-AI Docs". Name what people
+#   search for, not the API. At most 39 characters, so that the whole tag fits
+#   in the 60 characters a search result shows (60 for the home page, which has
+#   no suffix). The short title of `nav` in mkdocs.yml still names the page in
+#   the header, the sidebar and the breadcrumbs.
+# - description: the meta description and the summary shown when the page is
+#   shared. Between 120 and 160 characters, unique, main keyword first,
+#   without en or em dashes.
+# - Neither text can contain double quotes or angle brackets (Material writes
+#   them unescaped).
+
+# Home and quick start
+README.md:
+  title: "skforecast-ai: AI forecasting assistant for Python"
+  description: >-
+    AI forecasting assistant for Python built on skforecast: it profiles your
+    time series, picks the model with rules and returns the forecast and its script.
+
+quick-start/how-to-install.md:
+  title: How to install skforecast-ai
+  description: >-
+    How to install skforecast-ai with pip: the core runs offline with no API
+    key, and optional extras add the LLM layer, the MCP server and foundation models.
+
+quick-start/first-forecast.ipynb:
+  title: Your first forecast with skforecast-ai
+  description: >-
+    Forecast a time series in Python with skforecast-ai: backtest the model,
+    read the metrics and the generated script, and predict with intervals, no LLM.
+
+quick-start/ask-the-assistant.md:
+  title: Ask an LLM about your forecast
+  description: >-
+    Connect an LLM to skforecast-ai to explain results with ask(), turn domain
+    knowledge into lags and window features and a scenario into a backtesting setup.
+
+# User guides
+user-guides/agentic-forecasting.ipynb:
+  title: Agentic forecasting with LLMs in Python
+  description: >-
+    Agentic time series forecasting in Python: skforecast-ai profiles the data,
+    selects and backtests the model with rules, and an LLM explains every decision.
+
+user-guides/agentic-forecasting-step-by-step.ipynb:
+  title: Agentic forecasting step by step
+  description: >-
+    Step by step agentic forecasting with skforecast-ai: inspect the profile and
+    the plan, override the forecaster, lags or interval, then backtest and predict.
+
+user-guides/llm-configuration.md:
+  title: Configure OpenAI, Ollama or any LLM
+  description: >-
+    Configure the optional LLM of skforecast-ai: OpenAI, Anthropic, Gemini, Groq,
+    local models with Ollama or any OpenAI-compatible endpoint, and its API keys.
+
+user-guides/skills.md:
+  title: "Skills: how the LLM is briefed"
+  description: >-
+    How skforecast-ai briefs the LLM with skills: curated skforecast documents
+    chosen for each ask() call, so its answers follow the real API, not its memory.
+
+user-guides/cli-usage.md:
+  title: Forecasting from the command line
+  description: >-
+    Forecast time series from the command line with the skforecast-ai CLI:
+    profile a CSV file, plan, backtest, predict and export the Python script that ran.
+
+user-guides/mcp-server.md:
+  title: MCP server for forecasting with agents
+  description: >-
+    Connect Claude Code, Cursor or Claude Desktop to skforecast-ai through MCP:
+    your coding agent forecasts time series with deterministic, reproducible tools.
+
+# API reference
+api/assistant.md:
+  title: ForecastingAssistant API reference
+  description: >-
+    API reference of ForecastingAssistant, the public API of skforecast-ai:
+    profile, plan, backtest, forecast, generate the code and ask the LLM about it.
+
+api/schemas/results.md:
+  title: Result objects API reference
+  description: >-
+    API reference of the results of skforecast-ai: forecasts, backtesting
+    metrics, generated code and LLM answers, as Pydantic models that render themselves.
+
+api/schemas/plans.md:
+  title: ForecastPlan API reference
+  description: >-
+    API reference of ForecastPlan in skforecast-ai: the forecaster, estimator,
+    lags, window features and cross-validation that run, rendered into a script.
+
+api/schemas/profiles.md:
+  title: ForecastingProfile API reference
+  description: >-
+    API reference of ForecastingProfile in skforecast-ai: summary statistics of
+    the time series and the forecaster and estimator recommended from them.
+
+api/exceptions.md:
+  title: Exceptions and warnings reference
+  description: >-
+    Errors and warnings of skforecast-ai: SkforecastAIError and its subclasses,
+    with a code, the argument at fault and a remedy, and the warnings it raises.
+
+api/cli.md:
+  title: skforecast-ai CLI reference
+  description: >-
+    Reference of the skforecast-ai command line interface: every command and
+    option to profile, plan, backtest, forecast and generate code from a CSV file.
+
+api/mcp.md:
+  title: MCP server tools reference
+  description: >-
+    Reference of the skforecast-ai MCP server: the tools it serves to coding
+    agents such as Claude Code, Cursor and Claude Desktop, their limits and errors.
+
+# Releases and more
+releases/releases.md:
+  title: skforecast-ai changelog and releases
+  description: >-
+    Changelog of skforecast-ai: new features, enhancements, API changes and bug
+    fixes of every release of the Python forecasting assistant built on skforecast.
+
+more/about-skforecast-ai.md:
+  title: About skforecast-ai and its team
+  description: >-
+    About skforecast-ai: its history, governance and core development team, the
+    authors of skforecast, how to cite it in your work and its open source license.
+
+more/consulting.md:
+  title: Forecasting consulting and services
+  description: >-
+    Consulting on time series forecasting and machine learning by the skforecast
+    team: forecasting projects, auditable modeling with LLMs and advisory.

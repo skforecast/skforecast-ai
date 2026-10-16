@@ -10,6 +10,19 @@ fix it, and start again from that step. Never report the task as done with a
 failing step; if a failure is unrelated to the change, say so explicitly with
 the output.
 
+Reuse: when a run ends with every step green, note the stamp of the tree,
+the hash of every file that is not ignored, taken on a copy of the index so
+the real one stays untouched:
+
+```bash
+t=$(mktemp); cp "$(git rev-parse --git-path index)" "$t"; GIT_INDEX_FILE="$t" git add -A && GIT_INDEX_FILE="$t" git write-tree; rm -f "$t"
+```
+
+If a later `verify` in this session gets the same stamp, report the
+previous result again instead of rerunning it. The stamp does not depend on
+`HEAD`, so committing the verified files keeps it (new files too), and any
+edit changes it.
+
 ## 0. How to run Python
 
 - Cloud session (`CLAUDE_CODE_REMOTE=true`): `python -m pytest`,
@@ -17,9 +30,11 @@ the output.
   and exports `SKFORECAST_AI_DOCS_PRIVACY=false`, so `mkdocs build` skips
   the privacy plugin, whose downloads the network policy may block. If
   `mkdocs` is missing, install the extra first: `pip install -e ".[docs]"`.
-- Local session: use the environment and the command prefix in
-  `CLAUDE.local.md` (`PYTHONPATH=.` and the conda env binaries). If it does
-  not exist, ask which conda environment to use.
+- Local session: when `.claude/settings.local.json` sets
+  `SKFORECAST_AI_PYTHON_ENV`, the SessionStart hook puts that environment on
+  `PATH` and exports `PYTHONPATH=.`, so `python`, `ruff` and `mkdocs` run
+  directly from the repository root. Otherwise use what `CLAUDE.local.md`
+  says, and if it does not exist, ask which conda environment to use.
 
 Below, `PY` stands for that Python command.
 
@@ -31,15 +46,46 @@ git diff --name-only HEAD
 git ls-files --others --exclude-standard
 ```
 
-On a working branch, also include the commits not yet in the release
-branch (`X.Y.x`, from `__version__` in `skforecast_ai/__init__.py`), which
-the commands above no longer show once the work is committed:
+Also include the commits not yet in the remote release branch (`X.Y.x`,
+from `__version__` in `skforecast_ai/__init__.py`), which the commands
+above no longer show once the work is committed. The same command covers a
+working branch and unpushed commits on the release branch itself:
 `git diff --name-only origin/<release-branch>...HEAD`.
 
 Classify the changed files: package code (`skforecast_ai/`), tests, docs
-(`docs/`, `mkdocs.yml`), LLM layer (`skforecast_ai/llm/`,
+(`docs/`, `mkdocs.yml`, `tools/docs/`), LLM layer (`skforecast_ai/llm/`,
 `recommendation/explanation.py`, `execution/backtesting_runner.py`,
 `execution/comparison.py`), rendering (`skforecast_ai/rendering/`).
+
+If no changed file is under one of these paths, nothing can break: report
+"nothing to verify" with the list of files and stop here.
+
+- `skforecast_ai/`, `tests/`, `pyproject.toml`
+- `docs/`, `mkdocs.yml`, `tools/docs/`
+- `README.md`, `AGENTS.md`, `CLAUDE.md`, `plugin/`, `.claude-plugin/`,
+  `packages/`, `server.json` (tests read them)
+- `.claude/hooks/`
+
+The list names what can break rather than what cannot, so a new folder runs
+the checks until it is judged safe. Notes and plans in `dev/`, the other
+skills and rules in `.claude/`, and the scripts in `tools/ai/`, `tools/mcp/`
+and `tools/perf/` are outside it: no test or build reads them.
+
+When every changed file that counts falls in one of these groups, skip
+steps 2 to 4 and run only its checks (files outside the list above do not
+count):
+
+- Docs only (`docs/`, `mkdocs.yml`, `tools/docs/`): the tests that read
+  the docs, then the docs checks of step 5 (and the release notes check if
+  `docs/releases/releases.md` changed).
+
+  ```bash
+  PY -m pytest tests/test_docs_cli_page.py tests/test_docs_skills_page.py tests/test_mcp_registry_distribution.py tests/tests_mcp/test_skill_md.py -q -p no:cacheprovider
+  ```
+
+- Hooks only (`.claude/hooks/`): the harness check of step 5.
+
+Any other mix runs every step.
 
 ## 2. Lint
 
@@ -48,6 +94,10 @@ ruff check skforecast_ai tests
 ```
 
 ## 3. Affected tests first
+
+Only for quick feedback before the full suite, which runs them again. Skip
+this step when this session already ran the affected tests green and no
+file changed since; running them while iterating is the usual case.
 
 Map each changed module to its tests and run them with `-q`:
 
@@ -70,6 +120,10 @@ PY -m pytest <paths> -q -p no:cacheprovider
 PY -m pytest -n auto -q -p no:cacheprovider
 ```
 
+Use the worker count that `CLAUDE.local.md` names instead of `auto` when it
+names one. When the docs build of step 5 is due, start it in the background
+before this step so both run at once.
+
 It must end with no failures and no errors. Warnings are errors in this
 project, so a new warning fails here too.
 
@@ -77,8 +131,11 @@ project, so a new warning fails here too.
 
 - LLM layer changed: `PY -m pytest tests/tests_llm/test_golden_context.py -q`.
   If goldens differ on purpose, follow `/llm-context-change`.
-- Docs changed: `PYTHONPATH=. mkdocs build -q -d <scratchpad>/site` (never
-  into the repo). Report warnings about broken links or references.
+- Docs changed: `mkdocs build -q -d <scratchpad>/site` (never
+  into the repo). Report warnings about broken links or references. Also run
+  `PY tools/docs/hooks/page_meta.py`: a new or renamed page needs its search
+  engine title and description in `tools/docs/hooks/page_meta.yml` (CI runs
+  the same check on pull requests).
 - Harness changed (`.claude/hooks/`): `PY -m pytest .claude/hooks -q -p
   no:cacheprovider` (outside `testpaths`, so the full suite does not run it).
 - User-visible change (API, CLI output, generated scripts, warnings) and no

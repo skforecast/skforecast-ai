@@ -68,7 +68,7 @@ ones before merge.
    and show the result to the user.
 5. `dev/` holds working notes. No `dev/handoff_*.md` file (written by
    `/handoff`) is part of the PR: delete it first, asking the user. The
-   other notes are versioned only on purpose (`dev/mcp-preparation.md`):
+   other notes are versioned only on purpose (`dev/roadmap-0.5.0.md`):
    list the `dev/` files in the diff and ask whether each belongs to the
    PR.
 

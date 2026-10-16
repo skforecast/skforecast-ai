@@ -89,6 +89,24 @@ def test_mcp_registry_entry_names_the_launcher():
     ] == [("named", "--allow-dir", True)]
 
 
+def test_mcp_registry_entry_icons_are_images_of_the_documentation():
+    """
+    Test that the registry entry has one icon for the light theme and one
+    for the dark theme, each an HTTPS URL within the limit of 255 characters
+    of the registry that serves a PNG kept in `docs/img`, so a renamed image
+    does not leave the entry without its logo.
+    """
+    icons = _server_json()["icons"]
+    prefix = "https://ai.skforecast.org/stable/img/"
+
+    assert [icon["theme"] for icon in icons] == ["light", "dark"]
+    for icon in icons:
+        assert icon["src"].startswith(prefix)
+        assert len(icon["src"]) <= 255
+        assert icon["mimeType"] == "image/png"
+        assert (ROOT / "docs" / "img" / icon["src"].removeprefix(prefix)).is_file()
+
+
 def test_mcp_registry_ownership_line_is_in_the_launcher_readme():
     """
     Test that the README the launcher publishes to PyPI has the line the
@@ -125,11 +143,14 @@ def test_mcp_registry_vscode_install_link_starts_the_launcher():
     """
     Test that the install link of VS Code in the README and in the guide,
     unreadable as it is written (encoded twice), decodes to the handler
-    `vscode:mcp/install` with the command of the launcher and an input that
-    asks for the directory of `--allow-dir`.
+    `vscode:mcp/install` with the name of the registry entry and `gallery`,
+    so VS Code opens that entry of its gallery, and with the command of the
+    launcher and an input that asks for the directory of `--allow-dir`,
+    which it writes where the gallery is turned off.
     """
     expected = {
-        "name"   : "skforecast-ai",
+        "name"   : SERVER_NAME,
+        "gallery": True,
         "command": "uvx",
         "args"   : ["skforecast-ai-mcp", "--allow-dir", "${input:allow_dir}"],
         "inputs" : [

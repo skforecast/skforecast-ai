@@ -17,7 +17,13 @@ from pathlib import Path
 import pytest
 
 HOOKS_DIR = Path(__file__).resolve().parent
-HOOK_ENV_VARS = ("CLAUDE_CODE_REMOTE", "CLAUDE_PROJECT_DIR", "CLAUDE_ENV_FILE")
+HOOK_ENV_VARS = (
+    "CLAUDE_CODE_REMOTE",
+    "CLAUDE_PROJECT_DIR",
+    "CLAUDE_ENV_FILE",
+    "SKFORECAST_AI_PYTHON_ENV",
+    "RUFF_BIN",
+)
 
 
 def git(repo: Path, *args: str) -> None:
@@ -272,3 +278,69 @@ def test_session_start_silent_in_local_session(session_start, monkeypatch, capsy
 
     assert session_start.main() == 0
     assert capsys.readouterr().out == ""
+
+
+def test_session_start_local_puts_the_environment_on_path(
+    session_start, monkeypatch, capsys, tmp_path
+):
+    """
+    Test that, with `SKFORECAST_AI_PYTHON_ENV` set in a local session, the
+    SessionStart hook exports the `bin/` of the environment first on `PATH`
+    and a relative `PYTHONPATH`, once however often it runs, and says so.
+    """
+
+    prefix = tmp_path / "envs" / "skforecast_ai_py13"
+    (prefix / "bin").mkdir(parents=True)
+    (prefix / "bin" / "python").write_text("")
+    env_file = tmp_path / "env.sh"
+    monkeypatch.setenv("SKFORECAST_AI_PYTHON_ENV", str(prefix))
+    monkeypatch.setenv("CLAUDE_ENV_FILE", str(env_file))
+
+    assert session_start.main() == 0
+    out = capsys.readouterr().out
+    assert session_start.main() == 0
+
+    assert env_file.read_text() == (
+        f'export PATH="{prefix / "bin"}:$PATH"\n'
+        f'export CONDA_PREFIX="{prefix}"\n'
+        "export CONDA_DEFAULT_ENV=skforecast_ai_py13\n"
+        'export PYTHONPATH=".${PYTHONPATH:+:$PYTHONPATH}"\n'
+    )
+    assert f"Local environment on PATH: {prefix}; versions not available." in out
+
+
+def test_session_start_local_warns_when_the_environment_has_no_python(
+    session_start, monkeypatch, capsys, tmp_path
+):
+    """
+    Test that a `SKFORECAST_AI_PYTHON_ENV` without `bin/python` gives a
+    warning and exports nothing, instead of breaking every later command.
+    """
+
+    env_file = tmp_path / "env.sh"
+    monkeypatch.setenv("SKFORECAST_AI_PYTHON_ENV", str(tmp_path / "missing"))
+    monkeypatch.setenv("CLAUDE_ENV_FILE", str(env_file))
+
+    assert session_start.main() == 0
+    assert "has no bin/python" in capsys.readouterr().out
+    assert not env_file.exists()
+
+
+def test_ruff_command_uses_the_ruff_of_the_local_environment(
+    monkeypatch, tmp_path
+):
+    """
+    Test that the edit hook takes ruff from the `bin/` of
+    `SKFORECAST_AI_PYTHON_ENV` when `RUFF_BIN` is not set, since hooks run
+    with the system `python3`, which has no ruff.
+    """
+
+    monkeypatch.syspath_prepend(str(HOOKS_DIR))
+    post_edit_check = importlib.import_module("post_edit_check")
+    ruff = tmp_path / "bin" / "ruff"
+    ruff.parent.mkdir()
+    ruff.write_text("")
+    monkeypatch.delenv("RUFF_BIN", raising=False)
+    monkeypatch.setenv("SKFORECAST_AI_PYTHON_ENV", str(tmp_path))
+
+    assert post_edit_check.ruff_command() == [str(ruff)]

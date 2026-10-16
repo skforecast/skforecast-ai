@@ -1,7 +1,8 @@
 """
 Time of a backtest of a foundation model by number of inference windows
 (series times folds), to set the threshold of its `LongTrainingWarning`
-(point 2 of phase 7 in dev/mcp-preparation.md).
+(`LONG_INFERENCE_WINDOWS`). Measured for 0.4.0: the results are in
+`results/phase7_*`.
 
 A foundation model is never trained: its cost is the load of the weights,
 once per backtest, and one inference per series and fold. The script runs

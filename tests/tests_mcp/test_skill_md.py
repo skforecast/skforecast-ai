@@ -207,7 +207,7 @@ def test_skill_md_and_guide_name_the_foundation_models_that_need_allow_model():
 )
 def test_skill_md_covers_what_agents_get_wrong(phrase):
     """
-    Test that SKILL.md covers the cases found in the review of phase 4: the
+    Test that SKILL.md covers the cases found in the review before 0.4.0: the
     comparison without baseline, problems of the CSV file, foundation
     models, `test_size` as a fraction, `compare` without candidates, the
     names of the Python API in messages and what `values_included` means.

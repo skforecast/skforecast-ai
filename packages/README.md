@@ -15,29 +15,65 @@ itself. They are not part of the `skforecast-ai` distribution
 (`tests/test_mcp_registry_distribution.py`). The `release-bump` skill
 updates them.
 
-## Publishing with GitHub Actions (on trial)
+## A release, step by step
 
-`.github/workflows/publish-pypi.yml` builds `skforecast-ai` and
-`skforecast-ai-mcp`, installs the wheels to run them, uploads both with
-Trusted Publishing (no token) and installs the launcher back from the
-index. Until a release has gone through it, the steps by hand below stay
-the reference.
+`.github/workflows/publish-pypi.yml` publishes `skforecast-ai` and
+`skforecast-ai-mcp` to PyPI with Trusted Publishing (no token), since
+0.4.2. The other steps are done by hand, in this order:
+
+1. Run `release-bump` and merge everything into the release branch
+   `X.Y.x`, with the release notes of the version closed.
+2. Open the pull request `X.Y.x` to `main` and wait for the tests and the
+   coverage to pass. Do not merge it yet: the marketplace of this
+   repository and the plugin directory serve `main`, and
+   `plugin/.mcp.json` pins a version of `skforecast-ai-mcp` that is not on
+   PyPI.
+3. Create the GitHub release `vX.Y.Z` and publish it. The **Target** is
+   the release branch, not `main`, which the form offers by default. The
+   workflow starts by itself; approve the two deployments in its run
+   (**Review deployments**), first `skforecast-ai` and then
+   `skforecast-ai-mcp`.
+4. Publish the entry of the MCP registry (see below) and check that the
+   command of the plugin starts with the new version.
+5. Merge the pull request into `main`.
+6. Select **Publish** for the new version in the plugin directory of
+   Anthropic (see below).
+7. Optional: **Deploy** and **Make Release** in Glama, so its listing
+   tests and scans the new version (see below).
+
+## The publishing workflow
+
+It builds both packages, runs `twine check --strict`, installs the two
+wheels in a clean environment to run them, uploads `skforecast-ai` and
+then the launcher, which pins its exact version, and installs the launcher
+back from the index. It does not run the test suite: the tests are the
+ones of step 2.
 
 | Trigger | Index | GitHub environment |
 |:--------|:------|:-------------------|
 | A published GitHub release, tag `vX.Y.Z` | PyPI | `pypi` |
 | A tag `test-publish-*`, or a manual run | TestPyPI | `testpypi` |
 
-Setup, once per index (<https://pypi.org> and <https://test.pypi.org> are
-separate accounts): in each of the two projects, **Settings**,
-**Publishing**, add a GitHub publisher with owner `skforecast`, repository
-`skforecast-ai`, workflow `publish-pypi.yml` and the environment of the table.
-A project that the index does not have yet takes a pending publisher, from
-**Publishing** in the settings of the account. In GitHub, the environment
-`pypi` has a required reviewer, so that a release waits for an approval
-before each of the two uploads.
+A draft of a release starts nothing; a pre-release does. The build fails,
+before any upload, when the tag is not `v` plus the version of
+`pyproject.toml`: delete the release and the tag, fix it and create them
+again. When an upload fails, **Re-run failed jobs** in the same run
+repeats it without a new release.
 
-A rehearsal, from any branch that has the workflow:
+Setup, done once per index (<https://pypi.org> and <https://test.pypi.org>
+are separate accounts): each of the two projects has, in **Settings**,
+**Publishing**, a GitHub publisher with owner `skforecast`, repository
+`skforecast-ai`, workflow `publish-pypi.yml` and the environment of the
+table. Only an Owner of the project can add it, and both projects need it:
+with one alone, the other upload answers 403, `OIDC scoped token is not
+valid for project`. A project that the index does not have yet takes a
+pending publisher, from **Publishing** in the settings of the account. In
+GitHub, the environment `pypi` has the two maintainers as required
+reviewers (the approval of one is enough) and deploys only from tags
+`v*`; `testpypi` has no rules.
+
+A rehearsal on TestPyPI, from any branch that has the workflow (the manual
+run needs the workflow on `main`):
 
 ```bash
 git tag test-publish-X.Y.Z-1
@@ -51,45 +87,22 @@ An index never takes the same file twice. A rehearsal skips the files
 that TestPyPI already has, so a second one with the same version checks
 the build and the login but uploads nothing new.
 
-The workflow does not publish the entry of the MCP registry: steps 3 and 4
-below are still done by hand.
+## The entry of the MCP registry (step 4)
 
-## Publishing by hand, after `skforecast-ai` is on PyPI
-
-The launcher pins the version of `skforecast-ai`, so that one goes first.
-
-Run them from the root of the repository, on the release branch, once
-`release-bump` has updated the versions. `python` is the one of the
-development environment, which has `build` and `twine`.
+From the root of the repository, on the release branch, once
+`skforecast-ai-mcp` X.Y.Z is on PyPI:
 
 ```bash
-# 0. skforecast-ai X.Y.Z is on PyPI
-curl -s https://pypi.org/pypi/skforecast-ai/json | python3 -c "import sys,json; print(json.load(sys.stdin)['info']['version'])"
-
-# 1. Build the launcher, without the files of the previous version
-cd packages/skforecast-ai-mcp
-rm -rf dist build skforecast_ai_mcp.egg-info
-python -m build
-python -m twine check dist/*
-
-# 2. The launcher, to PyPI (user __token__, password the token of the project)
-python -m twine upload dist/*
-
-# 3. The entry of the registry, from the root of the repository
-cd ../..
 mcp-publisher validate
 mcp-publisher login github --token <token with read:org>
 mcp-publisher publish
 
-# 4. Check
+# Check: the new version is the one with "isLatest": true
 curl -s "https://registry.modelcontextprotocol.io/v0.1/servers?search=skforecast"
-uvx skforecast-ai-mcp@X.Y.Z --help
-```
 
-Step 1 removes `dist/` because twine uploads every file in it, and the
-files of a version already on PyPI make the upload fail. Step 2 run from
-the root of the repository would upload `skforecast-ai` instead: check the
-directory first.
+# The command of the plugin starts with the new version
+CLAUDE_PROJECT_DIR="$PWD" uvx skforecast-ai-mcp==X.Y.Z --allow-project-dir < /dev/null
+```
 
 `mcp-publisher` is installed with `brew install mcp-publisher`. The GitHub
 account of the login must be an Owner of the `skforecast` organization: the
@@ -100,16 +113,25 @@ needs the `read:org` scope). The login in the browser
 organizations, and `publish` answered 403 with only
 `io.github.<user>/*` allowed, also with a public membership. What works is
 a classic personal access token with the `read:org` scope and nothing else
-(<https://github.com/settings/tokens/new>), passed with `--token` and
-deleted afterwards: the registry receives that token to exchange it.
+(<https://github.com/settings/tokens/new>), passed with `--token`. The
+registry receives that token to exchange it, so delete it afterwards or
+give it an expiration date. To keep it between releases out of any file,
+the Keychain of macOS holds it:
+
+```bash
+# Once; it asks for the token without showing it
+security add-generic-password -a "$USER" -s mcp-publisher-github -w
+
+mcp-publisher login github --token "$(security find-generic-password -a "$USER" -s mcp-publisher-github -w)"
+```
 
 The registry looks for the line `mcp-name: io.github.skforecast/skforecast-ai`
-in the README that `skforecast-ai-mcp` publishes to PyPI, so step 3 fails
-until step 2 is done. A published version of the entry cannot be changed,
-so run `mcp-publisher validate` and read `server.json` once more before
-publishing it.
+in the README that `skforecast-ai-mcp` publishes to PyPI, so `publish`
+fails until the launcher is there. A published version of the entry cannot
+be changed, so run `mcp-publisher validate` and read `server.json` once
+more before publishing it.
 
-## The plugin directory of Anthropic, after the steps above
+## The plugin directory of Anthropic (step 6)
 
 The plugin (`plugin/`) is listed in the plugin directory of Anthropic,
 submitted on 2026-10-09 from <https://claude.ai/directory/manage>. The
@@ -125,22 +147,79 @@ but two settings chosen at the submission leave a step by hand:
   `main` about every 6 hours; **Check for new commits** on the page of the
   plugin does it at once.
 
-So, in every release, once `skforecast-ai` and `skforecast-ai-mcp` are on
-PyPI:
+So, in every release, once the release branch is merged into `main`:
 
-```bash
-# 5. The command of the plugin starts with the new version
-CLAUDE_PROJECT_DIR="$PWD" uvx skforecast-ai-mcp==X.Y.Z --allow-project-dir < /dev/null
-
-# 6. Merge the release branch into main (never before step 2: the
-#    marketplace of this repository and the directory serve main)
-```
-
-7. Open the plugin from **Submissions** in the portal, select **Check for
+1. Open the plugin from **Submissions** in the portal, select **Check for
    new commits** and wait for the scan of the new commit.
-8. A launcher with a pinned package (`Runs a pinned npx or uvx package`) is
+2. A launcher with a pinned package (`Runs a pinned npx or uvx package`) is
    held for a reviewer of Anthropic, possibly in every version. When the
    version passes, select **Publish**. Until then the listing keeps serving
    the previous version.
 
 Both settings can be changed in the **Settings** tab of the plugin.
+
+## Glama (step 7)
+
+The server is listed in Glama (<https://glama.ai/mcp/servers/skforecast/skforecast-ai>),
+claimed through `glama.json`, which names the maintainers by their GitHub
+user: Glama gives the listing of a repository of an organization only to
+them. awesome-mcp-servers lists a server only when its Glama listing
+starts the server and lists its tools.
+
+Glama builds a Docker image from a spec written in its web, not in this
+repository (**Dockerfile** in the admin of the listing):
+
+| Field | Value |
+|:--|:--|
+| Python version | `3.13` |
+| Build steps | `["uv run --no-project --with skforecast-ai-mcp skforecast-ai-mcp --help"]` |
+| CMD arguments | `["mcp-proxy", "--", "uv", "run", "--no-project", "--with", "skforecast-ai-mcp", "skforecast-ai-mcp", "--allow-dir", "/tmp"]` |
+| Environment variables JSON schema | `{"type": "object", "properties": {}, "required": []}` |
+| Placeholder parameters | `{}` |
+
+The other fields keep their defaults. Why it is written this way:
+
+- Glama refuses `uvx` in the command and asks for `uv run`; `--with`
+  makes the same temporary environment. `--no-project` is needed because
+  Glama runs the command in a clone of this repository, whose
+  `pyproject.toml` would make `uv run` install `skforecast-ai` from the
+  source instead of the package of PyPI.
+- The build step fills the cache of uv in the image, so the server does
+  not download its packages (67 on Linux) when it starts.
+- The directory is fixed: Glama sets no `CLAUDE_PROJECT_DIR`, and the
+  server needs one.
+- The package has no version, so every build takes the latest one of
+  PyPI and the spec does not change in a release. The commit that Glama
+  pins in the clone does not matter for the same reason.
+- Glama read `--allow-dir` from `server.json` and proposed it as an
+  environment variable. It is an argument, so the schema stays empty.
+
+A release in Glama is a snapshot of a successful build: **Deploy** builds
+the image and starts the server, then **Make Release** publishes it with a
+version. Repeating it after a release of the package is optional; the
+listing stays valid without it.
+
+## Publishing to PyPI by hand
+
+Only when the workflow cannot be used. It needs a token of each project
+and `build` and `twine` in the environment. `skforecast-ai` goes first:
+the launcher pins its version.
+
+```bash
+# skforecast-ai, from the root of the repository
+rm -rf dist build skforecast_ai.egg-info
+python -m build
+python -m twine check --strict dist/*
+python -m twine upload dist/*
+
+# The launcher (user __token__, password the token of the project)
+cd packages/skforecast-ai-mcp
+rm -rf dist build skforecast_ai_mcp.egg-info
+python -m build
+python -m twine check --strict dist/*
+python -m twine upload dist/*
+```
+
+`dist/` is removed first because twine uploads every file in it, and the
+files of a version already on PyPI make the upload fail. Each upload takes
+the `dist/` of the directory it runs in: check the directory first.

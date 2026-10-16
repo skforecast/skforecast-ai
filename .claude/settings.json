@@ -21,7 +21,10 @@
       "Bash(conda env list)",
       "Bash(python tools/ai/update_golden_contexts.py *)",
       "Bash(python tools/ai/check_ask_context.py --dry-run *)",
-      "Bash(python tools/ai/measure_skill_tokens.py *)"
+      "Bash(python tools/ai/measure_skill_tokens.py *)",
+      "Bash(python tools/docs/hooks/page_meta.py*)",
+      "Bash(python tools/docs/check_release_notes.py*)",
+      "Bash(mkdocs build *)"
     ],
     "ask": [
       "Bash(gh pr merge *)",
