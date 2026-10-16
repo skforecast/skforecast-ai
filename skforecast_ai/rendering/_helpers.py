@@ -483,7 +483,10 @@ def _emit_data_loading(
     A file written with another separator than `','` or with `','` as
     decimal mark is read with the `sep` and `decimal` of the profile
     (`csv_sep`, `csv_decimal`), and with its `thousands` when it has one
-    (`csv_thousands`); otherwise the call does not name them.
+    (`csv_thousands`); otherwise the call does not name them. The column
+    of series ids of long-format data is read as text (`dtype`), in the
+    data and in the future exogenous variables, as the library reads it:
+    `'001'` keeps its zeros and the thousands separator does not touch it.
 
     Parameters
     ----------
@@ -539,6 +542,9 @@ def _emit_data_loading(
         if profile.csv_thousands is not None:
             dialect += f", thousands={profile.csv_thousands!r}"
 
+    if profile.series_id_column is not None:
+        dialect += f", dtype={{{profile.series_id_column!r}: str}}"
+
     lines.append(comment)
     if long_format or not index_read:
         lines.append(f"{var} = pd.read_csv({repr(data_path)}{dialect})")
@@ -580,7 +586,10 @@ def _emit_index_setup(
         Data profile with `date_column` and `frequency`.
     long_format : bool, default False
         If `False` (wide format), emits set_index + asfreq + sort_index.
-        If `True` (long format), emits to_datetime + sort_values only.
+        If `True` (long format), emits to_datetime + sort_values only,
+        after turning the series ids into text: a DataFrame passed in
+        memory, which is not read from the CSV file, may hold integer ids,
+        which skforecast cannot look up (skforecast issue #1357).
     var : str, default 'data'
         Name of the variable to prepare. Allows the same preparation to
         be reused for the future exogenous frame (`var='exog_future'`).
@@ -595,6 +604,12 @@ def _emit_index_setup(
     frequency = profile.frequency
 
     if long_format:
+        series_id = profile.series_id_column
+        if series_id is not None:
+            lines.append(
+                f"{var}[{series_id!r}] = {var}[{series_id!r}]"
+                f".map(str, na_action='ignore')"
+            )
         if date_col:
             lines.append(
                 f"{var}[{repr(date_col)}] = pd.to_datetime({var}[{repr(date_col)}])"

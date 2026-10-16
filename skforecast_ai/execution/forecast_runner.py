@@ -11,6 +11,7 @@ from typing import Any, Callable
 import pandas as pd
 
 from ..rendering._helpers import _metric_info
+from ..profiling.data_profile import series_ids_as_text
 from ..schemas import DataProfile, ForecastPlan, RenderedScript
 
 from ..rendering.single_series import render_forecast_single_series
@@ -111,9 +112,12 @@ def run_forecast(
         exog = exog_as_injected(exog, profile)
 
     # Execute the rendered code with `data` (and optional future `exog`)
-    # pre-loaded in the namespace. The future exog is injected raw; the
-    # rendered core code prepares it (same steps as `data`), so that
-    # preparation is both shown in `result.code` and actually run.
+    # pre-loaded in the namespace. The future exog is injected as it was
+    # checked (`exog_as_injected`: the date column of the data, the series
+    # ids as text, as the CSV file of the script reads them), not prepared;
+    # the rendered core code prepares it (same steps as `data`, the ids
+    # turned into text again), so that preparation is both shown in
+    # `result.code` and actually run.
     namespace = _exec_rendered_code(rendered, data, exog)
 
     # Extract standard results from the executed namespace
@@ -164,6 +168,10 @@ def exog_as_injected(exog: pd.DataFrame, profile: DataProfile) -> pd.DataFrame:
     injected future exog must expose the same column for the shared
     preparation code to run identically. Users typically pass exog
     pre-indexed by datetime, so that index is moved back to a named column.
+    In long format the series ids become text, as the series ids of the
+    data (see `series_ids_as_text`): the rendered code turns them too, so
+    a CSV file read with them as text and a DataFrame with integer ids
+    name the same series.
 
     Parameters
     ----------
@@ -182,6 +190,8 @@ def exog_as_injected(exog: pd.DataFrame, profile: DataProfile) -> pd.DataFrame:
         exog = exog.copy()
         exog.index.name = profile.date_column
         exog = exog.reset_index()
+    if profile.data_format == "long":
+        exog = series_ids_as_text(exog, profile.series_id_column)
 
     return exog
 

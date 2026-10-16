@@ -443,6 +443,20 @@ def _records(sample: str, sep: str) -> list[list[str]] | None:
         return None
 
 
+def _without_column(rows: list[list[str]], name: str) -> list[list[str]]:
+    """
+    Return the records of a sample without the fields of the column named
+    `name` in its header.
+    """
+    skip = {position for position, field in enumerate(rows[0]) if field == name}
+    if not skip:
+        return rows
+    return [
+        [field for position, field in enumerate(row) if position not in skip]
+        for row in rows
+    ]
+
+
 def _dotted_value(values: list[str]) -> str | None:
     """
     Return the first value with a `'.'` that `pandas.read_csv` would read as
@@ -564,6 +578,7 @@ def detect_csv_dialect(
     sep: str | None = None,
     decimal: str | None = None,
     thousands: str | None = None,
+    series_id_column: str | None = None,
 ) -> tuple[str, str, str | None]:
     """
     Tell the separator, the decimal mark and the thousands separator of a
@@ -604,6 +619,10 @@ def detect_csv_dialect(
     thousands : str, default None
         Thousands separator given by the caller, which is then not
         detected. With `'.'`, the decimal mark is `','`.
+    series_id_column : str, default None
+        Column of the series ids of long-format data. It is read as text,
+        so its values (`'1.020'`, `'0.5'`) neither tell the decimal mark
+        and the thousands separator nor stop them.
 
     Returns
     -------
@@ -675,6 +694,8 @@ def detect_csv_dialect(
         decimal = DEFAULT_CSV_DECIMAL if decimal is None else decimal
     else:
         rows = records.get(sep) or _records(sample, sep) or []
+        if series_id_column is not None and rows:
+            rows = _without_column(rows, series_id_column)
         decimal, thousands = _number_marks(
                                  rows      = rows,
                                  source    = source,

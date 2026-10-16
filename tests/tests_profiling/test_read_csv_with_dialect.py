@@ -16,6 +16,8 @@ from skforecast_ai.profiling.csv_dialect import (
 )
 from skforecast_ai.profiling.data_profile import read_csv_with_dialect
 
+from ..fixtures_csv_dialect import df_dialect_thousands_long, write_thousands
+
 _EXPECTED = pd.DataFrame(
     {
         "date": ["2020-01-01", "2020-01-02", "2020-01-03"],
@@ -907,3 +909,250 @@ def test_read_csv_with_dialect_output_when_thousands_is_ambiguous_and_decimal_po
     pd.testing.assert_frame_equal(data, expected)
     assert (sep, decimal, thousands) == (";", ".", None)
     assert calls == [((path,), {"sep": ";", "decimal": "."})]
+
+
+def test_read_csv_with_dialect_series_ids_are_text_with_default_dialect(
+    tmp_path, monkeypatch
+):
+    """
+    Test that the column of series ids is read as text, with the default
+    dialect too: '001', '1' and '10' keep their zeros and stay three series,
+    and `pd.read_csv` receives only `dtype` for that column. Without the
+    column, the ids are read as the integers 1, 1 and 10.
+    """
+    path = tmp_path / "ids.csv"
+    path.write_text(
+        "store,date,y\n001,2020-01-01,1.5\n1,2020-01-02,2.5\n10,2020-01-03,3.5\n"
+    )
+    calls = _record_read_csv(monkeypatch)
+
+    data, sep, decimal, thousands = read_csv_with_dialect(
+        path, series_id_column="store"
+    )
+
+    expected = pd.DataFrame(
+        {
+            "store": ["001", "1", "10"],
+            "date": ["2020-01-01", "2020-01-02", "2020-01-03"],
+            "y": [1.5, 2.5, 3.5],
+        }
+    )
+    pd.testing.assert_frame_equal(data, expected)
+    assert (sep, decimal, thousands) == (",", ".", None)
+    assert calls == [((path,), {"dtype": {"store": str}})]
+
+    data, *_ = read_csv_with_dialect(path)
+
+    assert data["store"].tolist() == [1, 1, 10]
+
+
+def test_read_csv_with_dialect_series_ids_are_text_with_thousands(
+    tmp_path, monkeypatch
+):
+    """
+    Test that a ';' file whose numbers have '.' between thousands is read
+    with ',' and '.', its target as numbers and its series ids ('001', '1',
+    '10') as text, in one call to `pd.read_csv`. Without the column, the ids
+    are read as the integers 1, 1 and 10.
+    """
+    path = write_thousands(
+        tmp_path, df_dialect_thousands_long, series_id_column="store"
+    )
+    calls = _record_read_csv(monkeypatch)
+
+    data, sep, decimal, thousands = read_csv_with_dialect(
+        path, series_id_column="store"
+    )
+
+    rows = [0, 1, 47, 48, 49, 96, 143]
+    expected = pd.DataFrame(
+        {
+            "store": ["001", "001", "001", "1", "1", "10", "10"],
+            "date": [
+                "2018-01-01", "2018-02-01", "2021-12-01", "2018-01-01",
+                "2018-02-01", "2018-01-01", "2021-12-01",
+            ],
+            "y": [870.0, 920.24, 2048.71, 1120.0, 1170.24, 600.0, 1778.71],
+        },
+        index=rows,
+    )
+    pd.testing.assert_frame_equal(data.loc[rows], expected)
+    assert len(data) == 144
+    assert data["store"].value_counts(sort=False).to_dict() == {
+        "001": 48, "1": 48, "10": 48
+    }
+    assert (sep, decimal, thousands) == (";", ",", ".")
+    assert calls == [
+        (
+            (path,),
+            {
+                "sep": ";",
+                "decimal": ",",
+                "thousands": ".",
+                "dtype": {"store": str},
+            },
+        )
+    ]
+
+    data, *_ = read_csv_with_dialect(path)
+
+    assert data["store"].tolist() == [1] * 96 + [10] * 48
+
+
+def test_read_csv_with_dialect_series_ids_with_point_do_not_tell_the_thousands(
+    tmp_path, monkeypatch
+):
+    """
+    Test that series ids such as '1.020' are not touched by the thousands
+    separator the target needs: they stay '1.020'. Without the column, the
+    thousands separator is applied to them and they are read as the integer
+    1020.
+    """
+    path = tmp_path / "ids.csv"
+    path.write_text(
+        "store;date;y\n1.020;2015-01-01;870\n1.020;2015-02-01;945\n"
+        "1.020;2015-03-01;1.020\n1.020;2015-04-01;2.015\n"
+    )
+    calls = _record_read_csv(monkeypatch)
+
+    data, sep, decimal, thousands = read_csv_with_dialect(
+        path, series_id_column="store"
+    )
+
+    expected = pd.DataFrame(
+        {
+            "store": ["1.020"] * 4,
+            "date": ["2015-01-01", "2015-02-01", "2015-03-01", "2015-04-01"],
+            "y": [870, 945, 1020, 2015],
+        }
+    )
+    pd.testing.assert_frame_equal(data, expected)
+    assert (sep, decimal, thousands) == (";", ",", ".")
+    assert calls == [
+        (
+            (path,),
+            {
+                "sep": ";",
+                "decimal": ",",
+                "thousands": ".",
+                "dtype": {"store": str},
+            },
+        )
+    ]
+
+    data, *_ = read_csv_with_dialect(path)
+
+    assert data["store"].tolist() == [1020, 1020, 1020, 1020]
+
+
+def test_read_csv_with_dialect_series_ids_with_point_when_thousands_after_the_sample(
+    tmp_path, monkeypatch
+):
+    """
+    Test that every read of a file whose thousands only come after the lines
+    the dialect is told from keeps the series ids as text ('1.020' stays
+    '1.020'): the first read with '.' as decimal mark, and the last one with
+    ',' and '.'.
+    """
+    monkeypatch.setattr("skforecast_ai.profiling.csv_dialect.SAMPLE_BYTES", 40)
+    path = tmp_path / "late.csv"
+    path.write_text(
+        "store;date;y\n1.020;2015-01-01;870\n1.020;2015-02-01;945\n"
+        "1.020;2015-03-01;1.020\n1.020;2015-04-01;2.015\n"
+    )
+    calls = _record_read_csv(monkeypatch)
+
+    data, sep, decimal, thousands = read_csv_with_dialect(
+        path, series_id_column="store"
+    )
+
+    expected = pd.DataFrame(
+        {
+            "store": ["1.020"] * 4,
+            "date": ["2015-01-01", "2015-02-01", "2015-03-01", "2015-04-01"],
+            "y": [870, 945, 1020, 2015],
+        }
+    )
+    pd.testing.assert_frame_equal(data, expected)
+    assert (sep, decimal, thousands) == (";", ",", ".")
+    assert len(calls) == 3
+    assert calls[0] == (
+        (path,), {"sep": ";", "decimal": ".", "dtype": {"store": str}}
+    )
+    assert calls[2] == (
+        (path,),
+        {
+            "sep": ";",
+            "decimal": ",",
+            "thousands": ".",
+            "dtype": {"store": str},
+        },
+    )
+
+
+def test_read_csv_with_dialect_series_ids_with_comma_do_not_tell_the_decimal_mark(
+    tmp_path,
+):
+    """
+    Test that series ids written with ',' ('1,5'), which are text, do not
+    make ',' the decimal mark of a file after the lines the dialect is told
+    from. Without the column, the ids are read as the number 1.5 with ','.
+    """
+    path = tmp_path / "ids.csv"
+    path.write_text(
+        "store;date;y\n1,5;2020-01-01;1\n1,5;2020-01-02;2\n1,5;2020-01-03;3\n"
+    )
+
+    data, sep, decimal, thousands = read_csv_with_dialect(
+        path, series_id_column="store"
+    )
+
+    expected = pd.DataFrame(
+        {
+            "store": ["1,5", "1,5", "1,5"],
+            "date": ["2020-01-01", "2020-01-02", "2020-01-03"],
+            "y": [1, 2, 3],
+        }
+    )
+    pd.testing.assert_frame_equal(data, expected)
+    assert (sep, decimal, thousands) == (";", ".", None)
+
+    data, sep, decimal, thousands = read_csv_with_dialect(path)
+
+    assert data["store"].tolist() == [1.5, 1.5, 1.5]
+    assert (sep, decimal, thousands) == (";", ",", None)
+
+
+def test_read_csv_with_dialect_series_ids_with_point_do_not_tell_thousands_when_decimal_given(
+    tmp_path,
+):
+    """
+    Test that, with ',' given as decimal mark, series ids such as '1.020' are
+    not taken for thousands: the file is read once and the ids stay '1.020'.
+    Without the column, the file is read again with '.' as thousands
+    separator and the ids are the integer 1020.
+    """
+    path = tmp_path / "ids.csv"
+    path.write_text(
+        "store;date;y\n1.020;2020-01-01;1,5\n1.020;2020-01-02;2,5\n"
+        "1.020;2020-01-03;3,5\n"
+    )
+
+    data, sep, decimal, thousands = read_csv_with_dialect(
+        path, decimal=",", series_id_column="store"
+    )
+
+    expected = pd.DataFrame(
+        {
+            "store": ["1.020", "1.020", "1.020"],
+            "date": ["2020-01-01", "2020-01-02", "2020-01-03"],
+            "y": [1.5, 2.5, 3.5],
+        }
+    )
+    pd.testing.assert_frame_equal(data, expected)
+    assert (sep, decimal, thousands) == (";", ",", None)
+
+    data, sep, decimal, thousands = read_csv_with_dialect(path, decimal=",")
+
+    assert data["store"].tolist() == [1020, 1020, 1020]
+    assert (sep, decimal, thousands) == (";", ",", ".")
