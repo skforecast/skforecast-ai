@@ -113,6 +113,16 @@ argumento explícito.
   Para V12 no vale `validate_target_numeric` tal cual: hace falta un umbral
   de "casi todo números una vez quitados `%` y `-`", o se marcarían
   categóricas de verdad. *[LLM]* probable (avisos del perfil).
+- **1h. El script lee el fichero de exógenas futuras que corrió, con su
+  dialecto (V03, adelantado de la fase 5).** Visto en
+  [#97](https://github.com/skforecast/skforecast-ai/pull/97): el script lee
+  `exog_future.csv` del directorio de trabajo, con el formato de fecha
+  (#96) y la codificación (#97) del fichero que se leyó, pero con el
+  separador, el decimal y los miles por defecto, como si fuera un
+  `to_csv()`. Unas exógenas del Excel en español (cp1252 y `;`) las lee
+  `forecast()` y el script falla: contra el principio 2. Que el script lea la
+  ruta que corrió (como los datos) con todo su dialecto, guardado como el de
+  los datos pero aparte. *[script]*
 
 ### Tandas
 
@@ -127,6 +137,7 @@ empieza cuando la anterior está mergeada.
 | 1 | 1a (miles), 1b (ids como texto), 1c (filas largas) | 1a es de prioridad alta; 1b toca el reshape multiserie, otra zona; 1c solo detecta y no toca scripts |
 | 2 | 1d (fechas día primero), 1g (exógenas sucias) | 1d añade, como 1a, un campo al perfil y un argumento al `read_csv` del script: va sobre 1a mergeado. 1g solo cambia avisos del perfil |
 | 3 | 1f (cp1252), 1e (frecuencia con huecos) | 1f sigue el mismo patrón que 1a y 1d; 1e va después de 1d porque toca la misma inferencia |
+| 3 bis | 1h (dialecto de las exógenas futuras) | Salió de #97 (1f); toca la lectura de las exógenas, no la inferencia de frecuencia, así que va en paralelo con 1e |
 
 Lo que cada sesión necesita saber (en la nube no hay a quién preguntar):
 
@@ -270,9 +281,8 @@ pequeños; se pueden agrupar en dos o tres PR.
 - **`get_code`**: la primera llamada calcula `requirements` en el event loop
   y lo bloquea mientras dura una ejecución (G05: medido, todo el servidor
   espera); añade el backend del modelo fundacional al script de una
-  estrategia, que no carga ningún modelo; y el script de un forecast con
-  `exog_path` lee `exog_future.csv` del directorio de trabajo, no el fichero
-  que corrió (V03). *[script]* (V03)
+  estrategia, que no carga ningún modelo. (V03, el fichero de exógenas que
+  lee el script, pasó a la fase 1 como 1h.)
 - **`profile` sin `target` cuando el usuario ya nombró la columna.** Cuesta
   una llamada (9 de 81 con el modelo grande). Con el pequeño, una sesión se
   saltó así el error de la columna inexistente y la sustituyó sin decirlo.
@@ -290,7 +300,9 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
 
 1. `/llm-context-change` con todos los PR marcados *[LLM]*: goldens
    revisados y un solo check de pago contra un modelo real
-   (`tools/ai/check_ask_context.py`, lo lanzas tú).
+   (`tools/ai/check_ask_context.py`, lo lanzas tú). En el mismo ciclo:
+   `ask(context=profile, plan=plan)` explica el script sin la codificación ni
+   el formato de fecha de las exógenas (pregunta 4 de #97).
 2. Check con agentes de `tools/mcp/` (cambian el SKILL, el coste y las
    descripciones: está en "When to run it"), al menos con sonnet y con haiku
    en los escenarios críticos. Debe incluir un escenario con un CSV de Excel
