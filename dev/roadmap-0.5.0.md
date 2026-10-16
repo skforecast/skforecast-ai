@@ -489,7 +489,7 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     (registrar el formato aunque la primera fecha diga día primero) y 5
     (`dtype={'date': str}` con miles): sí, como estaban.
 - **D8. 1e: frecuencia con huecos regulares o frecuentes** (2026-10-16).
-  Concretado en la PR de `fix/frequency-with-regular-gaps`:
+  Concretado en [#98](https://github.com/skforecast/skforecast-ai/pull/98):
   - Cuando ningún tramo de 10 fechas seguidas da frecuencia, se infiere en
     ventanas de 3 (las menos de las que pandas infiere una), en bloques de
     20 ventanas seguidas si el índice es largo: ventanas sueltas a
