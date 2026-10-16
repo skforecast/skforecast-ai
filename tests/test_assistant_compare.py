@@ -63,6 +63,7 @@ from tests.fixtures_compare import (
 from tests.fixtures_datasets import (
     df_h2o,
     df_h2o_daily,
+    df_items_sales_long,
 )
 from tests.fixtures_assistant import (
     df_multi_wide,
@@ -618,6 +619,48 @@ def test_compare_output_when_multi_series_wide():
     # finite even though the raw metrics frame has multiple level rows.
     ranking_value = result.results[result.ranking_metric].iloc[0]
     assert np.isfinite(ranking_value)
+
+
+@pytest.mark.parametrize("with_profile", [True, False], ids=["profile", "no_profile"])
+def test_compare_output_when_long_format_multiindex(with_profile):
+    """
+    Test that compare() ranks the candidates of long-format data indexed by
+    a (series, date) MultiIndex as those of the same data with the levels as
+    columns, which is how their scripts read the frame saved with
+    `to_csv()`. Before, every candidate failed in the executed script
+    (KeyError: 'date') and compare() raised AllCandidatesFailedError.
+    """
+    candidates = [
+        (
+            "multiseries_ridge",
+            {"forecaster": "ForecasterRecursiveMultiSeries", "estimator": "Ridge"},
+        )
+    ]
+    cv = TimeSeriesFold(steps=5, initial_train_size=80, verbose=False)
+    expected = assistant.compare(
+        data             = df_items_sales_long,
+        target           = "value",
+        date_column      = "date",
+        series_id_column = "series",
+        cv               = cv,
+        candidates       = candidates,
+        show_progress    = False,
+    )
+    data = df_items_sales_long.set_index(["series", "date"])
+    if with_profile:
+        kwargs = {"profile": assistant.profile(data=data, target="value")}
+    else:
+        kwargs = {"target": "value"}
+
+    result = assistant.compare(
+        data=data, cv=cv, candidates=candidates, show_progress=False, **kwargs
+    )
+
+    pd.testing.assert_frame_equal(result.results, expected.results)
+    assert (
+        result.candidates["multiseries_ridge"].code
+        == expected.candidates["multiseries_ridge"].code
+    )
 
 
 # =============================================================================

@@ -374,6 +374,34 @@ def test_resolve_inputs_with_profile_raises_when_columns_missing_in_data():
         )
 
 
+@pytest.mark.parametrize("with_profile", [False, True], ids=["no_profile", "profile"])
+def test_resolve_inputs_with_profile_output_when_multiindex(with_profile):
+    """
+    Test that long-format data indexed by a (series_id, date) MultiIndex is
+    returned with its levels as columns of the same name, as profiling reads
+    them and as the script reads the frame saved with `to_csv()`, and that
+    the date and series id columns come from the levels without a profile
+    and from the profile with one.
+    """
+    data = df_multi_long.set_index(["series_id", "date"])
+    profile = (
+        ForecastingAssistant().profile(data=data, target="value")
+        if with_profile
+        else None
+    )
+
+    data_df, target, date_column, series_id_column = _resolve_inputs_with_profile(
+        data, "value", None, None, profile=profile
+    )
+
+    pd.testing.assert_frame_equal(
+        data_df, df_multi_long[["series_id", "date", "value"]]
+    )
+    assert target == "value"
+    assert date_column == "date"
+    assert series_id_column == "series_id"
+
+
 def test_resolve_inputs_with_profile_output_when_series_input():
     """
     Test that a pandas Series takes its target from its name and that a

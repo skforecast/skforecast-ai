@@ -28,6 +28,7 @@ from tests.fixtures_csv_dialect import (
     write_thousands,
 )
 from tests.fixtures_datasets import df_h2o, df_items_sales_long
+from tests.fixtures_future_exog import data_long, exog_long
 
 
 def _run_standalone(script: str, workdir) -> pd.DataFrame:
@@ -529,6 +530,33 @@ def test_standalone_script_matches_forecast_when_long_format_future_exog(tmp_pat
 
     assert executed.plan.use_exog is True
     assert "exog_future['date'] = pd.to_datetime(exog_future['date'])" in executed.code
+    standalone = _run_standalone(executed.code, tmp_path)
+    assert list(standalone["level"]) == list(executed.predictions["level"])
+    np.testing.assert_allclose(
+        standalone["pred"].to_numpy(), executed.predictions["pred"].to_numpy(),
+        rtol=1e-6,
+    )
+
+
+
+def test_standalone_script_matches_forecast_when_long_format_multiindex(tmp_path):
+    """
+    Test that the script of long-format data passed in memory indexed by a
+    (series, date) MultiIndex, with the future exogenous variables indexed
+    the same way, runs as a file on the frames saved with `to_csv()` and
+    gives the predictions of forecast(): `to_csv()` writes the levels as
+    columns, which is how forecast() runs the data. Before, forecast() failed
+    because the executed script did not find the date column.
+    """
+    data = data_long.set_index(["series", "date"])
+    exog = exog_long.set_index(["series", "date"])
+    executed = ForecastingAssistant().forecast(
+        data=data, target="value", steps=7, estimator="Ridge", exog=exog
+    )
+    data.to_csv(tmp_path / "data.csv")
+    exog.to_csv(tmp_path / "exog_future.csv")
+
+    assert executed.plan.use_exog is True
     standalone = _run_standalone(executed.code, tmp_path)
     assert list(standalone["level"]) == list(executed.predictions["level"])
     np.testing.assert_allclose(
