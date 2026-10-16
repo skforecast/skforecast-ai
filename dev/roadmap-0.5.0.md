@@ -540,7 +540,8 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
   - Nota de release solo en **Fixed**, sin destacado ni "Before upgrading":
     los scripts solo cambian para ficheros que antes fallaban.
 - **D9. 1h: el script lee el fichero de exógenas futuras que corrió**
-  (2026-10-16):
+  (2026-10-16). Concretado en
+  [#99](https://github.com/skforecast/skforecast-ai/pull/99):
   - `load_exog` deja en `exog.attrs['exog_file']` un `FutureExogFile`
     (`schemas/profiles.py`, exportado en `skforecast_ai.schemas`): la ruta
     tal como se leyó (la resuelta dentro de `--allow-dir` en el MCP), `sep`,

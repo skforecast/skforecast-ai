@@ -19,10 +19,7 @@ The main changes in this release are:
 
     Some results change with this version, without any change in your code:
 
-    + The scripts of long-format data read the series ids as text and turn them into text before the reshape: one more line (two with future exogenous variables), with the same predictions. See + New option `--exog` of the `forecast-code` command of the [CLI][cli], so the script reads the future exogenous values from that file, as `forecast --exog` does, instead of `exog_future.csv`. See the [CLI guide][cli-guide].
-
-
-**Changed**.
+    + The scripts of long-format data read the series ids as text and turn them into text before the reshape: one more line (two with future exogenous variables), with the same predictions. See **Changed**.
     + The scripts of a forecast with future exogenous values read from a file (`exog_path` of the MCP server, `--exog` of the CLI) read that file by its path, with its own separator, decimal mark and encoding, instead of `exog_future.csv` in the working directory. See **Fixed**.
     + The scripts of dates that write the day and the month as numbers read them with their format (`format='%d/%m/%Y'`, or `'%m/%d/%Y'` month first), also when the first date already said so, and those of files with `.` between thousands read the date column as text: the same predictions. See **Changed**.
 
@@ -38,6 +35,8 @@ The main changes in this release are:
 + New argument `thousands` of [<code>ForecastingAssistant.profile()</code>][assistant] (`--thousands` in the CLI, `thousands` in the `profile` tool of the MCP server), recorded as `DataProfile.csv_thousands` and passed to `pd.read_csv` by the generated script. See the [CLI guide][cli-guide] ([#86](https://github.com/skforecast/skforecast-ai/pull/86)).
 
 + New argument `dayfirst` of [<code>ForecastingAssistant.profile()</code>][assistant] (`--dayfirst` or `--monthfirst` in the CLI, `dayfirst` in the `profile` tool of the MCP server) for text dates that read both day first and month first, in a CSV file or the `date_column` of a DataFrame; with dates already parsed, an `IgnoredArgumentWarning` says it does not apply. The profile records the format of the dates as `DataProfile.date_format`. See the [CLI guide][cli-guide] ([#96](https://github.com/skforecast/skforecast-ai/pull/96)).
+
++ New option `--exog` of the `forecast-code` command of the [CLI][cli], so the script reads the future exogenous values from that file, as `forecast --exog` does, instead of `exog_future.csv`. See the [CLI guide][cli-guide] ([#99](https://github.com/skforecast/skforecast-ai/pull/99)).
 
 
 **Changed**
@@ -71,7 +70,7 @@ The main changes in this release are:
 
 + [<code>ForecastingAssistant.profile()</code>][assistant] gave no warning for numbers written as text in an exogenous column (`12%`, `-` for a missing value), used then as a categorical variable, nor for its missing values below a rate of 20 %. Both now add a warning naming the column (a `DataProfileWarning` notice in the MCP server); the data are not changed ([#95](https://github.com/skforecast/skforecast-ai/pull/95)).
 
-+ The script of a forecast with future exogenous values read from a file (`exog_path` of the MCP server, `--exog` of the CLI) read `exog_future.csv` from its working directory as `to_csv()` writes it, so it failed, also when copied there from a file of the Excel in Spanish (`;`, `,` as decimal mark). It now reads that file by its path with its separator, decimal mark, thousands separator, encoding and date format. See the [MCP server guide][mcp-guide].
++ The script of a forecast with future exogenous values read from a file (`exog_path` of the MCP server, `--exog` of the CLI) read `exog_future.csv` from its working directory as `to_csv()` writes it, so it failed, also when copied there from a file of the Excel in Spanish (`;`, `,` as decimal mark). It now reads that file by its path with its separator, decimal mark, thousands separator, encoding and date format. See the [MCP server guide][mcp-guide] ([#99](https://github.com/skforecast/skforecast-ai/pull/99)).
 
 
 ## 0.4.2 <small>Oct 12, 2026</small> { id="0.4.2" }
