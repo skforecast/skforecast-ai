@@ -219,6 +219,12 @@ cuenta al usuario.
   `fixed_train_size` sin `refit`: el esquema dice que es un error y el
   servidor solo avisa (V21). `FutureExogNotice` nombra también las
   categóricas que un modelo fundacional descartaría (hoy no se alcanza).
+  Un plan con `use_exog=False` arrastra los avisos de las exógenas de su
+  perfil (el 20 % de faltantes y, desde
+  [#95](https://github.com/skforecast/skforecast-ai/pull/95), los números
+  escritos como texto y los faltantes de cada columna), y con ellos al
+  contexto del LLM: un plan que no usa exógenas no debería llevarlos.
+  *[LLM]*
 
 ## Fase 4. Coste
 
@@ -559,3 +565,15 @@ Hoy `compare()` solo ordena configuraciones fijas. Un paso acotado de
 búsqueda con las funciones de skforecast, con su coste en `CostNotice` como
 los backtests. Después de la fase 4, que deja bien contado el coste de
 `compare`.
+
+### pandas 3, cuando skforecast lo soporte
+
+skforecast 0.26 declara `pandas<3.0`, así que hoy el resolvedor nunca
+instala pandas 3 junto a skforecast-ai (que pide `pandas>=2.2`, sin cota
+superior). Cuando skforecast lo admita, revisar lo que depende del dtype de
+las columnas de texto, que en pandas 3 es `str` y no `object`:
+`detect_categorical_exog` y `detect_numbers_as_text`
+(`profiling/data_profile.py`) solo miran `object`, `category` y `bool`, así
+que una exógena de texto no se trataría como categórica. Visto en
+[#95](https://github.com/skforecast/skforecast-ai/pull/95). Pasar la suite
+con pandas 3 antes de quitar la cota de skforecast.
