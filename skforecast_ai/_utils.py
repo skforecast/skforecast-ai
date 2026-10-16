@@ -49,6 +49,7 @@ from .profiling.data_profile import (
     date_issue_hint,
     decimal_after_sample,
     read_csv_with_dialect,
+    thousands_after_sample,
 )
 from .profiling.csv_dialect import (
     CSV_SEPARATORS,
@@ -805,31 +806,34 @@ def _validate_forecast_mode(
 
 
 # How the last CSV file read in this context is written: the path recorded
-# for it, its separator and its decimal mark. The workflows read the file
-# first and record its path in the profile later (`_with_data_path`), which
-# takes the dialect from here instead of reading the file again.
-_READ_CSV_DIALECT: ContextVar[tuple[str, str, str] | None] = ContextVar(
-    "_READ_CSV_DIALECT", default=None
+# for it, its separator, its decimal mark and its thousands separator. The
+# workflows read the file first and record its path in the profile later
+# (`_with_data_path`), which takes the dialect from here instead of reading
+# the file again.
+_READ_CSV_DIALECT: ContextVar[tuple[str, str, str, str | None] | None] = (
+    ContextVar("_READ_CSV_DIALECT", default=None)
 )
 
 
-def _dialect_read(data_path: str) -> tuple[str | None, str | None]:
+def _dialect_read(data_path: str) -> tuple[str | None, str | None, str | None]:
     """
-    Return the separator and the decimal mark the file recorded as
-    `data_path` was read with, or None for both when the last CSV read in
-    this context is another one (or none, for data passed in memory).
+    Return the separator, the decimal mark and the thousands separator the
+    file recorded as `data_path` was read with, or None for all three when
+    the last CSV read in this context is another one (or none, for data
+    passed in memory). The separator is never None for a file read.
     """
     read = _READ_CSV_DIALECT.get()
     if read is None or read[0] != data_path or data_path == PLACEHOLDER_DATA_PATH:
-        return None, None
-    return read[1], read[2]
+        return None, None, None
+    return read[1], read[2], read[3]
 
 
 def _read_csv_url(
     url: str,
     sep: str | None = None,
     decimal: str | None = None,
-) -> tuple[pd.DataFrame, str, str]:
+    thousands: str | None = None,
+) -> tuple[pd.DataFrame, str, str, str | None]:
     """
     Read the CSV file of a URL and return how it is written.
 
@@ -848,6 +852,9 @@ def _read_csv_url(
         Separator of the fields. If None, it is detected.
     decimal : str, default None
         Decimal mark. If None, it is detected.
+    thousands : str, default None
+        Thousands separator. If None, it is detected, except when `decimal`
+        is `'.'`.
 
     Returns
     -------
@@ -857,11 +864,14 @@ def _read_csv_url(
         Separator the file was read with.
     decimal : str
         Decimal mark the file was read with.
+    thousands : str, None
+        Thousands separator the file was read with, or None for none.
     """
     decimal_given = decimal is not None
-    if sep is None or decimal is None:
+    unchecked = False
+    if sep is None or decimal is None or thousands is not None:
         data, unread = None, None
-        if sep is None and decimal is None:
+        if sep is None and decimal is None and thousands is None:
             try:
                 data = pd.read_csv(url)
             except pd.errors.ParserError as exc:
@@ -873,26 +883,32 @@ def _read_csv_url(
                     other in header for other in CSV_SEPARATORS
                     if other != DEFAULT_CSV_SEP
                 ):
-                    return data, DEFAULT_CSV_SEP, DEFAULT_CSV_DECIMAL
+                    return data, DEFAULT_CSV_SEP, DEFAULT_CSV_DECIMAL, None
         sample = read_url_sample(url)
         if sample is None:
+            # Checked once pandas reads the file (see `read_csv_with_dialect`).
+            unchecked = True
             sep = DEFAULT_CSV_SEP if sep is None else sep
             decimal = DEFAULT_CSV_DECIMAL if decimal is None else decimal
+            decimal = "," if thousands is not None else decimal
         else:
-            sep, decimal = detect_csv_dialect(
-                               sample  = sample,
-                               source  = url,
-                               sep     = sep,
-                               decimal = decimal,
-                           )
-        check_csv_dialect(sep, decimal)
-        if not csv_read_kwargs(sep, decimal):
+            sep, decimal, thousands = detect_csv_dialect(
+                                          sample    = sample,
+                                          source    = url,
+                                          sep       = sep,
+                                          decimal   = decimal,
+                                          thousands = thousands,
+                                      )
+            check_csv_dialect(sep, decimal, thousands)
+        if not csv_read_kwargs(sep, decimal, thousands):
             if unread is not None:
                 raise unread
             if data is not None:
-                return data, sep, decimal
+                return data, sep, decimal, thousands
 
-    data = pd.read_csv(url, **csv_read_kwargs(sep, decimal))
+    data = pd.read_csv(url, **csv_read_kwargs(sep, decimal, thousands))
+    if unchecked:
+        check_csv_dialect(sep, decimal, thousands)
     if (
         not decimal_given
         and sep != DEFAULT_CSV_SEP
@@ -901,8 +917,15 @@ def _read_csv_url(
     ):
         decimal = ","
         data = pd.read_csv(url, **csv_read_kwargs(sep, decimal))
+    if (
+        thousands is None
+        and decimal == ","
+        and thousands_after_sample(data, url, "data") is not None
+    ):
+        thousands = "."
+        data = pd.read_csv(url, **csv_read_kwargs(sep, decimal, thousands))
 
-    return data, sep, decimal
+    return data, sep, decimal, thousands
 
 
 def _resolve_data_and_target(
@@ -911,6 +934,7 @@ def _resolve_data_and_target(
     date_column: str | None = None,
     sep: str | None = None,
     decimal: str | None = None,
+    thousands: str | None = None,
 ) -> tuple[pd.DataFrame, str | list[str]]:
     """
     Coerce the input to a DataFrame and resolve the target column name.
@@ -921,10 +945,10 @@ def _resolve_data_and_target(
     paths and URLs are loaded with `pandas.read_csv` (without `parse_dates`,
     deprecated in pandas 2.2+); date columns are detected and parsed by
     `_try_parse_first_date_column` instead, leaving every column intact so
-    callers can reference a `date_column` by name. The separator and the
-    decimal mark of the file are detected unless given (see
-    `read_csv_with_dialect`), and kept for `_with_data_path` to record them
-    in the profile.
+    callers can reference a `date_column` by name. The separator, the
+    decimal mark and the thousands separator of the file are detected
+    unless given (see `read_csv_with_dialect`), and kept for
+    `_with_data_path` to record them in the profile.
 
     Parameters
     ----------
@@ -945,6 +969,9 @@ def _resolve_data_and_target(
     decimal : str, default None
         Decimal mark of a CSV file: `'.'` or `','`. If None, it is
         detected. Ignored for data passed in memory.
+    thousands : str, default None
+        Thousands separator of a CSV file: `'.'`, with `','` as decimal
+        mark. If None, it is detected. Ignored for data passed in memory.
 
     Returns
     -------
@@ -962,7 +989,8 @@ def _resolve_data_and_target(
         match the Series name, when `data` is not a Series and `target` is
         None, when the dates of a CSV have empty cells, mixed time zones or
         more than one format (see `date_column`), or when a CSV file cannot
-        be read as one or its separator or decimal mark cannot be told.
+        be read as one or its separator, decimal mark or thousands separator
+        cannot be told.
     FileNotFoundError
         When `data` is a path or URL that cannot be read.
     """
@@ -999,12 +1027,14 @@ def _resolve_data_and_target(
             field = "target",
         )
 
-    check_csv_dialect(sep, decimal)
+    check_csv_dialect(sep, decimal, thousands)
     if isinstance(data, (str, Path)):
         data_str = str(data)
         if data_str.startswith(("http://", "https://")):
             try:
-                df, sep, decimal = _read_csv_url(data_str, sep, decimal)
+                df, sep, decimal, thousands = _read_csv_url(
+                                                  data_str, sep, decimal, thousands
+                                              )
             except InvalidInputError:
                 # The dialect of the file cannot be told.
                 raise
@@ -1017,7 +1047,9 @@ def _resolve_data_and_target(
                     field = "data",
                 ) from e
             check_csv_fields(df, data_str)
-            _READ_CSV_DIALECT.set((recorded_data_path(data), sep, decimal))
+            _READ_CSV_DIALECT.set(
+                (recorded_data_path(data), sep, decimal, thousands)
+            )
             return _try_parse_first_date_column(df, date_column), target
         path = Path(data_str)
         if not path.is_file():
@@ -1025,8 +1057,13 @@ def _resolve_data_and_target(
                 f"CSV file not found: '{path}'. Please provide a valid file path.",
                 field = "data",
             )
-        df, sep, decimal = read_csv_with_dialect(path, sep=sep, decimal=decimal)
-        _READ_CSV_DIALECT.set((recorded_data_path(data), sep, decimal))
+        df, sep, decimal, thousands = read_csv_with_dialect(
+                                          path      = path,
+                                          sep       = sep,
+                                          decimal   = decimal,
+                                          thousands = thousands,
+                                      )
+        _READ_CSV_DIALECT.set((recorded_data_path(data), sep, decimal, thousands))
         return _try_parse_first_date_column(df, date_column), target
 
     return data, target
@@ -1075,8 +1112,8 @@ def load_exog(
     """
     Load the future exogenous variables from a CSV file.
 
-    The separator and the decimal mark of the file are detected as for the
-    data (see `read_csv_with_dialect`).
+    The separator, the decimal mark and the thousands separator of the file
+    are detected as for the data (see `read_csv_with_dialect`).
     The dates are read as the CSV loader of the data reads them, so empty
     date cells or UTC offsets that change raise an error that says so. They
     are the `date_column` when given. Otherwise they are the first column
@@ -1123,7 +1160,11 @@ def load_exog(
 
     # Rows longer than the header raise, except a header one field short
     # (see `check_csv_fields`).
-    exog, sep, decimal = read_csv_with_dialect(path, field="exog", index_first=True)
+    exog, sep, decimal, thousands = read_csv_with_dialect(
+                                        path        = path,
+                                        field       = "exog",
+                                        index_first = True,
+                                    )
     if not isinstance(exog.index, pd.RangeIndex):
         # A header one field short: pandas reads the first field as the
         # index, as `index_col=0` read it before; with `date_column`, the
@@ -1174,7 +1215,7 @@ def load_exog(
                     path,
                     index_col   = 0,
                     parse_dates = True,
-                    **csv_read_kwargs(sep, decimal),
+                    **csv_read_kwargs(sep, decimal, thousands),
                 ).index
             if isinstance(index, pd.DatetimeIndex) and len(index) == len(filled):
                 exog[first] = index[filled]
@@ -1300,26 +1341,38 @@ def _resolve_inputs_with_profile(
         target = dp.target
     # The CSV loader checks the date column of the profile, which the script
     # reads, and reports it when its dates cannot be used.
-    # How a file is written belongs to the file, not to the data: the same
-    # data exported again with another separator still fit the profile, so
-    # the dialect of the file given is detected. Only when it cannot be
-    # told is the file read as a profile built from a file says, which is
-    # how `sep` and `decimal` of `profile()` reach the other methods.
+    # How a file is written belongs to the file, not to the data. The file
+    # the profile was built from is read as the profile says, which is how
+    # `sep`, `decimal` and `thousands` of `profile()` reach the other
+    # methods: detecting it again would undo a `decimal='.'` given against
+    # what the file seemed to say. Another file (the same data exported
+    # again with another separator) is detected, and read as the profile
+    # says only when its dialect cannot be told.
+    dialect = {
+        "sep": dp.csv_sep,
+        "decimal": dp.csv_decimal,
+        "thousands": dp.csv_thousands,
+    }
+    same_file = (
+        dp.data_path != PLACEHOLDER_DATA_PATH
+        and isinstance(data, (str, Path))
+        and recorded_data_path(data) == dp.data_path
+    )
     try:
         data_df, target = _resolve_data_and_target(
                               data        = data,
                               target      = target,
                               date_column = dp.date_column,
+                              **(dialect if same_file else {}),
                           )
     except CsvDialectError:
-        if dp.data_path == PLACEHOLDER_DATA_PATH:
+        if dp.data_path == PLACEHOLDER_DATA_PATH or same_file:
             raise
         data_df, target = _resolve_data_and_target(
                               data        = data,
                               target      = target,
                               date_column = dp.date_column,
-                              sep         = dp.csv_sep,
-                              decimal     = dp.csv_decimal,
+                              **dialect,
                           )
     if target != dp.target:
         raise InvalidInputError(
@@ -1416,10 +1469,10 @@ def _with_data_path(
     `'data.csv'`, so the script never loads the file a saved profile was
     built from instead of the data that ran (it fails loudly when the data
     is not saved there). The path is set with `model_copy`, without reading
-    the file again; it reaches the script through `repr()`. The separator
-    and the decimal mark the file was read with are recorded with it
-    (`','` and `'.'` for data passed in memory), so the script reads the
-    file as it was read.
+    the file again; it reaches the script through `repr()`. The separator,
+    the decimal mark and the thousands separator the file was read with are
+    recorded with it (`','`, `'.'` and none for data passed in memory), so
+    the script reads the file as it was read.
 
     Parameters
     ----------
@@ -1441,16 +1494,21 @@ def _with_data_path(
     if data_path == PLACEHOLDER_DATA_PATH and _RUN_DATA_PATH.get() is not None:
         data_path = _RUN_DATA_PATH.get()
     dp = profile.data_profile
-    sep, decimal = dp.csv_sep, dp.csv_decimal
+    sep, decimal, thousands = dp.csv_sep, dp.csv_decimal, dp.csv_thousands
     if data_path == PLACEHOLDER_DATA_PATH:
-        sep, decimal = DEFAULT_CSV_SEP, DEFAULT_CSV_DECIMAL
+        sep, decimal, thousands = DEFAULT_CSV_SEP, DEFAULT_CSV_DECIMAL, None
     else:
         # Also for the DataFrame of a comparison, whose path is the one of
         # the file it was read from.
-        read_sep, read_decimal = _dialect_read(data_path)
-        if read_sep is not None:
-            sep, decimal = read_sep, read_decimal
-    update = {"data_path": data_path, "csv_sep": sep, "csv_decimal": decimal}
+        read = _dialect_read(data_path)
+        if read[0] is not None:
+            sep, decimal, thousands = read
+    update = {
+        "data_path": data_path,
+        "csv_sep": sep,
+        "csv_decimal": decimal,
+        "csv_thousands": thousands,
+    }
     if all(getattr(dp, name) == value for name, value in update.items()):
         return profile
     return profile.model_copy(update={"data_profile": dp.model_copy(update=update)})

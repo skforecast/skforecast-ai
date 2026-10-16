@@ -482,7 +482,8 @@ def _emit_data_loading(
 
     A file written with another separator than `','` or with `','` as
     decimal mark is read with the `sep` and `decimal` of the profile
-    (`csv_sep`, `csv_decimal`); otherwise the call does not name them.
+    (`csv_sep`, `csv_decimal`), and with its `thousands` when it has one
+    (`csv_thousands`); otherwise the call does not name them.
 
     Parameters
     ----------
@@ -524,9 +525,10 @@ def _emit_data_loading(
         or profile.data_path == PLACEHOLDER_DATA_PATH
     )
 
-    # A file written with another separator or decimal mark is read with
-    # the ones recorded when it was profiled. Data passed in memory and the
-    # future exogenous variables are the frames saved with `to_csv()`.
+    # A file written with another separator, decimal mark or thousands
+    # separator is read with the ones recorded when it was profiled. Data
+    # passed in memory and the future exogenous variables are the frames
+    # saved with `to_csv()`.
     dialect = ""
     if (
         path is None
@@ -534,6 +536,8 @@ def _emit_data_loading(
         and (profile.csv_sep, profile.csv_decimal) != (",", ".")
     ):
         dialect = f", sep={profile.csv_sep!r}, decimal={profile.csv_decimal!r}"
+        if profile.csv_thousands is not None:
+            dialect += f", thousands={profile.csv_thousands!r}"
 
     lines.append(comment)
     if long_format or not index_read:

@@ -8,7 +8,12 @@ import pytest
 
 from skforecast_ai.exceptions import InvalidInputError
 from skforecast_ai.profiling import data_profile as data_profile_module
-from skforecast_ai.profiling.csv_dialect import DIALECT_HINT, EXOG_DIALECT_HINT
+from skforecast_ai.profiling.csv_dialect import (
+    DIALECT_HINT,
+    DOTTED_VALUES_HINT,
+    EXOG_DIALECT_HINT,
+    THOUSANDS_HINT,
+)
 from skforecast_ai.profiling.data_profile import read_csv_with_dialect
 
 _EXPECTED = pd.DataFrame(
@@ -96,10 +101,10 @@ def test_read_csv_with_dialect_output(
     path.write_text(text)
     calls = _record_read_csv(monkeypatch)
 
-    data, sep, decimal = read_csv_with_dialect(path)
+    data, sep, decimal, thousands = read_csv_with_dialect(path)
 
     pd.testing.assert_frame_equal(data, _EXPECTED)
-    assert (sep, decimal) == (expected_sep, expected_decimal)
+    assert (sep, decimal, thousands) == (expected_sep, expected_decimal, None)
     assert calls == [((path,), kwargs)]
 
 
@@ -124,10 +129,10 @@ def test_read_csv_with_dialect_output_when_file_is_gzip(
     assert path.read_bytes()[:2] == b"\x1f\x8b"
     calls = _record_read_csv(monkeypatch)
 
-    data, result_sep, result_decimal = read_csv_with_dialect(str(path))
+    data, result_sep, result_decimal, thousands = read_csv_with_dialect(str(path))
 
     pd.testing.assert_frame_equal(data, _EXPECTED)
-    assert (result_sep, result_decimal) == (sep, decimal)
+    assert (result_sep, result_decimal, thousands) == (sep, decimal, None)
     assert calls == [((str(path),), kwargs)]
 
 
@@ -143,13 +148,13 @@ def test_read_csv_with_dialect_comma_file_is_read_with_pd_read_csv_of_the_path(
     path.write_text('date,note\n2020-01-01,"a;b,c"\n2020-01-02,"d;e"\n')
     calls = _record_read_csv(monkeypatch)
 
-    data, sep, decimal = read_csv_with_dialect(path)
+    data, sep, decimal, thousands = read_csv_with_dialect(path)
 
     expected = pd.DataFrame(
         {"date": ["2020-01-01", "2020-01-02"], "note": ["a;b,c", "d;e"]}
     )
     pd.testing.assert_frame_equal(data, expected)
-    assert (sep, decimal) == (",", ".")
+    assert (sep, decimal, thousands) == (",", ".", None)
     assert calls == [((path,), {})]
 
 
@@ -164,7 +169,7 @@ def test_read_csv_with_dialect_output_when_quoted_fields_hold_other_separators(
     path = tmp_path / "data.csv"
     path.write_text('date;note;y\n2020-01-01;"a,b";1.5\n2020-01-02;"c,d";2.5\n')
 
-    data, sep, decimal = read_csv_with_dialect(path)
+    data, sep, decimal, thousands = read_csv_with_dialect(path)
 
     expected = pd.DataFrame(
         {
@@ -174,7 +179,7 @@ def test_read_csv_with_dialect_output_when_quoted_fields_hold_other_separators(
         }
     )
     pd.testing.assert_frame_equal(data, expected)
-    assert (sep, decimal) == (";", ".")
+    assert (sep, decimal, thousands) == (";", ".", None)
 
 
 def test_read_csv_with_dialect_output_when_header_is_one_field_short(tmp_path):
@@ -187,14 +192,14 @@ def test_read_csv_with_dialect_output_when_header_is_one_field_short(tmp_path):
     path = tmp_path / "data.csv"
     path.write_text("y;z\n2020-01-01;1,5;10\n2020-01-02;2,5;20\n")
 
-    data, sep, decimal = read_csv_with_dialect(path, index_first=True)
+    data, sep, decimal, thousands = read_csv_with_dialect(path, index_first=True)
 
     expected = pd.DataFrame(
         {"y": [1.5, 2.5], "z": [10, 20]},
         index=pd.Index(["2020-01-01", "2020-01-02"]),
     )
     pd.testing.assert_frame_equal(data, expected)
-    assert (sep, decimal) == (";", ",")
+    assert (sep, decimal, thousands) == (";", ",", None)
 
 
 @pytest.mark.parametrize(
@@ -236,10 +241,10 @@ def test_read_csv_with_dialect_output_when_single_column(tmp_path, monkeypatch):
     path.write_text("y\n1\n2\n3\n")
     calls = _record_read_csv(monkeypatch)
 
-    data, sep, decimal = read_csv_with_dialect(path)
+    data, sep, decimal, thousands = read_csv_with_dialect(path)
 
     pd.testing.assert_frame_equal(data, pd.DataFrame({"y": [1, 2, 3]}))
-    assert (sep, decimal) == (",", ".")
+    assert (sep, decimal, thousands) == (",", ".", None)
     assert calls == [((path,), {})]
 
 
@@ -262,12 +267,14 @@ def test_read_csv_with_dialect_output_when_sep_or_decimal_given(
     path = tmp_path / "data.csv"
     _EXPECTED.to_csv(path, index=False, sep=";", decimal=",")
 
-    data, result_sep, result_decimal = read_csv_with_dialect(
+    data, result_sep, result_decimal, thousands = read_csv_with_dialect(
         path, sep=sep, decimal=decimal
     )
 
     pd.testing.assert_frame_equal(data, _EXPECTED)
-    assert (result_sep, result_decimal) == (expected_sep, expected_decimal)
+    assert (result_sep, result_decimal, thousands) == (
+        expected_sep, expected_decimal, None
+    )
 
 
 def test_read_csv_with_dialect_does_not_read_the_file_twice_when_both_given(
@@ -299,10 +306,10 @@ def test_read_csv_with_dialect_gives_the_given_sep_even_when_it_does_not_fit(
     path = tmp_path / "data.csv"
     path.write_text("date;y\n2020-01-01;1.5\n")
 
-    data, sep, decimal = read_csv_with_dialect(path, sep=",")
+    data, sep, decimal, thousands = read_csv_with_dialect(path, sep=",")
 
     assert list(data.columns) == ["date;y"]
-    assert (sep, decimal) == (",", ".")
+    assert (sep, decimal, thousands) == (",", ".", None)
 
 
 @pytest.mark.parametrize(
@@ -343,6 +350,50 @@ def test_read_csv_with_dialect_InvalidInputError_when_sep_or_decimal_not_valid(
         read_csv_with_dialect(missing, sep=sep, decimal=decimal)
 
     assert exc_info.value.field == field
+
+
+@pytest.mark.parametrize(
+    "sep, decimal, thousands, message",
+    [
+        (
+            ";",
+            ",",
+            ",",
+            "`thousands` must be '.', got ','.",
+        ),
+        (
+            ",",
+            None,
+            ".",
+            "`thousands` cannot be '.' when `sep` is ',': '.' separates the "
+            "thousands where ',' is the decimal mark, which cannot also "
+            "separate the fields.",
+        ),
+        (
+            ";",
+            ".",
+            ".",
+            "`thousands` cannot be '.' when `decimal` is '.': the same "
+            "character would separate the thousands and the decimals.",
+        ),
+    ],
+    ids=["invalid thousands", "sep comma", "decimal point"],
+)
+def test_read_csv_with_dialect_InvalidInputError_when_thousands_not_valid(
+    tmp_path, sep, decimal, thousands, message
+):
+    """
+    Test that a thousands separator that is not valid, or that does not fit
+    the separator or the decimal mark given, raises an InvalidInputError
+    naming the argument 'thousands', before the file is looked at.
+    """
+    missing = tmp_path / "missing.csv"
+
+    with pytest.raises(InvalidInputError, match=re.escape(message)) as exc_info:
+        read_csv_with_dialect(missing, sep=sep, decimal=decimal, thousands=thousands)
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "thousands"
 
 
 @pytest.mark.parametrize(
@@ -445,6 +496,67 @@ def test_read_csv_with_dialect_InvalidInputError_when_file_unreadable(
     assert exc_info.value.hint == _UNREADABLE_HINT
 
 
+@pytest.mark.parametrize(
+    "kwargs",
+    [{"thousands": "."}, {"decimal": ","}],
+    ids=lambda dt: f"{dt}",
+)
+def test_read_csv_with_dialect_InvalidInputError_when_unreadable_and_dialect_given(
+    tmp_path, kwargs
+):
+    """
+    Test that a file whose start cannot be read is reported as unreadable
+    when the caller gives a thousands separator or a decimal mark ',' and no
+    separator, instead of as an argument that does not fit the default
+    separator ','.
+    """
+    path = tmp_path / "latin1.csv"
+    path.write_bytes("date;x;name\n2020-01-01;1;caf\xe9\n".encode("latin-1"))
+
+    err_msg = re.escape(
+        f"The CSV file '{path}' could not be read: 'utf-8' codec can't decode "
+        f"byte 0xe9 in position 28: invalid continuation byte"
+    )
+    with pytest.raises(InvalidInputError, match="^" + err_msg + "$") as exc_info:
+        read_csv_with_dialect(path, **kwargs)
+
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.field == "data"
+
+
+@pytest.mark.parametrize(
+    "kwargs, message",
+    [
+        (
+            {"thousands": "."},
+            "`thousands` cannot be '.' when `sep` is ',': '.' separates the "
+            "thousands where ',' is the decimal mark, which cannot also "
+            "separate the fields.",
+        ),
+        (
+            {"decimal": ","},
+            "`decimal` cannot be ',' when `sep` is ',': the same character "
+            "would separate the fields and the decimals.",
+        ),
+    ],
+    ids=["thousands", "decimal comma"],
+)
+def test_read_csv_with_dialect_InvalidInputError_when_no_sample_and_dialect_given(
+    tmp_path, monkeypatch, kwargs, message
+):
+    """
+    Test that a file pandas reads although its start could not be sampled
+    (the separator is then ',') is rejected when the thousands separator or
+    the decimal mark given does not fit that separator.
+    """
+    monkeypatch.setattr(data_profile_module, "read_sample", lambda path: None)
+    path = tmp_path / "data.csv"
+    path.write_text("date,y\n2020-01-01,1\n")
+
+    with pytest.raises(InvalidInputError, match=re.escape(message)):
+        read_csv_with_dialect(path, **kwargs)
+
+
 def test_read_csv_with_dialect_decimal_comma_after_the_sample(tmp_path, monkeypatch):
     """
     Test that a ';' file whose numbers with ',' only come after the lines the
@@ -459,7 +571,7 @@ def test_read_csv_with_dialect_decimal_comma_after_the_sample(tmp_path, monkeypa
         "date;y;x\n2020-01-01;1;10\n2020-01-02;2;20\n2020-01-03;3;2,5\n"
     )
 
-    data, sep, decimal = read_csv_with_dialect(path)
+    data, sep, decimal, thousands = read_csv_with_dialect(path)
 
     expected = pd.DataFrame(
         {
@@ -469,7 +581,7 @@ def test_read_csv_with_dialect_decimal_comma_after_the_sample(tmp_path, monkeypa
         }
     )
     pd.testing.assert_frame_equal(data, expected)
-    assert (sep, decimal) == (";", ",")
+    assert (sep, decimal, thousands) == (";", ",", None)
 
 
 def test_read_csv_with_dialect_keeps_decimal_given_after_the_sample(tmp_path):
@@ -480,7 +592,318 @@ def test_read_csv_with_dialect_keeps_decimal_given_after_the_sample(tmp_path):
     path = tmp_path / "given.csv"
     path.write_text("date;y;x\n2020-01-01;1;10\n2020-01-02;2;2,5\n")
 
-    data, sep, decimal = read_csv_with_dialect(path, decimal=".")
+    data, sep, decimal, thousands = read_csv_with_dialect(path, decimal=".")
 
-    assert (sep, decimal) == (";", ".")
+    assert (sep, decimal, thousands) == (";", ".", None)
     assert data["x"].tolist() == ["10", "2,5"]
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        (
+            "date;y\n2020-01-01;870\n2020-01-02;1.020\n2020-01-03;2.015\n",
+            pd.DataFrame(
+                {
+                    "date": ["2020-01-01", "2020-01-02", "2020-01-03"],
+                    "y": [870, 1020, 2015],
+                }
+            ),
+        ),
+        (
+            "date;y\n2020-01-01;1.705,11\n2020-01-02;2.870,5\n"
+            "2020-01-03;1.234.567\n",
+            pd.DataFrame(
+                {
+                    "date": ["2020-01-01", "2020-01-02", "2020-01-03"],
+                    "y": [1705.11, 2870.5, 1234567.0],
+                }
+            ),
+        ),
+        (
+            "date;y\n2020-01-01;-870\n2020-01-02;-1.020\n",
+            pd.DataFrame(
+                {"date": ["2020-01-01", "2020-01-02"], "y": [-870, -1020]}
+            ),
+        ),
+    ],
+    ids=["whole numbers", "decimals after a comma", "negative numbers"],
+)
+def test_read_csv_with_dialect_output_when_thousands_detected(
+    tmp_path, monkeypatch, text, expected
+):
+    """
+    Test that a ';' file whose numbers have '.' between thousands is read
+    with ',' as decimal mark and '.' as thousands separator, in one call to
+    `pd.read_csv`, and its numbers are read as numbers.
+    """
+    path = tmp_path / "thousands.csv"
+    path.write_text(text)
+    calls = _record_read_csv(monkeypatch)
+
+    data, sep, decimal, thousands = read_csv_with_dialect(path)
+
+    pd.testing.assert_frame_equal(data, expected)
+    assert (sep, decimal, thousands) == (";", ",", ".")
+    assert calls == [((path,), {"sep": ";", "decimal": ",", "thousands": "."})]
+
+
+def test_read_csv_with_dialect_output_when_thousands_detected_in_tab_file(tmp_path):
+    """
+    Test that a file separated by tabulators whose numbers have '.' between
+    thousands and a ',' for the decimals is read with ',' and '.'.
+    """
+    path = tmp_path / "thousands.tsv"
+    path.write_text("date\ty\n2020-01-01\t1.705,11\n2020-01-02\t2.870,5\n")
+
+    data, sep, decimal, thousands = read_csv_with_dialect(path)
+
+    expected = pd.DataFrame(
+        {"date": ["2020-01-01", "2020-01-02"], "y": [1705.11, 2870.5]}
+    )
+    pd.testing.assert_frame_equal(data, expected)
+    assert (sep, decimal, thousands) == ("\t", ",", ".")
+
+
+def test_read_csv_with_dialect_output_when_decimal_comma_given_and_thousands(
+    tmp_path, monkeypatch
+):
+    """
+    Test that a file read with the separator and the decimal mark given (no
+    sample is read) is read again with '.' as thousands separator when a
+    column of text holds numbers such as '1.705'.
+    """
+    path = tmp_path / "given.csv"
+    path.write_text("date;y\n2020-01-01;1.705\n2020-01-02;1.870\n")
+    calls = _record_read_csv(monkeypatch)
+
+    data, sep, decimal, thousands = read_csv_with_dialect(
+        path, sep=";", decimal=","
+    )
+
+    expected = pd.DataFrame(
+        {"date": ["2020-01-01", "2020-01-02"], "y": [1705, 1870]}
+    )
+    pd.testing.assert_frame_equal(data, expected)
+    assert (sep, decimal, thousands) == (";", ",", ".")
+    assert calls == [
+        ((path,), {"sep": ";", "decimal": ","}),
+        ((path,), {"sep": ";", "decimal": ",", "thousands": "."}),
+    ]
+
+
+def test_read_csv_with_dialect_thousands_after_the_sample(tmp_path, monkeypatch):
+    """
+    Test that a ';' file whose numbers with '.' between thousands only come
+    after the lines the dialect is told from, in a column of whole numbers,
+    is read with ',' as decimal mark and '.' as thousands separator, so the
+    column is numeric and not text.
+    """
+    monkeypatch.setattr(
+        "skforecast_ai.profiling.csv_dialect.SAMPLE_BYTES", 40
+    )
+    path = tmp_path / "late.csv"
+    path.write_text(
+        "date;y;x\n2020-01-01;1;10\n2020-01-02;2;20\n2020-01-03;3;1.705,11\n"
+    )
+    calls = _record_read_csv(monkeypatch)
+
+    data, sep, decimal, thousands = read_csv_with_dialect(path)
+
+    expected = pd.DataFrame(
+        {
+            "date": ["2020-01-01", "2020-01-02", "2020-01-03"],
+            "y": [1, 2, 3],
+            "x": [10.0, 20.0, 1705.11],
+        }
+    )
+    pd.testing.assert_frame_equal(data, expected)
+    assert (sep, decimal, thousands) == (";", ",", ".")
+    assert calls == [
+        ((path,), {"sep": ";", "decimal": "."}),
+        ((path,), {"sep": ";", "decimal": ","}),
+        ((path,), {"sep": ";", "decimal": ",", "thousands": "."}),
+    ]
+
+
+def test_read_csv_with_dialect_thousands_of_whole_numbers_after_the_sample(
+    tmp_path, monkeypatch
+):
+    """
+    Test that a ';' file whose column holds whole numbers below 1,000 in the
+    lines the dialect is told from and numbers such as '1.020' after them,
+    which pandas reads as 1.02, has its columns of numbers read again as text
+    and is read with ',' as decimal mark and '.' as thousands separator.
+    """
+    monkeypatch.setattr("skforecast_ai.profiling.csv_dialect.SAMPLE_BYTES", 40)
+    path = tmp_path / "late.csv"
+    path.write_text(
+        "date;y\n2020-01-01;870\n2020-01-02;945\n2020-01-03;1.020\n"
+        "2020-01-04;2.015\n"
+    )
+    calls = _record_read_csv(monkeypatch)
+
+    data, sep, decimal, thousands = read_csv_with_dialect(path)
+
+    assert data["y"].tolist() == [870, 945, 1020, 2015]
+    assert (sep, decimal, thousands) == (";", ",", ".")
+    assert len(calls) == 3
+    assert calls[0] == ((path,), {"sep": ";", "decimal": "."})
+    assert calls[1][1]["dtype"] is str
+    assert calls[2] == ((path,), {"sep": ";", "decimal": ",", "thousands": "."})
+
+
+def test_read_csv_with_dialect_reads_once_when_the_sample_holds_the_file(
+    tmp_path, monkeypatch
+):
+    """
+    Test that a ';' file read with '.' as decimal mark is read once when the
+    lines its dialect is told from are the whole file: its columns of
+    numbers are not read again as text.
+    """
+    path = tmp_path / "semi.csv"
+    path.write_text("date;y\n2020-01-01;1.5\n2020-01-02;2.25\n")
+    calls = _record_read_csv(monkeypatch)
+
+    data, sep, decimal, thousands = read_csv_with_dialect(path)
+
+    assert data["y"].tolist() == [1.5, 2.25]
+    assert (sep, decimal, thousands) == (";", ".", None)
+    assert calls == [((path,), {"sep": ";", "decimal": "."})]
+
+
+def test_read_csv_with_dialect_InvalidInputError_when_dotted_values_after_the_sample(
+    tmp_path, monkeypatch
+):
+    """
+    Test that a number with '.' between thousands after the lines the dialect
+    is told from, in a file with dates such as '15.01.2020', raises an
+    InvalidInputError with the code 'data_unreadable' and the hint of the
+    values, because pandas would read the dates as numbers without the '.'.
+    """
+    monkeypatch.setattr(
+        "skforecast_ai.profiling.csv_dialect.SAMPLE_BYTES", 40
+    )
+    path = tmp_path / "late.csv"
+    path.write_text(
+        "date;y;x\n15.01.2020;1;10\n16.01.2020;2;20\n17.01.2020;3;1.705,11\n"
+    )
+
+    err_msg = re.escape(
+        f"The CSV file '{path}' cannot be read: it holds numbers with '.' "
+        f"between the thousands (such as '1.705,11') and values with a '.' "
+        f"that does not separate thousands (such as '15.01.2020'), which "
+        f"pandas would read as numbers without it."
+    )
+    with pytest.raises(InvalidInputError, match="^" + err_msg + "$") as exc_info:
+        read_csv_with_dialect(path)
+
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.field == "data"
+    assert exc_info.value.hint == DOTTED_VALUES_HINT
+
+
+@pytest.mark.parametrize("sep", [None, ";"], ids=["sep detected", "sep given"])
+def test_read_csv_with_dialect_decimal_is_comma_when_thousands_given(
+    tmp_path, monkeypatch, sep
+):
+    """
+    Test that '.' given as thousands separator makes ',' the decimal mark,
+    which is not given, and that the file is read once with the three.
+    """
+    path = tmp_path / "given.csv"
+    path.write_text("date;y\n2020-01-01;870\n2020-01-02;1.020\n")
+    calls = _record_read_csv(monkeypatch)
+
+    data, result_sep, decimal, thousands = read_csv_with_dialect(
+        path, sep=sep, thousands="."
+    )
+
+    expected = pd.DataFrame(
+        {"date": ["2020-01-01", "2020-01-02"], "y": [870, 1020]}
+    )
+    pd.testing.assert_frame_equal(data, expected)
+    assert (result_sep, decimal, thousands) == (";", ",", ".")
+    assert calls == [((path,), {"sep": ";", "decimal": ",", "thousands": "."})]
+
+
+@pytest.mark.parametrize(
+    "field, hint",
+    [("data", DOTTED_VALUES_HINT), ("exog", EXOG_DIALECT_HINT)],
+)
+def test_read_csv_with_dialect_InvalidInputError_when_thousands_given_and_dotted_values(
+    tmp_path, monkeypatch, field, hint
+):
+    """
+    Test that a file with a value such as '0.5' is not read with '.' as
+    thousands separator given by the caller, because pandas would read it as
+    5: it raises an InvalidInputError with the code 'data_unreadable', the
+    value, the argument that named the file and its hint, before reading it.
+    """
+    path = tmp_path / "dotted.csv"
+    path.write_text("date;y\n2020-01-01;0.5\n2020-01-02;1.020\n")
+    calls = _record_read_csv(monkeypatch)
+
+    err_msg = re.escape(
+        f"The CSV file '{path}' cannot be read with '.' as thousands "
+        f"separator: it holds values with a '.' that does not separate "
+        f"thousands (such as '0.5'), which pandas would read as numbers "
+        f"without it."
+    )
+    with pytest.raises(InvalidInputError, match="^" + err_msg + "$") as exc_info:
+        read_csv_with_dialect(path, field=field, thousands=".")
+
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.field == field
+    assert exc_info.value.hint == hint
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "field, hint",
+    [("data", THOUSANDS_HINT), ("exog", EXOG_DIALECT_HINT)],
+)
+def test_read_csv_with_dialect_InvalidInputError_when_thousands_is_ambiguous(
+    tmp_path, field, hint
+):
+    """
+    Test that a file whose only numbers with a '.' read both as thousands and
+    as numbers with three decimals ('1.870') raises an InvalidInputError with
+    the code 'data_unreadable', an example, the argument that named the file
+    and its hint.
+    """
+    path = tmp_path / "ambiguous.csv"
+    path.write_text("date;y\n2020-01-01;1.870\n2020-01-02;1.020\n")
+
+    err_msg = re.escape(
+        f"The thousands separator of the CSV file '{path}' cannot be told: "
+        f"its numbers with a '.' (such as '1.870') read both as thousands and "
+        f"as numbers with three decimals."
+    )
+    with pytest.raises(InvalidInputError, match="^" + err_msg + "$") as exc_info:
+        read_csv_with_dialect(path, field=field)
+
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.field == field
+    assert exc_info.value.hint == hint
+
+
+def test_read_csv_with_dialect_output_when_thousands_is_ambiguous_and_decimal_point(
+    tmp_path, monkeypatch
+):
+    """
+    Test that the file whose '.' cannot be told is read with '.' as decimal
+    mark, and no thousands separator, when the caller gives `decimal` '.'.
+    """
+    path = tmp_path / "ambiguous.csv"
+    path.write_text("date;y\n2020-01-01;1.870\n2020-01-02;1.020\n")
+    calls = _record_read_csv(monkeypatch)
+
+    data, sep, decimal, thousands = read_csv_with_dialect(path, decimal=".")
+
+    expected = pd.DataFrame(
+        {"date": ["2020-01-01", "2020-01-02"], "y": [1.87, 1.02]}
+    )
+    pd.testing.assert_frame_equal(data, expected)
+    assert (sep, decimal, thousands) == (";", ".", None)
+    assert calls == [((path,), {"sep": ";", "decimal": "."})]

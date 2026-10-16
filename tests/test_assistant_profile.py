@@ -27,7 +27,9 @@ from tests.fixtures_datasets import (
 from tests.fixtures_csv_dialect import (
     df_dialect,
     df_dialect_monthly,
+    df_dialect_thousands,
     write_dialect,
+    write_thousands,
 )
 from tests.fixtures_assistant import (
     df_categorical_exog,
@@ -1392,3 +1394,145 @@ def test_profile_InvalidInputError_when_sep_not_valid_for_data_in_memory():
         ForecastingAssistant().profile(data, target="y", sep="x")
 
     assert exc_info.value.field == "sep"
+
+
+@pytest.mark.parametrize(
+    "decimals, expected",
+    [
+        (True, {"min": 870.0, "max": 2048.71, "mean": 1458.6779166666665}),
+        (False, {"min": 870.0, "max": 2049.0, "mean": 1458.7083333333333}),
+    ],
+    ids=["thousands and decimal comma", "whole numbers with and without separator"],
+)
+def test_profile_records_the_thousands_separator_of_the_csv_file(
+    tmp_path, decimals, expected
+):
+    """
+    Test that profile() reads a ';' file with '.' between thousands as the
+    amounts it holds and records ';', ',' and '.' as its dialect.
+    """
+    path = write_thousands(tmp_path, df_dialect_thousands, decimals=decimals)
+
+    result = ForecastingAssistant().profile(path, target="y")
+
+    data_profile = result.data_profile
+    assert (data_profile.csv_sep, data_profile.csv_decimal) == (";", ",")
+    assert data_profile.csv_thousands == "."
+    assert data_profile.target_dtype == "numeric"
+    for name, value in expected.items():
+        assert data_profile.target_stats["y"][name] == pytest.approx(value)
+
+
+@pytest.mark.parametrize(
+    "kwargs, expected",
+    [
+        ({"thousands": "."}, (",", ".", [1870.0, 1020.0])),
+        ({"decimal": ","}, (",", ".", [1870.0, 1020.0])),
+        ({"decimal": "."}, (".", None, [1.87, 1.02])),
+    ],
+    ids=["thousands", "decimal comma", "decimal point"],
+)
+def test_profile_output_when_thousands_ambiguous_and_dialect_given(
+    tmp_path, kwargs, expected
+):
+    """
+    Test that a file whose numbers all read both as thousands and as three
+    decimals raises an InvalidInputError with the code 'data_unreadable',
+    and that profile() reads it as the caller says: `thousands` '.' or
+    `decimal` ',' as thousands, `decimal` '.' as three decimals. A decimal
+    mark ',' given that reads '1.870' as text no longer leaves the target as
+    text.
+    """
+    path = tmp_path / "thousands.csv"
+    path.write_text(
+        "date;y\n" + "".join(
+            f"2020-{month:02d}-01;{'1.870' if month % 2 else '1.020'}\n"
+            for month in range(1, 13)
+        )
+    )
+    decimal, thousands, values = expected
+    assistant = ForecastingAssistant()
+
+    err_msg = re.escape(
+        f"The thousands separator of the CSV file '{path}' cannot be told: its "
+        f"numbers with a '.' (such as '1.870') read both as thousands and as "
+        f"numbers with three decimals."
+    )
+    with pytest.raises(InvalidInputError, match="^" + err_msg + "$") as exc_info:
+        assistant.profile(path, target="y")
+    result = assistant.profile(path, target="y", **kwargs)
+
+    assert exc_info.value.code == "data_unreadable"
+    assert result.data_profile.csv_decimal == decimal
+    assert result.data_profile.csv_thousands == thousands
+    assert result.data_profile.target_dtype == "numeric"
+    assert result.data_profile.target_stats["y"]["max"] == pytest.approx(values[0])
+    assert result.data_profile.target_stats["y"]["min"] == pytest.approx(values[1])
+
+
+def test_profile_thousands_is_ignored_for_data_in_memory():
+    """
+    Test that a DataFrame is profiled without thousands separator whatever
+    `thousands` says, because there is no file to read.
+    """
+    result = ForecastingAssistant().profile(
+        df_dialect.assign(date=pd.to_datetime(df_dialect["date"])),
+        target="y",
+        thousands=".",
+    )
+
+    assert result.data_profile.csv_thousands is None
+    assert result.data_profile.csv_decimal == "."
+
+
+@pytest.mark.parametrize(
+    "kwargs, message",
+    [
+        ({"thousands": ","}, "`thousands` must be '.', got ','."),
+        (
+            {"thousands": ".", "decimal": "."},
+            "`thousands` cannot be '.' when `decimal` is '.': the same "
+            "character would separate the thousands and the decimals.",
+        ),
+    ],
+    ids=["comma", "with decimal point"],
+)
+def test_profile_InvalidInputError_when_thousands_not_valid(tmp_path, kwargs, message):
+    """
+    Test that profile() raises InvalidInputError naming `thousands` when it
+    is not '.', or when it is the decimal mark.
+    """
+    path = write_dialect(tmp_path, df_dialect, "semicolon_comma")
+
+    with pytest.raises(InvalidInputError, match=re.escape(message)) as exc_info:
+        ForecastingAssistant().profile(path, target="y", **kwargs)
+
+    assert exc_info.value.field == "thousands"
+
+
+def test_profile_reads_thousands_of_a_series_after_the_sample(tmp_path, monkeypatch):
+    """
+    Test that a long-format ';' file sorted by series, whose first series
+    holds amounts below 1,000 in the lines the dialect is told from and
+    whose second series holds amounts written as '1.020' after them, is
+    profiled with '.' as thousands separator and the amounts of both series.
+    """
+    monkeypatch.setattr("skforecast_ai.profiling.csv_dialect.SAMPLE_BYTES", 400)
+    dates = pd.date_range("2020-01-01", periods=30, freq="D").strftime("%Y-%m-%d")
+    path = tmp_path / "long.csv"
+    path.write_text(
+        "series;date;y\n"
+        + "".join(f"a;{date};{800 + i}\n" for i, date in enumerate(dates))
+        + "".join(f"b;{date};1.{100 + i}\n" for i, date in enumerate(dates))
+    )
+    assert len(path.read_bytes()) > 400
+
+    result = ForecastingAssistant().profile(
+        path, target="y", series_id_column="series"
+    )
+
+    data_profile = result.data_profile
+    assert data_profile.csv_thousands == "."
+    assert data_profile.target_stats["a"]["max"] == 829.0
+    assert data_profile.target_stats["b"]["min"] == 1100.0
+    assert data_profile.target_stats["b"]["max"] == 1129.0

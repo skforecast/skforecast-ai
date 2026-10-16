@@ -1937,3 +1937,111 @@ def test_resolve_data_and_target_DataNotFoundError_when_comma_url_cannot_parse(
         _resolve_data_and_target(url, "y")
 
     assert exc_info.value.code == "data_unreadable"
+
+
+def test_resolve_data_and_target_reads_url_with_thousands_detected(monkeypatch):
+    """
+    Test that a URL of a ';' file whose start has '870' next to '1.020' is
+    read again with ',' as decimal mark and '.' as thousands separator, and
+    that the dialect recorded for the script names the thousands separator.
+    """
+    url = "https://example.com/eu.csv"
+    one_column = pd.DataFrame({"date;y": ["2020-01-01;870", "2020-02-01;1.020"]})
+    two_columns = pd.DataFrame({"date": ["2020-01-01", "2020-02-01"], "y": [870, 1020]})
+    calls = _fake_read_csv(monkeypatch, [one_column, two_columns])
+    monkeypatch.setattr(
+        utils_module,
+        "read_url_sample",
+        lambda value: "date;y\n2020-01-01;870\n2020-02-01;1.020\n",
+    )
+
+    data, _ = _resolve_data_and_target(url, "y")
+
+    assert calls == [
+        ((url,), {}),
+        ((url,), {"sep": ";", "decimal": ",", "thousands": "."}),
+    ]
+    assert data["y"].tolist() == [870, 1020]
+    assert utils_module._READ_CSV_DIALECT.get() == (url, ";", ",", ".")
+
+
+def test_resolve_data_and_target_reads_url_with_thousands_given(monkeypatch):
+    """
+    Test that a `thousands` given for a URL skips the read with ',' and '.'
+    and reads the file once with ',' as decimal mark.
+    """
+    url = "https://example.com/eu.csv"
+    frame = pd.DataFrame({"date": ["2020-01-01", "2020-02-01"], "y": [1870, 1020]})
+    calls = _fake_read_csv(monkeypatch, [frame])
+    monkeypatch.setattr(
+        utils_module,
+        "read_url_sample",
+        lambda value: "date;y\n2020-01-01;1.870\n2020-02-01;1.020\n",
+    )
+
+    data, _ = _resolve_data_and_target(url, "y", thousands=".")
+
+    assert calls == [((url,), {"sep": ";", "decimal": ",", "thousands": "."})]
+    assert data["y"].tolist() == [1870, 1020]
+
+
+def test_resolve_data_and_target_reads_url_again_when_text_column_has_thousands(
+    monkeypatch,
+):
+    """
+    Test that a URL read with the `sep` ';' and `decimal` ',' given, whose
+    column is text because it holds '1.705', is read again with '.' as
+    thousands separator.
+    """
+    url = "https://example.com/eu.csv"
+    text = pd.DataFrame({"date": ["2020-01-01", "2020-02-01"], "y": ["1.705", "1.870"]})
+    numbers = pd.DataFrame({"date": ["2020-01-01", "2020-02-01"], "y": [1705, 1870]})
+    calls = _fake_read_csv(monkeypatch, [text, numbers])
+
+    data, _ = _resolve_data_and_target(url, "y", sep=";", decimal=",")
+
+    assert calls == [
+        ((url,), {"sep": ";", "decimal": ","}),
+        ((url,), {"sep": ";", "decimal": ",", "thousands": "."}),
+    ]
+    assert data["y"].tolist() == [1705, 1870]
+
+
+@pytest.mark.parametrize(
+    "kwargs, field, message",
+    [
+        (
+            {"thousands": "."},
+            "thousands",
+            "`thousands` cannot be '.' when `sep` is ',': '.' separates the "
+            "thousands where ',' is the decimal mark, which cannot also "
+            "separate the fields.",
+        ),
+        (
+            {"decimal": ","},
+            "decimal",
+            "`decimal` cannot be ',' when `sep` is ',': the same character "
+            "would separate the fields and the decimals.",
+        ),
+    ],
+    ids=["thousands", "decimal comma"],
+)
+def test_resolve_data_and_target_InvalidInputError_when_no_url_sample_and_sep_misfit(
+    monkeypatch, kwargs, field, message
+):
+    """
+    Test that a URL read although its start could not be downloaded (the
+    separator is then ',') is rejected when the thousands separator or the
+    decimal mark given does not fit that separator.
+    """
+    url = "https://example.com/eu.csv"
+    frame = pd.DataFrame({"date": ["2020-01-01"], "y": [1.0]})
+    _fake_read_csv(monkeypatch, [frame])
+    monkeypatch.setattr(utils_module, "read_url_sample", lambda value: None)
+
+    err_msg = "^" + re.escape(message) + "$"
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        _resolve_data_and_target(url, "y", **kwargs)
+
+    assert not isinstance(exc_info.value, DataNotFoundError)
+    assert exc_info.value.field == field

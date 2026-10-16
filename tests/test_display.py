@@ -921,3 +921,25 @@ def test_render_cv_config_writes_inference_windows_as_a_bound():
 
     assert "up to 114" in text
     assert "up to 6" not in text
+
+
+def test_render_profile_shows_the_thousands_separator_of_the_csv_file(sample_profile):
+    """
+    Test that render_profile shows the thousands separator with the separator
+    and the decimal mark when the CSV file has one.
+    """
+    profile = sample_profile.model_copy(
+        update={
+            "data_profile": sample_profile.data_profile.model_copy(
+                update={
+                    "data_path": "eu.csv",
+                    "csv_sep": ";",
+                    "csv_decimal": ",",
+                    "csv_thousands": ".",
+                }
+            )
+        }
+    )
+    text = _render_to_text(render_profile(profile))
+
+    assert "separator ';', decimal ',', thousands '.'" in text

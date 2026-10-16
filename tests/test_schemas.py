@@ -1311,3 +1311,63 @@ def test_data_profile_ValidationError_when_csv_dialect_not_valid(
             csv_decimal    = decimal,
         )
 
+
+def test_data_profile_output_when_json_has_no_csv_thousands():
+    """
+    Test that a profile saved before `csv_thousands` existed loads without
+    thousands separator, that the field defaults to None, and that '.'
+    survives a JSON round trip.
+    """
+    profile = DataProfile(
+        n_series       = 1,
+        series_lengths = {"y": 100},
+        target         = "y",
+        index_type     = "datetime",
+        data_path      = "eu.csv",
+        csv_sep        = ";",
+        csv_decimal    = ",",
+        csv_thousands  = ".",
+    )
+    saved = profile.model_dump(mode="json")
+    del saved["csv_thousands"]
+    default = DataProfile(
+        n_series=1, series_lengths={"y": 100}, target="y", index_type="datetime"
+    )
+
+    old = DataProfile.model_validate_json(json.dumps(saved))
+    restored = DataProfile.model_validate_json(profile.model_dump_json())
+
+    assert old.csv_thousands is None
+    assert (old.csv_sep, old.csv_decimal) == (";", ",")
+    assert default.csv_thousands is None
+    assert restored.csv_thousands == "."
+    assert restored == profile
+
+
+@pytest.mark.parametrize(
+    "sep, decimal, thousands, message",
+    [
+        (";", ".", ".", "`csv_thousands` cannot be '.' when `csv_decimal` is '.'."),
+        (",", ".", ".", "`csv_thousands` cannot be '.' when `csv_decimal` is '.'."),
+        (";", ",", ",", "Input should be '.'"),
+    ],
+    ids=["with decimal point", "with comma file", "invalid thousands"],
+)
+def test_data_profile_ValidationError_when_csv_thousands_not_valid(
+    sep, decimal, thousands, message
+):
+    """
+    Test that a profile whose thousands separator does not go with ',' as
+    decimal mark, or is not '.', raises a ValidationError: the script would
+    drop the decimal mark of every number.
+    """
+    with pytest.raises(ValidationError, match=re.escape(message)):
+        DataProfile(
+            n_series       = 1,
+            series_lengths = {"y": 100},
+            target         = "y",
+            index_type     = "datetime",
+            csv_sep        = sep,
+            csv_decimal    = decimal,
+            csv_thousands  = thousands,
+        )
