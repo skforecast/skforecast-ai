@@ -375,6 +375,27 @@ def test_create_data_profile_output_when_has_gaps_true():
     ]
 
 
+def test_create_data_profile_output_when_daily_data_closed_on_sundays():
+    """
+    Test that create_data_profile infers daily data without Sundays (a shop
+    closed on them), whose gaps leave no ten days in a row, as daily with
+    gaps: the Sundays are counted and warned about as missing timestamps,
+    as missing days at random are.
+    """
+    dates = pd.date_range("2023-01-02", periods=364, freq="D")
+    dates = dates[dates.dayofweek != 6]
+    df = pd.DataFrame({"y": np.arange(len(dates), dtype=float)}, index=dates)
+
+    profile = create_data_profile(df, target="y")
+
+    assert profile.frequency == "D"
+    assert profile.has_gaps is True
+    assert profile.warnings == [
+        "Missing timestamps: 51 timestamps of frequency 'D' are missing from "
+        "the date range. asfreq() inserts them as rows with missing values."
+    ]
+
+
 def test_create_data_profile_output_when_has_gaps_false():
     df = pd.DataFrame(
         {"y": np.arange(100, dtype=float)},
@@ -955,9 +976,9 @@ def test_create_data_profile_InvalidInputError_when_long_timestamp_off_grid():
 def test_create_data_profile_InvalidInputError_when_long_weekly_series_has_gap():
     """
     Test that a weekly series with a missing week among daily ones, which is
-    not regular on its own and too short to infer with gaps, raises as one
-    of another frequency (every step a multiple of 7 days), instead of being
-    read as a daily series with gaps.
+    not regular on its own, raises as one of another frequency (every step
+    a multiple of 7 days), instead of being read as a daily series with
+    gaps.
     """
     weekly = df_items_sales_long[
         (df_items_sales_long["series"] == "item_3")

@@ -80,6 +80,13 @@ _YEAR_NANOS = 31_556_952 * 10**9
 # not grow with the length of the series.
 _FREQUENCY_WINDOW = 10
 _MAX_FREQUENCY_WINDOWS = 200
+# When gaps leave no such window (daily data without Sundays), the frequency
+# is inferred on windows of three consecutive timestamps, the fewest pandas
+# infers one from. A long index is read in blocks of consecutive windows:
+# single windows evenly spaced may all fall on the same phase of a periodic
+# pattern of gaps (every one starting on a Saturday).
+_GAPS_WINDOW = 3
+_GAPS_WINDOW_BLOCK = 20
 
 # Minimum share of the regular grid that must be observed to accept a
 # frequency inferred despite gaps. Below it the spacing is irregular rather
@@ -103,7 +110,10 @@ _COARSER_EVIDENCE = np.log(1e6)
 _MAX_CANDIDATES = 20
 
 
-def infer_frequency(index: pd.DatetimeIndex) -> str | None:
+def infer_frequency(
+    index: pd.DatetimeIndex,
+    regular_gaps: bool = True,
+) -> str | None:
     """
     Infer the frequency of a DatetimeIndex, tolerating missing timestamps.
 
@@ -111,13 +121,21 @@ def infer_frequency(index: pd.DatetimeIndex) -> str | None:
     inferred on windows of consecutive timestamps (the stretches between
     gaps), and the most frequent answer is accepted when every timestamp
     lies on its regular grid and at least half of that grid is observed.
-    The missing timestamps are then counted by `count_missing_timestamps()`
-    and become NaN rows after `asfreq()`.
+    Gaps so regular or frequent that no stretch gives a frequency (daily
+    data without Sundays, a day in four missing at random) are told on
+    windows of three timestamps, with the same conditions and one more (see
+    `_frequency_with_regular_gaps`). The missing timestamps are then counted
+    by `count_missing_timestamps()` and become NaN rows after `asfreq()`.
 
     Parameters
     ----------
     index : pandas DatetimeIndex
         The datetime index to infer frequency from.
+    regular_gaps : bool, default True
+        Whether gaps that leave no gap-free stretch are told on windows of
+        three timestamps. False bounds the cost of a call on every series
+        of long-format data: on irregular dates, pandas takes a fraction of
+        a millisecond per window.
 
     Returns
     -------
@@ -136,17 +154,29 @@ def infer_frequency(index: pd.DatetimeIndex) -> str | None:
     if freq is not None:
         return freq
 
-    return _infer_frequency_with_gaps(index)
+    return _infer_frequency_with_gaps(index, regular_gaps)
 
 
-def _infer_frequency_with_gaps(index: pd.DatetimeIndex) -> str | None:
+def _infer_frequency_with_gaps(
+    index: pd.DatetimeIndex,
+    regular_gaps: bool = True,
+) -> str | None:
     """
-    Infer a frequency from the gap-free stretches of a DatetimeIndex.
+    Infer a frequency from a DatetimeIndex with missing timestamps.
+
+    The frequency is inferred first on the gap-free stretches of the index,
+    and the most frequent answer whose grid fits is accepted. When no
+    stretch gives one, because the gaps are regular or frequent, it is
+    inferred on windows of three timestamps (see
+    `_frequency_with_regular_gaps`).
 
     Parameters
     ----------
     index : pandas DatetimeIndex
         Datetime index whose frequency `pd.infer_freq` could not infer.
+    regular_gaps : bool, default True
+        Whether to infer it on windows of three timestamps when no stretch
+        gives one.
 
     Returns
     -------
@@ -173,17 +203,104 @@ def _infer_frequency_with_gaps(index: pd.DatetimeIndex) -> str | None:
             candidates[freq] = candidates.get(freq, 0) + 1
 
     for freq in sorted(candidates, key=candidates.get, reverse=True):
-        try:
-            grid = pd.date_range(index[0], index[-1], freq=freq)
-        except ValueError:
-            continue
-        if (
-            len(index) >= _MIN_FREQUENCY_COVERAGE * len(grid)
-            and index.isin(grid).all()
-        ):
+        if _fitting_grid(index, freq) is not None:
             return freq
+    if candidates or not regular_gaps:
+        # The stretches tell the frequency, and its grid does not fit: there
+        # are timestamps off it (a Saturday among business days), or too
+        # few on it. A finer frequency with gaps would hide that.
+        return None
 
-    return None
+    return _frequency_with_regular_gaps(index)
+
+
+def _frequency_with_regular_gaps(index: pd.DatetimeIndex) -> str | None:
+    """
+    Infer the frequency of a sorted DatetimeIndex whose gaps leave no
+    stretch of `_FREQUENCY_WINDOW` consecutive timestamps that gives one.
+
+    pandas infers a frequency from three timestamps, so windows of three
+    give the candidates: `'D'` from a Monday, Tuesday and Wednesday of daily
+    data without Sundays. A candidate fits when its grid holds every
+    timestamp and is at least `_MIN_FREQUENCY_COVERAGE` observed (see
+    `_fitting_grid`), and when the most common step between consecutive
+    timestamps is one period of the grid. That last condition rejects a
+    frequency finer than the data: a stray timestamp at noon among daily
+    ones gives `'12h'` on two windows, whose grid is half observed, but the
+    other timestamps are two periods of it apart. Of the candidates that
+    fit, the coarsest is the frequency: business days with gaps also fit
+    the daily grid, and stay `'B'`, a candidate whenever `'D'` is one.
+
+    Parameters
+    ----------
+    index : pandas DatetimeIndex
+        Sorted datetime index of distinct timestamps, at least
+        `_FREQUENCY_WINDOW` of them.
+
+    Returns
+    -------
+    frequency : str, None
+        The coarsest frequency that fits, or None.
+    """
+    n_windows = len(index) - _GAPS_WINDOW + 1
+    if n_windows > _MAX_FREQUENCY_WINDOWS:
+        n_blocks = _MAX_FREQUENCY_WINDOWS // _GAPS_WINDOW_BLOCK
+        firsts = np.linspace(0, n_windows - _GAPS_WINDOW_BLOCK, n_blocks).astype(int)
+        starts = np.unique(firsts[:, None] + np.arange(_GAPS_WINDOW_BLOCK))
+    else:
+        starts = np.arange(n_windows)
+
+    candidates = set()
+    for start in starts:
+        try:
+            freq = pd.infer_freq(index[start:start + _GAPS_WINDOW])
+        except (TypeError, ValueError):
+            continue
+        if freq is not None:
+            candidates.add(freq)
+    if "D" in candidates:
+        # pandas infers business days only from three that cross a weekend,
+        # which data closed on Fridays too never has.
+        candidates.add("B")
+
+    found, found_size = None, 0
+    for freq in sorted(candidates):
+        grid = _fitting_grid(index, freq)
+        if grid is None:
+            continue
+        # Searched as timestamps: the grid is in nanoseconds, the index may
+        # be in seconds or microseconds.
+        steps = np.diff(grid.searchsorted(index))
+        if np.bincount(steps).argmax() != 1:
+            continue
+        if found is None or len(grid) < found_size:
+            found, found_size = freq, len(grid)
+
+    return found
+
+
+def _fitting_grid(index: pd.DatetimeIndex, frequency: str) -> pd.DatetimeIndex | None:
+    """
+    Return the grid of `frequency` from the first to the last timestamp of a
+    sorted DatetimeIndex when it holds every timestamp and at least
+    `_MIN_FREQUENCY_COVERAGE` of it is observed, or None.
+
+    A grid estimated at twice the size the minimum coverage allows is not
+    built: a few dates a second apart among dates a day apart would build
+    a grid of every second of the range.
+    """
+    largest = len(index) / _MIN_FREQUENCY_COVERAGE
+    try:
+        span = (index[-1] - index[0]).value / _YEAR_NANOS
+        if span * _periods_per_year(frequency) > 2 * largest:
+            return None
+        grid = pd.date_range(index[0], index[-1], freq=frequency)
+    except ValueError:
+        return None
+    if len(index) < _MIN_FREQUENCY_COVERAGE * len(grid) or not index.isin(grid).all():
+        return None
+
+    return grid
 
 
 def create_data_profile(
@@ -2730,10 +2847,12 @@ def _coarser_frequency(
             coarser = _frequency_name(timestamps[0], offset * step)
     if coarser is None:
         # pandas infers a frequency with gaps from calendar steps that the
-        # checks above do not name (half months, business month ends).
+        # checks above do not name (half months, business month ends). Only
+        # on gap-free stretches: windows of three on every sparse series
+        # would cost seconds on a thousand of them.
         raw_steps = np.diff(dates)
         if raw_steps.min() >= 13 * day and not (raw_steps % day).any():
-            coarser = infer_frequency(timestamps)
+            coarser = infer_frequency(timestamps, regular_gaps=False)
     if coarser is not None and _periods_per_year(coarser) < _periods_per_year(
         frequency
     ):

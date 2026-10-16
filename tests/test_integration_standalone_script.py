@@ -22,6 +22,7 @@ from tests.fixtures_assistant import (
     df_multi_long_staggered,
     df_multi_wide,
     df_no_exog,
+    df_no_sundays,
     df_single,
 )
 from tests.fixtures_csv_dialect import (
@@ -674,6 +675,35 @@ def test_standalone_script_matches_forecast_when_csv_long_series_has_gaps(tmp_pa
         standalone["pred"].to_numpy(), executed.predictions["pred"].to_numpy(),
         rtol=1e-6,
     )
+
+
+def test_standalone_script_matches_forecast_when_csv_daily_data_closed_on_sundays(
+    tmp_path,
+):
+    """
+    Test that a year of daily sales of a shop closed on Sundays, which had no
+    frequency before, is profiled 'D' with the 51 Sundays missing, and that
+    the script, which restores them with `asfreq('D')`, run as a file yields
+    the same predictions as forecast(), Sundays included.
+    """
+    csv_path = tmp_path / "shop.csv"
+    df_no_sundays.to_csv(csv_path, index=False)
+    assistant = ForecastingAssistant()
+    kwargs = {"data": csv_path, "target": "sales", "date_column": "date", "steps": 14}
+
+    code = assistant.forecast_code(**kwargs).code
+    # skforecast warns about the NaN rows of the Sundays when it fits and
+    # predicts.
+    with pytest.warns(MissingValuesWarning):
+        with pytest.warns(
+            UserWarning, match=re.escape("reads missing values of the target")
+        ):
+            executed = assistant.forecast(**kwargs)
+
+    assert executed.profile.data_profile.frequency == "D"
+    assert "data = data.asfreq('D')\n" in code
+    assert executed.predictions.index[0] == pd.Timestamp("2023-12-31")
+    _assert_same_predictions(_run_standalone(code, tmp_path), executed.predictions)
 
 
 def test_standalone_script_matches_forecast_when_csv_last_window_has_missing_value(

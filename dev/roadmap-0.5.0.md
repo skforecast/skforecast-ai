@@ -488,6 +488,49 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     cuya regularidad no dice el orden); sin destacado. Preguntas 2
     (registrar el formato aunque la primera fecha diga día primero) y 5
     (`dtype={'date': str}` con miles): sí, como estaban.
+- **D8. 1e: frecuencia con huecos regulares o frecuentes** (2026-10-16).
+  Concretado en la PR de `fix/frequency-with-regular-gaps`:
+  - Cuando ningún tramo de 10 fechas seguidas da frecuencia, se infiere en
+    ventanas de 3 (las menos de las que pandas infiere una), en bloques de
+    20 ventanas seguidas si el índice es largo: ventanas sueltas a
+    intervalos regulares pueden caer todas en la misma fase de un patrón
+    semanal. Una candidata vale si su rejilla contiene todas las fechas,
+    está observada al menos en `_MIN_FREQUENCY_COVERAGE` (50 %) y el paso
+    más común entre fechas seguidas es un periodo: así un dato suelto a
+    mediodía entre días no da `'12h'` (los pasos se buscan como fechas,
+    así vale cualquier unidad del índice). De las que valen, la más gruesa
+    (`'B'` antes que `'D'`), y `'B'` es candidata siempre que lo sea `'D'`
+    (pandas no ve `'B'` en tres días que no cruzan un fin de semana: de
+    lunes a jueves).
+  - Si algún tramo da frecuencia y su rejilla no encaja (un sábado entre
+    laborables), sigue sin frecuencia: no se busca otra más fina con
+    huecos. Por eso lo que hoy se infiere no cambia: comprobado en toda la
+    suite (cada llamada comparada con 0.5.x), en 4000 índices al azar y en
+    los goldens de contexto del LLM, que no cambian.
+  - Sin domingos es `'D'` con los domingos como fechas que faltan, con el
+    aviso y el tratamiento de los huecos al azar del 10 al 20 %: `forecast`
+    predice también los domingos, y `backtest` y `forecast` con
+    `test_size` dan `invalid_argument` porque los NaN caen en los folds de
+    test. Sin `CustomBusinessDay`: skforecast 0.26 la aguanta en memoria,
+    pero su `freqstr` es `'C'`, que pierde la `weekmask` (`asfreq('C')`
+    del script quitaría los sábados); necesitaría otro campo del perfil y
+    otro renderizado. Pregunta abierta en la PR.
+  - Formato largo: una tienda de lunes a sábado junto a una oficina de
+    laborables da `'D'` (antes, fechas fuera de la rejilla `'B'`), como ya
+    daban series diarias junto a laborables. `_coarser_frequency`, que
+    infiere una vez por serie dispersa, usa solo los tramos sin huecos
+    (`regular_gaps=False`): con las ventanas de 3, mil series dispersas
+    pasaban de 1 s a 9 s.
+  - D7: en 1166 lecturas de fechas ambiguas (mensuales, trimestrales y
+    diarias cortas, con y sin huecos), ninguna lectura equivocada pasa a
+    ser la única regular. Los mensuales con huecos de más de un año se
+    leen ahora en su orden, y un año o menos con huecos sigue siendo
+    ambiguo (las dos lecturas son regulares).
+  - V14: el error de `plan` dice que las fechas que faltan se rellenan
+    solo cuando las demás siguen una frecuencia regular "and fill at
+    least half of its periods". La frecuencia más cercana y los huecos
+    en ese error (que D7 dejó para 1e) no se añaden: pregunta en la PR.
+  - Nota de release en **Fixed**, sin destacado ni "Before upgrading".
 
 ## Decisiones abiertas
 
