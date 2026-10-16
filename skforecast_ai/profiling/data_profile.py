@@ -400,6 +400,11 @@ def create_data_profile(
         )
 
     categorical_exog = detect_categorical_exog(data, exog_columns)
+    numbers_as_text = detect_numbers_as_text(
+        data         = data,
+        exog_columns = categorical_exog,
+        decimal      = DEFAULT_CSV_DECIMAL if decimal is None else decimal,
+    )
     missing_target, missing_exog = count_missing_values(
         data, target, exog_columns, data_format, series_id_column
     )
@@ -427,6 +432,7 @@ def create_data_profile(
             and len(target) > 1
             else None
         ),
+        numbers_as_text        = numbers_as_text,
     )
     if long_dates is not None and series_dates is None:
         warnings.append(
@@ -2766,6 +2772,106 @@ def detect_categorical_exog(
     return categorical
 
 
+# Share of the values of a text exogenous column (missing values aside) that
+# must read as numbers, once a final '%' and the cells made only of dashes
+# are set aside, for the profile to warn that it holds numbers written as
+# text. True categories ('A', 'B', codes such as 'P-001' or '007') read as
+# no numbers at all; 90 % leaves room for an odd marker of missing values
+# ('?', 'n.d.') among numbers, which fails the backtest the same way.
+_NUMBERS_AS_TEXT_SHARE = 0.9
+
+# A number as text: no thousands separators, no '1_000' nor 'inf' (which
+# `float` reads), and no leading zero ('007', '01'), which marks a code.
+_NUMBER_TEXT = re.compile(r"[+-]?(?!0\d)(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?")
+_DASHES_TEXT = re.compile(r"-*")
+
+
+def detect_numbers_as_text(
+    data: pd.DataFrame,
+    exog_columns: list[str],
+    decimal: str = ".",
+) -> dict[str, tuple[int, int, list, int]]:
+    """
+    Find text exogenous columns that hold numbers written as text, such as
+    percentages ('12%') or a '-' for a missing value.
+
+    Such a column is used as a categorical variable, with one level per
+    distinct value: a numeric regressor becomes a nominal one, and with
+    levels that the training rows of a fold do not hold the backtest fails
+    with missing values. Nothing is converted; the profile warns (see
+    `generate_warnings`).
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Input dataset.
+    exog_columns : list
+        Names of exogenous columns to check. Only those of dtype `object`
+        are read: a `category` dtype was chosen on purpose.
+    decimal : str, default '.'
+        Decimal mark of the CSV file, which the values written as text keep.
+
+    Returns
+    -------
+    numbers_as_text : dict
+        Mapping of each column that holds numbers written as text to the
+        number of its values that read as numbers (cells of dashes or
+        spaces included), the number of its values (missing values aside),
+        what makes it text (among `"numbers with a final '%'"`,
+        `"cells of '-'"`, `"blank cells"` and `"numbers with spaces"`; none
+        for numbers stored as text) and its number of levels. No value of
+        the data is quoted: the warnings of the profile reach the LLM.
+
+    Notes
+    -----
+    A value reads as a number when, once its spaces and a final `'%'` are
+    removed, it is a number without thousands separators nor a leading zero
+    (`'007'` is a code), or when it is made only of dashes or spaces (a
+    marker of a missing value). The column is reported when at least one
+    value is a number and at least `_NUMBERS_AS_TEXT_SHARE` (90 %) of its
+    values read as numbers.
+    """
+    found = {}
+    for col in exog_columns:
+        values = data[col]
+        if not pd.api.types.is_object_dtype(values):
+            continue
+        counts = values.dropna().value_counts(sort=False)
+        if counts.empty:
+            continue
+        raw = [str(value) for value in counts.index]
+        texts = [re.sub(r"\s+", "", text) for text in raw]
+        bodies = [text.removesuffix("%").replace(decimal, ".") for text in texts]
+        numbers = np.array([bool(_NUMBER_TEXT.fullmatch(body)) for body in bodies])
+        dashes = np.array([bool(_DASHES_TEXT.fullmatch(text)) for text in texts])
+        n_values = int(counts.sum())
+        n_read = int(counts.to_numpy()[numbers | dashes].sum())
+        if not numbers.any() or n_read < _NUMBERS_AS_TEXT_SHARE * n_values:
+            continue
+        # What makes the column text is described, not quoted: the values
+        # of the data do not reach the LLM (the warnings of the profile are
+        # part of its context).
+        kinds = [
+            kind
+            for kind, present in (
+                (
+                    "numbers with a final '%'",
+                    any(n and t.endswith("%") for n, t in zip(numbers, texts)),
+                ),
+                ("cells of '-'", any(d and t for d, t in zip(dashes, texts))),
+                ("blank cells", any(not t for t in texts)),
+                (
+                    "numbers with spaces",
+                    any(n and r != t for n, r, t in zip(numbers, raw, texts)),
+                ),
+            )
+            if present
+        ]
+        found[col] = (n_read, n_values, kinds, len(counts))
+
+    return found
+
+
 def count_missing_values(
     data: pd.DataFrame,
     target: str | list[str],
@@ -2914,6 +3020,7 @@ def generate_warnings(
     rows_sorted: bool = False,
     long_format: bool = False,
     series_ending_early: tuple[str, dict[str, str]] | None = None,
+    numbers_as_text: dict[str, tuple[int, int, list, int]] | None = None,
 ) -> list[str]:
     """
     Generate human-readable warnings about potential data issues.
@@ -2947,11 +3054,20 @@ def generate_warnings(
         the series whose last value comes before it, mapped to the date of
         that value (see `_series_ending_early` and
         `_wide_series_ending_early`).
+    numbers_as_text : dict, default None
+        Text exogenous columns that hold numbers written as text (see
+        `detect_numbers_as_text`).
 
     Returns
     -------
     warnings : list
         List of warning messages.
+
+    Notes
+    -----
+    Missing values of the exogenous columns are named from the first one:
+    the rate above 20 % alone let a few of them through, and an estimator
+    that does not accept them failed when the script ran.
     """
     warnings: list[str] = []
 
@@ -3031,6 +3147,40 @@ def generate_warnings(
                 f"High missing value rate ({missing_rate:.1%}). "
                 "Consider imputation before forecasting."
             )
+
+    if missing_exog:
+        shown = ", ".join(
+            f"{name!r}: {count}" for name, count in list(missing_exog.items())[:5]
+        )
+        if len(missing_exog) > 5:
+            shown += f" (first 5 of {len(missing_exog)})"
+        warnings.append(
+            f"Missing values in exogenous columns: {shown}. An estimator that "
+            f"does not accept missing values fails when it reads them."
+        )
+
+    for column, (n_read, n_values, kinds, n_levels) in (numbers_as_text or {}).items():
+        share = (
+            "all of its values" if n_read == n_values
+            else f"{n_read} of its {n_values} values"
+        )
+        kinds = list(kinds) or ["numbers stored as text"]
+        if n_read < n_values:
+            other = n_values - n_read
+            kinds.append(f"{other} value{'s' if other != 1 else ''} of other text")
+        held = kinds[0] if len(kinds) == 1 else (
+            f"{', '.join(kinds[:-1])} and {kinds[-1]}"
+        )
+        warnings.append(
+            f"Numbers written as text in exogenous column {column!r}: {share} "
+            f"are numbers, once a final '%' and spaces are removed, or markers "
+            f"of missing values (it holds {held}), so it is used as a "
+            f"categorical variable with {n_levels} levels. If it is a numeric "
+            f"variable, write its values as plain numbers in the data, without "
+            f"'%' and with empty cells instead of '-' for missing values (ask "
+            f"the user before changing their file); if it holds categories, "
+            f"nothing needs to change."
+        )
 
     return warnings
 

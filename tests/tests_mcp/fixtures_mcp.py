@@ -33,6 +33,12 @@ DATA_WARNING = (
     "10 (counting from 0, header excluded). Column 'date' is used as the date "
     "column instead; pass `date_column` to choose another one."
 )
+# The column of those dates is an exogenous column with 2 missing values,
+# which the profile records in `data_profile.warnings`.
+DATA_MISSING_EXOG_WARNING = (
+    "Missing values in exogenous columns: 'event': 2. An estimator that does "
+    "not accept missing values fails when it reads them."
+)
 
 # h2o without three months in 2005 (missing timestamps, which the profile
 # records in `data_profile.warnings` without emitting a Python warning).

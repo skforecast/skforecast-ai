@@ -11,7 +11,9 @@ from skforecast_ai.mcp.models import ToolNotice
 
 from ..fixtures_csv_dialect import df_dialect, write_dialect
 from ..fixtures_datasets import df_items_sales_long, df_mixed_date_formats
+from ..tests_profiling.fixtures_profiling import df_dirty_exog
 from .fixtures_mcp import (
+    DATA_MISSING_EXOG_WARNING,
     DATA_WARNING,
     GAPS_WARNING,
     ID_PATTERN,
@@ -127,7 +129,8 @@ def test_tool_profile_output_long_format(tmp_path):
 def test_tool_profile_notices_of_the_data(tmp_path):
     """
     Test that a warning emitted while profiling is a notice with source
-    'data'.
+    'data', as is a warning the profile records (the column of those dates
+    is an exogenous column with missing values).
     """
     path = write_csv(tmp_path, "warning.csv", df_data_warning)
     server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
@@ -135,8 +138,46 @@ def test_tool_profile_notices_of_the_data(tmp_path):
     result = content_of(call(server, "profile", {"data_path": path, "target": "y"}))
 
     assert [ToolNotice(**n) for n in result["notices"]] == [
-        ToolNotice(source="data", category="UserWarning", message=DATA_WARNING, count=1)
+        ToolNotice(
+            source   = "data",
+            category = "DataProfileWarning",
+            message  = DATA_MISSING_EXOG_WARNING,
+            count    = 1,
+        ),
+        ToolNotice(source="data", category="UserWarning", message=DATA_WARNING, count=1),
     ]
+
+
+def test_tool_profile_notices_of_dirty_exog_columns(tmp_path):
+    """
+    Test that `profile` of a CSV file whose exogenous columns hold numbers
+    written as text ('12%', '-') and missing values gives a
+    `DataProfileWarning` notice per problem, naming the column, the same
+    warnings as the Python API, and none for the columns of true categories.
+    """
+    path = write_csv(
+        tmp_path, "dirty.csv", df_dirty_exog.rename_axis("date").reset_index()
+    )
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    result = content_of(call(server, "profile", {"data_path": path, "target": "y"}))
+    expected = (
+        ForecastingAssistant().profile(path, target="y").data_profile.warnings
+    )
+    messages = [
+        notice["message"] for notice in result["notices"]
+        if notice["category"] == "DataProfileWarning"
+    ]
+
+    assert messages == expected
+    assert [message.split(":")[0] for message in messages] == [
+        "Short series",
+        "Missing values in exogenous columns",
+        "Numbers written as text in exogenous column 'pct'",
+        "Numbers written as text in exogenous column 'dash'",
+        "Numbers written as text in exogenous column 'mixed'",
+    ]
+    assert "'x_na': 2" in messages[1]
 
 
 def test_tool_profile_summary_cut_with_full_text_in_a_file(tmp_path, monkeypatch):

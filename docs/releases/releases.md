@@ -24,6 +24,8 @@ The main changes in this release are:
 
 **Fixed**
 
++ [<code>ForecastingAssistant.profile()</code>][assistant] gave no warning for numbers written as text in an exogenous column (`12%`, `-` for a missing value), used then as a categorical variable, nor for its missing values below a rate of 20 %. Both now add a warning naming the column (a `DataProfileWarning` notice in the MCP server); the data are not changed.
+
 
 ## 0.4.2 <small>Oct 12, 2026</small> { id="0.4.2" }
 
