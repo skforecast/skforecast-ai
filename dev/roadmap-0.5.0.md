@@ -398,6 +398,50 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
   - Nota de release en **Changed** (scripts) y **Fixed**, con una línea en
     "Before upgrading" por el cambio de los scripts; sin destacado, que se
     decide al consolidar la fase 1.
+- **D6. 1d: el orden de día y mes de las fechas** (2026-10-16). Concretado
+  en la PR de `fix/csv-day-first-dates`:
+  - El perfil guarda el formato, `DataProfile.date_format` (`'%d/%m/%Y'`),
+    no un `dayfirst`: así cubre también `'%Y%m%d'` y `'%d.%m.%Y'`. Sin
+    prefijo `csv_`, porque describe también las fechas de texto de un
+    DataFrame. El script lo emite como `format=` en `_emit_index_setup`;
+    con `None`, la lectura de antes (pandas adivina por la primera fecha).
+  - Se registra siempre que las fechas son día primero, también cuando la
+    primera ya lo dice (`13/01/2020`, que pandas leía bien): las exógenas
+    futuras de un horizonte corto (`01/02` a `07/02`) se leen en los dos
+    órdenes y tienen que leerse como los datos. Mes primero sin duda:
+    `None`, lo de hoy. El orden dado con `dayfirst` a fechas ambiguas se
+    registra siempre, también `'%m/%d/%Y'`, para que releer el fichero con
+    el perfil no vuelva a fallar.
+  - Ambiguo es que todas las fechas se lean con los dos formatos. Con el
+    año delante (ISO) o con el nombre del mes nunca lo es, y `dayfirst` se
+    ignora. Un `dayfirst` que las fechas contradicen da `invalid_argument`
+    con `field` `dayfirst`.
+  - El argumento es `dayfirst` (el nombre de pandas, como `sep`, `decimal`
+    y `thousands`), `--dayfirst` o `--monthfirst` en la CLI. Solo para
+    ficheros, como el dialecto: un DataFrame con fechas de texto ambiguas
+    da `invalid_argument` con un hint para convertirlas con pandas; uno sin
+    duda se lee día primero, y su formato sale de sus propias fechas.
+  - Al releer con un perfil (mismo fichero u otro), el orden se detecta, y
+    el formato del perfil decide solo cuando las fechas se leen en los dos
+    órdenes, como el dialecto.
+  - Exógenas futuras: `load_exog` con el formato de los datos lo exige a
+    cada fecha (`DataContentError` si una no encaja); sin formato, como
+    antes. El script aplica el mismo `format=` a `exog_future.csv`
+    (pregunta abierta en la PR, por V03).
+  - `yyyymmdd`: columna de enteros de 8 cifras, todos fechas válidas, con
+    o sin `date_column`, en el orden de columnas de las fechas de texto.
+  - Miles: la columna de fechas no cuenta para el dialecto (la dada, o la
+    primera de la muestra con todas sus celdas fechas escritas con
+    números) y, con `thousands`, se lee como texto (`dtype`) en la
+    librería y en el script, que lo emite siempre que haya `date_column`,
+    como los ids en D5. Fechas con punto en otra columna siguen dando
+    `data_unreadable`.
+  - V14: el error de `plan` habla solo del espaciado, y el contexto del LLM
+    lista `irregular spacing (no frequency inferred)` en vez de `none
+    detected`. La frecuencia más cercana y los huecos quedan para 1e.
+  - Nota de release en **Added**, **Changed** y **Fixed**, con dos líneas
+    en "Before upgrading" (los scripts y el error de las fechas ambiguas);
+    sin destacado.
 
 ## Decisiones abiertas
 

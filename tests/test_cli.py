@@ -30,12 +30,15 @@ from skforecast_ai.assistant import ForecastingAssistant
 
 from .fixtures_csv_dialect import (
     df_dialect,
+    df_dialect_monthly,
     df_dialect_thousands,
     write_dialect,
     write_thousands,
 )
 from .fixtures_assistant import (
     df_categorical_exog,
+    df_day_first,
+    df_day_first_exog,
     df_multi_long,
     df_multi_wide,
     df_single,
@@ -2597,7 +2600,181 @@ class TestCsvDialects:
         code = code_path.read_text()
         assert (
             f"data = pd.read_csv({csv_path!r}, sep=';', decimal=',', "
-            f"thousands='.')\n" in code
+            f"thousands='.', dtype={{'date': str}})\n" in code
         )
         ast.parse(code)
 
+
+class TestDayFirstDates:
+    """Tests of the dates written day first in the CLI."""
+
+    @pytest.mark.parametrize(
+        "flag, date_format, frequency",
+        [
+            ("--dayfirst", "%d/%m/%Y", "MS"),
+            ("--monthfirst", "%m/%d/%Y", None),
+        ],
+        ids=["dayfirst", "monthfirst"],
+    )
+    def test_profile_with_dayfirst_reads_the_ambiguous_dates(
+        self, tmp_path, flag, date_format, frequency
+    ):
+        """
+        `profile --dayfirst` reads the first of every month as the months of
+        the year (frequency 'MS') and `--monthfirst` as the days of January
+        (no frequency), and the JSON records the format of the dates.
+        """
+        csv_path = _write_csv(tmp_path, df_dialect_monthly, name="monthly.csv")
+        result = runner.invoke(
+            app,
+            ["profile", csv_path, "--target", "y", flag, "--format", "json",
+             "--quiet"],
+        )
+        assert result.exit_code == 0, result.stderr
+        data_profile = json.loads(result.stdout)["data_profile"]
+        assert data_profile["date_format"] == date_format
+        assert data_profile["frequency"] == frequency
+        assert data_profile["start_date"] == "2018-01-01"
+
+    def test_profile_error_json_when_dates_read_in_both_orders(self, tmp_path):
+        """
+        Dates that read both day first and month first exit with code 1 and,
+        with --format json, report the code 'data_unreadable', the field
+        'data' and the hint that names `--dayfirst` and `--monthfirst` on
+        stderr, instead of guessing the order.
+        """
+        csv_path = _write_csv(tmp_path, df_dialect_monthly, name="monthly.csv")
+        result = runner.invoke(
+            app,
+            ["profile", csv_path, "--target", "y", "--format", "json",
+             "--quiet"],
+        )
+        assert result.exit_code == 1
+        assert result.stdout == ""
+        assert json.loads(result.stderr) == {
+            "error": {
+                "code": "data_unreadable",
+                "message": (
+                    "The dates of column 'date' read both day first and month "
+                    "first: no day is after the 12th, so '01/02/2018' may be "
+                    "'2018-02-01' or '2018-01-02', and the order is not "
+                    "guessed. Profile the file saying which it is, with "
+                    "`dayfirst`."
+                ),
+                "field": "data",
+                "hint": (
+                    "Profile the file saying the order of its dates, with "
+                    "`dayfirst` (True when they are written day first, as "
+                    "'31/01/2024', False when month first, as '01/31/2024') "
+                    "in `profile()`, `--dayfirst` or `--monthfirst` in the "
+                    "`profile` command, or `dayfirst` (true or false) in the "
+                    "`profile` tool of the MCP server, and use that profile."
+                ),
+            }
+        }
+
+    def test_profile_table_shows_the_date_format(self, tmp_path):
+        """
+        The table of `profile` shows the format of the dates when it is
+        recorded.
+        """
+        csv_path = _write_csv(tmp_path, df_day_first)
+        result = runner.invoke(
+            app, ["profile", csv_path, "--target", "y", "--quiet"]
+        )
+        assert result.exit_code == 0, result.stderr
+        assert "Date format" in result.stdout
+        assert "'%d/%m/%Y'" in result.stdout
+
+    def test_forecast_exog_reads_the_exog_dates_as_the_data(self, tmp_path):
+        """
+        `forecast --exog` on day-first daily data reads an exog file whose
+        seven days read both ways ('01/02/2021' to '07/02/2021') with the
+        format of the data: the predictions are those of 1 to 7 February
+        2021, and the script reads both files' dates day first.
+        """
+        csv_path = _write_csv(tmp_path, df_day_first)
+        exog_path = _write_csv(tmp_path, df_day_first_exog, name="exog.csv")
+        result = runner.invoke(
+            app,
+            ["forecast", csv_path, "--target", "y", "--steps", "7",
+             "--exog", exog_path, "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 0, result.stderr
+        data = json.loads(result.stdout)
+        assert [row["index"] for row in data["predictions"]] == [
+            "2021-02-01T00:00:00", "2021-02-02T00:00:00", "2021-02-03T00:00:00",
+            "2021-02-04T00:00:00", "2021-02-05T00:00:00", "2021-02-06T00:00:00",
+            "2021-02-07T00:00:00",
+        ]
+        np.testing.assert_array_almost_equal(
+            [row["pred"] for row in data["predictions"]],
+            [17.757746408435324, 17.997458443344815, 18.007362026504243,
+             17.80723891613638, 17.430903079968857, 16.9653885887927,
+             16.427784848251246],
+        )
+        assert data["profile"]["data_profile"]["date_format"] == "%d/%m/%Y"
+        assert data["code"].count("format='%d/%m/%Y'") == 2
+
+    def test_forecast_exog_from_plan_reads_the_exog_dates_as_the_data(
+        self, tmp_path
+    ):
+        """
+        `forecast --from-plan --exog` reads the exog file with the format of
+        the dates recorded in the profile of the plan, so it predicts the
+        same days as the direct path.
+        """
+        csv_path = _write_csv(tmp_path, df_day_first)
+        exog_path = _write_csv(tmp_path, df_day_first_exog, name="exog.csv")
+        plan_result = runner.invoke(
+            app,
+            ["plan", csv_path, "--target", "y", "--steps", "7", "--format",
+             "json", "--quiet"],
+        )
+        assert plan_result.exit_code == 0, plan_result.stderr
+        plan_file = tmp_path / "plan.json"
+        plan_file.write_text(plan_result.stdout)
+
+        result = runner.invoke(
+            app,
+            ["forecast", csv_path, "--from-plan", str(plan_file),
+             "--exog", exog_path, "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 0, result.stderr
+        data = json.loads(result.stdout)
+        assert json.loads(plan_result.stdout)["profile"]["data_profile"][
+            "date_format"
+        ] == "%d/%m/%Y"
+        assert [row["index"] for row in data["predictions"]] == [
+            "2021-02-01T00:00:00", "2021-02-02T00:00:00", "2021-02-03T00:00:00",
+            "2021-02-04T00:00:00", "2021-02-05T00:00:00", "2021-02-06T00:00:00",
+            "2021-02-07T00:00:00",
+        ]
+
+    def test_forecast_exog_error_when_exog_dates_not_in_the_format_of_the_data(
+        self, tmp_path
+    ):
+        """
+        `forecast --exog` with an exog file written in ISO 8601 on day-first
+        data exits with code 1 and the field 'exog', naming the format of
+        the data and quoting the first date.
+        """
+        csv_path = _write_csv(tmp_path, df_day_first)
+        exog_iso = df_day_first_exog.assign(
+            date=pd.date_range("2021-02-01", periods=7).strftime("%Y-%m-%d")
+        )
+        exog_path = _write_csv(tmp_path, exog_iso, name="exog.csv")
+        result = runner.invoke(
+            app,
+            ["forecast", csv_path, "--target", "y", "--steps", "7",
+             "--exog", exog_path, "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 1
+        error = json.loads(result.stderr)["error"]
+        assert error["field"] == "exog"
+        assert error["message"] == (
+            f"The dates of column 'date' of the exog CSV '{exog_path}' are "
+            f"not all written in the format of the dates of the data "
+            f"('%d/%m/%Y'), such as '2021-02-01': the generated script reads "
+            f"them with it."
+        )

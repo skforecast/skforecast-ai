@@ -327,11 +327,8 @@ def _exog_dates(
                 field = "exog",
             ) from exc
     elif date_column:
-        values = exog[date_column]
         try:
-            dates = pd.DatetimeIndex(
-                parse_text_dates(values) if is_text(values) else values
-            )
+            dates = row_dates(exog, date_column, profile.date_format)
         except (ValueError, TypeError) as exc:
             raise DataContentError(
                 f"The dates of `exog` (column or index {date_column!r}) cannot be "
@@ -374,7 +371,7 @@ def _last_date(
     (ForecasterRecursiveMultiSeries, which drops the missing values at the
     end of each series), the last date with a target value.
     """
-    dates = row_dates(data, profile.date_column)
+    dates = row_dates(data, profile.date_column, profile.date_format)
     if dates is not None and by_value:
         targets = profile.target if isinstance(profile.target, list) else [
             profile.target
@@ -750,7 +747,7 @@ def _long_series_ends(
     row, or of its last value when `by_value` (skforecast drops the missing
     values at the end of a series).
     """
-    dates = row_dates(data, profile.date_column)
+    dates = row_dates(data, profile.date_column, profile.date_format)
     ids = _row_ids(data, profile.series_id_column)
     if dates is None or ids is None:
         return {}
@@ -798,7 +795,7 @@ def _first_rows(
     dates = None
     try:
         if is_text(keys):
-            keys = parse_text_dates(keys)
+            keys = parse_text_dates(keys, profile.date_format)
         if pd.api.types.is_datetime64_any_dtype(keys):
             dates = pd.DatetimeIndex(keys)
         order = np.argsort(keys.to_numpy(), kind="stable")
@@ -1047,7 +1044,7 @@ def _fitted_rows(
     """
     if plan.task_type != "multi_series":
         return None
-    dates = row_dates(data, profile.date_column)
+    dates = row_dates(data, profile.date_column, profile.date_format)
     if dates is None:
         return None
     dates = pd.Series(dates, index=data.index)
@@ -1087,7 +1084,7 @@ def _learned_rows(
     size = _window_size(plan)
     if not size:
         return None
-    dates = row_dates(data, profile.date_column)
+    dates = row_dates(data, profile.date_column, profile.date_format)
     if dates is not None:
         order = pd.Series(dates, index=data.index)
     elif isinstance(data.index, pd.RangeIndex):

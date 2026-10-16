@@ -487,6 +487,8 @@ def _emit_data_loading(
     of series ids of long-format data is read as text (`dtype`), in the
     data and in the future exogenous variables, as the library reads it:
     `'001'` keeps its zeros and the thousands separator does not touch it.
+    With a thousands separator, so is the date column of the data: pandas
+    would read `'15.01.2020'` as the number 15012020.
 
     Parameters
     ----------
@@ -533,6 +535,7 @@ def _emit_data_loading(
     # passed in memory and the future exogenous variables are the frames
     # saved with `to_csv()`.
     dialect = ""
+    text_columns = [profile.series_id_column]
     if (
         path is None
         and profile.data_path != PLACEHOLDER_DATA_PATH
@@ -541,9 +544,14 @@ def _emit_data_loading(
         dialect = f", sep={profile.csv_sep!r}, decimal={profile.csv_decimal!r}"
         if profile.csv_thousands is not None:
             dialect += f", thousands={profile.csv_thousands!r}"
+            text_columns.append(date_col)
 
-    if profile.series_id_column is not None:
-        dialect += f", dtype={{{profile.series_id_column!r}: str}}"
+    text_columns = [
+        column for column in dict.fromkeys(text_columns) if column is not None
+    ]
+    if text_columns:
+        dtypes = ", ".join(f"{column!r}: str" for column in text_columns)
+        dialect += f", dtype={{{dtypes}}}"
 
     lines.append(comment)
     if long_format or not index_read:
@@ -578,12 +586,18 @@ def _emit_index_setup(
     in standalone scripts (after CSV loading) and in exec mode (when
     data is injected as a raw DataFrame).
 
+    The dates are read with `format=` when the profile records the format
+    of the date column (`date_format`: day-first dates, the order given for
+    dates that read in both, or whole numbers such as 20200131), and as
+    pandas guesses it from the first date otherwise. The future exogenous
+    variables are read with the same format, as written like the data.
+
     Parameters
     ----------
     lines : list
         Output list of code lines to append to.
     profile : DataProfile
-        Data profile with `date_column` and `frequency`.
+        Data profile with `date_column`, `date_format` and `frequency`.
     long_format : bool, default False
         If `False` (wide format), emits set_index + asfreq + sort_index.
         If `True` (long format), emits to_datetime + sort_values only,
@@ -602,6 +616,10 @@ def _emit_index_setup(
 
     date_col = profile.date_column
     frequency = profile.frequency
+    date_format = (
+        f", format={profile.date_format!r}" if profile.date_format is not None
+        else ""
+    )
 
     if long_format:
         series_id = profile.series_id_column
@@ -612,14 +630,16 @@ def _emit_index_setup(
             )
         if date_col:
             lines.append(
-                f"{var}[{repr(date_col)}] = pd.to_datetime({var}[{repr(date_col)}])"
+                f"{var}[{repr(date_col)}] = "
+                f"pd.to_datetime({var}[{repr(date_col)}]{date_format})"
             )
             lines.append(f"{var} = {var}.sort_values({repr(date_col)})")
         lines.append("")
     else:
         if date_col:
             lines.append(
-                f"{var}[{repr(date_col)}] = pd.to_datetime({var}[{repr(date_col)}])"
+                f"{var}[{repr(date_col)}] = "
+                f"pd.to_datetime({var}[{repr(date_col)}]{date_format})"
             )
             lines.append(f"{var} = {var}.set_index({repr(date_col)})")
         if frequency and not profile.has_duplicate_timestamps:

@@ -184,6 +184,29 @@ df_irregular = pd.DataFrame(
     {"date": _irregular_minutes, "sales": np.arange(100, dtype=float)}
 )
 
+# --- Daily series written day first as text, 60 days ending 2021-01-31 ---
+# The dates after the 12th ('13/12/2020') settle that they are day first. The
+# 7 days to forecast (`df_day_first_exog`, '01/02/2021' to '07/02/2021') read
+# both day first and month first, and pandas reads them month first.
+df_day_first = pd.DataFrame(
+    {
+        "date": pd.date_range(end="2021-01-31", periods=60, freq="D").strftime(
+            "%d/%m/%Y"
+        ),
+        "y": np.round(10 + 0.1 * np.arange(60) + 2 * np.sin(np.arange(60) / 3), 3),
+        "promo": np.tile([0.0, 1.0], 30),
+    }
+)
+df_day_first_exog = pd.DataFrame(
+    {
+        "date": [
+            "01/02/2021", "02/02/2021", "03/02/2021", "04/02/2021", "05/02/2021",
+            "06/02/2021", "07/02/2021",
+        ],
+        "promo": [0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0],
+    }
+)
+
 
 def patch_agent(monkeypatch, assistant, *, output=None, error=None, capture=None):
     """

@@ -155,6 +155,31 @@ def test_render_dataset_section_unsorted_rows_are_said_to_be_sorted_by_the_code(
     ) in section
 
 
+def test_render_dataset_section_irregular_spacing_when_no_frequency():
+    """
+    Test that a datetime index without a frequency is listed as irregular
+    spacing, next to the warning of the profiler, instead of "none
+    detected" (finding V14 of the MCP audit).
+    """
+    data_profile = profile.data_profile.model_copy(
+        update={
+            "frequency": None,
+            "warnings": [
+                "Could not infer frequency from the datetime index: the "
+                "spacing is irregular, or there are too few timestamps."
+            ],
+        }
+    )
+    profile_irregular = profile.model_copy(update={"data_profile": data_profile})
+
+    section = render_dataset_section(profile_irregular)
+
+    assert (
+        "- Index irregularities: irregular spacing (no frequency inferred)\n"
+    ) in section
+    assert "none detected" not in section
+
+
 def test_render_dataset_section_unsorted_index_without_the_note_of_the_profiler():
     """
     Test that an index flagged as not sorted in a profile without the note

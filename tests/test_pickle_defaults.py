@@ -55,6 +55,7 @@ def _saved_without(obj, names):
             ["csv_sep", "csv_decimal", "csv_thousands"],
             [",", ".", None],
         ),
+        (profile.data_profile, ["date_format"], [None]),
     ],
     ids=[
         "CVResult",
@@ -62,6 +63,7 @@ def _saved_without(obj, names):
         "ForecastPlan",
         "DataProfile",
         "DataProfile CSV dialect",
+        "DataProfile date format",
     ],
 )
 def test_pickle_defaults_output_fields_added_after_the_object_was_saved(

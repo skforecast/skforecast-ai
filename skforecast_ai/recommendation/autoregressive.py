@@ -368,7 +368,7 @@ def compute_series_pacf(
     # the generated script fits it: unsorted rows give a PACF of shuffled
     # values, and repeated rows change the lags. The dates are read once for
     # all the rows, as the script parses the whole date column.
-    dates = row_dates(data, profile.date_column)
+    dates = row_dates(data, profile.date_column, profile.date_format)
     if isinstance(profile.target, list):
         # Wide format: each target column is a series, all on the same rows.
         order = _date_order(dates)

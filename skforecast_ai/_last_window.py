@@ -188,7 +188,9 @@ def _target_frame(
                 return None
             frame = pd.DataFrame(
                 {target: data[target].to_numpy() for target in targets},
-                index = pd.DatetimeIndex(row_dates(data, date_column)),
+                index = pd.DatetimeIndex(
+                            row_dates(data, date_column, profile.date_format)
+                        ),
             )
             frame = frame.loc[frame.index.notna()]
             frame = frame.sort_index(kind="stable")
@@ -232,7 +234,9 @@ def _check_long(
     ):
         return
     try:
-        dates = pd.DatetimeIndex(row_dates(data, date_column))
+        dates = pd.DatetimeIndex(
+            row_dates(data, date_column, profile.date_format)
+        )
     except (ValueError, TypeError):
         # The generated code fails on these dates with its own error.
         return
@@ -714,7 +718,7 @@ def validate_infinite_target(
             hint  = "Replace the infinite values of the target, for example with NaN.",
         )
 
-    dates = row_dates(data, profile.date_column)
+    dates = row_dates(data, profile.date_column, profile.date_format)
     labels = data.index if dates is None else dates
     raise InvalidInputError(
         f"The target has infinite values ({_where(labels[infinite])}). "
@@ -887,7 +891,9 @@ def _series_spans(
     ):
         return None
     try:
-        dates = pd.DatetimeIndex(row_dates(data, date_column))
+        dates = pd.DatetimeIndex(
+            row_dates(data, date_column, profile.date_format)
+        )
         rows = pd.DataFrame({
             "series": data[series_id].to_numpy(),
             "date": dates,
@@ -964,7 +970,7 @@ def validate_evaluation_partition(
     """
     if plan.end_train is None:
         return
-    dates = row_dates(data, profile.date_column)
+    dates = row_dates(data, profile.date_column, profile.date_format)
     if dates is None:
         return
     end = training_end(plan.end_train, dates.tz)

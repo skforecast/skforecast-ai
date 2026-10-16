@@ -397,21 +397,22 @@ def _check_frequency_known(forecaster: str, data_profile: DataProfile) -> None:
 
     Without a frequency the datetime index cannot be regularized, and every
     forecaster that needs one fails inside the script with a skforecast
-    error that does not say why. Irregular timestamps are often day-first
-    dates that pandas read month-first.
+    error that does not say why. The cause is the spacing of the dates:
+    day-first dates are read day first when profiled, and those whose order
+    cannot be told are rejected there, so the dates are not to be rewritten.
     """
     if data_profile.index_type == "datetime" and data_profile.frequency is None:
         raise InvalidInputError(
-            f"The frequency of the datetime index could not be inferred "
-            f"(the timestamps are irregular or too few), and '{forecaster}' "
-            f"needs a regular DatetimeIndex. Check the dates: day-first "
-            f"values such as '13/02/2023' are read month-first unless parsed "
-            f"explicitly, for example with "
-            f"pandas.to_datetime(..., dayfirst=True).",
+            f"The frequency of the datetime index could not be inferred: the "
+            f"dates are not regularly spaced, or there are too few of them, "
+            f"and '{forecaster}' needs a regular DatetimeIndex. Missing dates "
+            f"are not filled in when the others do not follow a regular "
+            f"frequency.",
             field = "profile",
             hint  = (
-                "Write the dates in ISO 8601 (such as '2023-02-13'), so they "
-                "are not read month-first."
+                "Give the data a regular frequency: one row per period (day, "
+                "week, month), with an empty value where a period has none, or "
+                "values aggregated to a frequency the dates follow."
             ),
         )
 
@@ -421,9 +422,11 @@ def _profile_values(data_profile: DataProfile) -> dict[str, str]:
     Return the fields of a data profile that describe the values of the
     data, each as text, to tell whether two profiles describe the same data.
 
-    `data_path`, `csv_sep`, `csv_decimal`, `csv_thousands`, `warnings` and
-    `unused_columns` are left out: the path and how its file is written are
-    set by the caller, the warnings derive from the values (and hold the
+    `data_path`, `csv_sep`, `csv_decimal`, `csv_thousands`, `date_format`,
+    `warnings` and `unused_columns` are left out: the path and how its file
+    is written (also its dates) are set by the caller and by how the data
+    are passed (a DataFrame read from the file holds dates already parsed),
+    the warnings derive from the values (and hold the
     note of an earlier refresh), and the columns the data holds besides
     those of the profile are compared by `_refresh_profile` itself. The
     column lists are sorted, as `structure_differences` reads them, and NaN
@@ -443,8 +446,8 @@ def _profile_values(data_profile: DataProfile) -> dict[str, str]:
 
     values = data_profile.model_dump(
         exclude={
-            "data_path", "csv_sep", "csv_decimal", "csv_thousands", "warnings",
-            "unused_columns",
+            "data_path", "csv_sep", "csv_decimal", "csv_thousands",
+            "date_format", "warnings", "unused_columns",
         }
     )
     for name in ("exog_columns", "categorical_exog"):
@@ -673,6 +676,7 @@ class ForecastingAssistant:
         sep: str | None = None,
         decimal: str | None = None,
         thousands: str | None = None,
+        dayfirst: bool | None = None,
     ) -> ForecastingProfile:
         """
         Profile a dataset and select the recommended forecaster and estimator.
@@ -721,6 +725,13 @@ class ForecastingAssistant:
             mark (`'1.705,11'`). If None, it is detected from the first
             lines of the file, and the file has none when `decimal` is
             `'.'`. Ignored for data passed in memory.
+        dayfirst : bool, default None
+            Order of the day and the month of the dates of a CSV file whose
+            dates read in both (`'01/02/2020'` in every row): True for day
+            first (`'31/01/2024'`), False for month first (`'01/31/2024'`).
+            If None, it is told from the dates. Ignored for data passed in
+            memory and for dates whose format leaves no doubt
+            (`'2020-02-01'`, `'01 Feb 2020'`).
 
         Returns
         -------
@@ -746,6 +757,19 @@ class ForecastingAssistant:
         here holds for them; another file is read as it is written, and as
         the profile says only when that cannot be told.
 
+        Dates that write the day and the month as numbers before the year
+        are read day first when only that order reads every date (a day
+        after the 12th, `'13/01/2020'`), and the profile records the format
+        the generated script reads them with (`DataProfile.date_format`).
+        When every date reads in both orders (monthly data on the first of
+        each month), the order is not guessed: a CSV file raises
+        `InvalidInputError` (code `'data_unreadable'`) until `dayfirst`
+        gives it, and a DataFrame raises one that asks for its dates to be
+        converted. Dates written as whole numbers of eight digits
+        (`20200131`) are read as dates, with `'%Y%m%d'`. With `'.'` as
+        thousands separator, the date column is read as text, so dates such
+        as `'15.01.2020'` keep their points.
+
         Long-format data can also be a DataFrame indexed by a
         `(series_id, date)` MultiIndex: its two levels are read as the
         columns of the same name, as the generated script reads the frame
@@ -764,10 +788,11 @@ class ForecastingAssistant:
                            decimal          = decimal,
                            thousands        = thousands,
                            series_id_column = series_id_column,
+                           dayfirst         = dayfirst,
                        )
         # How the file was read, which the script repeats; nothing for data
-        # passed in memory.
-        sep, decimal, thousands = _dialect_read(data_path)
+        # passed in memory, whose dates are read below.
+        sep, decimal, thousands, date_format = _dialect_read(data_path)
         # The levels of a MultiIndex become columns here, not only inside
         # `create_data_profile`: the check of the target and the PACF then
         # read the flat frame the profile describes, whose series ids are
@@ -786,6 +811,7 @@ class ForecastingAssistant:
             sep              = sep,
             decimal          = decimal,
             thousands        = thousands,
+            date_format      = date_format,
         )
         validate_target_numeric(data, data_profile.target)
 

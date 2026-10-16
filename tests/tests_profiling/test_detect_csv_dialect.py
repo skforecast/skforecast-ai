@@ -487,7 +487,8 @@ def test_detect_csv_dialect_thousands_never_when_sep_is_comma():
     "sample, with_thousands, other",
     [
         (
-            "date;y\n15.01.2020;1.705,11\n16.01.2020;870,5\n",
+            "date;y;end\n2020-01-15;1.705,11;15.01.2020\n"
+            "2020-01-16;870,5;16.01.2020\n",
             "1.705,11",
             "15.01.2020",
         ),
@@ -502,7 +503,11 @@ def test_detect_csv_dialect_thousands_never_when_sep_is_comma():
             "1.2.3",
         ),
     ],
-    ids=["dates with points", "decimals with point", "version numbers"],
+    ids=[
+        "dates with points in another column",
+        "decimals with point",
+        "version numbers",
+    ],
 )
 @pytest.mark.parametrize(
     "field, hint",
@@ -513,10 +518,10 @@ def test_detect_csv_dialect_InvalidInputError_when_thousands_and_other_points(
 ):
     """
     Test that a file whose '.' separates thousands and that holds other
-    values made of digits and points ('15.01.2020', '0.5'), which pandas
-    reads as numbers without them, raises an InvalidInputError with the code
-    'data_unreadable', an example of each, the argument that named the file
-    and its hint.
+    values made of digits and points ('15.01.2020' in a column that is not
+    the one of the dates, '0.5'), which pandas reads as numbers without
+    them, raises an InvalidInputError with the code 'data_unreadable', an
+    example of each, the argument that named the file and its hint.
     """
     err_msg = re.escape(
         f"The CSV file 'my.csv' cannot be read: it holds numbers with '.' "
@@ -565,11 +570,11 @@ def test_detect_csv_dialect_InvalidInputError_when_decimal_given_and_other_point
     thousands only when no other value made of digits and points would be
     read without them.
     """
-    sample = "date;y\n15.01.2020;1.705\n16.01.2020;1.870\n"
+    sample = "date;y;x\n15.01.2020;1.705;0.5\n16.01.2020;1.870;1.5\n"
 
     err_msg = re.escape(
         "(such as '1.705') and values with a '.' that does not separate "
-        "thousands (such as '15.01.2020')"
+        "thousands (such as '0.5')"
     )
     with pytest.raises(InvalidInputError, match=err_msg):
         detect_csv_dialect(sample, "my.csv", decimal=",")
@@ -790,5 +795,139 @@ def test_detect_csv_dialect_output_when_series_id_column_and_dialect_given(
     result = detect_csv_dialect(
                  sample, "data.csv", series_id_column="store", **kwargs
              )
+
+    assert result == expected
+
+
+@pytest.mark.parametrize(
+    "sample, expected",
+    [
+        (
+            "datum;umsatz\n15.01.2020;1.234,56\n16.01.2020;2.345,67\n",
+            (";", ",", "."),
+        ),
+        (
+            "datum\tumsatz\n15.01.2020\t1.234,56\n16.01.2020\t2.345,67\n",
+            ("\t", ",", "."),
+        ),
+        (
+            "datum;umsatz\n2020.01.15;1.234,56\n2020.01.16;2.345,67\n",
+            (";", ",", "."),
+        ),
+        (
+            "datum;umsatz\n15.01.2020 10:00;1.234,56\n16.01.2020 11:30;2.345,67\n",
+            (";", ",", "."),
+        ),
+        (
+            "name;datum;umsatz\na;15.01.2020;1.234,56\nb;16.01.2020;2.345,67\n",
+            (";", ",", "."),
+        ),
+        (
+            "datum;umsatz\n15.01.2020;870\n16.01.2020;1.020\n",
+            (";", ",", "."),
+        ),
+        (
+            "datum;umsatz\n15.01.2020;870,5\n16.01.2020;945,25\n",
+            (";", ",", None),
+        ),
+        (
+            "datum,umsatz\n15.01.2020,1.5\n16.01.2020,2.5\n",
+            (",", ".", None),
+        ),
+    ],
+    ids=[
+        "german spreadsheet",
+        "tabulator",
+        "year first with points",
+        "with time",
+        "after a column of text",
+        "whole numbers",
+        "decimal comma without thousands",
+        "comma file",
+    ],
+)
+def test_detect_csv_dialect_output_when_dates_with_points_in_the_date_column(
+    sample, expected
+):
+    """
+    Test that the dates written with points ('15.01.2020') of the column of
+    the dates of the sample are not numbers, so they neither tell the decimal
+    mark and the thousands separator nor stop them: a German spreadsheet is
+    read with ';', ',' and '.' instead of raising 'data_unreadable'.
+    """
+    assert detect_csv_dialect(sample, "my.csv") == expected
+
+
+def test_detect_csv_dialect_output_when_date_column_given():
+    """
+    Test that the `date_column` given is left out of the numbers when its
+    dates are not written in a way that finds them in the sample (two digits
+    for the year, '15.01.20'), as the caller said where they are.
+    """
+    sample = "datum;umsatz\n15.01.20;1.234,56\n16.01.20;2.345,67\n"
+
+    result = detect_csv_dialect(sample, "my.csv", date_column="datum")
+
+    assert result == (";", ",", ".")
+
+
+@pytest.mark.parametrize(
+    "sample, date_column, other",
+    [
+        ("datum;umsatz\n15.01.20;1.234,56\n16.01.20;2.345,67\n", None, "15.01.20"),
+        (
+            "datum;end;umsatz\n15.01.2020;16.01.2020;1.234,56\n",
+            "end",
+            "15.01.2020",
+        ),
+    ],
+    ids=["dates not found in the sample", "other column than the one given"],
+)
+def test_detect_csv_dialect_InvalidInputError_when_dates_with_points_not_in_date_column(
+    sample, date_column, other
+):
+    """
+    Test that dates with points that are not in the column of the dates (the
+    sample finds none, or the caller names another column) still raise an
+    InvalidInputError with the code 'data_unreadable', an example of each
+    kind of value and the hint of the values: only the column of the dates
+    is read as text.
+    """
+    err_msg = re.escape(
+        f"The CSV file 'my.csv' cannot be read: it holds numbers with '.' "
+        f"between the thousands (such as '1.234,56') and values with a '.' "
+        f"that does not separate thousands (such as '{other}'), which pandas "
+        f"would read as numbers without it."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg + "$") as exc_info:
+        detect_csv_dialect(sample, "my.csv", date_column=date_column)
+
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.hint == DOTTED_VALUES_HINT
+
+
+@pytest.mark.parametrize(
+    "sample, expected",
+    [
+        (
+            "store;datum;umsatz\n1.020;15.01.2020;1,5\n2.030;16.01.2020;2,5\n",
+            (";", ",", None),
+        ),
+        (
+            "store;datum;umsatz\n1.020;15.01.2020;1.234,5\n2.030;16.01.2020;2,5\n",
+            (";", ",", "."),
+        ),
+    ],
+    ids=["ids with points", "ids with points and thousands"],
+)
+def test_detect_csv_dialect_output_when_series_ids_and_dates_with_points(
+    sample, expected
+):
+    """
+    Test that the column of the series ids ('1.020') and the column of the
+    dates ('15.01.2020') are both left out of the numbers, so only the
+    amounts tell how the file is written.
+    """
+    result = detect_csv_dialect(sample, "my.csv", series_id_column="store")
 
     assert result == expected

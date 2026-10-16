@@ -5,7 +5,11 @@ import pandas as pd
 
 from skforecast_ai import ForecastingAssistant
 
-from tests.fixtures_assistant import df_categorical_exog
+from tests.fixtures_assistant import (
+    df_categorical_exog,
+    df_day_first,
+    df_day_first_exog,
+)
 from tests.fixtures_datasets import df_items_sales_long
 
 _assistant = ForecastingAssistant()
@@ -200,3 +204,17 @@ data_wide_closed = data_wide_kind.copy()
 _closed = data_wide_closed.index.isin(pd.date_range("2012-03-01", periods=2))
 data_wide_closed.loc[_closed, ["item_1", "item_2", "item_3"]] = np.nan
 data_wide_closed.loc[_closed, "kind"] = "closed"
+
+# --- Daily data written day first as text (last date 2021-01-31) ---
+# Its profile records the format '%d/%m/%Y'. The 7 dates to forecast
+# (`exog_day_first`, '01/02/2021' to '07/02/2021') read both day first and
+# month first, and pandas reads them month first (from 2021-01-02).
+# `data_day_first_parsed` holds the same dates already parsed.
+data_day_first = df_day_first
+data_day_first_parsed = df_day_first.assign(
+    date=pd.to_datetime(df_day_first["date"], format="%d/%m/%Y")
+)
+profile_day_first, (plan_day_first,) = _profile_and_plans(
+    data_day_first, ["Ridge"], target="y", date_column="date"
+)
+exog_day_first = df_day_first_exog

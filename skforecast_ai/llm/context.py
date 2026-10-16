@@ -536,6 +536,10 @@ def render_dataset_section(
         parts.append("- Missing values: none")
 
     irregularities = []
+    if dp.index_type == "datetime" and dp.frequency is None:
+        # Without it, "none detected" sat next to the warning that no
+        # frequency could be inferred.
+        irregularities.append("irregular spacing (no frequency inferred)")
     if dp.has_gaps:
         irregularities.append("gaps in the index")
     if dp.has_duplicate_timestamps:

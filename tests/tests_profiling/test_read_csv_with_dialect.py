@@ -647,7 +647,12 @@ def test_read_csv_with_dialect_output_when_thousands_detected(
 
     pd.testing.assert_frame_equal(data, expected)
     assert (sep, decimal, thousands) == (";", ",", ".")
-    assert calls == [((path,), {"sep": ";", "decimal": ",", "thousands": "."})]
+    assert calls == [
+        (
+            (path,),
+            {"sep": ";", "decimal": ",", "thousands": ".", "dtype": {"date": str}},
+        )
+    ]
 
 
 def test_read_csv_with_dialect_output_when_thousands_detected_in_tab_file(tmp_path):
@@ -690,7 +695,10 @@ def test_read_csv_with_dialect_output_when_decimal_comma_given_and_thousands(
     assert (sep, decimal, thousands) == (";", ",", ".")
     assert calls == [
         ((path,), {"sep": ";", "decimal": ","}),
-        ((path,), {"sep": ";", "decimal": ",", "thousands": "."}),
+        (
+            (path,),
+            {"sep": ";", "decimal": ",", "thousands": ".", "dtype": {"date": str}},
+        ),
     ]
 
 
@@ -724,7 +732,10 @@ def test_read_csv_with_dialect_thousands_after_the_sample(tmp_path, monkeypatch)
     assert calls == [
         ((path,), {"sep": ";", "decimal": "."}),
         ((path,), {"sep": ";", "decimal": ","}),
-        ((path,), {"sep": ";", "decimal": ",", "thousands": "."}),
+        (
+            (path,),
+            {"sep": ";", "decimal": ",", "thousands": ".", "dtype": {"date": str}},
+        ),
     ]
 
 
@@ -752,7 +763,10 @@ def test_read_csv_with_dialect_thousands_of_whole_numbers_after_the_sample(
     assert len(calls) == 3
     assert calls[0] == ((path,), {"sep": ";", "decimal": "."})
     assert calls[1][1]["dtype"] is str
-    assert calls[2] == ((path,), {"sep": ";", "decimal": ",", "thousands": "."})
+    assert calls[2] == (
+        (path,),
+        {"sep": ";", "decimal": ",", "thousands": ".", "dtype": {"date": str}},
+    )
 
 
 def test_read_csv_with_dialect_reads_once_when_the_sample_holds_the_file(
@@ -779,23 +793,25 @@ def test_read_csv_with_dialect_InvalidInputError_when_dotted_values_after_the_sa
 ):
     """
     Test that a number with '.' between thousands after the lines the dialect
-    is told from, in a file with dates such as '15.01.2020', raises an
+    is told from, in a file with a number such as '0.5', raises an
     InvalidInputError with the code 'data_unreadable' and the hint of the
-    values, because pandas would read the dates as numbers without the '.'.
+    values, because pandas would read it as a number without the '.'. The
+    dates such as '15.01.2020' are not the reason: their column is read as
+    text.
     """
     monkeypatch.setattr(
         "skforecast_ai.profiling.csv_dialect.SAMPLE_BYTES", 40
     )
     path = tmp_path / "late.csv"
     path.write_text(
-        "date;y;x\n15.01.2020;1;10\n16.01.2020;2;20\n17.01.2020;3;1.705,11\n"
+        "date;y;x\n15.01.2020;1;10\n16.01.2020;2;0.5\n17.01.2020;3;1.705,11\n"
     )
 
     err_msg = re.escape(
         f"The CSV file '{path}' cannot be read: it holds numbers with '.' "
         f"between the thousands (such as '1.705,11') and values with a '.' "
-        f"that does not separate thousands (such as '15.01.2020'), which "
-        f"pandas would read as numbers without it."
+        f"that does not separate thousands (such as '0.5'), which pandas "
+        f"would read as numbers without it."
     )
     with pytest.raises(InvalidInputError, match="^" + err_msg + "$") as exc_info:
         read_csv_with_dialect(path)
@@ -826,7 +842,12 @@ def test_read_csv_with_dialect_decimal_is_comma_when_thousands_given(
     )
     pd.testing.assert_frame_equal(data, expected)
     assert (result_sep, decimal, thousands) == (";", ",", ".")
-    assert calls == [((path,), {"sep": ";", "decimal": ",", "thousands": "."})]
+    assert calls == [
+        (
+            (path,),
+            {"sep": ";", "decimal": ",", "thousands": ".", "dtype": {"date": str}},
+        )
+    ]
 
 
 @pytest.mark.parametrize(
@@ -989,7 +1010,7 @@ def test_read_csv_with_dialect_series_ids_are_text_with_thousands(
                 "sep": ";",
                 "decimal": ",",
                 "thousands": ".",
-                "dtype": {"store": str},
+                "dtype": {"store": str, "date": str},
             },
         )
     ]
@@ -1035,7 +1056,7 @@ def test_read_csv_with_dialect_series_ids_with_point_do_not_tell_the_thousands(
                 "sep": ";",
                 "decimal": ",",
                 "thousands": ".",
-                "dtype": {"store": str},
+                "dtype": {"store": str, "date": str},
             },
         )
     ]
@@ -1085,7 +1106,7 @@ def test_read_csv_with_dialect_series_ids_with_point_when_thousands_after_the_sa
             "sep": ";",
             "decimal": ",",
             "thousands": ".",
-            "dtype": {"store": str},
+            "dtype": {"store": str, "date": str},
         },
     )
 
@@ -1155,4 +1176,228 @@ def test_read_csv_with_dialect_series_ids_with_point_do_not_tell_thousands_when_
     data, sep, decimal, thousands = read_csv_with_dialect(path, decimal=",")
 
     assert data["store"].tolist() == [1020, 1020, 1020]
+    assert (sep, decimal, thousands) == (";", ",", ".")
+
+
+_GERMAN_SPREADSHEET = (
+    "datum;umsatz\n15.01.2020;1.234,56\n16.01.2020;2.345,67\n17.01.2020;870,5\n"
+)
+_GERMAN_EXPECTED = pd.DataFrame(
+    {
+        "datum": ["15.01.2020", "16.01.2020", "17.01.2020"],
+        "umsatz": [1234.56, 2345.67, 870.5],
+    }
+)
+_GERMAN_FINAL_CALL = {
+    "sep": ";",
+    "decimal": ",",
+    "thousands": ".",
+    "dtype": {"datum": str},
+}
+
+
+@pytest.mark.parametrize(
+    "kwargs, expected_kwargs",
+    [
+        ({}, [_GERMAN_FINAL_CALL]),
+        ({"date_column": "datum"}, [_GERMAN_FINAL_CALL]),
+        ({"thousands": "."}, [_GERMAN_FINAL_CALL]),
+        ({"decimal": ","}, [_GERMAN_FINAL_CALL]),
+        (
+            {"sep": ";", "decimal": ","},
+            [{"sep": ";", "decimal": ","}, _GERMAN_FINAL_CALL],
+        ),
+    ],
+    ids=[
+        "dialect detected",
+        "date column given",
+        "thousands given",
+        "decimal given",
+        "separator and decimal given",
+    ],
+)
+def test_read_csv_with_dialect_output_when_german_spreadsheet(
+    tmp_path, monkeypatch, kwargs, expected_kwargs
+):
+    """
+    Test that a ';' file with dates written with points ('15.01.2020') and
+    amounts with '.' between thousands ('1.234,56') is read with ',' as
+    decimal mark and '.' as thousands separator, and its dates stay text
+    (`dtype`), as the generated script reads them: pandas would read the
+    dates as the number 15012020. The column of the dates is told from the
+    first lines of the file, or from the file read when no lines are read
+    (the separator and the decimal mark given), or is the `date_column`
+    given.
+    """
+    path = tmp_path / "german.csv"
+    path.write_text(_GERMAN_SPREADSHEET)
+    calls = _record_read_csv(monkeypatch)
+
+    data, sep, decimal, thousands = read_csv_with_dialect(path, **kwargs)
+
+    pd.testing.assert_frame_equal(data, _GERMAN_EXPECTED)
+    assert (sep, decimal, thousands) == (";", ",", ".")
+    assert calls == [((path,), call) for call in expected_kwargs]
+
+
+def test_read_csv_with_dialect_output_when_german_spreadsheet_with_series_ids(
+    tmp_path, monkeypatch
+):
+    """
+    Test that the series ids ('001') and the dates of a German spreadsheet are
+    both read as text, with the amounts as numbers, in one call.
+    """
+    path = tmp_path / "german_long.csv"
+    path.write_text(
+        "store;datum;umsatz\n001;15.01.2020;1.234,56\n002;16.01.2020;2.345,67\n"
+    )
+    calls = _record_read_csv(monkeypatch)
+
+    data, sep, decimal, thousands = read_csv_with_dialect(
+        path, series_id_column="store"
+    )
+
+    expected = pd.DataFrame(
+        {
+            "store": ["001", "002"],
+            "datum": ["15.01.2020", "16.01.2020"],
+            "umsatz": [1234.56, 2345.67],
+        }
+    )
+    pd.testing.assert_frame_equal(data, expected)
+    assert (sep, decimal, thousands) == (";", ",", ".")
+    assert calls == [
+        (
+            (path,),
+            {
+                "sep": ";",
+                "decimal": ",",
+                "thousands": ".",
+                "dtype": {"store": str, "datum": str},
+            },
+        )
+    ]
+
+
+def test_read_csv_with_dialect_dates_with_points_do_not_tell_the_thousands_when_given(
+    tmp_path, monkeypatch
+):
+    """
+    Test that dates written with points in a file whose separator and decimal
+    mark ',' are given, and whose amounts have no '.' between thousands, do
+    not make the file be read again with '.' as thousands separator (or fail
+    for values with a '.' that is not one): it is read once, with the dates
+    as text.
+    """
+    path = tmp_path / "german_plain.csv"
+    path.write_text("datum;umsatz\n15.01.2020;870,5\n16.01.2020;945,25\n")
+    calls = _record_read_csv(monkeypatch)
+
+    data, sep, decimal, thousands = read_csv_with_dialect(
+        path, sep=";", decimal=","
+    )
+
+    expected = pd.DataFrame(
+        {"datum": ["15.01.2020", "16.01.2020"], "umsatz": [870.5, 945.25]}
+    )
+    pd.testing.assert_frame_equal(data, expected)
+    assert (sep, decimal, thousands) == (";", ",", None)
+    assert calls == [((path,), {"sep": ";", "decimal": ","})]
+
+
+def test_read_csv_with_dialect_date_column_is_not_read_as_text_without_thousands(
+    tmp_path, monkeypatch
+):
+    """
+    Test that a `date_column` given changes nothing for a file without a
+    thousands separator: it is read with exactly `pd.read_csv(path)`.
+    """
+    path = tmp_path / "plain.csv"
+    path.write_text("date,y\n2020-01-15,1.5\n2020-01-16,2.5\n")
+    calls = _record_read_csv(monkeypatch)
+
+    data, sep, decimal, thousands = read_csv_with_dialect(path, date_column="date")
+
+    expected = pd.DataFrame({"date": ["2020-01-15", "2020-01-16"], "y": [1.5, 2.5]})
+    pd.testing.assert_frame_equal(data, expected)
+    assert (sep, decimal, thousands) == (",", ".", None)
+    assert calls == [((path,), {})]
+
+
+@pytest.mark.parametrize(
+    "text, expected_umsatz, expected_calls",
+    [
+        (
+            "datum;umsatz\n15.01.2020;870\n16.01.2020;945\n17.01.2020;1.020\n"
+            "18.01.2020;2.015\n",
+            [870, 945, 1020, 2015],
+            3,
+        ),
+        (
+            "datum;umsatz\n15.01.2020;870,5\n16.01.2020;945,5\n"
+            "17.01.2020;1.020,5\n18.01.2020;2.015,5\n",
+            [870.5, 945.5, 1020.5, 2015.5],
+            2,
+        ),
+    ],
+    ids=["whole numbers", "decimals"],
+)
+def test_read_csv_with_dialect_thousands_after_the_sample_with_dates_with_points(
+    tmp_path, monkeypatch, text, expected_umsatz, expected_calls
+):
+    """
+    Test that a German spreadsheet whose numbers with '.' between thousands
+    only come after the lines the dialect is told from is read with ',' and
+    '.', and its dates with points stay text: they are neither the reason
+    for the file to be unreadable nor read as numbers.
+    """
+    monkeypatch.setattr("skforecast_ai.profiling.csv_dialect.SAMPLE_BYTES", 40)
+    path = tmp_path / "late_german.csv"
+    path.write_text(text)
+    calls = _record_read_csv(monkeypatch)
+
+    data, sep, decimal, thousands = read_csv_with_dialect(path)
+
+    expected = pd.DataFrame(
+        {
+            "datum": ["15.01.2020", "16.01.2020", "17.01.2020", "18.01.2020"],
+            "umsatz": expected_umsatz,
+        }
+    )
+    pd.testing.assert_frame_equal(data, expected)
+    assert (sep, decimal, thousands) == (";", ",", ".")
+    assert len(calls) == expected_calls
+    assert calls[-1] == ((path,), _GERMAN_FINAL_CALL)
+
+
+def test_read_csv_with_dialect_InvalidInputError_when_dates_with_points_not_found(
+    tmp_path,
+):
+    """
+    Test that dates with points that the first lines do not find as the
+    column of the dates (two digits for the year, '15.01.20') raise an
+    InvalidInputError with the code 'data_unreadable', unless the
+    `date_column` says where they are: then the file is read.
+    """
+    path = tmp_path / "short_year.csv"
+    path.write_text("datum;umsatz\n15.01.20;1.234,56\n16.01.20;2.345,67\n")
+
+    err_msg = re.escape(
+        f"The CSV file '{path}' cannot be read: it holds numbers with '.' "
+        f"between the thousands (such as '1.234,56') and values with a '.' "
+        f"that does not separate thousands (such as '15.01.20'), which pandas "
+        f"would read as numbers without it."
+    )
+    with pytest.raises(InvalidInputError, match="^" + err_msg + "$") as exc_info:
+        read_csv_with_dialect(path)
+
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.hint == DOTTED_VALUES_HINT
+
+    data, sep, decimal, thousands = read_csv_with_dialect(path, date_column="datum")
+
+    expected = pd.DataFrame(
+        {"datum": ["15.01.20", "16.01.20"], "umsatz": [1234.56, 2345.67]}
+    )
+    pd.testing.assert_frame_equal(data, expected)
     assert (sep, decimal, thousands) == (";", ",", ".")

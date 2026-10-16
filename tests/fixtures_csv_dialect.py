@@ -41,6 +41,17 @@ df_dialect_monthly = pd.DataFrame(
     }
 )
 
+# The same series with an exogenous variable, and its values for the three
+# months after the last one, dates as text day first. Every date of both is
+# the first of a month, so it reads day first and month first.
+df_dialect_monthly_exog = df_dialect_monthly.assign(promo=np.tile([0.0, 1.0], 24))
+df_dialect_monthly_exog_future = pd.DataFrame(
+    {
+        "date": ["01/01/2022", "01/02/2022", "01/03/2022"],
+        "promo": [0.0, 1.0, 0.0],
+    }
+)
+
 
 # How each dialect is written to disk by the tests: name, file name, and the
 # arguments of `DataFrame.to_csv`.

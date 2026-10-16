@@ -75,6 +75,7 @@ ExogColumnsOption = Annotated[str | None, typer.Option("--exog-columns", help="C
 SepOption = Annotated[str | None, typer.Option("--sep", help="Separator of the CSV file: ',', ';' or 'tab'. Detected from the file when omitted.")]
 DecimalOption = Annotated[str | None, typer.Option("--decimal", help="Decimal mark of the CSV file: '.' or ',' (only when the separator is not ','). Detected from the file when omitted.")]
 ThousandsOption = Annotated[str | None, typer.Option("--thousands", help="Thousands separator of the CSV file: '.' (with ',' as decimal mark, as in '1.705,11'). Detected from the file when omitted.")]
+DayfirstOption = Annotated[bool | None, typer.Option("--dayfirst/--monthfirst", help="Order of the day and the month of the dates of the CSV file, for dates that read both ways ('01/02/2024' in every row): day first ('31/01/2024') or month first ('01/31/2024'). Told from the dates when omitted.")]
 FromPlanOption = Annotated[str | None, typer.Option("--from-plan", help="Load plan bundle from JSON file or '-' for stdin.")]
 FromProfileOption = Annotated[str | None, typer.Option("--from-profile", help="Load profile from JSON file or '-' for stdin.")]
 # CV options default to None so that only the flags actually passed reach
@@ -1001,6 +1002,7 @@ def profile(
     sep: SepOption = None,
     decimal: DecimalOption = None,
     thousands: ThousandsOption = None,
+    dayfirst: DayfirstOption = None,
     format: TableFormatOption = "table",
     output: OutputOption = None,
     quiet: QuietOption = False,
@@ -1018,6 +1020,7 @@ def profile(
                 series_id_column=series_id_column,
                 exog_columns=parsed_exog_columns,
                 sep=_parse_sep(sep), decimal=decimal, thousands=thousands,
+                dayfirst=dayfirst,
             )
 
         if format == "json":
@@ -1590,6 +1593,48 @@ def _render_forecast_results(result) -> None:
     console.print(render_dataframe(result.predictions, title="Predictions"))
 
 
+def _data_date_format(
+    data: str,
+    target: str | list[str],
+    date_column: str | None,
+    series_id_column: str | None,
+) -> str | None:
+    """
+    Return the format the dates of a CSV file of data are read with
+    (`DataProfile.date_format`), to read the future exogenous variables,
+    which are written like the data, before the forecast reads the file.
+
+    Parameters
+    ----------
+    data : str
+        Path or URL of the CSV file.
+    target : str, list
+        Target column(s).
+    date_column : str, None
+        Date column, when given.
+    series_id_column : str, None
+        Column of the series ids, when given.
+
+    Returns
+    -------
+    date_format : str, None
+        Format of the dates, or None when they are read without one.
+    """
+    from ._utils import _dialect_read, _resolve_data_and_target, recorded_data_path
+
+    # The forecast reads the file again, and shows its warnings then.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        _resolve_data_and_target(
+            data             = data,
+            target           = target,
+            date_column      = date_column,
+            series_id_column = series_id_column,
+        )
+
+    return _dialect_read(recorded_data_path(data))[3]
+
+
 def _result_to_json(result) -> str:
     """
     Serialize any workflow result to JSON.
@@ -1684,6 +1729,7 @@ def forecast(
                 exog,
                 date_column      = prof.data_profile.date_column,
                 series_id_column = prof.data_profile.series_id_column,
+                date_format      = prof.data_profile.date_format,
             )
 
             with _spinner("Running forecast from plan...", quiet):
@@ -1709,6 +1755,12 @@ def forecast(
                 exog,
                 date_column      = date_column,
                 series_id_column = series_id_column,
+                date_format      = _data_date_format(
+                                       data             = data,
+                                       target           = parsed_target,
+                                       date_column      = date_column,
+                                       series_id_column = series_id_column,
+                                   ) if exog is not None else None,
             )
 
             with _spinner("Running forecast...", quiet):

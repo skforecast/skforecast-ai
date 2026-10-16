@@ -911,7 +911,8 @@ def test_forecast_code_reads_csv_with_the_thousands_separator_of_the_file(tmp_pa
     result = ForecastingAssistant().forecast_code(data=path, target="y", steps=3)
 
     assert (
-        f"data = pd.read_csv({path!r}, sep=';', decimal=',', thousands='.')\n"
+        f"data = pd.read_csv({path!r}, sep=';', decimal=',', thousands='.', "
+        f"dtype={{'date': str}})\n"
         in result.code
     )
     assert result.profile.data_profile.csv_thousands == "."
@@ -946,7 +947,8 @@ def test_forecast_code_reads_file_with_the_thousands_of_a_saved_profile(tmp_path
     decimals = assistant.forecast_code(data=path, profile=with_decimals, steps=3)
 
     assert (
-        f"data = pd.read_csv({str(path)!r}, sep=';', decimal=',', thousands='.')\n"
+        f"data = pd.read_csv({str(path)!r}, sep=';', decimal=',', thousands='.', "
+        f"dtype={{'date': str}})\n"
         in result.code
     )
     assert result.profile.data_profile.csv_thousands == "."
@@ -980,6 +982,7 @@ def test_forecast_code_reads_the_file_of_a_saved_profile_with_its_dialect(tmp_pa
     assert f"data = pd.read_csv({str(path)!r}, sep=';', decimal='.')\n" in result.code
     assert result.profile.data_profile.csv_thousands is None
     assert (
-        f"data = pd.read_csv({str(other)!r}, sep=';', decimal=',', thousands='.')\n"
+        f"data = pd.read_csv({str(other)!r}, sep=';', decimal=',', thousands='.', "
+        f"dtype={{'date': str}})\n"
         in copy.code
     )

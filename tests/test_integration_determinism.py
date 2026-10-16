@@ -70,8 +70,15 @@ def test_forecast_code_and_forecast_render_the_same_script():
         (df_single, {"target": "sales", "date_column": "date"}),
         (df_multi_long, {"target": "value", "date_column": "date", "series_id_column": "series_id"}),
         (df_multi_long_numeric_ids, {"target": "value", "date_column": "date", "series_id_column": "series_id"}),
+        (
+            df_single.assign(date=df_single["date"].dt.strftime("%d/%m/%Y")),
+            {"target": "sales", "date_column": "date"},
+        ),
     ],
-    ids=["single series", "multi series", "multi series numeric ids"],
+    ids=[
+        "single series", "multi series", "multi series numeric ids",
+        "single series day first",
+    ],
 )
 def test_forecast_workflow_is_deterministic_when_data_is_csv_path(
     tmp_path, data, kwargs

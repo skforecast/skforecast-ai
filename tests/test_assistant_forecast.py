@@ -19,7 +19,13 @@ from skforecast_ai.exceptions import (
 from skforecast_ai import _validation as validation_module
 from skforecast_ai._constants import ALLOWED_METRICS
 
-from tests.fixtures_csv_dialect import df_dialect, write_dialect
+from tests.fixtures_csv_dialect import (
+    df_dialect,
+    df_dialect_monthly,
+    df_dialect_monthly_exog,
+    df_dialect_monthly_exog_future,
+    write_dialect,
+)
 from tests.fixtures_future_exog import data_long, exog_long
 from tests.fixtures_datasets import (
     df_h2o,
@@ -34,6 +40,8 @@ from tests.fixtures_datasets import (
 from tests.fixtures_assistant import (
     df_calendar_named_exog,
     df_categorical_exog,
+    df_day_first,
+    df_day_first_exog,
     df_multi_wide,
     df_range_index,
     df_single,
@@ -3101,3 +3109,135 @@ def test_forecast_output_when_csv_has_semicolon_and_decimal_comma(tmp_path):
     assert result.profile.data_profile.csv_decimal == ","
     pd.testing.assert_frame_equal(result.predictions, expected.predictions)
     assert result.predictions.index.min() == pd.Timestamp("2023-02-27")
+
+
+# =============================================================================
+# Tests: dates written day first
+# =============================================================================
+def test_forecast_output_when_profile_built_with_dayfirst_on_ambiguous_monthly_csv(
+    tmp_path,
+):
+    """
+    Test that forecast() with a profile built with `dayfirst=True` on a CSV
+    whose dates all read in both orders (the first of every month) predicts
+    the months after the last one (January to March 2022, not days of
+    January), and returns a script that reads the dates with
+    `format='%d/%m/%Y'`.
+    """
+    csv_path = tmp_path / "monthly.csv"
+    df_dialect_monthly.to_csv(csv_path, index=False)
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=csv_path, target="y", dayfirst=True)
+
+    result = assistant.forecast(data=csv_path, profile=profile, steps=3)
+
+    expected = pd.DataFrame(
+        {"pred": [2.266952923672391, 2.117850996070447, 2.8283510902589377]},
+        index=pd.date_range("2022-01-01", periods=3, freq="MS"),
+    )
+    pd.testing.assert_frame_equal(result.predictions, expected)
+    assert profile.data_profile.date_format == "%d/%m/%Y"
+    assert result.profile.data_profile.date_format == "%d/%m/%Y"
+    assert result.profile.data_profile.data_path == str(csv_path)
+    assert f"data = pd.read_csv({str(csv_path)!r})\n" in result.code
+    assert (
+        "data['date'] = pd.to_datetime(data['date'], format='%d/%m/%Y')\n"
+        in result.code
+    )
+
+
+def test_forecast_InvalidInputError_when_ambiguous_monthly_csv_without_dayfirst(
+    tmp_path,
+):
+    """
+    Test that forecast() on a CSV whose dates all read in both orders
+    raises, with the code 'data_unreadable' and the field 'data', instead of
+    guessing the order: it needs a profile built with `dayfirst`.
+    """
+    csv_path = tmp_path / "monthly.csv"
+    df_dialect_monthly.to_csv(csv_path, index=False)
+
+    err_msg = re.escape(
+        "The dates of column 'date' read both day first and month first: no "
+        "day is after the 12th, so '01/02/2018' may be '2018-02-01' or "
+        "'2018-01-02', and the order is not guessed."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        ForecastingAssistant().forecast(data=csv_path, target="y", steps=3)
+
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.field == "data"
+
+
+def test_forecast_output_when_wide_exog_has_text_dates_day_first_and_profile_dayfirst(
+    tmp_path,
+):
+    """
+    Test that forecast() of wide-format data with a profile built with
+    `dayfirst=True` reads a DataFrame `exog` whose date column is text
+    written day first ('01/01/2022', '01/02/2022', '01/03/2022', which pandas
+    reads month first as three days of January) with the format of the
+    data: it predicts the three months after the last one, and the script
+    reads the dates of the data and of the future values with the format.
+    """
+    csv_path = tmp_path / "monthly.csv"
+    df_dialect_monthly_exog.to_csv(csv_path, index=False)
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=csv_path, target="y", dayfirst=True)
+
+    result = assistant.forecast(
+        data    = csv_path,
+        profile = profile,
+        steps   = 3,
+        exog    = df_dialect_monthly_exog_future,
+    )
+
+    expected = pd.DataFrame(
+        {"pred": [2.266116491307465, 2.1181644732103, 2.8276735764988548]},
+        index=pd.date_range("2022-01-01", periods=3, freq="MS"),
+    )
+    pd.testing.assert_frame_equal(result.predictions, expected)
+    assert result.metrics is None
+    assert result.code.count("format='%d/%m/%Y'") == 2
+    assert (
+        "exog_future['date'] = pd.to_datetime(exog_future['date'], "
+        "format='%d/%m/%Y')\n"
+    ) in result.code
+
+
+def test_forecast_output_when_data_and_exog_are_text_dates_day_first():
+    """
+    Test that forecast() of a DataFrame with text dates written day first
+    and a short horizon that reads both ways ('01/02/2021' to '07/02/2021')
+    predicts the seven days after the last date (2021-01-31), the dates of
+    the data and of `exog` both read day first in the returned script.
+    """
+    result = ForecastingAssistant().forecast(
+        data        = df_day_first,
+        target      = "y",
+        date_column = "date",
+        steps       = 7,
+        exog        = df_day_first_exog,
+    )
+
+    expected = pd.DataFrame(
+        {
+            "pred": [
+                17.757746408435324, 17.997458443344815, 18.007362026504243,
+                17.80723891613638, 17.430903079968857, 16.9653885887927,
+                16.427784848251246,
+            ]
+        },
+        index=pd.date_range("2021-02-01", periods=7, freq="D"),
+    )
+    pd.testing.assert_frame_equal(result.predictions, expected)
+    assert result.profile.data_profile.date_format == "%d/%m/%Y"
+    assert result.profile.data_profile.data_path == "data.csv"
+    assert (
+        "data['date'] = pd.to_datetime(data['date'], format='%d/%m/%Y')\n"
+        in result.code
+    )
+    assert (
+        "exog_future['date'] = pd.to_datetime(exog_future['date'], "
+        "format='%d/%m/%Y')\n"
+    ) in result.code

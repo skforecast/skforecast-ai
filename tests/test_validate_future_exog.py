@@ -21,6 +21,8 @@ from tests.fixtures_future_exog import (
     data_bh,
     data_business,
     data_daily,
+    data_day_first,
+    data_day_first_parsed,
     data_dst,
     data_long,
     data_long_early,
@@ -32,6 +34,7 @@ from tests.fixtures_future_exog import (
     exog_bh,
     exog_calendar_days,
     exog_daily,
+    exog_day_first,
     exog_dst,
     exog_long,
     exog_long_early,
@@ -43,6 +46,7 @@ from tests.fixtures_future_exog import (
     plan_daily_lgbm,
     plan_daily_promo_foundation,
     plan_daily_ridge,
+    plan_day_first,
     plan_dst,
     plan_long_early_foundation,
     plan_long_early_ridge,
@@ -56,6 +60,7 @@ from tests.fixtures_future_exog import (
     profile_business,
     profile_daily,
     profile_daily_promo,
+    profile_day_first,
     profile_dst,
     profile_long,
     profile_long_early,
@@ -1257,3 +1262,109 @@ def test_validate_future_exog_DataContentError_when_column_missing():
     assert (exc_info.value.code, exc_info.value.field) == (
         "invalid_argument", "exog"
     )
+
+
+@pytest.mark.parametrize(
+    "exog",
+    [exog_day_first, exog_day_first.iloc[::-1]],
+    ids=["in_order", "reversed"],
+)
+def test_validate_future_exog_output_when_text_dates_follow_date_format(exog):
+    """
+    Test that text dates of the future exog that read both day first and
+    month first ('01/02/2021' to '07/02/2021') are read with the format of
+    the profile (`date_format`), as the generated code reads them, whatever
+    the order of the rows: they are the seven days after the last date of the
+    data, 2021-01-31.
+    """
+    assert profile_day_first.date_format == "%d/%m/%Y"
+
+    result = validate_future_exog(
+        exog, data_day_first, profile_day_first, plan_day_first
+    )
+
+    assert result is None
+
+
+@pytest.mark.parametrize(
+    "exog",
+    [exog_day_first, exog_day_first.iloc[::-1]],
+    ids=["in_order", "reversed"],
+)
+def test_validate_future_exog_DataContentError_when_text_dates_and_no_date_format(
+    exog,
+):
+    """
+    Test that the same dates of the future exog, with a profile that records
+    no `date_format`, are read with the format pandas guesses from the first
+    one, month first, so they start before the first date to forecast.
+    """
+    profile = profile_day_first.model_copy(update={"date_format": None})
+
+    err_msg = re.escape(
+        "`exog` starts at 2021-01-02, before the first date to forecast, "
+        "2021-02-01 (the date after the last date of the data). Drop the rows "
+        "before it."
+    )
+    with pytest.raises(DataContentError, match=err_msg) as exc_info:
+        validate_future_exog(exog, data_day_first_parsed, profile, plan_day_first)
+
+    assert exc_info.value.field == "exog"
+
+
+@pytest.mark.parametrize(
+    "frequency",
+    ["D", None],
+    ids=["frequency_known", "no_frequency"],
+)
+@pytest.mark.parametrize(
+    "rows",
+    [slice(None), slice(None, None, -1)],
+    ids=["in_order", "reversed"],
+)
+def test_validate_future_exog_DataContentError_when_missing_value_in_day_first_dates(
+    frequency, rows
+):
+    """
+    Test that the missing value of a row is dated as the generated code
+    reads the text dates (day first, from the profile): '03/02/2021' is the
+    third of February and not the second of March, whether the dates are
+    checked against the grid of the data or, without a frequency, in the
+    order of the dates, and whatever the order of the rows.
+    """
+    exog = exog_day_first.assign(
+        promo=[0.0, 1.0, np.nan, 1.0, 0.0, 1.0, 0.0]
+    ).iloc[rows]
+    profile = profile_day_first.model_copy(update={"frequency": frequency})
+
+    err_msg = re.escape(
+        "`exog` has missing values in the rows to forecast ('promo': 1 "
+        "value(s), such as '2021-02-03')."
+    )
+    with pytest.raises(DataContentError, match=err_msg) as exc_info:
+        validate_future_exog(exog, data_day_first, profile, plan_day_first)
+
+    assert exc_info.value.field == "exog"
+
+
+def test_validate_future_exog_DataContentError_when_text_dates_not_in_date_format():
+    """
+    Test that text dates of the future exog that do not follow the format of
+    the profile (ISO 8601 against '%d/%m/%Y') raise a DataContentError that
+    says they cannot be read as the generated code reads them, instead of
+    being read on their own.
+    """
+    exog = exog_day_first.assign(
+        date=["2021-02-01", "2021-02-02", "2021-02-03", "2021-02-04",
+              "2021-02-05", "2021-02-06", "2021-02-07"]
+    )
+
+    err_msg = re.escape(
+        "The dates of `exog` (column or index 'date') cannot be read as the "
+        "generated code reads them: time data \"2021-02-01\" doesn't match "
+        "format \"%d/%m/%Y\", at position 0."
+    )
+    with pytest.raises(DataContentError, match=err_msg) as exc_info:
+        validate_future_exog(exog, data_day_first, profile_day_first, plan_day_first)
+
+    assert exc_info.value.field == "exog"

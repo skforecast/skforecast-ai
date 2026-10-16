@@ -16,6 +16,7 @@ from skforecast_ai.exceptions import (
     InvalidInputTypeError,
 )
 from skforecast_ai.schemas import DataProfile, ForecastingProfile
+from skforecast_ai.profiling.data_profile import DAYFIRST_FRAME_HINT, DAYFIRST_HINT
 
 from tests.fixtures_datasets import (
     df_h2o_text,
@@ -543,52 +544,99 @@ def test_profile_InvalidInputError_when_month_names_read_as_full_names():
 
 
 @pytest.mark.parametrize("source", ["csv", "dataframe"])
-def test_profile_InvalidInputError_when_day_first_dates_read_month_first(
+def test_profile_output_when_day_first_dates_after_one_that_reads_month_first(
     tmp_path, source
 ):
     """
     Test that day-first dates whose first date also reads month-first
-    ('01/01/2023', then '13/01/2023') raise with the day-first advice: the
-    script reads them all month-first, and a later date proves that reading
-    wrong. The hint asks for ISO 8601 without the pandas call.
+    ('01/01/2023', then '13/01/2023') are read day first, the only order
+    that reads every date, and that the profile records the format the
+    generated script reads them with.
     """
     data = df_single.assign(date=df_single["date"].dt.strftime("%d/%m/%Y"))
     if source == "csv":
         data.to_csv(tmp_path / "dayfirst.csv", index=False)
         data = tmp_path / "dayfirst.csv"
 
-    err_msg = re.escape(
-        "The dates of column 'date' are written day first, but the first one, "
-        "'01/01/2023', also reads month first ('%m/%d/%Y'), the format the "
-        "generated script reads every date with, and '13/01/2023' does not "
-        "fit it: write the dates in ISO 8601, such as '2023-01-13', or read "
-        "them with pandas.to_datetime(..., dayfirst=True) before passing them."
-    )
-    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
-        ForecastingAssistant().profile(data=data, target="sales", date_column="date")
-
-    assert exc_info.value.field == "data"
-    assert exc_info.value.hint == (
-        "Write the dates of the column in ISO 8601, such as '2023-01-13'."
+    profile = ForecastingAssistant().profile(
+        data=data, target="sales", date_column="date"
     )
 
+    dp = profile.data_profile
+    assert dp.date_format == "%d/%m/%Y"
+    assert dp.frequency == "D"
+    assert dp.start_date == "2023-01-01"
+    assert dp.series_lengths["sales"].end == "2023-04-10"
 
-def test_profile_output_when_day_first_dates_also_read_month_first():
+
+@pytest.mark.parametrize(
+    "source, code, hint",
+    [
+        ("csv", "data_unreadable", DAYFIRST_HINT),
+        ("dataframe", "invalid_argument", DAYFIRST_FRAME_HINT),
+    ],
+)
+def test_profile_InvalidInputError_when_dates_read_day_first_and_month_first(
+    tmp_path, source, code, hint
+):
     """
-    Test that day-first dates that all read month-first too (no day after
-    the 12th) are profiled as the script reads them, month-first: nothing
-    proves that reading wrong.
+    Test that dates that all read both day first and month first (no day
+    after the 12th: monthly data on the first day) raise instead of being
+    read month first, quoting a date whose two readings differ. A CSV file
+    raises with code 'data_unreadable' and the hint that names `dayfirst`;
+    a DataFrame, which `dayfirst` does not read, is asked to convert them.
     """
     dates = pd.date_range("2023-01-01", periods=12, freq="MS")
     data = pd.DataFrame({
         "date": dates.strftime("%d/%m/%Y"),
         "y": np.arange(12, dtype=float),
     })
+    if source == "csv":
+        data.to_csv(tmp_path / "monthly.csv", index=False)
+        data = tmp_path / "monthly.csv"
 
-    profile = ForecastingAssistant().profile(data=data, target="y", date_column="date")
+    found = re.escape(
+        "The dates of column 'date' read both day first and month first: no "
+        "day is after the 12th, so '01/02/2023' may be '2023-02-01' or "
+        "'2023-01-02', and the order is not guessed"
+    )
+    with pytest.raises(InvalidInputError, match="^" + found) as exc_info:
+        ForecastingAssistant().profile(
+            data=data, target="y", date_column="date", dayfirst=None
+        )
 
-    assert profile.data_profile.frequency == "D"
-    assert profile.data_profile.start_date == "2023-01-01"
+    assert exc_info.value.code == code
+    assert exc_info.value.field == "data"
+    assert exc_info.value.hint == hint
+
+
+@pytest.mark.parametrize(
+    "dayfirst, start_date, frequency",
+    [(True, "2023-01-01", "MS"), (False, "2023-01-01", None)],
+    ids=["day first", "month first"],
+)
+def test_profile_output_when_dayfirst_given_for_dates_that_read_both_ways(
+    tmp_path, dayfirst, start_date, frequency
+):
+    """
+    Test that `dayfirst` decides the order of dates that read both ways:
+    day first, the monthly data of the file; month first, the first twelve
+    days of each January, irregular. The profile records the format either
+    way, so the script and the other methods read the file in that order.
+    """
+    dates = pd.date_range("2023-01-01", periods=24, freq="MS")
+    path = tmp_path / "monthly.csv"
+    pd.DataFrame({
+        "date": dates.strftime("%d/%m/%Y"),
+        "y": np.arange(24, dtype=float),
+    }).to_csv(path, index=False)
+
+    profile = ForecastingAssistant().profile(data=path, target="y", dayfirst=dayfirst)
+
+    dp = profile.data_profile
+    assert dp.date_format == ("%d/%m/%Y" if dayfirst else "%m/%d/%Y")
+    assert dp.start_date == start_date
+    assert dp.frequency == frequency
 
 
 def test_profile_output_when_csv_dates_in_utc(tmp_path):
@@ -1283,8 +1331,8 @@ def test_profile_reads_csv_with_semicolon_and_decimal_comma(tmp_path):
     writes in Spanish, German or French) is profiled instead of raising,
     records its dialect, and gives the same profile as the same frame written
     with the default `to_csv`, but for the path and the dialect. The day first
-    dates are read month first in both files, so the frequency is None with a
-    warning in the profile in both.
+    dates on the first of each month read both ways, so `dayfirst` gives
+    their order in both files, and the frequency is monthly.
     """
     semicolon_path = tmp_path / "eu.csv"
     comma_path = tmp_path / "us.csv"
@@ -1292,14 +1340,15 @@ def test_profile_reads_csv_with_semicolon_and_decimal_comma(tmp_path):
     df_dialect_monthly.to_csv(comma_path, index=False)
     assistant = ForecastingAssistant()
 
-    result = assistant.profile(semicolon_path, target="y")
-    expected = assistant.profile(comma_path, target="y")
+    result = assistant.profile(semicolon_path, target="y", dayfirst=True)
+    expected = assistant.profile(comma_path, target="y", dayfirst=True)
 
     dp = result.data_profile
     assert dp.csv_sep == ";"
     assert dp.csv_decimal == ","
     assert dp.data_path == str(semicolon_path)
-    assert dp.frequency is None
+    assert dp.date_format == "%d/%m/%Y"
+    assert dp.frequency == "MS"
     assert dp.n_total_observations == 48
     assert expected.data_profile.csv_sep == ","
     assert expected.data_profile.csv_decimal == "."

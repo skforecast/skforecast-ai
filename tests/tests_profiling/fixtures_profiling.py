@@ -112,3 +112,104 @@ df_wide_ending_early = pd.DataFrame(
     index=pd.date_range("2023-01-01", periods=4, freq="D"),
 )
 
+
+
+# --- Dates written with the day and the month as numbers before the year ---
+# Closed formulas, so no random seed is involved.
+
+# Daily series of 90 observations from 2020-01-01 written day first
+# ('01/01/2020'): the days after the 12th settle the order. The values go
+# from 10.0 to 54.5 (mean 32.25).
+df_dates_day_first = pd.DataFrame(
+    {
+        "date": pd.date_range("2020-01-01", periods=90, freq="D").strftime(
+            "%d/%m/%Y"
+        ),
+        "y": 10.0 + 0.5 * np.arange(90),
+    }
+)
+
+# The same series with ISO dates ('2020-01-01').
+df_dates_iso = df_dates_day_first.assign(
+    date=pd.date_range("2020-01-01", periods=90, freq="D").strftime("%Y-%m-%d")
+)
+
+# The same series with dates written as whole numbers ('20200101').
+df_dates_compact = df_dates_day_first.assign(
+    date=pd.date_range("2020-01-01", periods=90, freq="D")
+    .strftime("%Y%m%d")
+    .astype(int)
+)
+
+# Monthly series of 60 observations from 2015-01-01 written day first
+# ('01/02/2015'): no day is after the 12th, so every date reads day first and
+# month first. The values go from 5.0 to 93.5.
+df_dates_monthly_ambiguous = pd.DataFrame(
+    {
+        "date": pd.date_range("2015-01-01", periods=60, freq="MS").strftime(
+            "%d/%m/%Y"
+        ),
+        "y": 5.0 + 1.5 * np.arange(60),
+    }
+)
+
+# Daily series of 60 observations from 2020-01-13 written month first
+# ('01/13/2020'): the days after the 12th settle the order.
+df_dates_month_first = pd.DataFrame(
+    {
+        "date": pd.date_range("2020-01-13", periods=60, freq="D").strftime(
+            "%m/%d/%Y"
+        ),
+        "y": 5.0 + 1.5 * np.arange(60),
+    }
+)
+
+# Daily series of 60 observations as a spreadsheet of Germany exports it
+# (columns 'datum' and 'umsatz'): dates with points ('15.01.2020') and
+# amounts with '.' between thousands and ',' before two decimals
+# (`write_german_excel`). The amounts go from 1234.56 to 7149.31 (mean
+# 4191.935), the dates from 2020-01-15 and from 2020-01-01.
+_german_amounts = np.round(1234.56 + 100.25 * np.arange(60), 2)
+df_german_from_15th = pd.DataFrame(
+    {
+        "datum": pd.date_range("2020-01-15", periods=60, freq="D").strftime(
+            "%d.%m.%Y"
+        ),
+        "umsatz": _german_amounts,
+    }
+)
+df_german_from_1st = df_german_from_15th.assign(
+    datum=pd.date_range("2020-01-01", periods=60, freq="D").strftime("%d.%m.%Y")
+)
+
+# Monthly series of 60 amounts above 1,000 in the format of a German
+# spreadsheet, from 2015-01-01 ('01.02.2015'): no day is after the 12th.
+df_german_monthly = pd.DataFrame(
+    {
+        "datum": pd.date_range("2015-01-01", periods=60, freq="MS").strftime(
+            "%d.%m.%Y"
+        ),
+        "umsatz": np.round(1000.5 + 50.25 * np.arange(60), 2),
+    }
+)
+
+
+def write_german_excel(directory, frame: pd.DataFrame, name: str = "de.csv") -> str:
+    """
+    Write `frame` (columns 'datum' and 'umsatz') to `directory` separated by
+    ';', with '.' between the thousands and ',' before the decimals of the
+    amounts ('1.234,56'), as a German spreadsheet exports it, and return the
+    path. pandas cannot write a thousands separator.
+    """
+
+    def written(value: float) -> str:
+        return f"{value:,.2f}".replace(",", " ").replace(".", ",").replace(" ", ".")
+
+    lines = ["datum;umsatz"] + [
+        f"{date};{written(value)}"
+        for date, value in zip(frame["datum"], frame["umsatz"])
+    ]
+    path = directory / name
+    path.write_text("\n".join(lines) + "\n")
+
+    return str(path)

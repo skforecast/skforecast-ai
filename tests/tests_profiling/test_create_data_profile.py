@@ -9,6 +9,7 @@ import pytest
 
 from skforecast_ai.exceptions import InvalidInputError
 from skforecast_ai.profiling import create_data_profile
+from skforecast_ai.profiling.data_profile import DAYFIRST_FRAME_HINT, DAYFIRST_HINT
 from skforecast_ai.schemas import DataProfile
 
 from ..fixtures_assistant import (
@@ -17,6 +18,14 @@ from ..fixtures_assistant import (
 )
 from ..fixtures_datasets import df_h2o, df_items_sales_long, df_items_sales_wide
 from .fixtures_profiling import (
+    df_dates_compact,
+    df_dates_day_first,
+    df_dates_iso,
+    df_dates_month_first,
+    df_dates_monthly_ambiguous,
+    df_german_from_15th,
+    df_german_from_1st,
+    df_german_monthly,
     df_long_duplicate_values_series_b,
     df_long_identical_duplicates_series_b,
     df_multi_long,
@@ -30,6 +39,7 @@ from .fixtures_profiling import (
     df_wide_duplicate_values,
     df_wide_identical_duplicates,
     df_with_missing,
+    write_german_excel,
 )
 
 
@@ -1610,3 +1620,529 @@ def test_create_data_profile_InvalidInputError_when_text_target_not_found_in_int
     assert exc_info.value.code == "invalid_argument"
     assert exc_info.value.field == "target"
     assert exc_info.value.hint == hint
+
+
+# ---------------------------------------------------------------------------
+# Order of the day and the month of the dates, and other date formats
+# ---------------------------------------------------------------------------
+_AMBIGUOUS_CSV_ERROR = (
+    "The dates of column 'date' read both day first and month first: no day "
+    "is after the 12th, so '01/02/2015' may be '2015-02-01' or '2015-01-02', "
+    "and the order is not guessed. Profile the file saying which it is, with "
+    "`dayfirst`."
+)
+_AMBIGUOUS_FRAME_ERROR = (
+    "The dates of column 'date' read both day first and month first: no day "
+    "is after the 12th, so '01/02/2015' may be '2015-02-01' or '2015-01-02', "
+    "and the order is not guessed: convert them with pandas.to_datetime(..., "
+    "format='%d/%m/%Y') or format='%m/%d/%Y' before passing the data."
+)
+_DAYFIRST_CONTRADICTION_HINT = (
+    "Leave `dayfirst` out, so the order is told from the dates."
+)
+_COULD_NOT_INFER_FREQUENCY = (
+    "Could not infer frequency from the datetime index: the spacing is "
+    "irregular, or there are too few timestamps."
+)
+
+
+def test_create_data_profile_date_format_when_day_first_dates_in_csv(tmp_path):
+    """
+    Test that a CSV file of daily dates written day first ('01/01/2020', with
+    days after the 12th) is read day first, and the profile records the
+    format the generated script must read them with: the frequency is daily
+    from the 1st of January, not from the 1st of every month.
+    """
+    csv_file = tmp_path / "daily.csv"
+    df_dates_day_first.to_csv(csv_file, index=False)
+
+    profile = create_data_profile(data=csv_file, target="y")
+
+    assert profile.date_column == "date"
+    assert profile.date_format == "%d/%m/%Y"
+    assert profile.index_type == "datetime"
+    assert profile.frequency == "D"
+    assert profile.start_date == "2020-01-01"
+    assert profile.series_lengths["y"].start == "2020-01-01"
+    assert profile.series_lengths["y"].end == "2020-03-30"
+    assert profile.series_lengths["y"].length == 90
+    assert profile.exog_columns == []
+    assert profile.csv_sep == ","
+    assert profile.csv_decimal == "."
+    assert profile.csv_thousands is None
+    assert profile.warnings == []
+
+
+def test_create_data_profile_date_format_is_None_when_month_first_dates_in_csv(
+    tmp_path,
+):
+    """
+    Test that a CSV file of dates written month first ('01/13/2020', with
+    days after the 12th) is read month first, as pandas reads them, and no
+    format is recorded.
+    """
+    csv_file = tmp_path / "month_first.csv"
+    df_dates_month_first.to_csv(csv_file, index=False)
+
+    profile = create_data_profile(data=csv_file, target="y")
+
+    assert profile.date_column == "date"
+    assert profile.date_format is None
+    assert profile.frequency == "D"
+    assert profile.start_date == "2020-01-13"
+    assert profile.series_lengths["y"].end == "2020-03-12"
+    assert profile.warnings == []
+
+
+@pytest.mark.parametrize(
+    "date_column", [None, "date"], ids=lambda dt: f"date_column: {dt}"
+)
+def test_create_data_profile_InvalidInputError_when_csv_dates_read_in_both_orders(
+    tmp_path, date_column
+):
+    """
+    Test that a CSV file of monthly dates written day first with no day after
+    the 12th ('01/02/2015', which is the 1st of February or the 2nd of
+    January) raises an InvalidInputError with the code 'data_unreadable', the
+    field 'data' and the hint that names `dayfirst`: the order is never
+    guessed, whether the column of dates is named or found.
+    """
+    csv_file = tmp_path / "monthly.csv"
+    df_dates_monthly_ambiguous.to_csv(csv_file, index=False)
+
+    with pytest.raises(
+        InvalidInputError, match="^" + re.escape(_AMBIGUOUS_CSV_ERROR) + "$"
+    ) as exc_info:
+        create_data_profile(data=csv_file, target="y", date_column=date_column)
+
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.field == "data"
+    assert exc_info.value.hint == DAYFIRST_HINT
+
+
+def test_create_data_profile_output_when_csv_dates_are_the_same_in_both_orders(
+    tmp_path,
+):
+    """
+    Test that annual dates on the first of January ('01/01/2000'), which read
+    the same day first and month first, are profiled without asking for the
+    order and without a format: yearly, from 2000.
+    """
+    csv_file = tmp_path / "annual.csv"
+    pd.DataFrame({
+        "date": [f"01/01/{year}" for year in range(2000, 2024)],
+        "y": np.arange(24, dtype=float),
+    }).to_csv(csv_file, index=False)
+
+    profile = create_data_profile(data=csv_file, target="y")
+
+    assert profile.date_format is None
+    assert profile.frequency == "YS-JAN"
+    assert profile.start_date == "2000-01-01"
+
+
+@pytest.mark.parametrize(
+    "kwargs, expected_format, expected_frequency, expected_end",
+    [
+        ({"dayfirst": True}, "%d/%m/%Y", "MS", "2019-12-01"),
+        ({"dayfirst": False}, "%m/%d/%Y", None, "2019-01-12"),
+        ({"date_format": "%d/%m/%Y"}, "%d/%m/%Y", "MS", "2019-12-01"),
+        ({"date_format": "%m/%d/%Y"}, "%m/%d/%Y", None, "2019-01-12"),
+    ],
+    ids=[
+        "dayfirst true",
+        "dayfirst false",
+        "format day first",
+        "format month first",
+    ],
+)
+def test_create_data_profile_output_when_csv_dates_read_in_both_orders_and_order_given(
+    tmp_path, kwargs, expected_format, expected_frequency, expected_end
+):
+    """
+    Test that the order of monthly dates that read both ways is the one given
+    with `dayfirst` or with the format of a profile of the data, and that
+    the profile records the format in either order: read day first they are
+    monthly ('MS'); read month first ('01/02/2015' is the 2nd of January)
+    they have no frequency.
+    """
+    csv_file = tmp_path / "monthly.csv"
+    df_dates_monthly_ambiguous.to_csv(csv_file, index=False)
+
+    profile = create_data_profile(data=csv_file, target="y", **kwargs)
+
+    assert profile.date_column == "date"
+    assert profile.date_format == expected_format
+    assert profile.frequency == expected_frequency
+    assert profile.start_date == "2015-01-01"
+    assert profile.series_lengths["y"].end == expected_end
+    assert profile.series_lengths["y"].length == 60
+    if expected_frequency is None:
+        assert profile.warnings == [_COULD_NOT_INFER_FREQUENCY]
+    else:
+        assert profile.warnings == []
+
+
+@pytest.mark.parametrize(
+    "date_column", [None, "date"], ids=lambda dt: f"date_column: {dt}"
+)
+def test_create_data_profile_InvalidInputError_when_dayfirst_against_csv_dates(
+    tmp_path, date_column
+):
+    """
+    Test that `dayfirst=True` on a CSV file of dates that only read month
+    first ('01/13/2020') raises an InvalidInputError on the field 'dayfirst'
+    that quotes the first date that does not fit, with the hint to leave
+    `dayfirst` out.
+    """
+    csv_file = tmp_path / "month_first.csv"
+    df_dates_month_first.to_csv(csv_file, index=False)
+
+    err_msg = re.escape(
+        "`dayfirst` is True, but the dates of column 'date' do not read day "
+        "first: '01/13/2020' only reads month first. Leave `dayfirst` out to "
+        "tell the order from the dates."
+    )
+    with pytest.raises(InvalidInputError, match="^" + err_msg) as exc_info:
+        create_data_profile(
+            data=csv_file, target="y", date_column=date_column, dayfirst=True
+        )
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "dayfirst"
+    assert exc_info.value.hint == _DAYFIRST_CONTRADICTION_HINT
+
+
+def test_create_data_profile_InvalidInputError_when_dayfirst_false_against_csv_dates(
+    tmp_path,
+):
+    """
+    Test that `dayfirst=False` on a CSV file of dates that only read day first
+    ('13/01/2020') raises an InvalidInputError on the field 'dayfirst' that
+    quotes the first date that does not fit, with the hint to leave
+    `dayfirst` out.
+    """
+    csv_file = tmp_path / "daily.csv"
+    df_dates_day_first.to_csv(csv_file, index=False)
+
+    err_msg = re.escape(
+        "`dayfirst` is False, but the dates of column 'date' do not read "
+        "month first: '13/01/2020' only reads day first. Leave `dayfirst` out "
+        "to tell the order from the dates."
+    )
+    with pytest.raises(InvalidInputError, match="^" + err_msg) as exc_info:
+        create_data_profile(
+            data=csv_file, target="y", date_column="date", dayfirst=False
+        )
+
+    assert exc_info.value.field == "dayfirst"
+    assert exc_info.value.hint == _DAYFIRST_CONTRADICTION_HINT
+
+
+def test_create_data_profile_dayfirst_agreeing_with_csv_dates_changes_nothing(
+    tmp_path,
+):
+    """
+    Test that `dayfirst` agreeing with dates that read in only one order gives
+    the same profile as without it.
+    """
+    day_first_file = tmp_path / "daily.csv"
+    df_dates_day_first.to_csv(day_first_file, index=False)
+    month_first_file = tmp_path / "month_first.csv"
+    df_dates_month_first.to_csv(month_first_file, index=False)
+
+    day_first = create_data_profile(data=day_first_file, target="y", dayfirst=True)
+    month_first = create_data_profile(
+        data=month_first_file, target="y", dayfirst=False
+    )
+
+    assert day_first == create_data_profile(data=day_first_file, target="y")
+    assert day_first.date_format == "%d/%m/%Y"
+    assert month_first == create_data_profile(data=month_first_file, target="y")
+    assert month_first.date_format is None
+
+
+@pytest.mark.parametrize(
+    "date_column", [None, "date"], ids=lambda dt: f"date_column: {dt}"
+)
+def test_create_data_profile_output_when_csv_dates_are_whole_numbers(
+    tmp_path, date_column
+):
+    """
+    Test that a CSV file whose dates are whole numbers of eight digits
+    ('20200101') has them read as dates, found or named: the column is the
+    date column and not an exogenous variable, the profile records the
+    format '%Y%m%d' and the series is daily.
+    """
+    csv_file = tmp_path / "compact.csv"
+    df_dates_compact.to_csv(csv_file, index=False)
+
+    profile = create_data_profile(data=csv_file, target="y", date_column=date_column)
+
+    assert profile.date_column == "date"
+    assert profile.date_format == "%Y%m%d"
+    assert profile.exog_columns == []
+    assert profile.index_type == "datetime"
+    assert profile.frequency == "D"
+    assert profile.start_date == "2020-01-01"
+    assert profile.series_lengths["y"].end == "2020-03-30"
+    assert profile.series_lengths["y"].length == 90
+    assert profile.warnings == []
+
+
+@pytest.mark.parametrize(
+    "data, expected_start, expected_end",
+    [
+        (df_german_from_15th, "2020-01-15", "2020-03-14"),
+        (df_german_from_1st, "2020-01-01", "2020-02-29"),
+    ],
+    ids=["first date after the 12th", "first date on the 1st"],
+)
+@pytest.mark.parametrize(
+    "kwargs",
+    [{}, {"date_column": "datum"}, {"sep": ";", "decimal": ","}],
+    ids=["dialect detected", "date column given", "separator and decimal given"],
+)
+def test_create_data_profile_output_when_german_spreadsheet_csv(
+    tmp_path, data, expected_start, expected_end, kwargs
+):
+    """
+    Test that a ';' CSV file with dates written with points ('15.01.2020')
+    and amounts with '.' between thousands ('1.234,56'), as a German
+    spreadsheet exports it, is profiled with ';' as separator, ',' as decimal
+    mark and '.' as thousands separator, the dates read day first (also when
+    the first one is the 1st of January) and recorded as '%d.%m.%Y', and the
+    amounts read as numbers.
+    """
+    csv_file = write_german_excel(tmp_path, data)
+
+    profile = create_data_profile(data=csv_file, target="umsatz", **kwargs)
+
+    assert (profile.csv_sep, profile.csv_decimal, profile.csv_thousands) == (
+        ";", ",", ".",
+    )
+    assert profile.date_column == "datum"
+    assert profile.date_format == "%d.%m.%Y"
+    assert profile.exog_columns == []
+    assert profile.frequency == "D"
+    assert profile.start_date == expected_start
+    assert profile.series_lengths["umsatz"].end == expected_end
+    assert profile.series_lengths["umsatz"].length == 60
+    stats = profile.target_stats["umsatz"]
+    assert (stats["min"], stats["max"], stats["mean"]) == (1234.56, 7149.31, 4191.935)
+    assert np.isclose(stats["std"], 1750.7909819564416)
+    assert profile.warnings == []
+
+
+def test_create_data_profile_german_spreadsheet_csv_dates_read_in_both_orders(
+    tmp_path,
+):
+    """
+    Test that a German spreadsheet of monthly dates with points ('01.02.2015')
+    raises the InvalidInputError about the order of its dates, not one about
+    its numbers, and is profiled once `dayfirst` is given, with the dialect
+    of the file.
+    """
+    csv_file = write_german_excel(tmp_path, df_german_monthly)
+
+    err_msg = re.escape(
+        "The dates of column 'datum' read both day first and month first: no "
+        "day is after the 12th, so '01.02.2015' may be '2015-02-01' or "
+        "'2015-01-02', and the order is not guessed. Profile the file saying "
+        "which it is, with `dayfirst`."
+    )
+    with pytest.raises(InvalidInputError, match="^" + err_msg + "$") as exc_info:
+        create_data_profile(data=csv_file, target="umsatz")
+
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.hint == DAYFIRST_HINT
+
+    profile = create_data_profile(data=csv_file, target="umsatz", dayfirst=True)
+
+    assert (profile.csv_sep, profile.csv_decimal, profile.csv_thousands) == (
+        ";", ",", ".",
+    )
+    assert profile.date_format == "%d.%m.%Y"
+    assert profile.frequency == "MS"
+    assert profile.start_date == "2015-01-01"
+    assert profile.series_lengths["umsatz"].end == "2019-12-01"
+
+
+def test_create_data_profile_date_format_is_None_when_iso_dates_in_csv(tmp_path):
+    """
+    Test that a CSV file of ISO 8601 dates is profiled as it always was: no
+    format is recorded, because the generated script reads them without one.
+    """
+    csv_file = tmp_path / "iso.csv"
+    df_dates_iso.to_csv(csv_file, index=False)
+
+    profile = create_data_profile(data=csv_file, target="y")
+
+    assert profile.date_column == "date"
+    assert profile.date_format is None
+    assert profile.index_type == "datetime"
+    assert profile.frequency == "D"
+    assert profile.start_date == "2020-01-01"
+    assert profile.series_lengths["y"].start == "2020-01-01"
+    assert profile.series_lengths["y"].end == "2020-03-30"
+    assert profile.series_lengths["y"].length == 90
+    assert profile.exog_columns == []
+    stats = profile.target_stats["y"]
+    assert (stats["min"], stats["max"], stats["mean"]) == (10.0, 54.5, 32.25)
+    assert np.isclose(stats["std"], 13.062350477613132)
+    assert profile.warnings == []
+
+
+def test_create_data_profile_date_format_when_day_first_dates_in_long_csv(tmp_path):
+    """
+    Test that a long-format CSV file with dates written day first is read day
+    first for every series, and the profile records the format.
+    """
+    csv_file = tmp_path / "long.csv"
+    df_multi_long.assign(date=df_multi_long["date"].dt.strftime("%d/%m/%Y")).to_csv(
+        csv_file, index=False
+    )
+
+    profile = create_data_profile(
+        data=csv_file, target="value", series_id_column="series_id"
+    )
+
+    assert profile.data_format == "long"
+    assert profile.n_series == 3
+    assert profile.date_column == "date"
+    assert profile.date_format == "%d/%m/%Y"
+    assert profile.frequency == "D"
+    assert profile.start_date == "2023-01-01"
+    assert {k: v.end for k, v in profile.series_lengths.items()} == {
+        "A": "2023-04-10", "B": "2023-04-10", "C": "2023-04-10"
+    }
+    assert profile.exog_columns == ["exog_1"]
+    assert profile.warnings == []
+
+
+def test_create_data_profile_date_format_when_day_first_text_in_dataframe():
+    """
+    Test that a DataFrame whose `date_column` holds day-first text is read
+    day first, and the profile records the format the generated script must
+    read the dates with, without changing the DataFrame given.
+    """
+    data = df_dates_day_first.copy()
+
+    profile = create_data_profile(data=data, target="y", date_column="date")
+
+    assert profile.date_column == "date"
+    assert profile.date_format == "%d/%m/%Y"
+    assert profile.frequency == "D"
+    assert profile.start_date == "2020-01-01"
+    assert profile.series_lengths["y"].end == "2020-03-30"
+    pd.testing.assert_frame_equal(data, df_dates_day_first)
+
+
+def test_create_data_profile_date_format_is_None_when_month_first_text_in_dataframe():
+    """
+    Test that a DataFrame whose `date_column` holds month-first text (with
+    days after the 12th) is read month first and no format is recorded.
+    """
+    profile = create_data_profile(
+        data=df_dates_month_first, target="y", date_column="date"
+    )
+
+    assert profile.date_format is None
+    assert profile.start_date == "2020-01-13"
+    assert profile.frequency == "D"
+
+
+def test_create_data_profile_date_format_when_whole_numbers_in_dataframe():
+    """
+    Test that a DataFrame whose `date_column` holds whole numbers of eight
+    digits has them read as dates, and the profile records '%Y%m%d'.
+    """
+    profile = create_data_profile(data=df_dates_compact, target="y", date_column="date")
+
+    assert profile.date_column == "date"
+    assert profile.date_format == "%Y%m%d"
+    assert profile.frequency == "D"
+    assert profile.start_date == "2020-01-01"
+    assert profile.exog_columns == []
+
+
+@pytest.mark.parametrize("dayfirst", [None, True], ids=lambda dt: f"dayfirst: {dt}")
+def test_create_data_profile_InvalidInputError_when_dataframe_dates_read_in_both_orders(
+    dayfirst,
+):
+    """
+    Test that a DataFrame with monthly text dates that read day first and
+    month first raises an InvalidInputError with the default code
+    'invalid_argument', the field 'data' and the hint to convert the dates
+    with pandas before passing them: the order is never guessed, and
+    `dayfirst`, which is for CSV files, is ignored.
+    """
+    err_msg = re.escape(_AMBIGUOUS_FRAME_ERROR)
+    with pytest.raises(InvalidInputError, match="^" + err_msg + "$") as exc_info:
+        create_data_profile(
+            data=df_dates_monthly_ambiguous,
+            target="y",
+            date_column="date",
+            dayfirst=dayfirst,
+        )
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "data"
+    assert exc_info.value.hint == DAYFIRST_FRAME_HINT
+
+
+@pytest.mark.parametrize(
+    "date_format, expected_frequency",
+    [("%d/%m/%Y", "MS"), ("%m/%d/%Y", None)],
+    ids=lambda dt: f"{dt}",
+)
+def test_create_data_profile_output_when_date_format_decides_dataframe_dates(
+    date_format, expected_frequency
+):
+    """
+    Test that monthly text dates of a DataFrame that read both ways are read
+    in the order of the `date_format` given (the format of a profile of the
+    data), which the profile records.
+    """
+    profile = create_data_profile(
+        data        = df_dates_monthly_ambiguous,
+        target      = "y",
+        date_column = "date",
+        date_format = date_format,
+    )
+
+    assert profile.date_format == date_format
+    assert profile.frequency == expected_frequency
+    assert profile.start_date == "2015-01-01"
+
+
+def test_create_data_profile_date_format_recorded_when_dataframe_dates_are_parsed():
+    """
+    Test that the `date_format` given with a DataFrame whose dates were
+    already parsed (read from a CSV file) is the one recorded, and that it is
+    not when the dates are the index, where the script needs no format.
+    """
+    data = df_dates_day_first.assign(
+        date=pd.to_datetime(df_dates_day_first["date"], format="%d/%m/%Y")
+    )
+
+    column = create_data_profile(
+        data=data, target="y", date_column="date", date_format="%d/%m/%Y"
+    )
+    index = create_data_profile(
+        data=data.set_index("date"), target="y", date_format="%d/%m/%Y"
+    )
+
+    assert column.date_format == "%d/%m/%Y"
+    assert column.frequency == "D"
+    assert index.date_format is None
+    assert index.frequency == "D"
+
+
+def test_create_data_profile_date_format_is_None_when_dates_in_the_index():
+    """
+    Test that a DataFrame indexed by dates records no format.
+    """
+    profile = create_data_profile(data=df_single_daily, target="y")
+
+    assert profile.date_format is None

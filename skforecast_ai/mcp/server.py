@@ -1642,6 +1642,13 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             "(as in '1.705,11'). When null, it is detected from the file; "
             "pass it only when an error says it cannot be told."
         ))] = None,
+        dayfirst: Annotated[bool | None, Field(description=(
+            "Order of the day and the month of the dates of the file: true "
+            "for day first ('31/01/2024'), false for month first "
+            "('01/31/2024'). When null, it is told from the dates; pass it "
+            "only when an error says they read both ways, with the order the "
+            "user confirms."
+        ))] = None,
         ctx: Context = None,
     ) -> ToolResult:
         _inputs.check_text_argument(target, "target")
@@ -1685,6 +1692,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                     sep              = sep,
                     decimal          = decimal,
                     thousands        = thousands,
+                    dayfirst         = dayfirst,
                 )
             except SkforecastAIError as exc:
                 # Every error of a profile on `data` is about the file:
@@ -2522,6 +2530,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                         exog_file,
                         date_column      = data_profile.date_column,
                         series_id_column = data_profile.series_id_column,
+                        date_format      = data_profile.date_format,
                     )
                 except SkforecastAIError as exc:
                     # A file that cannot be read as future values is as

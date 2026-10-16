@@ -76,3 +76,90 @@ def test_csv_read_kwargs_output_when_series_id_column(
     result = csv_read_kwargs(sep, decimal, thousands, series_id_column="store")
 
     assert result == expected
+
+
+@pytest.mark.parametrize(
+    "sep, decimal, thousands, series_id_column, expected",
+    [
+        (
+            ";",
+            ",",
+            ".",
+            None,
+            {"sep": ";", "decimal": ",", "thousands": ".", "dtype": {"date": str}},
+        ),
+        (
+            "\t",
+            ",",
+            ".",
+            None,
+            {"sep": "\t", "decimal": ",", "thousands": ".", "dtype": {"date": str}},
+        ),
+        (
+            ";",
+            ",",
+            ".",
+            "store",
+            {
+                "sep": ";",
+                "decimal": ",",
+                "thousands": ".",
+                "dtype": {"store": str, "date": str},
+            },
+        ),
+        (
+            ";",
+            ",",
+            ".",
+            "date",
+            {"sep": ";", "decimal": ",", "thousands": ".", "dtype": {"date": str}},
+        ),
+    ],
+    ids=[
+        "semicolon",
+        "tabulator",
+        "series ids",
+        "series ids that are the date column",
+    ],
+)
+def test_csv_read_kwargs_output_when_thousands_and_date_column(
+    sep, decimal, thousands, series_id_column, expected
+):
+    """
+    Test that the column of the dates is read as text (`dtype`) when there is
+    a thousands separator, next to the column of series ids when there is
+    one (once if they are the same column), because with '.' pandas would
+    read '15.01.2020' as the number 15012020.
+    """
+    result = csv_read_kwargs(
+                 sep, decimal, thousands, series_id_column, date_column="date"
+             )
+
+    assert result == expected
+
+
+@pytest.mark.parametrize(
+    "sep, decimal, series_id_column, expected",
+    [
+        (",", ".", None, {}),
+        (";", ",", None, {"sep": ";", "decimal": ","}),
+        (",", ".", "store", {"dtype": {"store": str}}),
+        (";", ",", "store", {"sep": ";", "decimal": ",", "dtype": {"store": str}}),
+    ],
+    ids=lambda dt: f"{dt!r}",
+)
+def test_csv_read_kwargs_date_column_is_ignored_when_no_thousands(
+    sep, decimal, series_id_column, expected
+):
+    """
+    Test that the column of the dates is not read as text without a thousands
+    separator, where pandas does not drop the points of '15.01.2020': the
+    arguments are those of a call without `date_column`, so the default
+    dialect is still read with exactly `pd.read_csv(path)`.
+    """
+    result = csv_read_kwargs(
+                 sep, decimal, None, series_id_column, date_column="date"
+             )
+
+    assert result == expected
+
