@@ -5477,6 +5477,18 @@ def _daily_or_finer(frequency: str | None) -> tuple[bool, bool]:
     return isinstance(offset, pd.offsets.Tick) and offset.nanos <= _DAY_NANOS, False
 
 
+def _open_every_weekday(dates: pd.DatetimeIndex, business: bool) -> bool:
+    """
+    Return whether dates fall on every day of the week of their grid (Monday
+    to Friday for business days), so that none of them can be closed. It
+    spares sorting the dates of most data, whose gaps are not closed days.
+    """
+    days = np.asarray(pd.DatetimeIndex(dates).dayofweek, dtype=float)
+    counts = np.bincount(days[~np.isnan(days)].astype(np.int64), minlength=7)
+
+    return bool(counts[:5 if business else 7].all())
+
+
 def _wall_nanoseconds(dates: pd.DatetimeIndex) -> np.ndarray | None:
     """
     Return the sorted, distinct dates as nanoseconds of their wall time (the
@@ -5487,9 +5499,14 @@ def _wall_nanoseconds(dates: pd.DatetimeIndex) -> np.ndarray | None:
     if dates.tz is not None:
         dates = dates.tz_localize(None)
     try:
-        return np.unique(dates.as_unit("ns").asi8)
+        nanoseconds = dates.as_unit("ns").asi8
     except (OverflowError, ValueError):
         return None
+    # Most indexes are already sorted and distinct: no sort is needed.
+    if (np.diff(nanoseconds) > 0).all():
+        return nanoseconds
+
+    return np.unique(nanoseconds)
 
 
 def _closed_weekdays_ns(dates: np.ndarray, business: bool) -> np.ndarray:
@@ -5572,7 +5589,7 @@ def closed_weekdays(
         is coarser than a day, or not known.
     """
     daily, business = _daily_or_finer(frequency)
-    if not daily:
+    if not daily or _open_every_weekday(dates, business):
         return []
     nanoseconds = _wall_nanoseconds(dates)
     if nanoseconds is None or len(nanoseconds) < 2:
@@ -5613,6 +5630,8 @@ def regular_gap_weekdays(
         return []
     if isinstance(dates, dict):
         series = list(dates.values())
+    elif _open_every_weekday(dates, business):
+        return []
     else:
         nanoseconds = _wall_nanoseconds(dates)
         if nanoseconds is None:
