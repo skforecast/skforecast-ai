@@ -5,6 +5,9 @@ import pandas as pd
 import pytest
 
 from skforecast_ai.profiling.data_profile import series_ids_as_text
+from skforecast_ai.rendering._helpers import _emit_index_setup
+
+from ..tests_rendering.fixtures_rendering import profile_multi_long
 
 _DATES = pd.date_range("2020-01-01", periods=4, freq="D")
 
@@ -141,3 +144,42 @@ def test_series_ids_as_text_returns_same_object_when_column_name_is_repeated():
     result = series_ids_as_text(data, "id")
 
     assert result is data
+
+
+@pytest.mark.parametrize(
+    "ids",
+    [
+        pd.Series([1, 2, 10, 1]),
+        pd.Series([1.0, np.nan, 2.0, 10.0]),
+        pd.Series(["001", 1, 10, None], dtype=object),
+        pd.Series(["001", "1", "10", None], dtype=object),
+        pd.Series(["001", "1", None, "10"], dtype="string"),
+        pd.Series([1, 2, 10, 1], dtype="category"),
+        pd.Series([True, False, True, True]),
+        pd.Series([np.nan] * 4, dtype=object),
+    ],
+    ids=["int", "float with nan", "mixed", "text", "string dtype", "category",
+         "bool", "all missing"],
+)
+def test_series_ids_as_text_output_equals_the_line_of_the_generated_script(ids):
+    """
+    Test that the ids turned into text here are those of the line of the
+    generated script that turns them (rendered by `_emit_index_setup` and
+    run), for every kind of ids, so that the data the library checks and the
+    data the script reshapes name the same series.
+    """
+    profile = profile_multi_long.model_copy(update={"series_id_column": "id"})
+    lines: list[str] = []
+    _emit_index_setup(lines, profile, long_format=True)
+    line = next(line for line in lines if ".map(str" in line)
+    namespace = {"data": _long_data(ids)}
+    exec(line, namespace)
+
+    result = series_ids_as_text(_long_data(ids), "id")
+
+    assert line == "data['id'] = data['id'].map(str, na_action='ignore')"
+    assert [
+        None if pd.isna(value) else value for value in result["id"]
+    ] == [
+        None if pd.isna(value) else value for value in namespace["data"]["id"]
+    ]

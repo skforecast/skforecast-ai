@@ -387,8 +387,10 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     como un año).
   - Exógenas futuras con ids enteros y datos con ids de texto: antes, error
     con la pista "of another type"; ahora se emparejan como texto (`1` es la
-    serie `'1'`) y `1` frente a `'001'` da "no rows for series '001'". La
-    pista se quitó: ya no se alcanza.
+    serie `'1'`). La pista pasa a ser la de los mismos números escritos de
+    otra forma (`1` frente a `'001'`, `1.0` frente a `'1'`), también con un
+    modelo fundacional, que sin ella tomaría todas las series sin valores
+    futuros sin avisar.
   - DataFrame ancho con columnas de nombre entero: `InvalidInputError`
     (`field` `target`) con un hint para renombrarlas, en vez de la
     `ValidationError` de Pydantic. No se convierten a texto (pregunta abierta

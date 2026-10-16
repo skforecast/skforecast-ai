@@ -19,7 +19,7 @@ The main changes in this release are:
 
     Some results change with this version, without any change in your code:
 
-    + The scripts of long-format data read the series ids as text and turn them into text before the reshape: two more lines, with the same predictions. See **Changed**.
+    + The scripts of long-format data read the series ids as text and turn them into text before the reshape: one more line (two with future exogenous variables), with the same predictions. See **Changed**.
 
     And some code needs to be updated: [<code>ForecastingAssistant.profile()</code>][assistant] of a file separated by `;` or tabulators raises `data_unreadable` instead of reading `.` as decimal mark when its only numbers with a `.` have three decimals (`1.870`), or when a column mixes them with whole numbers (`3`, `1.375`) next to other decimals (`0.75`). Pass `decimal='.'` to read them as before. See **Fixed**.
 
@@ -44,7 +44,7 @@ The main changes in this release are:
 
 + In CSV files separated by `;` or tabulators, `.` between thousands was read as a decimal mark without a warning (`1.020` as 1.02), and `1.705,11` failed as a target that is not numeric. It is now read as thousands separator when the file says so; otherwise `profile()` raises `data_unreadable` and asks for `thousands` or `decimal`. A file whose other values also hold a `.` (dates such as `15.01.2020`) raises `data_unreadable` too ([#86](https://github.com/skforecast/skforecast-ai/pull/86)).
 
-+ Fixed an issue with long-format data whose series ids are numbers (`001`, `1`, `10`), where every backtest, forecast and comparison failed with `KeyError: 1` and [<code>ForecastingAssistant.profile()</code>][assistant] dropped the leading zeros. The ids are now kept as written. A DataFrame whose series columns are named with integers raises `InvalidInputError` with a hint instead of a validation error.
++ Fixed an issue with long-format data whose series ids are numbers (`001`, `1`, `10`), where every backtest, forecast and comparison failed with `KeyError: 1` and [<code>ForecastingAssistant.profile()</code>][assistant] dropped the leading zeros. The ids are now kept as written; integer ids of a DataFrame become text, so its series are ordered as text (`1`, `10`, `2`). A DataFrame whose series columns are named with integers raises `InvalidInputError` with a hint instead of a validation error.
 
 
 ## 0.4.2 <small>Oct 12, 2026</small> { id="0.4.2" }

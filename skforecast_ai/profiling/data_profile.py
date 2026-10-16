@@ -3132,6 +3132,19 @@ def without_series_ids(
     Return the columns of a CSV file read with `csv_read_kwargs` whose
     numbers tell how it is written: every column but the series ids, which
     are read as text and never as numbers.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Content of the file.
+    series_id_column : str, None
+        Column of the series ids. None, or a column that `data` does not
+        hold, returns `data` as it is.
+
+    Returns
+    -------
+    data : pandas DataFrame
+        `data`, or a copy without the column of series ids.
     """
     if series_id_column is None or series_id_column not in data.columns:
         return data

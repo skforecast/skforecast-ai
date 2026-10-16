@@ -112,9 +112,12 @@ def run_forecast(
         exog = exog_as_injected(exog, profile)
 
     # Execute the rendered code with `data` (and optional future `exog`)
-    # pre-loaded in the namespace. The future exog is injected raw; the
-    # rendered core code prepares it (same steps as `data`), so that
-    # preparation is both shown in `result.code` and actually run.
+    # pre-loaded in the namespace. The future exog is injected as it was
+    # checked (`exog_as_injected`: the date column of the data, the series
+    # ids as text, as the CSV file of the script reads them), not prepared;
+    # the rendered core code prepares it (same steps as `data`, the ids
+    # turned into text again), so that preparation is both shown in
+    # `result.code` and actually run.
     namespace = _exec_rendered_code(rendered, data, exog)
 
     # Extract standard results from the executed namespace

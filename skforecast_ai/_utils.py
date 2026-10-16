@@ -913,6 +913,8 @@ def _read_csv_url(
                                           series_id_column = series_id_column,
                                       )
             check_csv_dialect(sep, decimal, thousands)
+        # Without `series_id_column`: the question is whether the dialect is
+        # the default one, which the `dtype` of the ids would hide.
         if not csv_read_kwargs(sep, decimal, thousands):
             if unread is not None:
                 raise unread
@@ -1260,7 +1262,8 @@ def load_exog(
         if found is None:
             try:
                 exog = _try_parse_first_date_column(
-                           exog, series_id_column=series_id_column
+                           data             = exog,
+                           series_id_column = series_id_column,
                        )
             except InvalidInputError as exc:
                 raise DataContentError(

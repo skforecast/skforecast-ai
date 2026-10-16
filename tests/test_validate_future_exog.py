@@ -620,24 +620,52 @@ def test_validate_future_exog_InvalidInputError_when_long_exog_wrong(exog, err_m
         validate_future_exog(exog, data_long, profile_long, plan_long_ridge)
 
 
-def test_validate_future_exog_InvalidInputError_when_long_ids_differ_as_text():
+@pytest.mark.parametrize(
+    "data, exog, plan, ids, exog_ids, err_msg",
+    [
+        (
+            data_long, exog_long, plan_long_ridge, ["001", "002", "003"], [1, 2, 3],
+            "`exog` has no rows for 3 series of the data: '001', '002', '003'. "
+            "The ids of `exog` write the same numbers otherwise than the data "
+            "('1' for '001'): write them as the data does.",
+        ),
+        (
+            data_long_early, exog_long_early, plan_long_early_foundation,
+            ["001", "002", "003"], [1, 2, 3],
+            "`exog` has no rows for 3 series of the data: '001', '002', '003'. "
+            "The ids of `exog` write the same numbers otherwise than the data "
+            "('1' for '001'): write them as the data does.",
+        ),
+        (
+            data_long, exog_long, plan_long_ridge, ["1", "2", "3"], [1.0, 2.0, 3.0],
+            "`exog` has no rows for 3 series of the data: '1', '2', '3'. The ids "
+            "of `exog` write the same numbers otherwise than the data ('1.0' for "
+            "'1'): write them as the data does.",
+        ),
+    ],
+    ids=["multiseries zeros", "foundation zeros", "multiseries floats"],
+)
+def test_validate_future_exog_InvalidInputError_when_long_ids_differ_as_text(
+    data, exog, plan, ids, exog_ids, err_msg
+):
     """
-    Test that long-format future exogenous variables whose integer series ids
-    lose the zeros of the ids of the data ('001') raise naming the series
-    without rows: the ids are compared as text, as the generated script reads
-    them.
+    Test that long-format future exogenous variables whose ids write the
+    numbers of the ids of the data otherwise (1 for '001', 1.0 for '1')
+    raise naming the series without rows, with a hint: the ids are compared
+    as text, as the generated script reads them. A ForecasterFoundation
+    model, which takes a series without future values, raises too, instead
+    of leaving every series without its future values.
     """
-    data = data_long.assign(series="00" + data_long["series"].str[-1])
+    as_id = dict(zip(["1", "2", "3"], ids))
+    data = data.assign(series=data["series"].str[-1].map(as_id))
     profile = ForecastingAssistant().profile(
         data, target="value", date_column="date", series_id_column="series"
     ).data_profile
-    exog = exog_long.assign(series=exog_long["series"].str[-1].astype(int))
+    as_exog_id = dict(zip(["1", "2", "3"], exog_ids))
+    exog = exog.assign(series=exog["series"].str[-1].map(as_exog_id))
 
-    err_msg = re.escape(
-        "`exog` has no rows for 3 series of the data: '001', '002', '003'."
-    )
-    with pytest.raises(InvalidInputError, match=err_msg):
-        validate_future_exog(exog, data, profile, plan_long_ridge)
+    with pytest.raises(InvalidInputError, match=re.escape(err_msg)):
+        validate_future_exog(exog, data, profile, plan)
 
 
 @pytest.mark.parametrize(
