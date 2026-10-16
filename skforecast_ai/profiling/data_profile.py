@@ -25,6 +25,7 @@ from .._dates import (
     missing_dates,
     parse_text_dates,
     row_dates,
+    short_year_format,
     time_zones,
     training_end,
 )
@@ -802,6 +803,10 @@ def _read_date_column(
     # empty cell and one time zone: no further check needed.
     parsed = _parse_with_guessed_format(values)
     if parsed is not None:
+        if guessed_date_format(values) == COMPACT_DATE_FORMAT:
+            # '20200131' read as text (with a thousands separator) is named as
+            # the same dates read as whole numbers are.
+            recorded = COMPACT_DATE_FORMAT
         return parsed, None, recorded
     issue = _text_dates_issue(name, values, named)
     if issue is not None:
@@ -1225,7 +1230,20 @@ def date_issue_error(
 ) -> InvalidInputError:
     """
     Return the error of a date issue of `_read_date_column`, with its code,
-    its field and its hint. `message` replaces the joined issue.
+    its field and its hint.
+
+    Parameters
+    ----------
+    issue : tuple
+        What was found and how to fix it, a `DateIssue` or a plain tuple.
+    message : str, default None
+        Message of the error. If None, the joined issue.
+
+    Returns
+    -------
+    error : InvalidInputError
+        Error with the code (`'invalid_argument'` by default), the field
+        (`'data'` by default) and the hint of the issue.
     """
     return InvalidInputError(
         "".join(issue) if message is None else message,
@@ -1242,14 +1260,16 @@ DAYFIRST_HINT = (
     "when they are written day first, as '31/01/2024', False when month "
     "first, as '01/31/2024') in `profile()`, `--dayfirst` or `--monthfirst` "
     "in the `profile` command, or `dayfirst` (true or false) in the "
-    "`profile` tool of the MCP server, and use that profile."
+    "`profile` tool of the MCP server, and use that profile. The dates do "
+    "not tell it: ask whoever wrote the file if it is not known."
 )
 
-# Remedy of the same dates in a DataFrame, which is read as it is passed.
+# Remedy of the same dates in a DataFrame, which is read as it is passed:
+# `dayfirst` is for CSV files only.
 DAYFIRST_FRAME_HINT = (
     "Convert the dates with pandas.to_datetime and the format they are "
     "written in (such as format='%d/%m/%Y' for day first) before passing "
-    "the data."
+    "the data; `dayfirst` is for CSV files only."
 )
 
 # Format of the dates written as whole numbers of eight digits, year, month
@@ -1317,16 +1337,22 @@ def _day_month_order(
     recorded : str, None
         Format the generated script names (`DataProfile.date_format`): the
         chosen one when the dates are day first, which pandas does not read
-        unless told even when their first date says so, and when the order
-        was decided by `dayfirst` or `date_format`; None otherwise.
+        unless told even when their first date says so, when the order was
+        decided by `dayfirst` or `date_format`, and when pandas guesses no
+        format (a year of two digits, `'01/02/18'`); None otherwise.
     issue : DateIssue, None
         Why the order cannot be told, or None.
     """
     first = first_date(values)
-    if type(first) is not str or (not named and not _is_clearly_date(first)):
+    if type(first) is not str:
+        return None, None, None
+    # pandas guesses no format for a year of two digits ('01/02/18'), and
+    # reads such dates one by one, month first when it can.
+    short_year = short_year_format(first)
+    if not named and short_year is None and not _is_clearly_date(first):
         return None, None, None
     guessed = guessed_date_format(values)
-    formats = day_month_formats(guessed)
+    formats = day_month_formats(guessed if guessed is not None else short_year)
     if formats is None:
         return None, None, None
     month_first, day_first = formats
@@ -1352,7 +1378,11 @@ def _day_month_order(
         other = present[~(by_month if dayfirst is False else by_day)].iloc[0]
         return None, None, _order_contradiction_issue(name, dayfirst, other)
 
-    return chosen, (chosen if chosen == day_first else None), None
+    # Without a guess of pandas (a year of two digits), the format is named
+    # in either order.
+    recorded = chosen if chosen == day_first or guessed is None else None
+
+    return chosen, recorded, None
 
 
 def _same_dates(values: pd.Series, formats: tuple[str, str]) -> bool:

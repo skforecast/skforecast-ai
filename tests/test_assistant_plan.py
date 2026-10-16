@@ -937,7 +937,7 @@ def test_plan_ValueError_when_datetime_index_has_no_frequency():
         "The frequency of the datetime index could not be inferred: the dates "
         "are not regularly spaced, or there are too few of them, and "
         "'ForecasterRecursive' needs a regular DatetimeIndex. Missing dates are "
-        "not filled in when the others do not follow a regular frequency."
+        "filled in only when the other dates follow a regular frequency."
     )
     with pytest.raises(ValueError, match="^" + err_msg + "$") as exc_info:
         assistant.plan(profile, steps=5)
@@ -1158,7 +1158,7 @@ def test_plan_InvalidInputError_when_baseline_on_datetime_index_without_frequenc
         "The frequency of the datetime index could not be inferred: the dates "
         "are not regularly spaced, or there are too few of them, and "
         "'ForecasterEquivalentDate' needs a regular DatetimeIndex. Missing "
-        "dates are not filled in when the others do not follow a regular "
+        "dates are filled in only when the other dates follow a regular "
         "frequency."
     )
     with pytest.raises(InvalidInputError, match=err_msg) as exc_info:

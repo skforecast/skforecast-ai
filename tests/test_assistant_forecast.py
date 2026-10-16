@@ -3146,6 +3146,38 @@ def test_forecast_output_when_profile_built_with_dayfirst_on_ambiguous_monthly_c
     )
 
 
+@pytest.mark.parametrize(
+    "rows", [48, 47], ids=["same data", "one row less (profiled again)"]
+)
+def test_forecast_output_when_dataframe_of_ambiguous_text_dates_and_saved_profile(
+    tmp_path, rows
+):
+    """
+    Test that a DataFrame read with `pd.read_csv` from such a file, with its
+    dates still text, is read in the order of the profile built with
+    `dayfirst=True` from the whole file, also when its values differ and it
+    is profiled again: the predictions are those of the file of the same
+    rows, and the script reads the frame with the format of the profile.
+    """
+    saved_path = tmp_path / "monthly.csv"
+    df_dialect_monthly.to_csv(saved_path, index=False)
+    path = tmp_path / f"monthly_{rows}.csv"
+    df_dialect_monthly.iloc[:rows].to_csv(path, index=False)
+    assistant = ForecastingAssistant()
+    saved = assistant.profile(data=saved_path, target="y", dayfirst=True)
+    own = assistant.profile(data=path, target="y", dayfirst=True)
+
+    result = assistant.forecast(data=pd.read_csv(path), profile=saved, steps=3)
+    expected = assistant.forecast(data=path, profile=own, steps=3)
+
+    pd.testing.assert_frame_equal(result.predictions, expected.predictions)
+    assert result.profile.data_profile.date_format == "%d/%m/%Y"
+    assert (
+        "data['date'] = pd.to_datetime(data['date'], format='%d/%m/%Y')\n"
+        in result.code
+    )
+
+
 def test_forecast_InvalidInputError_when_ambiguous_monthly_csv_without_dayfirst(
     tmp_path,
 ):

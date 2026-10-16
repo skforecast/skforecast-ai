@@ -1720,6 +1720,79 @@ def test_create_data_profile_InvalidInputError_when_csv_dates_read_in_both_order
     assert exc_info.value.hint == DAYFIRST_HINT
 
 
+@pytest.mark.parametrize(
+    "kwargs, expected_format, expected_frequency",
+    [
+        ({}, "%d/%m/%y", "D"),
+        ({"date_column": "date"}, "%d/%m/%y", "D"),
+    ],
+    ids=["date column found", "date column given"],
+)
+def test_create_data_profile_output_when_csv_dates_have_a_year_of_two_digits(
+    tmp_path, kwargs, expected_format, expected_frequency
+):
+    """
+    Test that daily dates written day first with a year of two digits
+    ('01/01/18', then '13/01/18'), whose format pandas does not guess, are
+    read day first and their format recorded, instead of one by one with
+    the frequency lost.
+    """
+    csv_file = tmp_path / "short.csv"
+    pd.DataFrame({
+        "date": pd.date_range("2018-01-01", periods=40, freq="D")
+                .strftime("%d/%m/%y"),
+        "y": np.arange(40, dtype=float),
+    }).to_csv(csv_file, index=False)
+
+    profile = create_data_profile(data=csv_file, target="y", **kwargs)
+
+    assert profile.date_format == expected_format
+    assert profile.frequency == expected_frequency
+    assert profile.start_date == "2018-01-01"
+    assert profile.series_lengths["y"].end == "2018-02-09"
+
+
+def test_create_data_profile_InvalidInputError_when_csv_short_year_dates_read_both_ways(
+    tmp_path,
+):
+    """
+    Test that monthly dates on the first day with a year of two digits
+    ('01/02/18') raise the error of the order, as those with four digits.
+    """
+    csv_file = tmp_path / "short.csv"
+    pd.DataFrame({
+        "date": pd.date_range("2018-01-01", periods=24, freq="MS")
+                .strftime("%d/%m/%y"),
+        "y": np.arange(24, dtype=float),
+    }).to_csv(csv_file, index=False)
+
+    with pytest.raises(
+        InvalidInputError, match="^The dates of column 'date' read"
+    ) as exc_info:
+        create_data_profile(data=csv_file, target="y")
+
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.hint == DAYFIRST_HINT
+
+
+def test_create_data_profile_output_when_dataframe_dates_are_whole_numbers_as_text():
+    """
+    Test that dates such as '20200131' written as text (a CSV file read with
+    its date column as text) record the format '%Y%m%d', as the same dates
+    read as whole numbers do.
+    """
+    data = pd.DataFrame({
+        "date": pd.date_range("2020-01-01", periods=30, freq="D")
+                .strftime("%Y%m%d"),
+        "y": np.arange(30, dtype=float),
+    })
+
+    profile = create_data_profile(data=data, target="y", date_column="date")
+
+    assert profile.date_format == "%Y%m%d"
+    assert profile.frequency == "D"
+
+
 def test_create_data_profile_output_when_csv_dates_are_the_same_in_both_orders(
     tmp_path,
 ):

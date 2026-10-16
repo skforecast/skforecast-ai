@@ -869,9 +869,35 @@ def test_load_exog_DataContentError_when_integer_dates_and_text_date_format(
 
     err_msg = re.escape(
         f"The dates of column 'date' of the exog CSV '{path}' are not all "
-        f"written in the format of the dates of the data ('%d/%m/%Y')"
+        f"written in the format of the dates of the data ('%d/%m/%Y'), such "
+        f"as 20210201: the generated script reads them with it."
     )
-    with pytest.raises(DataContentError, match=err_msg) as exc_info:
+    with pytest.raises(DataContentError, match="^" + err_msg + "$") as exc_info:
         load_exog(path, date_column="date", date_format="%d/%m/%Y")
+
+    assert exc_info.value.field == "exog"
+
+
+@pytest.mark.parametrize(
+    "date_column", [None, "date"], ids=lambda dt: f"date_column: {dt}"
+)
+def test_load_exog_DataContentError_when_data_dates_are_whole_numbers_and_exog_text(
+    tmp_path, date_column
+):
+    """
+    Test that text dates that read both day first and month first, for data
+    whose dates are whole numbers ('%Y%m%d'), raise the error of the format
+    of the data, not the one that asks to profile the data with `dayfirst`.
+    """
+    path = tmp_path / "exog.csv"
+    path.write_text("date,temp\n01/02/2021,1\n02/02/2021,2\n")
+
+    err_msg = re.escape(
+        f"The dates of column 'date' of the exog CSV '{path}' are not all "
+        f"written in the format of the dates of the data ('%Y%m%d'), such "
+        f"as '01/02/2021': the generated script reads them with it."
+    )
+    with pytest.raises(DataContentError, match="^" + err_msg + "$") as exc_info:
+        load_exog(path, date_column=date_column, date_format="%Y%m%d")
 
     assert exc_info.value.field == "exog"

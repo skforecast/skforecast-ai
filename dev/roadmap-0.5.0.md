@@ -436,9 +436,17 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     librería y en el script, que lo emite siempre que haya `date_column`,
     como los ids en D5. Fechas con punto en otra columna siguen dando
     `data_unreadable`.
+  - Años de dos cifras (`01/02/18`), para los que pandas no adivina
+    formato: mismas reglas, y el formato se registra en los dos órdenes.
+    Fechas que se leen igual en los dos (`01/01/2000`, anuales): sin duda.
+    Una columna cuyo orden no se sabe es la de fechas: da el error aunque
+    otra columna posterior tenga fechas.
+  - Un DataFrame de fechas de texto con un perfil guardado (refresco) se
+    lee en el orden del perfil cuando sus fechas se leen en los dos.
   - V14: el error de `plan` habla solo del espaciado, y el contexto del LLM
-    lista `irregular spacing (no frequency inferred)` en vez de `none
-    detected`. La frecuencia más cercana y los huecos quedan para 1e.
+    lista `no regular frequency (irregular spacing or too few timestamps)`
+    en vez de `none detected`. La frecuencia más cercana y los huecos
+    quedan para 1e.
   - Nota de release en **Added**, **Changed** y **Fixed**, con dos líneas
     en "Before upgrading" (los scripts y el error de las fechas ambiguas);
     sin destacado.

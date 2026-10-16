@@ -182,6 +182,7 @@ from ._utils import (
     _validate_window_features,
     _apply_interval_to_plan,
     _check_plan_overrides,
+    KNOWN_DATE_FORMAT,
     _data_path_of_run,
     _dialect_read,
     _revalidate_plan,
@@ -397,16 +398,16 @@ def _check_frequency_known(forecaster: str, data_profile: DataProfile) -> None:
 
     Without a frequency the datetime index cannot be regularized, and every
     forecaster that needs one fails inside the script with a skforecast
-    error that does not say why. The cause is the spacing of the dates:
-    day-first dates are read day first when profiled, and those whose order
-    cannot be told are rejected there, so the dates are not to be rewritten.
+    error that does not say why. The message is about the spacing of the
+    dates, not about how they are written: profiling reads day-first dates
+    day first and rejects those whose order cannot be told.
     """
     if data_profile.index_type == "datetime" and data_profile.frequency is None:
         raise InvalidInputError(
             f"The frequency of the datetime index could not be inferred: the "
             f"dates are not regularly spaced, or there are too few of them, "
             f"and '{forecaster}' needs a regular DatetimeIndex. Missing dates "
-            f"are not filled in when the others do not follow a regular "
+            f"are filled in only when the other dates follow a regular "
             f"frequency.",
             field = "profile",
             hint  = (
@@ -766,7 +767,8 @@ class ForecastingAssistant:
         `InvalidInputError` (code `'data_unreadable'`) until `dayfirst`
         gives it, and a DataFrame raises one that asks for its dates to be
         converted. Dates written as whole numbers of eight digits
-        (`20200131`) are read as dates, with `'%Y%m%d'`. With `'.'` as
+        (`20200131`) are read as dates, with `'%Y%m%d'`: those of a CSV file
+        and the `date_column` of a DataFrame. With `'.'` as
         thousands separator, the date column is read as text, so dates such
         as `'15.01.2020'` keep their points.
 
@@ -791,8 +793,11 @@ class ForecastingAssistant:
                            dayfirst         = dayfirst,
                        )
         # How the file was read, which the script repeats; nothing for data
-        # passed in memory, whose dates are read below.
+        # passed in memory, whose dates are read below (in the order of a
+        # saved profile, when a refresh profiles them again).
         sep, decimal, thousands, date_format = _dialect_read(data_path)
+        if date_format is None:
+            date_format = KNOWN_DATE_FORMAT.get()
         # The levels of a MultiIndex become columns here, not only inside
         # `create_data_profile`: the check of the target and the PACF then
         # read the flat frame the profile describes, whose series ids are
@@ -4879,6 +4884,7 @@ class ForecastingAssistant:
                     target           = target,
                     date_column      = saved.date_column,
                     series_id_column = saved.series_id_column,
+                    date_format      = saved.date_format,
                 )
             if fingerprint is not None:
                 kept[key] = fresh
@@ -4928,12 +4934,18 @@ class ForecastingAssistant:
             if saved_values[name] != fresh_values[name]
         ]
         if changed:
-            profile = self.profile(
-                data             = data,
-                target           = saved.target,
-                date_column      = saved.date_column,
-                series_id_column = saved.series_id_column,
-            )
+            # Text dates that read both ways are read in the order of the
+            # saved profile, which `dayfirst` gave for its file.
+            token = KNOWN_DATE_FORMAT.set(saved.date_format)
+            try:
+                profile = self.profile(
+                    data             = data,
+                    target           = saved.target,
+                    date_column      = saved.date_column,
+                    series_id_column = saved.series_id_column,
+                )
+            finally:
+                KNOWN_DATE_FORMAT.reset(token)
             # Profiled without those columns, the new profile lacks the
             # note of the saved one.
             if left_out:

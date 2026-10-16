@@ -14,6 +14,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
+from typing import NamedTuple
 import numpy as np
 import pandas as pd
 from pydantic import BaseModel
@@ -40,7 +41,13 @@ from ._validation import (
     validate_calendar_override,
     validate_interval,
 )
-from ._dates import is_text, parse_text_dates, row_dates, training_end
+from ._dates import (
+    day_month_formats,
+    is_text,
+    parse_text_dates,
+    row_dates,
+    training_end,
+)
 from .profiling.data_profile import (
     COMPACT_DATE_FORMAT,
     _compact_dates,
@@ -824,20 +831,37 @@ _READ_CSV_DIALECT: ContextVar[
 ] = ContextVar("_READ_CSV_DIALECT", default=None)
 
 
-def _dialect_read(
-    data_path: str,
-) -> tuple[str | None, str | None, str | None, str | None]:
+class DialectRead(NamedTuple):
     """
-    Return the separator, the decimal mark, the thousands separator and the
-    format of the dates (`DataProfile.date_format`) the file recorded as
-    `data_path` was read with, or None for all four when the last CSV read
-    in this context is another one (or none, for data passed in memory).
-    The separator is never None for a file read.
+    How a CSV file was read: its separator, its decimal mark, its thousands
+    separator and the format of its dates (`DataProfile.date_format`).
+    """
+
+    sep: str | None
+    decimal: str | None
+    thousands: str | None
+    date_format: str | None
+
+
+def _dialect_read(data_path: str) -> DialectRead:
+    """
+    Return how the file recorded as `data_path` was read (see
+    `DialectRead`), or None in every field when the last CSV read in this
+    context is another one (or none, for data passed in memory). The
+    separator is never None for a file read.
     """
     read = _READ_CSV_DIALECT.get()
     if read is None or read[0] != data_path or data_path == PLACEHOLDER_DATA_PATH:
-        return None, None, None, None
-    return read[1], read[2], read[3], read[4]
+        return DialectRead(None, None, None, None)
+    return DialectRead(*read[1:])
+
+
+# The date format of the saved profile that a refresh profiles data passed in
+# memory with again (`ForecastingAssistant._refresh_profile`): it decides the
+# order of their text dates when they read both ways, as it does for a file.
+KNOWN_DATE_FORMAT: ContextVar[str | None] = ContextVar(
+    "KNOWN_DATE_FORMAT", default=None
+)
 
 
 def _read_csv_url(
@@ -1325,11 +1349,15 @@ def load_exog(
                 found = first
         if found is None:
             try:
+                # With the format of day-first data, it decides the order of
+                # dates that read both ways; any other one is checked below.
                 exog, _ = _try_parse_first_date_column(
                               data             = exog,
                               series_id_column = series_id_column,
                               date_format      = date_format,
-                              check_order      = date_format is not None,
+                              check_order      = (
+                                  day_month_formats(date_format) is not None
+                              ),
                           )
             except InvalidInputError as exc:
                 raise DataContentError(
@@ -1411,6 +1439,7 @@ def _exog_dates_in_format(
         parsed = pd.Series(pd.NaT, index=values.index)
     if parsed.isna().any():
         other = values[parsed.isna()].iloc[0]
+        other = other.item() if isinstance(other, np.generic) else other
         raise DataContentError(
             f"The dates of column {name!r} of the exog CSV '{path}' are not "
             f"all written in the format of the dates of the data "

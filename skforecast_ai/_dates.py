@@ -67,6 +67,7 @@ def day_month_formats(date_format: str | None) -> tuple[str, str] | None:
     month first unless told otherwise. A format whose year comes first
     ('%Y-%m-%d', ISO 8601) is always year, month, day, and one with the
     name of the month ('%d %b %Y') has a single reading: both give None.
+    The year may have two digits ('%d/%m/%y').
 
     Parameters
     ----------
@@ -81,7 +82,7 @@ def day_month_formats(date_format: str | None) -> tuple[str, str] | None:
     """
     if date_format is None or "%d" not in date_format or "%m" not in date_format:
         return None
-    year = date_format.find("%Y")
+    year = max(date_format.find("%Y"), date_format.find("%y"))
     day, month = date_format.find("%d"), date_format.find("%m")
     if year == -1 or year < min(day, month):
         return None
@@ -138,6 +139,42 @@ def first_date(values: pd.Series | pd.Index) -> object:
             return value
 
     return None
+
+
+# A date with the day and the month before a year of two digits, which
+# pandas guesses no format for ('01/02/18', '01.02.18 10:00').
+_SHORT_YEAR_DATE = re.compile(
+    r"\d{1,2}([/.-])\d{1,2}\1\d{2}(?:( |T)\d{1,2}:\d{2}(:\d{2})?)?"
+)
+
+
+def short_year_format(value: object) -> str | None:
+    """
+    Return the month-first format of a date written with the day and the
+    month before a year of two digits ('01/02/18' gives '%m/%d/%y'), whose
+    format pandas does not guess; None for any other value.
+
+    Parameters
+    ----------
+    value : object
+        First date of a column.
+
+    Returns
+    -------
+    date_format : str, None
+        Format with the month first, or None.
+    """
+    if not isinstance(value, str):
+        return None
+    match = _SHORT_YEAR_DATE.fullmatch(value.strip())
+    if match is None:
+        return None
+    sep, before_time, seconds = match.groups()
+    date_format = f"%m{sep}%d{sep}%y"
+    if before_time is not None:
+        date_format += f"{before_time}%H:%M" + (":%S" if seconds else "")
+
+    return date_format
 
 
 def _as_dates(

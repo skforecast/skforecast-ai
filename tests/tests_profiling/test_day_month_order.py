@@ -53,6 +53,46 @@ def test_day_month_order_output_when_dates_read_in_one_order(values, expected):
     assert issue is None
 
 
+@pytest.mark.parametrize(
+    "values, named, expected",
+    [
+        (["13/01/18", "14/01/18"], True, ("%d/%m/%y", "%d/%m/%y")),
+        (["01/01/18", "13/01/18"], False, ("%d/%m/%y", "%d/%m/%y")),
+        (["01/13/18", "01/14/18"], True, ("%m/%d/%y", "%m/%d/%y")),
+        (["13.01.18 10:00", "14.01.18 11:00"], True, ("%d.%m.%y %H:%M",) * 2),
+    ],
+    ids=["day first", "day first found", "month first", "points with time"],
+)
+def test_day_month_order_output_when_year_has_two_digits(values, named, expected):
+    """
+    Test that dates with a year of two digits ('13/01/18'), for which pandas
+    guesses no format, are read in the only order that fits, also when the
+    column is not named, and that the format is recorded in either order:
+    the script would otherwise read them one by one.
+    """
+    chosen, recorded, issue = _day_month_order("date", pd.Series(values), named)
+
+    assert (chosen, recorded) == expected
+    assert issue is None
+
+
+def test_day_month_order_issue_when_year_has_two_digits_and_both_orders_read():
+    """
+    Test that dates with a year of two digits that read both day first and
+    month first ('01/02/18') are an issue too, quoting both readings.
+    """
+    values = pd.Series(["01/01/18", "01/02/18", "01/03/18"])
+
+    chosen, recorded, issue = _day_month_order("date", values, True)
+
+    assert (chosen, recorded) == (None, None)
+    assert issue[0] == (
+        _FOUND + "'01/02/18' may be '2018-02-01' or '2018-01-02', and the "
+        "order is not guessed"
+    )
+    assert issue.code == "data_unreadable"
+
+
 def test_day_month_order_output_when_day_is_the_month_in_every_date():
     """
     Test that dates whose day is their month in every row ('01/01/2000' of

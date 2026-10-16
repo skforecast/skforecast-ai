@@ -469,13 +469,14 @@ def test_try_parse_first_date_column_UserWarning_when_later_date_has_two_digit_y
     """
     Test that a date column with two-digit years after a date-valued column
     with empty cells is parsed as before, with the warning that names both
-    columns.
+    columns. The hours start on 13 January, so the month-first dates read
+    in that order only.
     """
     data = df_h2o_text.rename(columns={"date": "promo_end"}).iloc[:120].copy()
     data.loc[list(range(0, 120, 9)), "promo_end"] = None
     data.insert(
         1, "date",
-        pd.date_range("2020-01-06", periods=120, freq="h").strftime(date_format),
+        pd.date_range("2020-01-13", periods=120, freq="h").strftime(date_format),
     )
 
     warn_msg = re.escape(

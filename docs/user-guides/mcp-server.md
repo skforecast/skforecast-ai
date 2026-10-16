@@ -340,7 +340,7 @@ A failed call returns an error whose text is `Error executing tool <name>: ` fol
 - Ids live while the server runs. An id of a previous run, or of an object removed to stay within `--max-objects` and `--max-memory-mb`, gives `unknown_id` saying which.
 - A summary, a script or a failure longer than 20,000 characters is cut in the response; the full text is written to the output directory.
 - Foundation models (`ForecasterFoundation`) need their backend package where the server runs: Chronos-2, the default, needs `chronos-forecasting` (the `foundation` extra). Without it, `backtest` and `forecast` answer `missing_dependency`, whose hint gives the `pip install` command and the `--with` option of `uvx`.
-- The script of a forecast with future exogenous values reads them from `exog_future.csv` in its working directory: copy the file there to run it.
+- The script of a forecast with future exogenous values reads them from `exog_future.csv` in its working directory: copy the file there to run it. Its dates are read in the format of the dates of the data, as `forecast` reads the file of `exog_path`.
 
 ---
 

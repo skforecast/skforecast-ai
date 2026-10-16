@@ -1595,44 +1595,55 @@ def _render_forecast_results(result) -> None:
 
 def _data_date_format(
     data: str,
-    target: str | list[str],
+    target: str | list[str] | None,
     date_column: str | None,
     series_id_column: str | None,
+    profile: ForecastingProfile | None = None,
 ) -> str | None:
     """
     Return the format the dates of a CSV file of data are read with
     (`DataProfile.date_format`), to read the future exogenous variables,
     which are written like the data, before the forecast reads the file.
+    The file is read as the forecast reads it: with the profile of a plan
+    bundle when there is one, which decides the order of dates that read
+    both ways.
 
     Parameters
     ----------
     data : str
         Path or URL of the CSV file.
-    target : str, list
-        Target column(s).
+    target : str, list, None
+        Target column(s), taken from `profile` when None.
     date_column : str, None
         Date column, when given.
     series_id_column : str, None
         Column of the series ids, when given.
+    profile : ForecastingProfile, default None
+        Profile the forecast runs with.
 
     Returns
     -------
     date_format : str, None
         Format of the dates, or None when they are read without one.
     """
-    from ._utils import _dialect_read, _resolve_data_and_target, recorded_data_path
+    from ._utils import (
+        _dialect_read,
+        _resolve_inputs_with_profile,
+        recorded_data_path,
+    )
 
     # The forecast reads the file again, and shows its warnings then.
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        _resolve_data_and_target(
+        _resolve_inputs_with_profile(
             data             = data,
             target           = target,
             date_column      = date_column,
             series_id_column = series_id_column,
+            profile          = profile,
         )
 
-    return _dialect_read(recorded_data_path(data))[3]
+    return _dialect_read(recorded_data_path(data)).date_format
 
 
 def _result_to_json(result) -> str:
@@ -1725,11 +1736,24 @@ def forecast(
                     profile=prof, plan=plan_obj, **plan_overrides
                 )
 
+            # The dates of the file run, which may be another file than
+            # the one of the profile.
+            exog_format = None
+            if exog is not None:
+                exog_format = _data_date_format(
+                                  data             = data,
+                                  target           = (
+                                      _parse_target(target) if target else None
+                                  ),
+                                  date_column      = date_column,
+                                  series_id_column = series_id_column,
+                                  profile          = prof,
+                              )
             exog_df = load_exog(
                 exog,
                 date_column      = prof.data_profile.date_column,
                 series_id_column = prof.data_profile.series_id_column,
-                date_format      = prof.data_profile.date_format,
+                date_format      = exog_format,
             )
 
             with _spinner("Running forecast from plan...", quiet):
@@ -1751,16 +1775,19 @@ def forecast(
                 )
             parsed_target = _parse_target(target)
 
+            exog_format = None
+            if exog is not None:
+                exog_format = _data_date_format(
+                                  data             = data,
+                                  target           = parsed_target,
+                                  date_column      = date_column,
+                                  series_id_column = series_id_column,
+                              )
             exog_df = load_exog(
                 exog,
                 date_column      = date_column,
                 series_id_column = series_id_column,
-                date_format      = _data_date_format(
-                                       data             = data,
-                                       target           = parsed_target,
-                                       date_column      = date_column,
-                                       series_id_column = series_id_column,
-                                   ) if exog is not None else None,
+                date_format      = exog_format,
             )
 
             with _spinner("Running forecast...", quiet):

@@ -2668,7 +2668,9 @@ class TestDayFirstDates:
                     "'31/01/2024', False when month first, as '01/31/2024') "
                     "in `profile()`, `--dayfirst` or `--monthfirst` in the "
                     "`profile` command, or `dayfirst` (true or false) in the "
-                    "`profile` tool of the MCP server, and use that profile."
+                    "`profile` tool of the MCP server, and use that profile. "
+                    "The dates do not tell it: ask whoever wrote the file if "
+                    "it is not known."
                 ),
             }
         }
@@ -2750,6 +2752,53 @@ class TestDayFirstDates:
             "2021-02-04T00:00:00", "2021-02-05T00:00:00", "2021-02-06T00:00:00",
             "2021-02-07T00:00:00",
         ]
+
+    def test_forecast_exog_from_plan_on_another_file_reads_the_dates_of_that_file(
+        self, tmp_path
+    ):
+        """
+        `forecast --from-plan --exog` on another file of the same data, with
+        its dates in ISO 8601, reads the ISO exog file as that data file is
+        read and not with the day-first format of the profile of the plan:
+        the predictions are those of the file of the profile.
+        """
+        csv_path = _write_csv(tmp_path, df_day_first)
+        exog_path = _write_csv(tmp_path, df_day_first_exog, name="exog.csv")
+        iso = pd.read_csv(csv_path)
+        iso["date"] = pd.to_datetime(iso["date"], format="%d/%m/%Y").dt.strftime(
+            "%Y-%m-%d"
+        )
+        iso_path = _write_csv(tmp_path, iso, name="iso.csv")
+        exog_iso = df_day_first_exog.assign(
+            date=pd.date_range("2021-02-01", periods=7).strftime("%Y-%m-%d")
+        )
+        exog_iso_path = _write_csv(tmp_path, exog_iso, name="exog_iso.csv")
+        plan_result = runner.invoke(
+            app,
+            ["plan", csv_path, "--target", "y", "--steps", "7", "--format",
+             "json", "--quiet"],
+        )
+        assert plan_result.exit_code == 0, plan_result.stderr
+        plan_file = tmp_path / "plan.json"
+        plan_file.write_text(plan_result.stdout)
+
+        same_file = runner.invoke(
+            app,
+            ["forecast", csv_path, "--from-plan", str(plan_file),
+             "--exog", exog_path, "--format", "json", "--quiet"],
+        )
+        other_file = runner.invoke(
+            app,
+            ["forecast", iso_path, "--from-plan", str(plan_file),
+             "--exog", exog_iso_path, "--format", "json", "--quiet"],
+        )
+        assert same_file.exit_code == 0, same_file.stderr
+        assert other_file.exit_code == 0, other_file.stderr
+        expected = json.loads(same_file.stdout)
+        data = json.loads(other_file.stdout)
+        assert data["predictions"] == expected["predictions"]
+        assert data["profile"]["data_profile"]["date_format"] is None
+        assert "format=" not in data["code"]
 
     def test_forecast_exog_error_when_exog_dates_not_in_the_format_of_the_data(
         self, tmp_path
