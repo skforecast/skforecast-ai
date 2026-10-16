@@ -424,29 +424,46 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     prefijo `csv_`, porque describe también las fechas de texto de un
     DataFrame. El script lo emite como `format=` en `_emit_index_setup`;
     con `None`, la lectura de antes (pandas adivina por la primera fecha).
-  - Se registra siempre que las fechas son día primero, también cuando la
-    primera ya lo dice (`13/01/2020`, que pandas leía bien): las exógenas
-    futuras de un horizonte corto (`01/02` a `07/02`) se leen en los dos
-    órdenes y tienen que leerse como los datos. Mes primero sin duda:
-    `None`, lo de hoy. El orden dado con `dayfirst` a fechas ambiguas se
-    registra siempre, también `'%m/%d/%Y'`, para que releer el fichero con
-    el perfil no vuelva a fallar.
+  - Se registra siempre que el día y el mes van en números, en los dos
+    órdenes: día primero también cuando la primera fecha ya lo dice
+    (`13/01/2020`, que pandas leía bien), y mes primero también (revisión
+    de la PR), porque el formato de los datos resuelve la ambigüedad de las
+    exógenas futuras de un horizonte corto (`01/02` a `07/02`), y con
+    `None` un fichero de EE. UU. no la resolvía. Mismas predicciones.
   - Ambiguo es que todas las fechas se lean con los dos formatos. Con el
     año delante (ISO) o con el nombre del mes nunca lo es, y `dayfirst` se
     ignora. Un `dayfirst` que las fechas contradicen da `invalid_argument`
     con `field` `dayfirst`.
+  - Fechas ambiguas sin `dayfirst` (revisión de la PR, en vez de dar error
+    siempre): se leen en los dos órdenes y, si solo una lectura tiene
+    frecuencia regular (`infer_frequency` sobre las fechas únicas
+    ordenadas, la inferencia del perfil), se usa, se guarda el formato y
+    una nota en `DataProfile.warnings` (`DataProfileWarning` en el MCP)
+    dice que el orden se dedujo de la regularidad y cómo dar el otro con
+    `dayfirst`. Solo cuando las dos lecturas son regulares, o ninguna,
+    `data_unreadable` con el hint de siempre y el motivo en el mensaje.
+    Comprobado: un mensual de EE. UU. de 60 filas da `MS` mes primero y
+    nada día primero, como en 0.5.x; el español, al revés; uno de 3 filas
+    da `D` y `MS` y sigue siendo ambiguo. La línea de "Before upgrading"
+    queda solo para lo que sigue fallando: un año o menos de datos
+    mensuales y las fechas sin frecuencia regular.
   - El argumento es `dayfirst` (el nombre de pandas, como `sep`, `decimal`
-    y `thousands`), `--dayfirst` o `--monthfirst` en la CLI. Solo para
-    ficheros, como el dialecto: un DataFrame con fechas de texto ambiguas
-    da `invalid_argument` con un hint para convertirlas con pandas; uno sin
-    duda se lee día primero, y su formato sale de sus propias fechas.
+    y `thousands`), `--dayfirst` o `--monthfirst` en la CLI. Se aplica a
+    los ficheros y a la `date_column` de texto de un DataFrame (revisión de
+    la PR); con fechas que ya son datetime, un `IgnoredArgumentWarning`
+    dice que no aplica. El formato de un DataFrame sale de sus propias
+    fechas.
   - Al releer con un perfil (mismo fichero u otro), el orden se detecta, y
     el formato del perfil decide solo cuando las fechas se leen en los dos
     órdenes, como el dialecto.
-  - Exógenas futuras: `load_exog` con el formato de los datos lo exige a
-    cada fecha (`DataContentError` si una no encaja); sin formato, como
-    antes. El script aplica el mismo `format=` a `exog_future.csv`
-    (pregunta abierta en la PR, por V03).
+  - Exógenas futuras (revisión de la PR): su formato se detecta por
+    separado con las mismas reglas (`load_exog`, y el texto de la columna
+    de fechas de un DataFrame en `exog_date_format`); el de los datos solo
+    resuelve una ambigüedad del fichero, y si no la resuelve, regularidad
+    con aviso (`UserWarning`) o `data_unreadable` con un hint que pide ISO
+    8601. `load_exog` lo deja en `exog.attrs['date_format']` y el script lo
+    emite en `exog_future.csv`, así que uno guardado en ISO con `to_csv()`
+    funciona (sin `format=`).
   - `yyyymmdd`: columna de enteros de 8 cifras, todos fechas válidas, con
     o sin `date_column`, en el orden de columnas de las fechas de texto.
   - Miles: la columna de fechas no cuenta para el dialecto (la dada, o la
@@ -467,8 +484,10 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     en vez de `none detected`. La frecuencia más cercana y los huecos
     quedan para 1e.
   - Nota de release en **Added**, **Changed** y **Fixed**, con dos líneas
-    en "Before upgrading" (los scripts y el error de las fechas ambiguas);
-    sin destacado.
+    en "Before upgrading" (los scripts y el error de las fechas ambiguas
+    cuya regularidad no dice el orden); sin destacado. Preguntas 2
+    (registrar el formato aunque la primera fecha diga día primero) y 5
+    (`dtype={'date': str}` con miles): sí, como estaban.
 
 ## Decisiones abiertas
 

@@ -320,7 +320,7 @@ def test_resolve_data_and_target_output_when_dayfirst_and_ambiguous_dates(
         pd.Timestamp(date) for date in expected_dates
     ]
     assert utils_module._READ_CSV_DIALECT.get() == (
-        str(csv_path), ",", ".", None, expected_format
+        str(csv_path), ",", ".", None, expected_format, ()
     )
 
 
@@ -328,18 +328,20 @@ def test_resolve_data_and_target_InvalidInputError_when_dates_in_both_orders(
     tmp_path,
 ):
     """
-    Test that dates of a CSV that read both day first and month first are
-    never guessed: without `dayfirst` the read raises with the code
+    Test that dates of a CSV that read both day first and month first and
+    are regular in both orders (three months, daily month first) are never
+    guessed: without `dayfirst` the read raises with the code
     'data_unreadable', the field 'data' and the hint that names `dayfirst`.
     """
     csv_path = tmp_path / "monthly.csv"
-    df_dialect_monthly.to_csv(csv_path, index=False)
+    df_dialect_monthly.head(3).to_csv(csv_path, index=False)
 
     err_msg = re.escape(
         "The dates of column 'date' read both day first and month first: no "
         "day is after the 12th, so '01/02/2018' may be '2018-02-01' or "
-        "'2018-01-02', and the order is not guessed. Profile the file saying "
-        "which it is, with `dayfirst`."
+        "'2018-01-02', and both readings have a regular frequency ('MS' day "
+        "first and 'D' month first), so the order is not guessed. Profile the "
+        "file saying which it is, with `dayfirst`."
     )
     with pytest.raises(InvalidInputError, match=err_msg + "$") as exc_info:
         _resolve_data_and_target(data=csv_path, target="y", date_column="date")
@@ -443,6 +445,32 @@ def test_resolve_data_and_target_InvalidInputError_when_dayfirst_contradicts(
     )
 
 
+def test_resolve_data_and_target_keeps_date_notes_when_order_told_from_regularity(
+    tmp_path,
+):
+    """
+    Test that the dates of a CSV that read in both orders and are regular in
+    only one (four years of monthly dates written day first) are read in it,
+    and the note that says so is kept with the dialect of the file, for the
+    profile.
+    """
+    csv_path = tmp_path / "monthly.csv"
+    df_dialect_monthly.to_csv(csv_path, index=False)
+
+    data, _ = _resolve_data_and_target(data=csv_path, target="y")
+
+    assert data["date"].iloc[:2].tolist() == [
+        pd.Timestamp("2018-01-01"), pd.Timestamp("2018-02-01")
+    ]
+    read = _dialect_read(str(csv_path))
+    assert read.date_format == "%d/%m/%Y"
+    assert len(read.date_notes) == 1
+    assert read.date_notes[0].startswith(
+        "The dates of column 'date' read both day first and month first (no "
+        "day is after the 12th): they were read day first"
+    )
+
+
 def test_resolve_data_and_target_ignores_dayfirst_when_data_in_memory():
     """
     Test that `dayfirst` is ignored for data passed in memory, which is
@@ -461,18 +489,21 @@ def test_resolve_data_and_target_ignores_dayfirst_when_data_in_memory():
 def test_dialect_read_output_when_file_was_read(tmp_path):
     """
     Test that the dialect of the last CSV read is its separator, decimal
-    mark, thousands separator and the format of its dates, for the path it
-    was recorded with, and four None for another path or for the placeholder
-    of data passed in memory.
+    mark, thousands separator, the format of its dates and the notes on how
+    they were read (none when `dayfirst` gives the order), for the path it
+    was recorded with, and four None and no notes for another path or for
+    the placeholder of data passed in memory.
     """
     csv_path = tmp_path / "monthly.csv"
     df_dialect_monthly.to_csv(csv_path, index=False)
 
     _resolve_data_and_target(data=csv_path, target="y", dayfirst=True)
 
-    assert _dialect_read(str(csv_path)) == (",", ".", None, "%d/%m/%Y")
-    assert _dialect_read(str(tmp_path / "other.csv")) == (None, None, None, None)
-    assert _dialect_read("data.csv") == (None, None, None, None)
+    assert _dialect_read(str(csv_path)) == (",", ".", None, "%d/%m/%Y", ())
+    assert _dialect_read(str(tmp_path / "other.csv")) == (
+        None, None, None, None, ()
+    )
+    assert _dialect_read("data.csv") == (None, None, None, None, ())
 
 
 # =============================================================================
@@ -1425,6 +1456,27 @@ def test_with_data_path_output_date_format_of_csv_read(
     assert profile.data_profile.date_format is None
 
 
+def test_with_data_path_output_date_notes_of_csv_read(tmp_path):
+    """
+    Test that the notes on how the dates of the CSV file were read (an order
+    told from their regularity) go into the warnings of the profile, first,
+    when the profile was built from the DataFrame read and lacks them, and
+    are not repeated when it has them.
+    """
+    csv_path = tmp_path / "monthly.csv"
+    df_dialect_monthly.to_csv(csv_path, index=False)
+    data, _ = _resolve_data_and_target(data=csv_path, target="y")
+    profile = ForecastingAssistant().profile(data=data, target="y")
+    note = _dialect_read(str(csv_path)).date_notes[0]
+
+    result = _with_data_path(profile, str(csv_path))
+    again = _with_data_path(result, str(csv_path))
+
+    assert note not in profile.data_profile.warnings
+    assert result.data_profile.warnings == [note, *profile.data_profile.warnings]
+    assert again.data_profile.warnings == result.data_profile.warnings
+
+
 @pytest.mark.parametrize(
     "data, profile_format, expected_format",
     [
@@ -2332,7 +2384,7 @@ def test_resolve_data_and_target_reads_url_with_thousands_detected(monkeypatch):
         ),
     ]
     assert data["y"].tolist() == [870, 1020]
-    assert utils_module._READ_CSV_DIALECT.get() == (url, ";", ",", ".", None)
+    assert utils_module._READ_CSV_DIALECT.get() == (url, ";", ",", ".", None, ())
 
 
 def test_resolve_data_and_target_reads_url_with_thousands_given(monkeypatch):

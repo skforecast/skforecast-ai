@@ -149,7 +149,12 @@ from .schemas import (
     RefinePlanOverrides,
 )
 from ._foundation import foundation_exog_columns, validate_foundation_plan
-from ._future_exog import as_exog_frame, validate_future_exog
+from ._future_exog import (
+    as_exog_frame,
+    exog_date_format,
+    used_exog_columns,
+    validate_future_exog,
+)
 from ._last_window import (
     validate_backtest_windows,
     warn_backtest_missing_values,
@@ -185,6 +190,7 @@ from ._utils import (
     KNOWN_DATE_FORMAT,
     _data_path_of_run,
     _dialect_read,
+    with_date_notes,
     _revalidate_plan,
     discarded_plan_edits,
     plan_override_value,
@@ -727,12 +733,15 @@ class ForecastingAssistant:
             lines of the file, and the file has none when `decimal` is
             `'.'`. Ignored for data passed in memory.
         dayfirst : bool, default None
-            Order of the day and the month of the dates of a CSV file whose
-            dates read in both (`'01/02/2020'` in every row): True for day
-            first (`'31/01/2024'`), False for month first (`'01/31/2024'`).
-            If None, it is told from the dates. Ignored for data passed in
-            memory and for dates whose format leaves no doubt
-            (`'2020-02-01'`, `'01 Feb 2020'`).
+            Order of the day and the month of dates written as text that
+            read in both (`'01/02/2020'` in every row), those of a CSV file
+            or the text `date_column` of a DataFrame: True for day first
+            (`'31/01/2024'`), False for month first (`'01/31/2024'`). If
+            None, it is told from the dates (see Notes). Ignored for dates
+            whose format leaves no doubt (`'2020-02-01'`, `'01 Feb 2020'`);
+            for data passed in memory whose dates are not text (already
+            datetime), an `IgnoredArgumentWarning` says that it does not
+            apply.
 
         Returns
         -------
@@ -759,14 +768,18 @@ class ForecastingAssistant:
         the profile says only when that cannot be told.
 
         Dates that write the day and the month as numbers before the year
-        are read day first when only that order reads every date (a day
-        after the 12th, `'13/01/2020'`), and the profile records the format
-        the generated script reads them with (`DataProfile.date_format`).
-        When every date reads in both orders (monthly data on the first of
-        each month), the order is not guessed: a CSV file raises
-        `InvalidInputError` (code `'data_unreadable'`) until `dayfirst`
-        gives it, and a DataFrame raises one that asks for its dates to be
-        converted. Dates written as whole numbers of eight digits
+        are read in the only order that reads every date (a day after the
+        12th, `'13/01/2020'`, settles day first), and the profile records
+        the format the generated script reads them with
+        (`DataProfile.date_format`). When every date reads in both orders
+        (monthly data on the first of each month), `dayfirst` gives the
+        order; without it, the dates are read in both, and when only one
+        of the readings has a regular frequency (five years of monthly
+        data), it is the order, with a note in `DataProfile.warnings` that
+        says so and how to give the other one. When both readings have one
+        (a few dates, daily and monthly) or neither has, the order is not
+        guessed: `InvalidInputError` (code `'data_unreadable'`) until
+        `dayfirst` gives it. Dates written as whole numbers of eight digits
         (`20200131`) are read as dates, with `'%Y%m%d'`: those of a CSV file
         and the `date_column` of a DataFrame. With `'.'` as
         thousands separator, the date column is read as text, so dates such
@@ -793,9 +806,11 @@ class ForecastingAssistant:
                            dayfirst         = dayfirst,
                        )
         # How the file was read, which the script repeats; nothing for data
-        # passed in memory, whose dates are read below (in the order of a
-        # saved profile, when a refresh profiles them again).
-        sep, decimal, thousands, date_format = _dialect_read(data_path)
+        # passed in memory, whose dates are read below, in the order of
+        # `dayfirst` (or of a saved profile, when a refresh profiles them
+        # again).
+        read = _dialect_read(data_path)
+        sep, decimal, thousands, date_format = read[:4]
         if date_format is None:
             date_format = KNOWN_DATE_FORMAT.get()
         # The levels of a MultiIndex become columns here, not only inside
@@ -816,8 +831,11 @@ class ForecastingAssistant:
             sep              = sep,
             decimal          = decimal,
             thousands        = thousands,
+            # The dates of a file were read with it already.
+            dayfirst         = dayfirst if read.sep is None else None,
             date_format      = date_format,
         )
+        data_profile = with_date_notes(data_profile, read.date_notes)
         validate_target_numeric(data, data_profile.target)
 
         forecaster, forecaster_candidates = select_forecaster_and_candidates(data_profile)
@@ -2201,9 +2219,18 @@ class ForecastingAssistant:
         )
         profile = _with_data_path(profile, data)
 
+        # The script reads `exog_future.csv` in the format of the future
+        # values given, which need not be the one of the data.
+        exog_format = (
+            exog_date_format(as_exog_frame(exog), profile.data_profile)
+            if plan.end_train is None
+            and used_exog_columns(plan, profile.data_profile) else None
+        )
         code = render_forecast_script(
-            profile=profile.data_profile, plan=plan
-        ).full_script
+                   profile          = profile.data_profile,
+                   plan             = plan,
+                   exog_date_format = exog_format,
+               ).full_script
 
         return CodeGenerationResult(
             profile = profile,
@@ -2472,6 +2499,7 @@ class ForecastingAssistant:
         )
         profile = _with_data_path(profile, data)
 
+        exog_format = None
         if plan.end_train is not None:
             _check_evaluated_target(
                 data         = data_df,
@@ -2488,11 +2516,16 @@ class ForecastingAssistant:
                 ),
             )
         elif exog is not None:
+            # The future values are read in their own format, not in the one
+            # of the data: a file saved with `to_csv()` has ISO 8601 dates.
+            if used_exog_columns(plan, profile.data_profile):
+                exog_format = exog_date_format(exog, profile.data_profile)
             validate_future_exog(
-                exog    = exog,
-                data    = data_df,
-                profile = profile.data_profile,
-                plan    = plan,
+                exog        = exog,
+                data        = data_df,
+                profile     = profile.data_profile,
+                plan        = plan,
+                date_format = exog_format,
             )
         validate_infinite_target(
             data       = data_df,
@@ -2517,10 +2550,11 @@ class ForecastingAssistant:
         check_estimator_installed(plan.estimator, plan.task_type)
 
         result = run_forecast(
-            data    = data_df,
-            profile = profile.data_profile,
-            plan    = plan,
-            exog    = exog,
+            data             = data_df,
+            profile          = profile.data_profile,
+            plan             = plan,
+            exog             = exog,
+            exog_date_format = exog_format,
         )
 
         return ForecastResult(

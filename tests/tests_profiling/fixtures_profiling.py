@@ -141,14 +141,31 @@ df_dates_compact = df_dates_day_first.assign(
 )
 
 # Monthly series of 60 observations from 2015-01-01 written day first
-# ('01/02/2015'): no day is after the 12th, so every date reads day first and
-# month first. The values go from 5.0 to 93.5.
+# ('01/02/2015'), as a Spanish file writes them: no day is after the 12th, so
+# every date reads day first and month first, and only the reading day first
+# has a regular frequency ('MS'). The values go from 5.0 to 93.5.
 df_dates_monthly_ambiguous = pd.DataFrame(
     {
         "date": pd.date_range("2015-01-01", periods=60, freq="MS").strftime(
             "%d/%m/%Y"
         ),
         "y": 5.0 + 1.5 * np.arange(60),
+    }
+)
+
+# The same series written month first ('02/01/2015'), as a US file writes
+# them: only the reading month first has a regular frequency ('MS').
+df_dates_monthly_us = df_dates_monthly_ambiguous.assign(
+    date=pd.date_range("2015-01-01", periods=60, freq="MS").strftime("%m/%d/%Y")
+)
+
+# Three monthly observations from 2020-01-01 written day first ('01/02/2020'):
+# both readings have a regular frequency ('MS' day first, 'D' month first),
+# so the dates do not tell the order.
+df_dates_three_ambiguous = pd.DataFrame(
+    {
+        "date": ["01/01/2020", "01/02/2020", "01/03/2020"],
+        "y": [1.0, 2.0, 4.0],
     }
 )
 

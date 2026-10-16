@@ -8,6 +8,7 @@ import pytest
 
 
 from skforecast_ai import ForecastingAssistant
+from skforecast_ai._utils import load_exog
 from skforecast_ai.exceptions import InvalidInputError
 from skforecast_ai.schemas import CodeGenerationResult, PreprocessingStep
 
@@ -18,6 +19,8 @@ from tests.fixtures_csv_dialect import (
     write_thousands,
 )
 from tests.fixtures_assistant import (
+    df_day_first,
+    df_day_first_exog,
     df_multi_long,
     df_multi_wide,
     df_no_exog,
@@ -985,4 +988,49 @@ def test_forecast_code_reads_the_file_of_a_saved_profile_with_its_dialect(tmp_pa
         f"data = pd.read_csv({str(other)!r}, sep=';', decimal=',', thousands='.', "
         f"dtype={{'date': str}})\n"
         in copy.code
+    )
+
+
+@pytest.mark.parametrize(
+    "exog_written, exog_format_arg",
+    [("%Y-%m-%d", ""), ("%d/%m/%Y", ", format='%d/%m/%Y'")],
+    ids=["exog in iso by to_csv", "exog day first"],
+)
+def test_forecast_code_reads_future_exog_with_its_own_format(
+    tmp_path, exog_written, exog_format_arg
+):
+    """
+    Test that forecast_code() with future exogenous values read by
+    load_exog() renders the script forecast() runs: the dates of the data
+    day first, and those of `exog_future.csv` with the format of the file
+    given, none for ISO 8601 as `to_csv()` writes them, and the order of
+    the data for a horizon written day first that reads both ways.
+    """
+    csv_path = tmp_path / "data.csv"
+    df_day_first.to_csv(csv_path, index=False)
+    exog_path = tmp_path / "exog.csv"
+    dates = pd.to_datetime(df_day_first_exog["date"], format="%d/%m/%Y")
+    df_day_first_exog.assign(date=dates.dt.strftime(exog_written)).to_csv(
+        exog_path, index=False
+    )
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=csv_path, target="y", date_column="date")
+    exog = load_exog(
+        exog_path,
+        date_column = "date",
+        date_format = profile.data_profile.date_format,
+    )
+
+    code = assistant.forecast_code(
+        data=csv_path, profile=profile, steps=7, exog=exog
+    ).code
+    executed = assistant.forecast(data=csv_path, profile=profile, steps=7, exog=exog)
+
+    assert code == executed.code
+    assert (
+        "data['date'] = pd.to_datetime(data['date'], format='%d/%m/%Y')\n" in code
+    )
+    assert (
+        f"exog_future['date'] = pd.to_datetime(exog_future['date']"
+        f"{exog_format_arg})\n" in code
     )

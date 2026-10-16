@@ -42,7 +42,6 @@ from ._validation import (
     validate_interval,
 )
 from ._dates import (
-    day_month_formats,
     is_text,
     parse_text_dates,
     row_dates,
@@ -53,7 +52,6 @@ from .profiling.data_profile import (
     _compact_dates,
     _normalize_multiindex,
     _read_date_column,
-    _text_dates_issue,
     _try_parse_first_date_column,
     check_csv_fields,
     csv_read_kwargs,
@@ -822,38 +820,59 @@ def _validate_forecast_mode(
 
 
 # How the last CSV file read in this context is written: the path recorded
-# for it, its separator, its decimal mark, its thousands separator and the
-# format of its dates. The workflows read the file first and record its path
-# in the profile later (`_with_data_path`), which takes the dialect from
-# here instead of reading the file again.
+# for it, its separator, its decimal mark, its thousands separator, the
+# format of its dates and the notes on how they were read. The workflows
+# read the file first and record its path in the profile later
+# (`_with_data_path`), which takes the dialect from here instead of reading
+# the file again.
 _READ_CSV_DIALECT: ContextVar[
-    tuple[str, str, str, str | None, str | None] | None
+    tuple[str, str, str, str | None, str | None, tuple[str, ...]] | None
 ] = ContextVar("_READ_CSV_DIALECT", default=None)
 
 
 class DialectRead(NamedTuple):
     """
     How a CSV file was read: its separator, its decimal mark, its thousands
-    separator and the format of its dates (`DataProfile.date_format`).
+    separator, the format of its dates (`DataProfile.date_format`) and the
+    notes on how they were read (an order of the day and the month told
+    from their regularity), which belong in `DataProfile.warnings`.
     """
 
     sep: str | None
     decimal: str | None
     thousands: str | None
     date_format: str | None
+    date_notes: tuple[str, ...] = ()
 
 
 def _dialect_read(data_path: str) -> DialectRead:
     """
     Return how the file recorded as `data_path` was read (see
-    `DialectRead`), or None in every field when the last CSV read in this
-    context is another one (or none, for data passed in memory). The
-    separator is never None for a file read.
+    `DialectRead`), or None in every field (no notes) when the last CSV
+    read in this context is another one (or none, for data passed in
+    memory). The separator is never None for a file read.
     """
     read = _READ_CSV_DIALECT.get()
     if read is None or read[0] != data_path or data_path == PLACEHOLDER_DATA_PATH:
         return DialectRead(None, None, None, None)
     return DialectRead(*read[1:])
+
+
+def with_date_notes(
+    data_profile: DataProfile,
+    notes: tuple[str, ...] | list[str],
+) -> DataProfile:
+    """
+    Return the data profile with the notes on how its dates were read first
+    among its warnings, as `create_data_profile` puts them, unless it has
+    them already.
+    """
+    missing = [note for note in notes if note not in data_profile.warnings]
+    if not missing:
+        return data_profile
+    return data_profile.model_copy(
+        update={"warnings": [*missing, *data_profile.warnings]}
+    )
 
 
 # The date format of the saved profile that a refresh profiles data passed in
@@ -1021,7 +1040,8 @@ def _resolve_data_and_target(
     column of a CSV file is read as text and the ids of a DataFrame are
     turned into text (see `series_ids_as_text`). The dates of a CSV file
     are read in the order of their day and month (see `_day_month_order`),
-    and the format the script reads them with is kept with the dialect.
+    and the format the script reads them with is kept with the dialect, as
+    are the notes on how they were read (see `DialectRead`).
 
     Parameters
     ----------
@@ -1051,8 +1071,8 @@ def _resolve_data_and_target(
     dayfirst : bool, default None
         Order of the day and the month of the dates of a CSV file that read
         in both: True for day first, False for month first. If None, it is
-        told from the dates, and dates that read in both raise. Ignored for
-        data passed in memory.
+        told from the dates (see `_day_month_order`). Ignored for data
+        passed in memory, whose text dates `create_data_profile` reads.
     date_format : str, default None
         Format of the dates recorded by a profile of the data, which decides
         the order of dates of a CSV file that read in both. Ignored for data
@@ -1137,15 +1157,20 @@ def _resolve_data_and_target(
                     field = "data",
                 ) from e
             check_csv_fields(df, data_str)
+            notes = []
             df, read_format = _try_parse_first_date_column(
                                   data             = df,
                                   date_column      = date_column,
                                   series_id_column = series_id_column,
                                   dayfirst         = dayfirst,
                                   date_format      = date_format,
+                                  notes            = notes,
                               )
             _READ_CSV_DIALECT.set(
-                (recorded_data_path(data), sep, decimal, thousands, read_format)
+                (
+                    recorded_data_path(data), sep, decimal, thousands,
+                    read_format, tuple(notes),
+                )
             )
             return df, target
         path = Path(data_str)
@@ -1162,15 +1187,20 @@ def _resolve_data_and_target(
                                           series_id_column = series_id_column,
                                           date_column      = date_column,
                                       )
+        notes = []
         df, read_format = _try_parse_first_date_column(
                               data             = df,
                               date_column      = date_column,
                               series_id_column = series_id_column,
                               dayfirst         = dayfirst,
                               date_format      = date_format,
+                              notes            = notes,
                           )
         _READ_CSV_DIALECT.set(
-            (recorded_data_path(data), sep, decimal, thousands, read_format)
+            (
+                recorded_data_path(data), sep, decimal, thousands, read_format,
+                tuple(notes),
+            )
         )
         return df, target
 
@@ -1242,10 +1272,16 @@ def load_exog(
     without name and values raise (see `check_csv_fields`); rows made only
     of separators (a spreadsheet saved as CSV) are dropped,
     as they hold no date and no value. The dates become the index, sorted.
-    With `date_format` (the format of the dates of the data, which the
-    generated script reads the future values with too), every date must be
-    written in it: day-first dates whose day and month read in both orders
-    (the seven days of a short horizon) are read as those of the data.
+    The format of the dates is the file's own, told as for the data (see
+    `_day_month_order`): dates in ISO 8601 (`to_csv()` of a frame with
+    dates) need none, and day-first dates are read day first. Dates whose
+    day and month read in both orders (the seven days of a short horizon)
+    are read in the order of `date_format`, the format of the dates of the
+    data, when it writes them so; otherwise in the only order in which they
+    have a regular frequency, with a warning that says so, and when both
+    orders have one, or neither, they raise. The format is kept in
+    `exog.attrs['date_format']`, the one the generated script reads
+    `exog_future.csv` with (see `exog_date_format`).
 
     Parameters
     ----------
@@ -1257,9 +1293,9 @@ def load_exog(
         Name of the series id column of long-format data, read as text
         (`'001'`), as the series ids of the data.
     date_format : str, default None
-        Format of the dates of the data (`DataProfile.date_format`). If
-        None, the dates are read as pandas reads them, with the format of
-        the first one.
+        Format of the dates of the data (`DataProfile.date_format`), which
+        decides the order of the day and the month of dates of the file
+        that read in both.
 
     Returns
     -------
@@ -1298,6 +1334,9 @@ def load_exog(
     filled = exog.notna().any(axis=1).to_numpy()
     exog = exog[filled].reset_index(drop=True)
     text = {column: exog[column].copy() for column in exog.columns}
+    # The format of the dates of the file, and the notes on how they were
+    # read, given as warnings.
+    exog_format, notes = None, []
     if date_column is not None:
         if date_column not in exog.columns:
             raise DataContentError(
@@ -1307,18 +1346,23 @@ def load_exog(
             )
         values = exog[date_column]
         parsed, issue = None, None
-        if date_format is not None:
-            parsed = _exog_dates_in_format(path, date_column, values, date_format)
-        elif is_text(values):
-            parsed, issue, _ = _read_date_column(
-                                   name        = date_column,
-                                   values      = values,
-                                   named       = True,
-                                   check_order = False,
-                               )
+        if is_text(values):
+            parsed, issue, exog_format = _read_date_column(
+                                             name        = date_column,
+                                             values      = values,
+                                             named       = True,
+                                             date_format = date_format,
+                                             source      = "exog",
+                                             notes       = notes,
+                                         )
+        else:
+            parsed = _compact_dates(values)
+            if parsed is not None:
+                exog_format = COMPACT_DATE_FORMAT
         if issue is not None:
             raise DataContentError(
                 f"Exog CSV '{path}': {''.join(issue)}",
+                code  = getattr(issue, "code", None),
                 field = "exog",
                 hint  = date_issue_hint(issue),
             )
@@ -1347,21 +1391,21 @@ def load_exog(
             if isinstance(index, pd.DatetimeIndex) and len(index) == len(filled):
                 exog[first] = index[filled]
                 found = first
+                if _compact_dates(text[first]) is not None:
+                    exog_format = COMPACT_DATE_FORMAT
         if found is None:
             try:
-                # With the format of day-first data, it decides the order of
-                # dates that read both ways; any other one is checked below.
-                exog, _ = _try_parse_first_date_column(
-                              data             = exog,
-                              series_id_column = series_id_column,
-                              date_format      = date_format,
-                              check_order      = (
-                                  day_month_formats(date_format) is not None
-                              ),
-                          )
+                exog, exog_format = _try_parse_first_date_column(
+                                        data             = exog,
+                                        series_id_column = series_id_column,
+                                        date_format      = date_format,
+                                        source           = "exog",
+                                        notes            = notes,
+                                    )
             except InvalidInputError as exc:
                 raise DataContentError(
                     f"Exog CSV '{path}': {exc}",
+                    code  = exc.code,
                     field = "exog",
                     hint  = exc.hint,
                 ) from exc
@@ -1380,9 +1424,7 @@ def load_exog(
                 # Row numbers or a horizon counter, which `index_col=0` took
                 # as the index before.
                 exog = exog.drop(columns=first)
-    if found is not None and date_format is not None and found != date_column:
-        exog[found] = _exog_dates_in_format(path, found, text[found], date_format)
-    elif found is not None and is_text(text[found]):
+    if found is not None and is_text(text[found]):
         # The generated script reads the dates with `pd.to_datetime`: the
         # check shared with the data rejects most dates it cannot read, and
         # this one catches what that check lets through.
@@ -1391,7 +1433,7 @@ def load_exog(
                 # The dates were read already: pandas only repeats that it
                 # parses each one on its own.
                 warnings.simplefilter("ignore", UserWarning)
-                parse_text_dates(text[found])
+                parse_text_dates(text[found], exog_format)
         except (ValueError, TypeError) as exc:
             raise DataContentError(
                 f"Exog CSV '{path}': the dates of column {found!r} cannot be "
@@ -1402,57 +1444,14 @@ def load_exog(
         # Nothing reads as dates: the first column, as `index_col=0` read it;
         # the checks of the future exogenous variables report it.
         found = exog.columns[0]
-    exog = exog.set_index(found)
+    for note in notes:
+        warnings.warn(f"Exog CSV '{path}': {note}", UserWarning, stacklevel=2)
+    exog = exog.set_index(found).sort_index()
     if str(found).startswith("Unnamed: "):
         exog.index.name = None
+    exog.attrs["date_format"] = exog_format
 
-    return exog.sort_index()
-
-
-def _exog_dates_in_format(
-    path: Path,
-    name: str,
-    values: pd.Series,
-    date_format: str,
-) -> pd.Series:
-    """
-    Read the dates of a column of the future exogenous variables with the
-    format of the dates of the data, as the generated script reads them,
-    and raise when one is not written in it.
-    """
-    if is_text(values):
-        issue = _text_dates_issue(name, values, named=True)
-        if issue is not None:
-            raise DataContentError(
-                f"Exog CSV '{path}': {''.join(issue)}",
-                field = "exog",
-                hint  = date_issue_hint(issue),
-            )
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            parsed = pd.to_datetime(values, format=date_format, errors="coerce")
-    elif date_format == COMPACT_DATE_FORMAT and _compact_dates(values) is not None:
-        parsed = _compact_dates(values)
-    elif pd.api.types.is_datetime64_any_dtype(values):
-        return values
-    else:
-        parsed = pd.Series(pd.NaT, index=values.index)
-    if parsed.isna().any():
-        other = values[parsed.isna()].iloc[0]
-        other = other.item() if isinstance(other, np.generic) else other
-        raise DataContentError(
-            f"The dates of column {name!r} of the exog CSV '{path}' are not "
-            f"all written in the format of the dates of the data "
-            f"({date_format!r}), such as {other!r}: the generated script "
-            f"reads them with it.",
-            field = "exog",
-            hint  = (
-                "Write the dates of the future values in the format of the "
-                "dates of the data."
-            ),
-        )
-
-    return parsed
+    return exog
 
 
 def _is_row_label(name: object, values: pd.Series) -> bool:
@@ -1753,10 +1752,12 @@ def _with_data_path(
         date_format = frame_date_format(data, dp.date_column, dp.date_format)
     else:
         # Also for the DataFrame of a comparison, whose path is the one of
-        # the file it was read from.
+        # the file it was read from. The notes on how its dates were read
+        # go with them: the profile was built from the DataFrame read.
         read = _dialect_read(data_path)
-        if read[0] is not None:
-            sep, decimal, thousands, date_format = read
+        if read.sep is not None:
+            sep, decimal, thousands, date_format = read[:4]
+            dp = with_date_notes(dp, read.date_notes)
     update = {
         "data_path": data_path,
         "csv_sep": sep,
@@ -1764,7 +1765,9 @@ def _with_data_path(
         "csv_thousands": thousands,
         "date_format": date_format,
     }
-    if all(getattr(dp, name) == value for name, value in update.items()):
+    if dp is profile.data_profile and all(
+        getattr(dp, name) == value for name, value in update.items()
+    ):
         return profile
     return profile.model_copy(update={"data_profile": dp.model_copy(update=update)})
 

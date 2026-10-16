@@ -83,8 +83,25 @@ def _emit_forecaster_creation_statistical(
 def render_forecast_statistical(
     plan: ForecastPlan,
     profile: DataProfile,
+    exog_date_format: str | None = None,
 ) -> RenderedScript:
-    """Render code for ForecasterStats (Auto-ARIMA)."""
+    """Render code for ForecasterStats (Auto-ARIMA).
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Validated forecast plan.
+    profile : DataProfile
+        Profile of the data.
+    exog_date_format : str, default None
+        Format of the dates of the future exogenous variables, which the
+        script reads `exog_future.csv` with (see `exog_date_format`).
+
+    Returns
+    -------
+    script : RenderedScript
+        Imports, data loading and core sections of the forecasting script.
+    """
 
     target = _get_target_str(profile)
     exog_columns = _get_numeric_exog(profile)
@@ -103,7 +120,9 @@ def render_forecast_statistical(
     _emit_loading_and_index(loading_lines, core_lines, profile)
     if not evaluate and use_exog:
         _emit_future_exog_loading(loading_lines, profile)
-        _emit_future_exog_index_setup(core_lines, profile)
+        _emit_future_exog_index_setup(
+            core_lines, profile, date_format=exog_date_format
+        )
 
     # --- Preprocessing steps ---
     _emit_preprocessing_steps(core_lines, plan, profile)

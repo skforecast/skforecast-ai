@@ -199,9 +199,13 @@ that is for the user to ask once they know.
   them and the profile records them; pass `sep`, `decimal` and
   `thousands` only when an error says they cannot be told. Dates written
   day first (`31/01/2024`) are read day first when a day after the 12th
-  says so; when no date tells day from month (monthly data on the first
-  of each month), `profile` fails until `dayfirst` gives the order, which
-  only the user knows: ask them, never guess it.
+  says so. When no date tells day from month (monthly data on the first
+  of each month), `profile` takes the only order in which the dates are
+  regular and says so in a `DataProfileWarning` notice: tell the user,
+  who can profile again with `dayfirst`. When that does not tell it
+  either (a year or less of monthly data), `profile` fails until
+  `dayfirst` gives the order, which only the user knows: ask them, never
+  guess it.
 - Paths: absolute paths of those files inside the allowed directory,
   which the instructions of the server name (also `details.allowed_dir`
   of a path error). No URLs: download the file first. No relative paths

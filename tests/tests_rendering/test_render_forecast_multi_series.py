@@ -468,16 +468,25 @@ def test_render_forecast_multi_series_output_when_long_format_with_exog_predicti
     assert result.full_script == expected
 
 
-def test_render_forecast_multi_series_output_when_long_format_with_date_format():
+@pytest.mark.parametrize(
+    "exog_date_format, exog_format_arg",
+    [(None, ""), ("%m/%d/%Y", ", format='%m/%d/%Y'")],
+    ids=["exog in iso", "exog month first"],
+)
+def test_render_forecast_multi_series_output_when_long_format_with_date_format(
+    exog_date_format, exog_format_arg
+):
     """
     Test that in prediction mode with long-format data whose dates are
-    written day first the dates of the data and of `exog_future.csv` are
-    read with the format the profile records, and that nothing else of the
-    script changes.
+    written day first the dates of the data are read with the format the
+    profile records, those of `exog_future.csv` with their own format
+    (`exog_date_format`), and that nothing else of the script changes.
     """
     plan = plan_multi_series_exog.model_copy(update={"end_train": None})
     profile = profile_multi_long_exog.model_copy(update={"date_format": "%d/%m/%Y"})
-    result = render_forecast_multi_series(plan, profile)
+    result = render_forecast_multi_series(
+                 plan, profile, exog_date_format=exog_date_format
+             )
 
     expected = (
         "import pandas as pd\n"
@@ -496,8 +505,8 @@ def test_render_forecast_multi_series_output_when_long_format_with_date_format()
         "data = data.sort_values('date')\n"
         "\n"
         "exog_future['series_id'] = exog_future['series_id'].map(str, na_action='ignore')\n"
-        "exog_future['date'] = pd.to_datetime(exog_future['date'], "
-        "format='%d/%m/%Y')\n"
+        f"exog_future['date'] = pd.to_datetime(exog_future['date']"
+        f"{exog_format_arg})\n"
         "exog_future = exog_future.sort_values('date')\n"
         "\n"
         "# Reshape to dict format (optimal for ForecasterRecursiveMultiSeries)\n"

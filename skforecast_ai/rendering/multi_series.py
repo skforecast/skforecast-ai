@@ -99,8 +99,25 @@ def _emit_forecaster_creation_multi(
 def render_forecast_multi_series(
     plan: ForecastPlan,
     profile: DataProfile,
+    exog_date_format: str | None = None,
 ) -> RenderedScript:
-    """Render code for ForecasterRecursiveMultiSeries."""
+    """Render code for ForecasterRecursiveMultiSeries.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Validated forecast plan.
+    profile : DataProfile
+        Profile of the data.
+    exog_date_format : str, default None
+        Format of the dates of the future exogenous variables, which the
+        script reads `exog_future.csv` with (see `exog_date_format`).
+
+    Returns
+    -------
+    script : RenderedScript
+        Imports, data loading and core sections of the forecasting script.
+    """
 
     is_wide = profile.data_format == "wide"
 
@@ -126,7 +143,10 @@ def render_forecast_multi_series(
     if not evaluate and use_exog_load:
         _emit_future_exog_loading(loading_lines, profile)
         _emit_future_exog_index_setup(
-            core_lines, profile, long_format=not is_wide
+            core_lines,
+            profile,
+            long_format = not is_wide,
+            date_format = exog_date_format,
         )
 
     # --- Preprocessing steps ---
@@ -270,8 +290,25 @@ def render_forecast_multi_series(
 def render_forecast_multivariate(
     plan: ForecastPlan,
     profile: DataProfile,
+    exog_date_format: str | None = None,
 ) -> RenderedScript:
-    """Render code for ForecasterDirectMultiVariate."""
+    """Render code for ForecasterDirectMultiVariate.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Validated forecast plan.
+    profile : DataProfile
+        Profile of the data.
+    exog_date_format : str, default None
+        Format of the dates of the future exogenous variables, which the
+        script reads `exog_future.csv` with (see `exog_date_format`).
+
+    Returns
+    -------
+    script : RenderedScript
+        Imports, data loading and core sections of the forecasting script.
+    """
 
     is_wide = profile.data_format == "wide"
     target = _get_target_str(profile)
@@ -298,7 +335,10 @@ def render_forecast_multivariate(
     if not evaluate and use_exog_load:
         _emit_future_exog_loading(loading_lines, profile)
         _emit_future_exog_index_setup(
-            core_lines, profile, long_format=not is_wide
+            core_lines,
+            profile,
+            long_format = not is_wide,
+            date_format = exog_date_format,
         )
 
     # --- Preprocessing / pivot ---

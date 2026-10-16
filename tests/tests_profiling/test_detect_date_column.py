@@ -209,10 +209,10 @@ def test_detect_date_column_output_when_named_column_of_text_dates_read_in_one_o
 def test_detect_date_column_InvalidInputError_when_named_text_dates_ambiguous():
     """
     Test that a named column of text dates in a DataFrame that read day first
-    and month first, with no `date_format` to decide, raises an
-    InvalidInputError that asks for the dates to be converted, with the
-    default code, the field 'data' and the hint of a DataFrame: the order is
-    never guessed.
+    and month first, with no `date_format` to decide and both readings
+    regular, raises an InvalidInputError that asks for `dayfirst`, with the
+    code 'data_unreadable', the field 'data' and the hint of a DataFrame:
+    the order is never guessed.
     """
     data = pd.DataFrame(
         {"date": ["01/01/2020", "01/02/2020", "01/03/2020"], "y": [1.0, 2.0, 3.0]}
@@ -221,16 +221,33 @@ def test_detect_date_column_InvalidInputError_when_named_text_dates_ambiguous():
     err_msg = re.escape(
         "The dates of column 'date' read both day first and month first: no "
         "day is after the 12th, so '01/02/2020' may be '2020-02-01' or "
-        "'2020-01-02', and the order is not guessed: convert them with "
-        "pandas.to_datetime(..., format='%d/%m/%Y') or format='%m/%d/%Y' "
-        "before passing the data."
+        "'2020-01-02', and both readings have a regular frequency ('MS' day "
+        "first and 'D' month first), so the order is not guessed. Profile the "
+        "data saying which it is, with `dayfirst`."
     )
     with pytest.raises(InvalidInputError, match="^" + err_msg + "$") as exc_info:
         detect_date_column(data, "date")
 
-    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.code == "data_unreadable"
     assert exc_info.value.field == "data"
     assert exc_info.value.hint == DAYFIRST_FRAME_HINT
+
+
+@pytest.mark.parametrize("dayfirst", [True, False], ids=lambda dt: f"dayfirst: {dt}")
+def test_detect_date_column_output_when_dayfirst_decides_ambiguous_text(dayfirst):
+    """
+    Test that a named column of text dates in a DataFrame that read day first
+    and month first, regular in both orders, is the date column when
+    `dayfirst` gives their order.
+    """
+    data = pd.DataFrame(
+        {"date": ["01/01/2020", "01/02/2020", "01/03/2020"], "y": [1.0, 2.0, 3.0]}
+    )
+
+    assert detect_date_column(data, "date", dayfirst=dayfirst) == (
+        "date",
+        "datetime",
+    )
 
 
 @pytest.mark.parametrize(

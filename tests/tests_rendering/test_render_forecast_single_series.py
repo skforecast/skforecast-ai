@@ -186,15 +186,32 @@ def test_render_forecast_single_series_output_when_exog():
     assert result.full_script == expected
 
 
-def test_render_forecast_single_series_output_when_date_format():
+@pytest.mark.parametrize(
+    "exog_date_format, exog_format_arg",
+    [
+        (None, ""),
+        ("%d/%m/%Y", ", format='%d/%m/%Y'"),
+        ("%Y%m%d", ", format='%Y%m%d'"),
+    ],
+    ids=["exog in iso", "exog day first", "exog as whole numbers"],
+)
+def test_render_forecast_single_series_output_when_date_format(
+    exog_date_format, exog_format_arg
+):
     """
-    Test that the dates of the data and of the future exogenous variables
-    are read with the format the profile records (day-first dates), and
-    that the rest of the prediction script does not change.
+    Test that the dates of the data are read with the format the profile
+    records (day-first dates), those of the future exogenous variables with
+    their own format (`exog_date_format`: none for ISO 8601, as `to_csv()`
+    writes them), and that the rest of the prediction script does not
+    change.
     """
     profile = profile_single.model_copy(update={"date_format": "%d/%m/%Y"})
 
-    result = render_forecast_single_series(plan_single_predict_exog, profile)
+    result = render_forecast_single_series(
+                 plan_single_predict_exog,
+                 profile,
+                 exog_date_format = exog_date_format,
+             )
 
     expected = (
         "import pandas as pd\n"
@@ -212,8 +229,8 @@ def test_render_forecast_single_series_output_when_date_format():
         "data = data.asfreq('D')\n"
         "data = data.sort_index()\n"
         "\n"
-        "exog_future['date'] = pd.to_datetime(exog_future['date'], "
-        "format='%d/%m/%Y')\n"
+        f"exog_future['date'] = pd.to_datetime(exog_future['date']"
+        f"{exog_format_arg})\n"
         "exog_future = exog_future.set_index('date')\n"
         "exog_future = exog_future.asfreq('D')\n"
         "exog_future = exog_future.sort_index()\n"

@@ -448,6 +448,24 @@ _monthly = pd.DataFrame(
             "data = pd.read_csv({path!r})\n",
         ),
         (
+            _monthly,
+            lambda path, frame: frame.assign(
+                date=frame["date"].dt.strftime("%d/%m/%Y")
+            ).to_csv(path, index=False),
+            {},
+            "%d/%m/%Y",
+            "data = pd.read_csv({path!r})\n",
+        ),
+        (
+            _monthly,
+            lambda path, frame: frame.assign(
+                date=frame["date"].dt.strftime("%m/%d/%Y")
+            ).to_csv(path, index=False),
+            {},
+            "%m/%d/%Y",
+            "data = pd.read_csv({path!r})\n",
+        ),
+        (
             _daily,
             lambda path, frame: frame.assign(
                 date=frame["date"].dt.strftime("%Y%m%d").astype(int)
@@ -468,6 +486,8 @@ _monthly = pd.DataFrame(
     ids=[
         "day first daily",
         "day first monthly with dayfirst",
+        "day first monthly told from regularity",
+        "us monthly told from regularity",
         "whole numbers yyyymmdd",
         "German Excel with thousands",
     ],
@@ -478,11 +498,12 @@ def test_standalone_script_matches_forecast_when_csv_dates_need_a_format(
     """
     Test that a CSV file whose dates the generated script reads with a
     format (day first after a first date that reads month first, monthly
-    dates that read both ways with `dayfirst`, whole numbers such as
-    20200131, and the German Excel with '15.01.2020' and '1.234,56') is
-    read with that format by forecast() and by the script run as a file,
-    with the predictions of the same data written in ISO 8601 by
-    `to_csv()`.
+    dates that read both ways with `dayfirst` or in the only order in which
+    they are regular, day first or month first as a US file writes them,
+    whole numbers such as 20200131, and the German Excel with '15.01.2020'
+    and '1.234,56') is read with that format by forecast() and by the
+    script run as a file, with the predictions of the same data written in
+    ISO 8601 by `to_csv()`.
     """
     csv_path = tmp_path / "data.csv"
     write(csv_path, frame)
@@ -562,6 +583,66 @@ def test_standalone_script_matches_forecast_when_long_format_future_exog_day_fir
     standalone = _run_standalone(executed.code, tmp_path)
     assert list(standalone["level"]) == list(executed.predictions["level"])
     _assert_same_predictions(standalone, executed.predictions)
+
+
+@pytest.mark.parametrize(
+    "exog_written, exog_format_arg",
+    [("%Y-%m-%d", ""), ("%d/%m/%Y", ", format='%d/%m/%Y'")],
+    ids=["exog in iso by to_csv", "exog day first"],
+)
+def test_standalone_script_matches_forecast_when_day_first_data_and_future_exog(
+    tmp_path, exog_written, exog_format_arg
+):
+    """
+    Test that the future exogenous values of data written day first are read
+    with their own format, by load_exog() and by the script run as a file
+    with that file as `exog_future.csv`: in ISO 8601, as `to_csv()` of a
+    frame indexed by its dates writes them (no format), or day first like
+    the data, whose seven dates read both ways and take the order of the
+    data. The predictions are the same, those of the data written in ISO
+    8601.
+    """
+    data = _daily.assign(promo=(np.arange(60) % 7 == 5).astype(float))
+    future = pd.DataFrame(
+        {"promo": [0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0]},
+        index=pd.DatetimeIndex(
+            pd.date_range("2020-03-01", periods=7, freq="D"), name="date"
+        ),
+    )
+    csv_path = tmp_path / "data.csv"
+    data.assign(date=data["date"].dt.strftime("%d/%m/%Y")).to_csv(
+        csv_path, index=False
+    )
+    future.set_axis(future.index.strftime(exog_written)).rename_axis(
+        "date"
+    ).to_csv(tmp_path / "exog_future.csv")
+    iso_path = tmp_path / "iso.csv"
+    data.to_csv(iso_path, index=False)
+    assistant = ForecastingAssistant()
+
+    profile = assistant.profile(data=csv_path, target="y", date_column="date")
+    exog = load_exog(
+        tmp_path / "exog_future.csv",
+        date_column = "date",
+        date_format = profile.data_profile.date_format,
+    )
+    executed = assistant.forecast(
+        data=csv_path, steps=7, profile=profile, estimator="Ridge", exog=exog
+    )
+    expected = assistant.forecast(
+        data=iso_path, target="y", date_column="date", steps=7,
+        estimator="Ridge", exog=future,
+    )
+
+    assert profile.data_profile.date_format == "%d/%m/%Y"
+    assert (
+        f"exog_future['date'] = pd.to_datetime(exog_future['date']"
+        f"{exog_format_arg})\n" in executed.code
+    )
+    pd.testing.assert_frame_equal(executed.predictions, expected.predictions)
+    _assert_same_predictions(
+        _run_standalone(executed.code, tmp_path), executed.predictions
+    )
 
 
 def test_standalone_script_matches_forecast_when_csv_long_series_has_gaps(tmp_path):

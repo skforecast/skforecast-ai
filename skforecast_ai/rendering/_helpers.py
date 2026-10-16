@@ -578,6 +578,7 @@ def _emit_index_setup(
     long_format: bool = False,
     *,
     var: str = "data",
+    date_format: str | None = None,
 ) -> None:
     """
     Append index-setup code (to_datetime, set_index, asfreq, sort).
@@ -586,11 +587,12 @@ def _emit_index_setup(
     in standalone scripts (after CSV loading) and in exec mode (when
     data is injected as a raw DataFrame).
 
-    The dates are read with `format=` when the profile records the format
-    of the date column (`date_format`: day-first dates, the order given for
-    dates that read in both, or whole numbers such as 20200131), and as
+    The dates are read with `format=` when `date_format` is given (the
+    format of the date column the profile records: dates that write the day
+    and the month as numbers, or whole numbers such as 20200131), and as
     pandas guesses it from the first date otherwise. The future exogenous
-    variables are read with the same format, as written like the data.
+    variables are read with their own format, which may not be the one of
+    the data (see `exog_date_format`).
 
     Parameters
     ----------
@@ -607,6 +609,9 @@ def _emit_index_setup(
     var : str, default 'data'
         Name of the variable to prepare. Allows the same preparation to
         be reused for the future exogenous frame (`var='exog_future'`).
+    date_format : str, default None
+        Format of the dates of `var`: `DataProfile.date_format` for the
+        data. If None, pandas guesses it.
 
     Returns
     -------
@@ -616,10 +621,7 @@ def _emit_index_setup(
 
     date_col = profile.date_column
     frequency = profile.frequency
-    date_format = (
-        f", format={profile.date_format!r}" if profile.date_format is not None
-        else ""
-    )
+    date_format = f", format={date_format!r}" if date_format is not None else ""
 
     if long_format:
         series_id = profile.series_id_column
@@ -811,6 +813,7 @@ def _emit_future_exog_index_setup(
     lines: list[str],
     profile: DataProfile,
     long_format: bool = False,
+    date_format: str | None = None,
 ) -> None:
     """Append index-setup code for the future exogenous variables.
 
@@ -822,9 +825,18 @@ def _emit_future_exog_index_setup(
     variables on the same regular, sorted grid as the training data, as
     required by skforecast. In long format the dates read from
     `exog_future.csv` are text until parsed, and the reshape to a dict
-    would not match them with the dates to predict.
+    would not match them with the dates to predict. The dates are read with
+    `date_format`, the format of the future values (see
+    `exog_date_format`), not the one of the data: a file saved with
+    `to_csv()` has them in ISO 8601.
     """
-    _emit_index_setup(lines, profile, long_format=long_format, var="exog_future")
+    _emit_index_setup(
+        lines,
+        profile,
+        long_format = long_format,
+        var         = "exog_future",
+        date_format = date_format,
+    )
 
 
 def _get_metric_imports(metrics_to_compute: list[str]) -> list[str]:
@@ -1345,7 +1357,12 @@ def _emit_loading_and_index(
     """
 
     _emit_data_loading(loading_lines, profile, long_format=long_format)
-    _emit_index_setup(core_lines, profile, long_format=long_format)
+    _emit_index_setup(
+        core_lines,
+        profile,
+        long_format = long_format,
+        date_format = profile.date_format,
+    )
 
 
 def _emit_feature_setup(

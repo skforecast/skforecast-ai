@@ -347,11 +347,12 @@ def test_tool_profile_output_when_dates_day_first(tmp_path):
 def test_tool_profile_end_to_end_when_dates_read_day_first_and_month_first(tmp_path):
     """
     Test the session of a long-format file whose dates all read both day
-    first and month first (monthly, on the first day): `profile` fails with
-    `data_unreadable` and the hint that names `dayfirst`; with `dayfirst`
-    true the data are monthly, `forecast` reads the future values of the
-    series written in the same order, and the script of `get_code` reads
-    the dates of both files with the day-first format.
+    first and month first (monthly, on the first day): `profile` reads them
+    day first, the only order in which they are regular, with a
+    `DataProfileWarning` notice that says so and names `dayfirst`;
+    `forecast` reads the future values, whose three dates read in both
+    orders too, in the order of the data, and the script of `get_code`
+    reads the dates of both files with the day-first format.
     """
     dates = pd.date_range("2018-01-01", periods=36, freq="MS")
     frame = pd.DataFrame({
@@ -370,12 +371,8 @@ def test_tool_profile_end_to_end_when_dates_read_day_first_and_month_first(tmp_p
     server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
     arguments = {"data_path": path, "target": "y", "series_id_column": "store"}
 
-    error = error_of(call(server, "profile", arguments), "profile")
-
     async def steps(client):
-        profile = content_of(
-            await client.call_tool("profile", {**arguments, "dayfirst": True})
-        )
+        profile = content_of(await client.call_tool("profile", arguments))
         plan = content_of(
             await client.call_tool("plan", {"profile_id": profile["id"], "steps": 3})
         )
@@ -391,14 +388,21 @@ def test_tool_profile_end_to_end_when_dates_read_day_first_and_month_first(tmp_p
 
     profile, forecast, code = run_session(server, steps)
 
-    assert (error["code"], error["field"]) == ("data_unreadable", "data_path")
-    assert error["message"].startswith(
-        "The dates of column 'date' read both day first and month first: no "
-        "day is after the 12th, so '01/02/2018' may be '2018-02-01' or "
-        "'2018-01-02'"
-    )
-    assert error["hint"] == DAYFIRST_HINT
     assert "- Frequency: MS\n" in profile["summary"]
+    notes = [
+        notice["message"] for notice in profile["notices"]
+        if notice["category"] == "DataProfileWarning"
+        and notice["message"].startswith("The dates of column 'date' read both")
+    ]
+    assert notes == [
+        "The dates of column 'date' read both day first and month first (no "
+        "day is after the 12th): they were read day first, the only order in "
+        "which they have a regular frequency ('MS'), so '01/02/2018' is "
+        "'2018-02-01' and not '2018-01-02'. If they are written month first, "
+        "profile the file again with `dayfirst=False` in `profile()`, "
+        "`--monthfirst` in the `profile` command or `dayfirst` false in the "
+        "`profile` tool of the MCP server."
+    ]
     predictions = pd.read_csv(forecast["files"]["predictions"])
     assert sorted(set(predictions.iloc[:, 0])) == [
         "2021-01-01", "2021-02-01", "2021-03-01"
@@ -411,6 +415,37 @@ def test_tool_profile_end_to_end_when_dates_read_day_first_and_month_first(tmp_p
         "exog_future['date'] = pd.to_datetime(exog_future['date'], "
         "format='%d/%m/%Y')\n" in code["code"]
     )
+
+
+def test_tool_profile_error_when_dates_read_both_ways_and_both_are_regular(
+    tmp_path,
+):
+    """
+    Test that `profile` of a file of three monthly dates that read both day
+    first and month first and are regular in both orders fails with
+    `data_unreadable` on `data_path` and the hint that names `dayfirst`, and
+    that with `dayfirst` true the data are monthly.
+    """
+    frame = pd.DataFrame({
+        "date": ["01/01/2021", "01/02/2021", "01/03/2021"],
+        "y": [1.0, 2.0, 4.0],
+    })
+    path = write_csv(tmp_path, "three.csv", frame)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    arguments = {"data_path": path, "target": "y"}
+
+    error = error_of(call(server, "profile", arguments), "profile")
+    profile = content_of(call(server, "profile", {**arguments, "dayfirst": True}))
+
+    assert (error["code"], error["field"]) == ("data_unreadable", "data_path")
+    assert error["message"].startswith(
+        "The dates of column 'date' read both day first and month first: no "
+        "day is after the 12th, so '01/02/2021' may be '2021-02-01' or "
+        "'2021-01-02', and both readings have a regular frequency ('MS' day "
+        "first and 'D' month first)"
+    )
+    assert error["hint"] == DAYFIRST_HINT
+    assert "- Frequency: MS\n" in profile["summary"]
 
 
 def test_tool_profile_output_when_exog_columns(tmp_path):

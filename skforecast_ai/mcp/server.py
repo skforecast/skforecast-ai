@@ -1645,9 +1645,10 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         dayfirst: Annotated[bool | None, Field(description=(
             "Order of the day and the month of the dates of the file: true "
             "for day first ('31/01/2024'), false for month first "
-            "('01/31/2024'). When null, it is told from the dates; pass it "
-            "only when an error says they read both ways, with the order the "
-            "user confirms."
+            "('01/31/2024'). When null, it is told from the dates, or from "
+            "their regularity with a notice when they read both ways; pass it "
+            "only when an error says they read both ways, or the user gives "
+            "another order than a notice, with the order the user confirms."
         ))] = None,
         ctx: Context = None,
     ) -> ToolResult:

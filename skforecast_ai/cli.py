@@ -75,7 +75,7 @@ ExogColumnsOption = Annotated[str | None, typer.Option("--exog-columns", help="C
 SepOption = Annotated[str | None, typer.Option("--sep", help="Separator of the CSV file: ',', ';' or 'tab'. Detected from the file when omitted.")]
 DecimalOption = Annotated[str | None, typer.Option("--decimal", help="Decimal mark of the CSV file: '.' or ',' (only when the separator is not ','). Detected from the file when omitted.")]
 ThousandsOption = Annotated[str | None, typer.Option("--thousands", help="Thousands separator of the CSV file: '.' (with ',' as decimal mark, as in '1.705,11'). Detected from the file when omitted.")]
-DayfirstOption = Annotated[bool | None, typer.Option("--dayfirst/--monthfirst", help="Order of the day and the month of the dates of the CSV file, for dates that read both ways ('01/02/2024' in every row): day first ('31/01/2024') or month first ('01/31/2024'). Told from the dates when omitted.")]
+DayfirstOption = Annotated[bool | None, typer.Option("--dayfirst/--monthfirst", help="Order of the day and the month of the dates of the CSV file, for dates that read both ways ('01/02/2024' in every row): day first ('31/01/2024') or month first ('01/31/2024'). When omitted, told from the dates, or from their regularity when they read both ways.")]
 FromPlanOption = Annotated[str | None, typer.Option("--from-plan", help="Load plan bundle from JSON file or '-' for stdin.")]
 FromProfileOption = Annotated[str | None, typer.Option("--from-profile", help="Load profile from JSON file or '-' for stdin.")]
 # CV options default to None so that only the flags actually passed reach
@@ -1602,8 +1602,9 @@ def _data_date_format(
 ) -> str | None:
     """
     Return the format the dates of a CSV file of data are read with
-    (`DataProfile.date_format`), to read the future exogenous variables,
-    which are written like the data, before the forecast reads the file.
+    (`DataProfile.date_format`), which decides the order of the dates of
+    the future exogenous variables that read both day first and month
+    first (see `load_exog`), before the forecast reads the file.
     The file is read as the forecast reads it: with the profile of a plan
     bundle when there is one, which decides the order of dates that read
     both ways.
@@ -1738,9 +1739,9 @@ def forecast(
 
             # The dates of the file run, which may be another file than
             # the one of the profile.
-            exog_format = None
+            data_format = None
             if exog is not None:
-                exog_format = _data_date_format(
+                data_format = _data_date_format(
                                   data             = data,
                                   target           = (
                                       _parse_target(target) if target else None
@@ -1753,7 +1754,7 @@ def forecast(
                 exog,
                 date_column      = prof.data_profile.date_column,
                 series_id_column = prof.data_profile.series_id_column,
-                date_format      = exog_format,
+                date_format      = data_format,
             )
 
             with _spinner("Running forecast from plan...", quiet):
@@ -1775,9 +1776,9 @@ def forecast(
                 )
             parsed_target = _parse_target(target)
 
-            exog_format = None
+            data_format = None
             if exog is not None:
-                exog_format = _data_date_format(
+                data_format = _data_date_format(
                                   data             = data,
                                   target           = parsed_target,
                                   date_column      = date_column,
@@ -1787,7 +1788,7 @@ def forecast(
                 exog,
                 date_column      = date_column,
                 series_id_column = series_id_column,
-                date_format      = exog_format,
+                date_format      = data_format,
             )
 
             with _spinner("Running forecast...", quiet):

@@ -18,7 +18,7 @@ _AMBIGUOUS = ["01/01/2020", "01/02/2020", "01/03/2020"]
         (_DAY_FIRST, "%d/%m/%Y"),
         (["13.01.2020", "14.01.2020"], "%d.%m.%Y"),
         (["13/01/2020 10:00", "14/01/2020 11:00"], "%d/%m/%Y %H:%M"),
-        (["01/13/2020", "01/14/2020"], None),
+        (["01/13/2020", "01/14/2020"], "%m/%d/%Y"),
         (["2020-01-13", "2020-01-14"], None),
         (["13 Jan 2020", "14 Jan 2020"], None),
         ([20200113, 20200114], "%Y%m%d"),
@@ -40,9 +40,10 @@ _AMBIGUOUS = ["01/01/2020", "01/02/2020", "01/03/2020"]
 def test_frame_date_format_output(dates, expected):
     """
     Test that the format of the dates of a DataFrame passed in memory is the
-    day-first one for day-first text, '%Y%m%d' for whole numbers of eight
-    digits, and None when the script reads the dates without one (month
-    first, ISO, month names, dates already parsed, numbers).
+    one of its order for text that writes the day and the month as numbers
+    (day first or month first), '%Y%m%d' for whole numbers of eight digits,
+    and None when the script reads the dates without one (ISO, month names,
+    dates already parsed, numbers).
     """
     data = pd.DataFrame({"date": dates})
 
@@ -118,23 +119,24 @@ def test_frame_date_format_output_is_None_when_no_date_column():
 def test_frame_date_format_InvalidInputError_when_dates_read_in_both_orders():
     """
     Test that text dates that read day first and month first, with no format
-    of a profile to decide, raise an InvalidInputError that asks for the
-    dates to be converted, with the default code, the field 'data' and the
-    hint of a DataFrame: the order is never guessed.
+    of a profile to decide and both readings regular, raise an
+    InvalidInputError that asks for `dayfirst`, with the code
+    'data_unreadable', the field 'data' and the hint of a DataFrame: the
+    order is never guessed.
     """
     data = pd.DataFrame({"date": _AMBIGUOUS, "y": [1.0, 2.0, 3.0]})
 
     err_msg = re.escape(
         "The dates of column 'date' read both day first and month first: no "
         "day is after the 12th, so '01/02/2020' may be '2020-02-01' or "
-        "'2020-01-02', and the order is not guessed: convert them with "
-        "pandas.to_datetime(..., format='%d/%m/%Y') or format='%m/%d/%Y' "
-        "before passing the data."
+        "'2020-01-02', and both readings have a regular frequency ('MS' day "
+        "first and 'D' month first), so the order is not guessed. Profile the "
+        "data saying which it is, with `dayfirst`."
     )
     with pytest.raises(InvalidInputError, match="^" + err_msg + "$") as exc_info:
         frame_date_format(data, "date")
 
-    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.code == "data_unreadable"
     assert exc_info.value.field == "data"
     assert exc_info.value.hint == DAYFIRST_FRAME_HINT
 

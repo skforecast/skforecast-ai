@@ -6,16 +6,31 @@ import pytest
 from skforecast_ai.profiling.data_profile import (
     DAYFIRST_FRAME_HINT,
     DAYFIRST_HINT,
+    EXOG_DATES_HINT,
     _day_month_order,
     date_issue_hint,
 )
 
-# No day is after the 12th: every date reads day first and month first.
+# No day is after the 12th: every date reads day first and month first, and
+# both readings are regular (monthly day first, daily month first).
 _AMBIGUOUS = pd.Series(["01/01/2015", "01/02/2015", "01/03/2015"])
 _FOUND = (
     "The dates of column 'date' read both day first and month first: no day "
     "is after the 12th, so "
 )
+_BOTH_REGULAR = (
+    ", and both readings have a regular frequency ('MS' day first and 'D' "
+    "month first), so the order is not guessed"
+)
+_NEITHER_REGULAR = (
+    ", and neither reading has a regular frequency, so the order is not "
+    "guessed"
+)
+# Five years of monthly dates on the first of each month, as a US file and
+# a Spanish file write them: only one order gives a regular frequency.
+_MONTHS = pd.date_range("2015-01-01", periods=60, freq="MS")
+_US_MONTHLY = pd.Series(_MONTHS.strftime("%m/%d/%Y"))
+_SPANISH_MONTHLY = pd.Series(_MONTHS.strftime("%d/%m/%Y"))
 
 
 @pytest.mark.parametrize(
@@ -26,8 +41,8 @@ _FOUND = (
         (["13.01.2020", "14.01.2020"], ("%d.%m.%Y", "%d.%m.%Y")),
         (["13-01-2020 10:00", "14-01-2020 11:30"], ("%d-%m-%Y %H:%M",) * 2),
         (["13/01/2020", None, "14/01/2020"], ("%d/%m/%Y", "%d/%m/%Y")),
-        (["01/13/2020", "01/14/2020"], ("%m/%d/%Y", None)),
-        (["01/02/2020", "01/13/2020"], ("%m/%d/%Y", None)),
+        (["01/13/2020", "01/14/2020"], ("%m/%d/%Y", "%m/%d/%Y")),
+        (["01/02/2020", "01/13/2020"], ("%m/%d/%Y", "%m/%d/%Y")),
     ],
     ids=[
         "day first from the first date",
@@ -42,10 +57,10 @@ _FOUND = (
 def test_day_month_order_output_when_dates_read_in_one_order(values, expected):
     """
     Test that dates that read in only one order are read in it, without a
-    decision from the caller, and that the recorded format is the day-first
-    one whenever the dates are day first (even when the first date already
-    says so, as pandas reads them month first unless told) and None for
-    month first, which is what pandas reads.
+    decision from the caller, and that the format is recorded in either
+    order: day first even when the first date already says so (pandas reads
+    them month first unless told), and month first too, so that future
+    exogenous values whose dates read in both are read like the data.
     """
     chosen, recorded, issue = _day_month_order("date", pd.Series(values), True)
 
@@ -87,8 +102,7 @@ def test_day_month_order_issue_when_year_has_two_digits_and_both_orders_read():
 
     assert (chosen, recorded) == (None, None)
     assert issue[0] == (
-        _FOUND + "'01/02/18' may be '2018-02-01' or '2018-01-02', and the "
-        "order is not guessed"
+        _FOUND + "'01/02/18' may be '2018-02-01' or '2018-01-02'" + _BOTH_REGULAR
     )
     assert issue.code == "data_unreadable"
 
@@ -192,8 +206,8 @@ def test_day_month_order_output_when_both_orders_read_and_order_given(
     [
         (["13/01/2020", "14/01/2020"], True, ("%d/%m/%Y", "%d/%m/%Y")),
         (["01/02/2020", "13/02/2020"], True, ("%d/%m/%Y", "%d/%m/%Y")),
-        (["01/13/2020", "01/14/2020"], False, ("%m/%d/%Y", None)),
-        (["01/02/2020", "01/13/2020"], False, ("%m/%d/%Y", None)),
+        (["01/13/2020", "01/14/2020"], False, ("%m/%d/%Y", "%m/%d/%Y")),
+        (["01/02/2020", "01/13/2020"], False, ("%m/%d/%Y", "%m/%d/%Y")),
     ],
     ids=[
         "day first",
@@ -222,56 +236,66 @@ def test_day_month_order_output_when_dayfirst_agrees_with_the_dates(
 
 @pytest.mark.parametrize("named", [True, False], ids=lambda dt: f"named: {dt}")
 @pytest.mark.parametrize(
-    "in_file, fix, code, hint",
+    "source, fix, field, hint",
     [
         (
-            True,
+            "file",
             ". Profile the file saying which it is, with `dayfirst`.",
-            "data_unreadable",
+            "data",
             DAYFIRST_HINT,
         ),
         (
-            False,
-            ": convert them with pandas.to_datetime(..., format='%d/%m/%Y') or "
-            "format='%m/%d/%Y' before passing the data.",
-            None,
+            "frame",
+            ". Profile the data saying which it is, with `dayfirst`.",
+            "data",
             DAYFIRST_FRAME_HINT,
         ),
+        (
+            "exog",
+            ". Write them in ISO 8601, which reads one way only.",
+            "exog",
+            EXOG_DATES_HINT,
+        ),
     ],
-    ids=["csv file", "dataframe"],
+    ids=["csv file", "dataframe", "exog file"],
 )
-def test_day_month_order_issue_when_both_orders_read_and_order_not_given(
-    in_file, fix, code, hint, named
+def test_day_month_order_issue_when_both_orders_read_and_both_are_regular(
+    source, fix, field, hint, named
 ):
     """
-    Test that dates that read day first and month first, with no order given,
-    are an issue and never guessed: it quotes the first date and both
-    readings, asks for `dayfirst` and has the code 'data_unreadable' and the
-    hint of the CSV file, or asks for the dates of a DataFrame to be
-    converted, with the default code and the hint of the DataFrame.
+    Test that dates that read day first and month first, with no order given
+    and a regular frequency in both readings (three dates: monthly day first,
+    daily month first), are an issue and never guessed: it quotes the first
+    date, both readings and both frequencies, has the code
+    'data_unreadable', and asks for `dayfirst` with the hint of the CSV file
+    or of the DataFrame, or, for future exogenous values, for dates in ISO
+    8601, on the field 'exog'.
     """
+    notes = []
     chosen, recorded, issue = _day_month_order(
-                                  name    = "date",
-                                  values  = _AMBIGUOUS,
-                                  named   = named,
-                                  in_file = in_file,
+                                  name   = "date",
+                                  values = _AMBIGUOUS,
+                                  named  = named,
+                                  source = source,
+                                  notes  = notes,
                               )
 
     assert (chosen, recorded) == (None, None)
     assert "".join(issue) == (
-        _FOUND + "'01/02/2015' may be '2015-02-01' or '2015-01-02', and the "
-        "order is not guessed" + fix
+        _FOUND + "'01/02/2015' may be '2015-02-01' or '2015-01-02'"
+        + _BOTH_REGULAR + fix
     )
-    assert issue.code == code
-    assert issue.field == "data"
+    assert issue.code == "data_unreadable"
+    assert issue.field == field
     assert date_issue_hint(issue) == hint
+    assert notes == []
 
 
 @pytest.mark.parametrize(
     "values, quoted, readings",
     [
         (
-            ["01/01/2020", "03/03/2020", "01/02/2020"],
+            ["01/01/2020", "03/03/2020", "01/02/2020", "06/04/2020"],
             "01/02/2020",
             "'2020-02-01' or '2020-01-02'",
         ),
@@ -295,13 +319,14 @@ def test_day_month_order_issue_quotes_a_date_that_reads_differently(
     Test that the issue of dates that read in both orders quotes the first
     date whose two readings differ (a date such as '01/01/2020' reads the
     same either way), with the time when the readings have one, and skips
-    the empty cells.
+    the empty cells. These few dates have no regular frequency in either
+    reading, which the issue says.
     """
     _, _, issue = _day_month_order("date", pd.Series(values), True)
 
     assert "".join(issue) == (
-        _FOUND + f"{quoted!r} may be {readings}, and the order is not guessed. "
-        "Profile the file saying which it is, with `dayfirst`."
+        _FOUND + f"{quoted!r} may be {readings}" + _NEITHER_REGULAR
+        + ". Profile the file saying which it is, with `dayfirst`."
     )
 
 
@@ -347,3 +372,139 @@ def test_day_month_order_issue_when_dayfirst_contradicts_the_dates(
     assert date_issue_hint(issue) == (
         "Leave `dayfirst` out, so the order is told from the dates."
     )
+
+
+@pytest.mark.parametrize(
+    "values, expected, read, quoted, other",
+    [
+        (
+            _US_MONTHLY,
+            "%m/%d/%Y",
+            "month",
+            "'02/01/2015' is '2015-02-01' and not '2015-01-02'",
+            "day",
+        ),
+        (
+            _SPANISH_MONTHLY,
+            "%d/%m/%Y",
+            "day",
+            "'01/02/2015' is '2015-02-01' and not '2015-01-02'",
+            "month",
+        ),
+    ],
+    ids=["us monthly", "spanish monthly"],
+)
+def test_day_month_order_output_when_only_one_reading_is_regular(
+    values, expected, read, quoted, other
+):
+    """
+    Test that dates that read in both orders, with no order given, are read
+    in the only order in which they have a regular frequency: five years of
+    monthly dates of a US file are 'MS' month first and have no frequency
+    day first, and those of a Spanish file the other way. The format is
+    recorded, and a note says that the order was told from the regularity
+    and how to give the other one with `dayfirst`.
+    """
+    notes = []
+    result = _day_month_order(
+                 name   = "date",
+                 values = values,
+                 named  = True,
+                 notes  = notes,
+             )
+
+    assert result == (expected, expected, None)
+    dayfirst = other == "day"
+    assert notes == [
+        f"The dates of column 'date' read both day first and month first (no "
+        f"day is after the 12th): they were read {read} first, the only order "
+        f"in which they have a regular frequency ('MS'), so {quoted}. If they "
+        f"are written {other} first, profile the file again with "
+        f"`dayfirst={dayfirst}` in `profile()`, `--{other}first` in the "
+        f"`profile` command or `dayfirst` {str(dayfirst).lower()} in the "
+        f"`profile` tool of the MCP server."
+    ]
+
+
+@pytest.mark.parametrize(
+    "source, remedy",
+    [
+        ("frame", "profile the data again with `dayfirst=True`"),
+        ("exog", "write them in ISO 8601 (such as '2015-01-02')"),
+    ],
+    ids=["dataframe", "exog file"],
+)
+def test_day_month_order_note_when_only_one_reading_is_regular_by_source(
+    source, remedy
+):
+    """
+    Test that the note of an order told from the regularity of the dates
+    gives the remedy of where they come from: `dayfirst` of `profile()` for
+    a DataFrame, and dates in ISO 8601 (quoting the other reading) for the
+    future exogenous values.
+    """
+    notes = []
+    result = _day_month_order(
+                 name   = "date",
+                 values = _US_MONTHLY,
+                 named  = True,
+                 source = source,
+                 notes  = notes,
+             )
+
+    assert result == ("%m/%d/%Y", "%m/%d/%Y", None)
+    assert notes == [
+        "The dates of column 'date' read both day first and month first (no "
+        "day is after the 12th): they were read month first, the only order "
+        "in which they have a regular frequency ('MS'), so '02/01/2015' is "
+        "'2015-02-01' and not '2015-01-02'. If they are written day first, "
+        f"{remedy}."
+    ]
+
+
+def test_day_month_order_output_when_one_reading_is_regular_and_order_given():
+    """
+    Test that the regularity of the dates is read only when nothing gives
+    the order: `dayfirst` or the format of a profile of the data decide it,
+    against the only regular reading too, without a note.
+    """
+    notes = []
+    by_dayfirst = _day_month_order(
+                      name     = "date",
+                      values   = _US_MONTHLY,
+                      named    = True,
+                      dayfirst = True,
+                      notes    = notes,
+                  )
+    by_format = _day_month_order(
+                    name        = "date",
+                    values      = _US_MONTHLY,
+                    named       = True,
+                    date_format = "%d/%m/%Y",
+                    notes       = notes,
+                )
+
+    assert by_dayfirst == ("%d/%m/%Y", "%d/%m/%Y", None)
+    assert by_format == ("%d/%m/%Y", "%d/%m/%Y", None)
+    assert notes == []
+
+
+def test_day_month_order_issue_when_neither_reading_is_regular():
+    """
+    Test that dates that read in both orders and have no regular frequency
+    in either reading (scattered days of a few months) are an issue that
+    says so: the regularity tells nothing.
+    """
+    values = pd.Series(
+        ["01/02/2020", "03/05/2020", "04/01/2020", "07/09/2020", "11/10/2020"]
+    )
+
+    chosen, recorded, issue = _day_month_order("date", values, True)
+
+    assert (chosen, recorded) == (None, None)
+    assert "".join(issue) == (
+        _FOUND + "'01/02/2020' may be '2020-02-01' or '2020-01-02'"
+        + _NEITHER_REGULAR
+        + ". Profile the file saying which it is, with `dayfirst`."
+    )
+    assert issue.code == "data_unreadable"

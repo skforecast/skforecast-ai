@@ -40,7 +40,7 @@ def test_parse_text_date_column_output_when_day_first_text():
 @pytest.mark.parametrize(
     "dates, expected_dates, expected_format",
     [
-        (["01/13/2020", "01/14/2020"], ["2020-01-13", "2020-01-14"], None),
+        (["01/13/2020", "01/14/2020"], ["2020-01-13", "2020-01-14"], "%m/%d/%Y"),
         (["2020-01-13", "2020-01-14"], ["2020-01-13", "2020-01-14"], None),
         (["13 Jan 2020", "14 Jan 2020"], ["2020-01-13", "2020-01-14"], None),
         (["13/01/2020 10:00", "14/01/2020 11:30"],
@@ -53,8 +53,9 @@ def test_parse_text_date_column_output_when_other_text_formats(
 ):
     """
     Test that text dates are parsed as the script parses them, and that the
-    format returned is None for the formats pandas reads without being told
-    (month first, ISO 8601, month names).
+    format returned is the one of their order when they write the day and
+    the month as numbers (month first, day first with time), and None for
+    ISO 8601 and month names, which read one way only.
     """
     data = pd.DataFrame({"date": dates})
 
@@ -160,25 +161,84 @@ def test_parse_text_date_column_returns_data_when_numbers_are_not_dates():
 def test_parse_text_date_column_InvalidInputError_when_dates_read_in_both_orders():
     """
     Test that text dates that read day first and month first, with no
-    `date_format` to decide, raise an InvalidInputError that asks for the
-    dates to be converted, with the default code, the field 'data' and the
-    hint of a DataFrame: the order is never guessed.
+    `date_format` to decide and both readings regular, raise an
+    InvalidInputError that asks for `dayfirst`, with the code
+    'data_unreadable', the field 'data' and the hint of a DataFrame: the
+    order is never guessed.
     """
     data = pd.DataFrame({"date": ["01/01/2020", "01/02/2020", "01/03/2020"]})
 
     err_msg = re.escape(
         "The dates of column 'date' read both day first and month first: no "
         "day is after the 12th, so '01/02/2020' may be '2020-02-01' or "
-        "'2020-01-02', and the order is not guessed: convert them with "
-        "pandas.to_datetime(..., format='%d/%m/%Y') or format='%m/%d/%Y' "
-        "before passing the data."
+        "'2020-01-02', and both readings have a regular frequency ('MS' day "
+        "first and 'D' month first), so the order is not guessed. Profile the "
+        "data saying which it is, with `dayfirst`."
     )
     with pytest.raises(InvalidInputError, match="^" + err_msg + "$") as exc_info:
         _parse_text_date_column(data, "date")
 
-    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.code == "data_unreadable"
     assert exc_info.value.field == "data"
     assert exc_info.value.hint == DAYFIRST_FRAME_HINT
+
+
+@pytest.mark.parametrize(
+    "dayfirst, expected_dates, expected_format",
+    [
+        (True, ["2020-01-01", "2020-02-01", "2020-03-01"], "%d/%m/%Y"),
+        (False, ["2020-01-01", "2020-01-02", "2020-01-03"], "%m/%d/%Y"),
+    ],
+    ids=["dayfirst true", "dayfirst false"],
+)
+def test_parse_text_date_column_output_when_dayfirst_decides_ambiguous_dates(
+    dayfirst, expected_dates, expected_format
+):
+    """
+    Test that text dates that read day first and month first, regular in
+    both orders, take the order of `dayfirst`, whose format is returned,
+    without a note.
+    """
+    data = pd.DataFrame({"date": ["01/01/2020", "01/02/2020", "01/03/2020"]})
+    notes = []
+
+    result, found_format = _parse_text_date_column(
+                               data,
+                               "date",
+                               dayfirst = dayfirst,
+                               notes    = notes,
+                           )
+
+    expected = pd.DataFrame({"date": pd.to_datetime(expected_dates)})
+    pd.testing.assert_frame_equal(result, expected)
+    assert found_format == expected_format
+    assert notes == []
+
+
+def test_parse_text_date_column_notes_when_only_one_reading_is_regular():
+    """
+    Test that text dates that read in both orders and are regular in only
+    one (five years of monthly dates of a US file, month first) are read in
+    it, and the note that says so, with the remedy for data passed in
+    memory, is appended to `notes`.
+    """
+    months = pd.date_range("2015-01-01", periods=60, freq="MS")
+    data = pd.DataFrame({"date": months.strftime("%m/%d/%Y")})
+    notes = []
+
+    result, found_format = _parse_text_date_column(data, "date", notes=notes)
+
+    pd.testing.assert_frame_equal(
+        result, pd.DataFrame({"date": months}), check_freq=False
+    )
+    assert found_format == "%m/%d/%Y"
+    assert notes == [
+        "The dates of column 'date' read both day first and month first (no "
+        "day is after the 12th): they were read month first, the only order "
+        "in which they have a regular frequency ('MS'), so '02/01/2015' is "
+        "'2015-02-01' and not '2015-01-02'. If they are written day first, "
+        "profile the data again with `dayfirst=True`."
+    ]
 
 
 def test_parse_text_date_column_InvalidInputError_when_dates_have_empty_cells():

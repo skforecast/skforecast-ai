@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from skforecast.exceptions import MissingValuesWarning
+from skforecast.exceptions import IgnoredArgumentWarning, MissingValuesWarning
 
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai.exceptions import (
@@ -570,44 +570,159 @@ def test_profile_output_when_day_first_dates_after_one_that_reads_month_first(
 
 
 @pytest.mark.parametrize(
-    "source, code, hint",
+    "source, fix, hint",
     [
-        ("csv", "data_unreadable", DAYFIRST_HINT),
-        ("dataframe", "invalid_argument", DAYFIRST_FRAME_HINT),
+        (
+            "csv",
+            "Profile the file saying which it is, with `dayfirst`.",
+            DAYFIRST_HINT,
+        ),
+        (
+            "dataframe",
+            "Profile the data saying which it is, with `dayfirst`.",
+            DAYFIRST_FRAME_HINT,
+        ),
     ],
 )
 def test_profile_InvalidInputError_when_dates_read_day_first_and_month_first(
-    tmp_path, source, code, hint
+    tmp_path, source, fix, hint
 ):
     """
-    Test that dates that all read both day first and month first (no day
-    after the 12th: monthly data on the first day) raise instead of being
-    read month first, quoting a date whose two readings differ. A CSV file
-    raises with code 'data_unreadable' and the hint that names `dayfirst`;
-    a DataFrame, which `dayfirst` does not read, is asked to convert them.
+    Test that three monthly dates that all read both day first and month
+    first (no day after the 12th) and are regular in both orders (monthly
+    day first, daily month first) raise instead of being read month first,
+    quoting a date whose two readings differ and both frequencies, with the
+    code 'data_unreadable' and the hint that names `dayfirst`, for a CSV file
+    and for a DataFrame.
     """
-    dates = pd.date_range("2023-01-01", periods=12, freq="MS")
     data = pd.DataFrame({
-        "date": dates.strftime("%d/%m/%Y"),
-        "y": np.arange(12, dtype=float),
+        "date": ["01/01/2023", "01/02/2023", "01/03/2023"],
+        "y": [1.0, 2.0, 4.0],
     })
     if source == "csv":
         data.to_csv(tmp_path / "monthly.csv", index=False)
         data = tmp_path / "monthly.csv"
 
-    found = re.escape(
+    err_msg = re.escape(
         "The dates of column 'date' read both day first and month first: no "
         "day is after the 12th, so '01/02/2023' may be '2023-02-01' or "
-        "'2023-01-02', and the order is not guessed"
+        "'2023-01-02', and both readings have a regular frequency ('MS' day "
+        f"first and 'D' month first), so the order is not guessed. {fix}"
     )
-    with pytest.raises(InvalidInputError, match="^" + found) as exc_info:
+    with pytest.raises(InvalidInputError, match="^" + err_msg + "$") as exc_info:
         ForecastingAssistant().profile(
             data=data, target="y", date_column="date", dayfirst=None
         )
 
-    assert exc_info.value.code == code
+    assert exc_info.value.code == "data_unreadable"
     assert exc_info.value.field == "data"
     assert exc_info.value.hint == hint
+
+
+@pytest.mark.parametrize("source", ["csv", "dataframe"])
+@pytest.mark.parametrize(
+    "written, read, quoted",
+    [
+        ("%m/%d/%Y", "month", "'02/01/2019' is '2019-02-01' and not '2019-01-02'"),
+        ("%d/%m/%Y", "day", "'01/02/2019' is '2019-02-01' and not '2019-01-02'"),
+    ],
+    ids=["us monthly", "spanish monthly"],
+)
+def test_profile_output_when_dates_read_both_ways_and_only_one_order_is_regular(
+    tmp_path, source, written, read, quoted
+):
+    """
+    Test that five years of monthly dates on the first of each month, which
+    all read day first and month first, are profiled in the only order in
+    which they have a regular frequency: month first for a US file
+    ('02/01/2019'), which 0.5.x read right and still does, and day first for
+    a Spanish one. Both are monthly from January 2019, the profile records
+    the format, and `DataProfile.warnings` starts with the note that says
+    the order was told from the regularity and how to give the other one.
+    """
+    dates = pd.date_range("2019-01-01", periods=60, freq="MS")
+    data = pd.DataFrame({
+        "date": dates.strftime(written),
+        "y": np.round(10 + np.sin(np.arange(60)), 3),
+    })
+    if source == "csv":
+        data.to_csv(tmp_path / "monthly.csv", index=False)
+        data = tmp_path / "monthly.csv"
+
+    profile = ForecastingAssistant().profile(
+        data=data, target="y", date_column="date"
+    )
+
+    dp = profile.data_profile
+    other = "day" if read == "month" else "month"
+    dayfirst = other == "day"
+    remedy = (
+        f"profile the file again with `dayfirst={dayfirst}` in `profile()`, "
+        f"`--{other}first` in the `profile` command or `dayfirst` "
+        f"{str(dayfirst).lower()} in the `profile` tool of the MCP server"
+        if source == "csv" else
+        f"profile the data again with `dayfirst={dayfirst}`"
+    )
+    assert dp.date_format == written
+    assert dp.frequency == "MS"
+    assert dp.start_date == "2019-01-01"
+    assert dp.series_lengths["y"].end == "2023-12-01"
+    assert dp.warnings[0] == (
+        f"The dates of column 'date' read both day first and month first (no "
+        f"day is after the 12th): they were read {read} first, the only order "
+        f"in which they have a regular frequency ('MS'), so {quoted}. If they "
+        f"are written {other} first, {remedy}."
+    )
+
+
+@pytest.mark.parametrize(
+    "dayfirst, expected_format, expected_frequency",
+    [(True, "%d/%m/%Y", "MS"), (False, "%m/%d/%Y", "D")],
+    ids=["day first", "month first"],
+)
+def test_profile_output_when_dayfirst_given_for_text_dates_of_a_dataframe(
+    dayfirst, expected_format, expected_frequency
+):
+    """
+    Test that `dayfirst` decides the order of the text dates of a DataFrame
+    that read both ways, as for a CSV file: three dates regular in both
+    orders are monthly day first and daily month first.
+    """
+    data = pd.DataFrame({
+        "date": ["01/01/2023", "01/02/2023", "01/03/2023"],
+        "y": [1.0, 2.0, 4.0],
+    })
+
+    profile = ForecastingAssistant().profile(
+        data=data, target="y", date_column="date", dayfirst=dayfirst
+    )
+
+    assert profile.data_profile.date_format == expected_format
+    assert profile.data_profile.frequency == expected_frequency
+
+
+def test_profile_IgnoredArgumentWarning_when_dayfirst_and_dataframe_dates_are_datetime():
+    """
+    Test that `dayfirst` with a DataFrame whose dates are already datetime
+    emits an IgnoredArgumentWarning saying that it does not apply, pointing
+    at the call, and the profile is the one without it. A CSV file whose
+    dates `dayfirst` reads emits no such warning.
+    """
+    warn_msg = re.escape(
+        "`dayfirst` does not apply and is ignored: the dates of column 'date' "
+        "are not text, so the order of their day and month is already set. It "
+        "orders the day and the month of dates written as text, such as "
+        "'01/02/2020'."
+    )
+    with pytest.warns(IgnoredArgumentWarning, match="^" + warn_msg) as record:
+        profile = ForecastingAssistant().profile(
+            data=df_single, target="sales", date_column="date", dayfirst=True
+        )
+
+    assert record[0].filename == __file__
+    assert profile == ForecastingAssistant().profile(
+        data=df_single, target="sales", date_column="date"
+    )
 
 
 @pytest.mark.parametrize(
