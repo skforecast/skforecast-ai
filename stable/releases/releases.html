@@ -1638,6 +1638,9 @@ Every forecast of skforecast-ai runs on
 <p>The first start of the MCP server fits in the 30 seconds Claude Code waits: the server connects before loading pandas, scikit-learn and skforecast, which it loads in the background (7 seconds instead of 39 on macOS with an empty <code>uvx</code> cache; the first tool waits for that loading, about 30 seconds the first time). <code>import skforecast_ai</code> no longer loads them either. See <a href="../user-guides/mcp-server.html">MCP server for coding agents</a> (<a href="https://github.com/skforecast/skforecast-ai/pull/72">#72</a>).</p>
 </li>
 <li>
+<p>The MCP server is listed in the MCP gallery of VS Code, and its install button opens that entry, with logo and README, and installs the latest version pinned in <code>args</code>. Where the gallery is turned off, it installs the server as before. See <a href="../user-guides/mcp-server.html">MCP server for coding agents</a> (<a href="https://github.com/skforecast/skforecast-ai/pull/87">#87</a>, <a href="https://github.com/skforecast/skforecast-ai/pull/88">#88</a>).</p>
+</li>
+<li>
 <p>Dependencies: statsmodels 0.15 is allowed (<code>statsmodels&gt;=0.13.2,&lt;0.16</code>, as in skforecast), the minimum pandas is 2.2, the one skforecast 0.26 already required, and numpy, scikit-learn and scipy are declared as direct dependencies, with the minimum versions of skforecast.</p>
 </li>
 </ul>
