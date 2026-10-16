@@ -89,7 +89,7 @@ from .profiling import (
     resolve_end_train,
 )
 from .profiling.data_profile import (
-    check_multiindex_names,
+    check_multiindex_levels,
     unused_columns_note,
     validate_target_numeric,
 )
@@ -747,10 +747,12 @@ class ForecastingAssistant:
         the profile says only when that cannot be told.
 
         Long-format data can also be a DataFrame indexed by a
-        `(series_id, date)` MultiIndex: its levels are read as the columns
-        of the same name, as the generated script reads the frame saved
-        with `to_csv()`. A level without a name raises `InvalidInputError`;
-        name the levels with `data.rename_axis(['series_id', 'date'])`.
+        `(series_id, date)` MultiIndex: its two levels are read as the
+        columns of the same name, as the generated script reads the frame
+        saved with `to_csv()`. A MultiIndex of another number of levels, or
+        with a level without a name or not named with text, raises
+        `InvalidInputError`; name the levels with
+        `data.rename_axis(['series_id', 'date'])`.
         """
 
         data_path = recorded_data_path(data)
@@ -4436,8 +4438,8 @@ class ForecastingAssistant:
         )
 
         # The levels of a MultiIndex of `exog` are read as columns of the
-        # same name, as those of the data, so they need names too.
-        check_multiindex_names(exog, field="exog")
+        # same name, as those of the data, so they are checked the same way.
+        check_multiindex_levels(exog, field="exog")
 
         received_profile = profile is not None
         if profile is None:

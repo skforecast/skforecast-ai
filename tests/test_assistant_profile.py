@@ -705,10 +705,56 @@ def test_profile_InvalidInputError_when_multiindex_level_unnamed(names):
     assert exc_info.value.code == "invalid_argument"
     assert exc_info.value.field == "data"
     assert exc_info.value.hint == (
-        "Name the levels, as in `data.rename_axis(['series_id', 'date'])`, or "
-        "turn them into columns with `data.reset_index()` and pass their names "
-        "as `series_id_column` and `date_column`."
+        "Name the levels with text, as in "
+        "`data.rename_axis(['series_id', 'date'])`, or turn them into columns "
+        "with `data.reset_index()` and pass their names as `series_id_column` "
+        "and `date_column`."
     )
+
+
+@pytest.mark.parametrize(
+    "levels, names, err_msg",
+    [
+        (
+            ["series_id", "date", "region"],
+            None,
+            "`data` is indexed by a MultiIndex with 3 levels (names "
+            "['series_id', 'date', 'region']). A MultiIndex is read as the "
+            "series id and the date, `(series_id, date)`, so it must have two "
+            "levels.",
+        ),
+        (
+            ["region", "series_id", "date"],
+            None,
+            "`data` is indexed by a MultiIndex with 3 levels (names "
+            "['region', 'series_id', 'date']).",
+        ),
+        (
+            ["series_id", "date"],
+            [0, "date"],
+            "`data` is indexed by a MultiIndex with levels not named with text "
+            "(names [0, 'date']).",
+        ),
+    ],
+    ids=["three levels", "three levels, dates last", "level named with a number"],
+)
+def test_profile_InvalidInputError_when_multiindex_not_two_levels_named_with_text(
+    levels, names, err_msg
+):
+    """
+    Test that profile() rejects a MultiIndex that is not `(series_id, date)`,
+    with a hint: a third level, which would otherwise be profiled as an
+    exogenous variable when last and would shift the dates to the series ids
+    when first, or a level named with a number, which raised a
+    ValidationError of the profile.
+    """
+    data = df_multi_long.assign(region="north").set_index(levels)
+    if names is not None:
+        data = data.rename_axis(names)
+    with pytest.raises(InvalidInputError, match=re.escape(err_msg)) as exc_info:
+        ForecastingAssistant().profile(data=data, target="value")
+
+    assert exc_info.value.field == "data"
 
 
 def test_profile_InvalidInputError_when_target_is_empty_list():

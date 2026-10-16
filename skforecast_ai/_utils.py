@@ -1339,9 +1339,10 @@ def _flatten_multiindex(
     The generated script reads the date and the series identifier as
     columns of the frame saved with `to_csv()`: the levels are reset into
     columns of the same name, as profiling does (`_normalize_multiindex`,
-    which rejects a level without a name), and the ids of the first level
-    become text (`series_ids_as_text`). Data without a MultiIndex keep
-    their columns, with the series ids turned into text too.
+    which rejects a MultiIndex that is not two levels named with text), and
+    the ids of the first level become text (`series_ids_as_text`). Data
+    without a MultiIndex keep their columns, with the series ids turned
+    into text too.
 
     Parameters
     ----------
@@ -1393,10 +1394,10 @@ def _resolve_inputs_with_profile(
     flattened as profiling flattens it (`_flatten_multiindex`): its
     levels become columns of the same name, which is also how the
     generated script reads the frame saved with `to_csv()`, and the series
-    ids of its first level become text (`series_ids_as_text`). A level
-    without a name raises `InvalidInputError`. Without a profile, a None
-    `date_column` or `series_id_column` is taken from the levels, as
-    `profile()` does.
+    ids of its first level become text (`series_ids_as_text`). A MultiIndex
+    that is not two levels named with text raises `InvalidInputError`.
+    Without a profile, a None `date_column` or `series_id_column` is taken
+    from the levels, as `profile()` does.
 
     Parameters
     ----------
