@@ -468,6 +468,7 @@ def _emit_data_loading(
     var: str = "data",
     path: str | None = None,
     comment: str = "# Load data",
+    encoding: str = "utf-8",
 ) -> None:
     """
     Append CSV-loading code lines (only the read_csv call).
@@ -488,7 +489,10 @@ def _emit_data_loading(
     data and in the future exogenous variables, as the library reads it:
     `'001'` keeps its zeros and the thousands separator does not touch it.
     With a thousands separator, so is the date column of the data: pandas
-    would read `'15.01.2020'` as the number 15012020.
+    would read `'15.01.2020'` as the number 15012020. A file that is not
+    UTF-8 is read with `encoding='cp1252'`: the data file with the encoding
+    of the profile (`csv_encoding`), the future exogenous variables with
+    their own (`encoding`).
 
     Parameters
     ----------
@@ -507,6 +511,9 @@ def _emit_data_loading(
         CSV path to read from. Defaults to `profile.data_path`.
     comment : str, default '# Load data'
         Comment header emitted above the read_csv call.
+    encoding : str, default 'utf-8'
+        Encoding of the file of `path`, `'utf-8'` or `'cp1252'`. Ignored
+        without `path`: the data file is read with `profile.csv_encoding`.
 
     Returns
     -------
@@ -545,6 +552,16 @@ def _emit_data_loading(
         if profile.csv_thousands is not None:
             dialect += f", thousands={profile.csv_thousands!r}"
             text_columns.append(date_col)
+    # The encoding is the file's own: that of the data file was profiled,
+    # the future exogenous variables were read from their own file. Data
+    # passed in memory are saved with `to_csv()`, in UTF-8.
+    if path is None:
+        encoding = (
+            "utf-8" if profile.data_path == PLACEHOLDER_DATA_PATH
+            else profile.csv_encoding
+        )
+    if encoding != "utf-8":
+        dialect += f", encoding={encoding!r}"
 
     text_columns = [
         column for column in dict.fromkeys(text_columns) if column is not None
@@ -792,13 +809,16 @@ def _emit_split_dates(lines: list[str]) -> None:
 def _emit_future_exog_loading(
     lines: list[str],
     profile: DataProfile,
+    encoding: str = "utf-8",
 ) -> None:
     """Emit code loading future exogenous variables (prediction mode).
 
     Delegates to `_emit_data_loading` so `exog_future` is loaded exactly
     like `data` (same `date_column`-driven read). Only used by the
     standalone script (`full_script`); in exec mode the `exog_future`
-    variable is injected directly into the namespace.
+    variable is injected directly into the namespace. The file is read in
+    its own `encoding`, `'cp1252'` when the file the future values were
+    read from is not UTF-8 (see `exog_encoding`).
     """
     _emit_data_loading(
         lines,
@@ -806,6 +826,7 @@ def _emit_future_exog_loading(
         var="exog_future",
         path="exog_future.csv",
         comment="# Load future exogenous variables covering the forecast horizon",
+        encoding=encoding,
     )
 
 

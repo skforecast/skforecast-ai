@@ -26,8 +26,11 @@ from tests.fixtures_assistant import (
 )
 from tests.fixtures_csv_dialect import (
     df_dialect,
+    df_dialect_cp1252,
+    df_dialect_cp1252_exog,
     df_dialect_thousands,
     df_dialect_thousands_long,
+    write_cp1252,
     write_dialect,
     write_thousands,
 )
@@ -1393,3 +1396,57 @@ def test_standalone_script_matches_forecast_when_series_ids_and_thousands(tmp_pa
     assert sorted(executed.predictions["level"].unique()) == ["001", "1", "10"]
     _assert_same_predictions(_run_standalone(executed.code, tmp_path), executed.predictions)
     pd.testing.assert_frame_equal(executed.predictions, expected.predictions)
+
+
+@pytest.mark.parametrize("name", ["ventas.csv", "ventas.csv.gz"], ids=["plain", "gzip"])
+def test_standalone_script_matches_forecast_when_csv_and_future_exog_are_cp1252(
+    tmp_path, name
+):
+    """
+    Test that the CSV that Excel saves on Windows in Spanish (cp1252, ';',
+    ',' as decimal mark, dates day first, 'año' as target and accents in the
+    categories of 'zona') and future values saved by Excel in cp1252 with
+    ',' are read as cp1252 by the library and by the script run as a file
+    with that file as `exog_future.csv`, also with the data compressed: the
+    script names `encoding='cp1252'` in both reads, and the predictions are
+    those of the same files written in UTF-8.
+    """
+    csv_path = write_cp1252(tmp_path, name=name)
+    write_cp1252(
+        tmp_path, df_dialect_cp1252_exog, name="exog_future.csv", sep=",", decimal="."
+    )
+    utf8_path = tmp_path / "utf8.csv"
+    df_dialect_cp1252.to_csv(utf8_path, index=False, sep=";", decimal=",")
+    assistant = ForecastingAssistant()
+
+    profile = assistant.profile(data=csv_path, target="año")
+    with pytest.warns(UserWarning, match="it was read as cp1252"):
+        exog = load_exog(
+            tmp_path / "exog_future.csv",
+            date_column = "fecha",
+            date_format = profile.data_profile.date_format,
+        )
+    executed = assistant.forecast(
+        data=csv_path, steps=10, profile=profile, estimator="Ridge", exog=exog
+    )
+    # The same future values as a frame not read from a file.
+    future = exog.copy()
+    future.attrs = {}
+    expected = assistant.forecast(
+        data=utf8_path, target="año", steps=10, estimator="Ridge", exog=future
+    )
+
+    assert profile.data_profile.csv_encoding == "cp1252"
+    assert (
+        f"data = pd.read_csv({csv_path!r}, sep=';', decimal=',', "
+        f"encoding='cp1252')\n" in executed.code
+    )
+    assert (
+        "exog_future = pd.read_csv('exog_future.csv', encoding='cp1252')\n"
+        in executed.code
+    )
+    assert "encoding='cp1252'" not in expected.code
+    pd.testing.assert_frame_equal(executed.predictions, expected.predictions)
+    _assert_same_predictions(
+        _run_standalone(executed.code, tmp_path), executed.predictions
+    )

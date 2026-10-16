@@ -138,3 +138,53 @@ def write_thousands(
     path.write_text("\n".join(lines) + "\n")
 
     return str(path)
+
+
+# The series of `df_dialect` as the "CSV" that Excel saves on Windows with
+# Spanish settings: written by `write_cp1252` in cp1252 (not UTF-8), with
+# ';' as separator, ',' as decimal mark, dates day first and '\r\n' at the
+# end of every line, an 'ñ' in the header ('año') and accents in the
+# categories of 'zona'. Days after the 12th say the dates are day first.
+df_dialect_cp1252 = pd.DataFrame(
+    {
+        "fecha": pd.to_datetime(df_dialect["date"]).dt.strftime("%d/%m/%Y"),
+        "año": df_dialect["y"],
+        "zona": np.where(np.arange(_n_obs) % 2 == 0, "Cádiz", "Peñíscola"),
+    }
+)
+
+# Future values of 'zona' for the ten days after the last date of
+# `df_dialect_cp1252`, written the same way: their days, up to the 11th,
+# read in both orders, which the format of the data settles.
+df_dialect_cp1252_exog = pd.DataFrame(
+    {
+        "fecha": pd.to_datetime(df_dialect_exog["date"]).dt.strftime("%d/%m/%Y"),
+        "zona": np.where(np.arange(10) % 2 == 0, "Cádiz", "Peñíscola"),
+    }
+)
+
+
+def write_cp1252(
+    directory,
+    frame: pd.DataFrame = df_dialect_cp1252,
+    name: str = "excel.csv",
+    sep: str = ";",
+    decimal: str = ",",
+) -> str:
+    """
+    Write `frame` to `directory` as Excel saves a CSV file on Windows: in
+    cp1252, with `sep`, `decimal` and '\r\n' at the end of every line,
+    compressed when `name` ends with '.gz'; return the path.
+    """
+
+    path = directory / name
+    frame.to_csv(
+        path,
+        index          = False,
+        sep            = sep,
+        decimal        = decimal,
+        encoding       = "cp1252",
+        lineterminator = "\r\n",
+    )
+
+    return str(path)

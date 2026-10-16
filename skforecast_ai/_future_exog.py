@@ -14,6 +14,7 @@ from ._constants import AUTOREG_FORECASTERS, NAN_TOLERANT_ESTIMATORS
 from ._dates import is_text, parse_text_dates, row_dates
 from .exceptions import DataContentError, InvalidInputTypeError
 from .execution.forecast_runner import exog_as_injected
+from .profiling.csv_dialect import CSV_ENCODINGS
 from .profiling.data_profile import (
     COMPACT_DATE_FORMAT,
     _caller_stacklevel,
@@ -66,6 +67,32 @@ def as_exog_frame(exog: object) -> pd.DataFrame | None:
         field = "exog",
         hint  = "Pass the future exogenous values as a table indexed by their dates.",
     )
+
+
+def exog_encoding(exog: pd.DataFrame | None) -> str:
+    """
+    Return the encoding the generated script reads `exog_future.csv` with:
+    that of the file the future exogenous variables were read from by
+    `load_exog` (`exog.attrs['encoding']`), `'utf-8'` or `'cp1252'`, and
+    `'utf-8'` for any other frame, which `to_csv()` writes in UTF-8, also
+    when its `attrs` name another encoding.
+
+    Parameters
+    ----------
+    exog : pandas DataFrame, None
+        Future exogenous variables (see `as_exog_frame`).
+
+    Returns
+    -------
+    encoding : str
+        `'utf-8'` or `'cp1252'`.
+    """
+    if exog is None:
+        return "utf-8"
+    encoding = exog.attrs.get("encoding")
+    # Only the encodings `load_exog` reads reach the script: a frame read by
+    # another tool may carry another name there.
+    return encoding if encoding in CSV_ENCODINGS else "utf-8"
 
 
 def exog_date_format(

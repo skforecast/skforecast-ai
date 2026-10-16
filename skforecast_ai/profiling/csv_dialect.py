@@ -1,14 +1,15 @@
 ################################################################################
 #                               CSV dialect                                    #
 #                                                                              #
-# Separator, decimal mark and thousands separator of a CSV file, told from     #
-# its first lines                                                              #
+# Separator, decimal mark, thousands separator and encoding of a CSV file,     #
+# told from its first lines                                                    #
 # This work by skforecast team is licensed under the Apache License 2.0        #
 ################################################################################
 
 from __future__ import annotations
 
 import bz2
+import codecs
 import csv
 import gzip
 import io
@@ -17,6 +18,7 @@ import re
 import urllib.request
 import zlib
 from pathlib import Path
+from typing import NamedTuple
 
 from ..exceptions import InvalidInputError
 
@@ -32,6 +34,28 @@ DEFAULT_CSV_DECIMAL = "."
 # spreadsheets of most of Europe write '1.705,11').
 CSV_THOUSANDS = (".",)
 
+# Encodings a CSV file may be written in. The first is the one
+# `pandas.read_csv` reads by default (with or without a byte order mark); the
+# other is the encoding of the "CSV" that Excel saves on Windows
+# (Windows-1252), which reads any text that is not UTF-8 but for five bytes.
+CSV_ENCODINGS = ("utf-8", "cp1252")
+DEFAULT_CSV_ENCODING = "utf-8"
+CP1252 = "cp1252"
+
+# The five bytes that cp1252 does not define: a file that holds one is in
+# none of the encodings read here.
+_CP1252_UNDEFINED = re.compile(rb"[\x81\x8d\x8f\x90\x9d]")
+
+# Byte order marks of the encodings of more than one byte per character,
+# UTF-32 before UTF-16, whose mark of little endian starts the one of
+# UTF-32. cp1252 would read them, and every null byte of their characters.
+_WIDE_BOMS = (
+    (codecs.BOM_UTF32_LE, "UTF-32"),
+    (codecs.BOM_UTF32_BE, "UTF-32"),
+    (codecs.BOM_UTF16_LE, "UTF-16"),
+    (codecs.BOM_UTF16_BE, "UTF-16"),
+)
+
 # Bytes read from the start of a file to tell how it is written. Always the
 # same bytes of the same file, so the same file gives the same answer.
 SAMPLE_BYTES = 256 * 1024
@@ -40,6 +64,16 @@ SAMPLE_BYTES = 256 * 1024
 # here. Other extensions pandas decompresses ('.zip', '.zst', '.tar') are
 # read as before, with ',' and '.'.
 _OPENERS = {".gz": gzip.open, ".bz2": bz2.open, ".xz": lzma.open}
+
+# Endings of the files pandas decompresses that are not opened here (an
+# archive, or a compression without its module in the standard library):
+# their start is not sampled, and they are read as before.
+_UNOPENED = (".zip", ".zst", ".tar", ".tar.gz", ".tar.bz2", ".tar.xz")
+
+# First bytes of the content of the files that pandas decompresses and that
+# are not opened here, served at a URL whatever its name: bzip2, xz, zip and
+# zstd. Their bytes are not text, so they are read as before.
+_UNOPENED_MAGIC = (b"BZh", b"\xfd7zXZ\x00", b"PK\x03\x04", b"\x28\xb5\x2f\xfd")
 
 # Errors of a compressed file that cannot be decompressed.
 DECOMPRESSION_ERRORS = (gzip.BadGzipFile, EOFError, zlib.error, lzma.LZMAError)
@@ -111,11 +145,30 @@ DOTTED_VALUES_HINT = (
     "writing it."
 )
 
+# Remedy of a file in another encoding than UTF-8 and cp1252. The file
+# belongs to whoever gave it, so a copy is written only with their consent.
+ENCODING_HINT = (
+    "Save a copy of the file as UTF-8 (in Excel, the type 'CSV UTF-8') and "
+    "pass that copy; if the file is not yours, ask its owner before writing "
+    "it."
+)
+
 EXOG_DIALECT_HINT = (
     "Write the file with ',' as separator and '.' as decimal mark, as "
     "`DataFrame.to_csv()` writes it, without ';' or tabulators in the column "
     "names."
 )
+
+
+class CsvSample(NamedTuple):
+    """
+    Start of a CSV file: the text of its complete lines within the first
+    `SAMPLE_BYTES` bytes, and the encoding of the file, `'utf-8'` or
+    `'cp1252'` (see `sample_encoding`).
+    """
+
+    text: str
+    encoding: str
 
 
 class CsvDialectError(InvalidInputError):
@@ -278,7 +331,7 @@ def check_csv_dialect(
         )
 
 
-def read_sample(path: str | Path) -> str | None:
+def read_sample(path: str | Path, field: str = "data") -> CsvSample | None:
     """
     Read the start of a CSV file as text, decompressed when its extension
     says it is compressed, to tell how the file is written.
@@ -287,23 +340,36 @@ def read_sample(path: str | Path) -> str | None:
     ----------
     path : str, Path
         Path of the file.
+    field : str, default 'data'
+        Argument that named the file, reported with the error.
 
     Returns
     -------
-    sample : str, None
-        Text of the complete lines within the first `SAMPLE_BYTES` bytes.
-        None when the file cannot be opened or decompressed here, which is
-        left for `pandas.read_csv` to report.
+    sample : CsvSample, None
+        Text of the complete lines within the first `SAMPLE_BYTES` bytes,
+        decoded in the encoding of the file, and that encoding (see
+        `sample_encoding`). None when the file cannot be opened or
+        decompressed here, which is left for `pandas.read_csv` to report or
+        to read as UTF-8, as an archive (`'.zip'`, `'.tar.gz'`) is.
+
+    Notes
+    -----
+    A file in another encoding than UTF-8 and cp1252 raises
+    `InvalidInputError` with code `'data_unreadable'` (see
+    `sample_encoding`).
     """
 
-    opener = _OPENERS.get(Path(str(path)).suffix.lower(), open)
+    path_text = str(path)
+    if path_text.lower().endswith(_UNOPENED):
+        return None
+    opener = _OPENERS.get(Path(path_text).suffix.lower(), open)
     try:
         with opener(path, "rb") as handle:
             raw = handle.read(SAMPLE_BYTES + 1)
     except (OSError, *DECOMPRESSION_ERRORS):
         return None
 
-    return sample_text(raw)
+    return _sample(raw, path_text, field)
 
 
 def sample_holds_file(path: str | Path) -> bool:
@@ -335,7 +401,11 @@ def sample_holds_file(path: str | Path) -> bool:
         return False
 
 
-def read_row_lengths(path: str | Path, sep: str) -> list[int] | None:
+def read_row_lengths(
+    path: str | Path,
+    sep: str,
+    encoding: str = DEFAULT_CSV_ENCODING,
+) -> list[int] | None:
     """
     Count the fields of every row of a CSV file after its header, as
     `pandas.read_csv` splits them, decompressed when its extension says it
@@ -351,6 +421,8 @@ def read_row_lengths(path: str | Path, sep: str) -> list[int] | None:
         Path of the file.
     sep : str
         Separator of the fields.
+    encoding : str, default 'utf-8'
+        Encoding of the file (see `sample_encoding`).
 
     Returns
     -------
@@ -362,7 +434,7 @@ def read_row_lengths(path: str | Path, sep: str) -> list[int] | None:
 
     opener = _OPENERS.get(Path(str(path)).suffix.lower(), open)
     try:
-        with opener(path, "rt", encoding="utf-8", newline="") as handle:
+        with opener(path, "rt", encoding=encoding, newline="") as handle:
             rows = csv.reader(handle, delimiter=sep)
             next(rows, None)
             return [
@@ -373,7 +445,7 @@ def read_row_lengths(path: str | Path, sep: str) -> list[int] | None:
         return None
 
 
-def read_url_sample(url: str) -> str | None:
+def read_url_sample(url: str, field: str = "data") -> CsvSample | None:
     """
     Read the start of a CSV file served at a URL, as `read_sample` reads
     the start of a local file.
@@ -382,13 +454,23 @@ def read_url_sample(url: str) -> str | None:
     ----------
     url : str
         URL of the file ('http://' or 'https://').
+    field : str, default 'data'
+        Argument that named the file, reported with the error.
 
     Returns
     -------
-    sample : str, None
+    sample : CsvSample, None
         Text of the complete lines within the first `SAMPLE_BYTES` bytes
-        (of the content, when it is gzip). None when it cannot be read
-        here, which is left for `pandas.read_csv` to report.
+        (of the content, when it is gzip), and the encoding of the file.
+        None when it cannot be read here, which is left for
+        `pandas.read_csv` to report or to read as UTF-8, as content of
+        another compression or an archive (bzip2, xz, zip, zstd, tar) is.
+
+    Notes
+    -----
+    Content in another encoding than UTF-8 and cp1252 raises
+    `InvalidInputError` with code `'data_unreadable'` (see
+    `sample_encoding`).
     """
 
     try:
@@ -402,38 +484,143 @@ def read_url_sample(url: str) -> str | None:
             raw = zlib.decompressobj(wbits=31).decompress(raw, SAMPLE_BYTES + 1)
         except zlib.error:
             return None
+    # An archive or another compression, or a tar file (gzip or not), whose
+    # header names its first file at byte 257.
+    if raw.startswith(_UNOPENED_MAGIC) or raw[257:262] == b"ustar":
+        return None
 
-    return sample_text(raw, cut=cut)
+    return _sample(raw, url, field, cut=cut)
 
 
-def sample_text(raw: bytes, cut: bool = False) -> str | None:
+def _complete_lines(raw: bytes, cut: bool = False) -> bytes:
     """
-    Return the text of the complete lines within the first `SAMPLE_BYTES`
-    bytes of the content of a CSV file.
+    Return the start of the content of a file without the line cut by
+    `SAMPLE_BYTES`, and with it a character of several bytes.
+    """
+    if cut or len(raw) > SAMPLE_BYTES:
+        return raw[: raw.rfind(b"\n", 0, SAMPLE_BYTES) + 1]
+    return raw
+
+
+def _sample(raw: bytes, source: str, field: str, cut: bool = False) -> CsvSample:
+    """
+    Return the sample of the start of the content of a CSV file, decoded in
+    its encoding (see `sample_encoding`).
+    """
+    raw = _complete_lines(raw, cut)
+    encoding = sample_encoding(raw, source, field)
+    if encoding == DEFAULT_CSV_ENCODING:
+        return CsvSample(raw.decode("utf-8-sig"), encoding)
+    return CsvSample(raw.decode(encoding), encoding)
+
+
+def sample_encoding(raw: bytes, source: str, field: str = "data") -> str:
+    """
+    Tell the encoding of a CSV file from the start of its content.
+
+    The file is UTF-8 when that start decodes as UTF-8, with or without a
+    byte order mark, and cp1252 (Windows-1252, the "CSV" that Excel saves
+    on Windows) otherwise. cp1252 decodes almost any bytes, so the files
+    it would read wrongly are rejected first: those that start with the
+    byte order mark of UTF-16 or UTF-32, and those with a null byte (UTF-16
+    or UTF-32 without that mark, or a file that is not text), which no CSV
+    file in UTF-8 or cp1252 holds.
 
     Parameters
     ----------
     raw : bytes
-        Content of the file, or its start.
-    cut : bool, default False
-        Whether `raw` is known to end before the content does, although it
-        is not longer than `SAMPLE_BYTES`.
+        Start of the content of the file, made of complete lines.
+    source : str
+        Path or URL of the file, named by the error.
+    field : str, default 'data'
+        Argument that named the file, reported with the error.
 
     Returns
     -------
-    sample : str, None
-        Text of the sample, without the line cut by the limit. None when it
-        is not UTF-8, which `pandas.read_csv` reports when it reads the
-        file.
-    """
+    encoding : str
+        `'utf-8'` or `'cp1252'`.
 
-    if cut or len(raw) > SAMPLE_BYTES:
-        # The last line is cut, and with it a character of several bytes.
-        raw = raw[: raw.rfind(b"\n", 0, SAMPLE_BYTES) + 1]
+    Notes
+    -----
+    A file in UTF-16 or UTF-32, with a null byte, or that is not UTF-8 and
+    holds one of the five bytes cp1252 does not define (`0x81`, `0x8d`,
+    `0x8f`, `0x90`, `0x9d`) raises `InvalidInputError` with code
+    `'data_unreadable'` and a hint that asks for a copy saved as UTF-8.
+    Whether a file that is not UTF-8 is cp1252 cannot be checked: a file
+    in another encoding of one byte per character reads with other
+    characters than its own, and the caller says so in a warning (see
+    `cp1252_note`).
+    """
+    for bom, name in _WIDE_BOMS:
+        if raw.startswith(bom):
+            raise InvalidInputError(
+                f"The CSV file '{source}' could not be read: it is written in "
+                f"{name} (its first bytes say so), and only files in UTF-8 or "
+                f"in cp1252 (Windows-1252) are read.",
+                code  = "data_unreadable",
+                field = field,
+                hint  = ENCODING_HINT,
+            )
+    if b"\x00" in raw:
+        raise InvalidInputError(
+            f"The CSV file '{source}' could not be read: it holds null bytes, "
+            f"so it is not text in UTF-8 or in cp1252 (Windows-1252); it may "
+            f"be UTF-16 without its byte order mark, or not a text file.",
+            code  = "data_unreadable",
+            field = field,
+            hint  = ENCODING_HINT,
+        )
     try:
-        return raw.decode("utf-8-sig")
+        raw.decode("utf-8")
     except UnicodeDecodeError:
-        return None
+        undefined = _CP1252_UNDEFINED.search(raw)
+        if undefined is not None:
+            raise undefined_byte_error(source, field, undefined.group()) from None
+        return CP1252
+
+    return DEFAULT_CSV_ENCODING
+
+
+def undefined_byte_error(source: str, field: str, byte: bytes) -> InvalidInputError:
+    """
+    Return the error of a CSV file that is not UTF-8 and holds a byte that
+    cp1252 does not define, naming it.
+    """
+    return InvalidInputError(
+        f"The CSV file '{source}' could not be read: it is not UTF-8, and its "
+        f"byte 0x{byte[0]:02x} is not a character of cp1252 (Windows-1252), "
+        f"the other encoding read.",
+        code  = "data_unreadable",
+        field = field,
+        hint  = ENCODING_HINT,
+    )
+
+
+def cp1252_note(field: str = "data") -> str:
+    """
+    Return the note, for the warnings, that a CSV file was read as cp1252,
+    an encoding that cannot be checked, and what to do when its text reads
+    wrongly. It quotes no value of the file.
+
+    Parameters
+    ----------
+    field : str, default 'data'
+        Argument that named the file: `'data'`, profiled again, or
+        `'exog'`, passed again.
+
+    Returns
+    -------
+    note : str
+        Text of the note.
+    """
+    again = "profile it again" if field == "data" else "pass it again"
+    return (
+        f"The CSV file is not UTF-8: it was read as cp1252 (Windows-1252), "
+        f"the encoding of the CSV files that Excel saves on Windows, and the "
+        f"generated script reads it so. That encoding cannot be checked: if "
+        f"column names or categories show wrong characters, save the file as "
+        f"UTF-8 and {again}."
+    )
 
 
 def _records(sample: str, sep: str) -> list[list[str]] | None:
@@ -511,7 +698,7 @@ def sample_date_column(
     Parameters
     ----------
     sample : str
-        Start of the file (see `sample_text`).
+        Text of the start of the file (see `read_sample`).
     sep : str
         Separator of the fields.
     series_id_column : str, default None
@@ -677,7 +864,7 @@ def detect_csv_dialect(
     Parameters
     ----------
     sample : str
-        Start of the file (see `sample_text`).
+        Text of the start of the file (see `read_sample`).
     source : str
         Path or URL of the file, named by the error.
     field : str, default 'data'

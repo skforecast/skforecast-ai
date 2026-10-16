@@ -76,11 +76,44 @@ def test_render_forecast_script_output_reads_future_exog_with_its_own_format(
 def test_render_forecast_script_output_when_baseline_and_exog_date_format():
     """
     Test that a baseline, whose script reads no future exogenous variables,
-    takes `exog_date_format` as every renderer does and does not read
-    `exog_future.csv`.
+    takes `exog_date_format` and `exog_encoding` as every renderer does and
+    does not read `exog_future.csv`.
     """
     plan = plan_baseline.model_copy(update={"end_train": None})
 
-    script = render_forecast_script(profile_single, plan, "%d/%m/%Y").full_script
+    script = render_forecast_script(
+                 profile_single, plan, "%d/%m/%Y", exog_encoding="cp1252"
+             ).full_script
 
     assert "exog_future" not in script
+
+
+@pytest.mark.parametrize(
+    "exog_encoding, encoding_arg",
+    [("utf-8", ""), ("cp1252", ", encoding='cp1252'")],
+    ids=["exog in utf-8", "exog in cp1252"],
+)
+@pytest.mark.parametrize(
+    "plan, profile",
+    list(_PLANS_WITH_FUTURE_EXOG.values()),
+    ids=list(_PLANS_WITH_FUTURE_EXOG),
+)
+def test_render_forecast_script_output_reads_future_exog_in_its_own_encoding(
+    plan, profile, exog_encoding, encoding_arg
+):
+    """
+    Test that every family of forecaster reads the data file in the
+    encoding of the profile (cp1252 here) and `exog_future.csv` in
+    `exog_encoding`, its own, which may be UTF-8 (no argument).
+    """
+    profile = profile.model_copy(
+        update={"data_path": "excel.csv", "csv_encoding": "cp1252"}
+    )
+
+    script = render_forecast_script(
+                 profile, plan, exog_encoding=exog_encoding
+             ).full_script
+
+    assert "data = pd.read_csv('excel.csv', encoding='cp1252'" in script
+    assert f"exog_future = pd.read_csv('exog_future.csv'{encoding_arg}" in script
+    assert script.count("encoding='cp1252'") == (2 if encoding_arg else 1)

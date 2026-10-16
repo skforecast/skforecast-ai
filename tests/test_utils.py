@@ -1,8 +1,11 @@
 # Unit test _utils
 
 import re
+import threading
 import urllib.error
 import warnings
+from contextlib import contextmanager
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import numpy as np
@@ -25,6 +28,7 @@ from skforecast_ai._utils import (
     _validate_task_input,
     _data_path_of_run,
     _with_data_path,
+    encoding_notes,
     profile_structure,
     same_period,
     structure_differences,
@@ -37,10 +41,15 @@ from skforecast_ai.exceptions import (
     InvalidInputError,
 )
 from skforecast_ai.profiling import create_data_profile
+from skforecast_ai.profiling.csv_dialect import (
+    ENCODING_HINT,
+    CsvSample,
+    cp1252_note,
+)
 from skforecast_ai.profiling.data_profile import DAYFIRST_HINT
 from skforecast_ai.schemas import DataProfile
 
-from tests.fixtures_csv_dialect import df_dialect_monthly
+from tests.fixtures_csv_dialect import df_dialect, df_dialect_monthly, write_cp1252
 
 from tests.fixtures_assistant import (
     df_categorical_exog,
@@ -320,7 +329,7 @@ def test_resolve_data_and_target_output_when_dayfirst_and_ambiguous_dates(
         pd.Timestamp(date) for date in expected_dates
     ]
     assert utils_module._READ_CSV_DIALECT.get() == (
-        str(csv_path), ",", ".", None, expected_format, ()
+        str(csv_path), ",", ".", None, expected_format, (), "utf-8"
     )
 
 
@@ -464,8 +473,8 @@ def test_resolve_data_and_target_keeps_date_notes_when_order_told_from_regularit
     ]
     read = _dialect_read(str(csv_path))
     assert read.date_format == "%d/%m/%Y"
-    assert len(read.date_notes) == 1
-    assert read.date_notes[0].startswith(
+    assert len(read.notes) == 1
+    assert read.notes[0].startswith(
         "The dates of column 'date' read both day first and month first (no "
         "day is after the 12th): they were read day first"
     )
@@ -489,21 +498,23 @@ def test_resolve_data_and_target_ignores_dayfirst_when_data_in_memory():
 def test_dialect_read_output_when_file_was_read(tmp_path):
     """
     Test that the dialect of the last CSV read is its separator, decimal
-    mark, thousands separator, the format of its dates and the notes on how
-    they were read (none when `dayfirst` gives the order), for the path it
-    was recorded with, and four None and no notes for another path or for
-    the placeholder of data passed in memory.
+    mark, thousands separator, the format of its dates, the notes on how it
+    was read (none for UTF-8 when `dayfirst` gives the order) and its
+    encoding, for the path it was recorded with, and None but for no notes
+    for another path or for the placeholder of data passed in memory.
     """
     csv_path = tmp_path / "monthly.csv"
     df_dialect_monthly.to_csv(csv_path, index=False)
 
     _resolve_data_and_target(data=csv_path, target="y", dayfirst=True)
 
-    assert _dialect_read(str(csv_path)) == (",", ".", None, "%d/%m/%Y", ())
-    assert _dialect_read(str(tmp_path / "other.csv")) == (
-        None, None, None, None, ()
+    assert _dialect_read(str(csv_path)) == (
+        ",", ".", None, "%d/%m/%Y", (), "utf-8"
     )
-    assert _dialect_read("data.csv") == (None, None, None, None, ())
+    assert _dialect_read(str(tmp_path / "other.csv")) == (
+        None, None, None, None, (), None
+    )
+    assert _dialect_read("data.csv") == (None, None, None, None, (), None)
 
 
 # =============================================================================
@@ -1467,7 +1478,7 @@ def test_with_data_path_output_date_notes_of_csv_read(tmp_path):
     df_dialect_monthly.to_csv(csv_path, index=False)
     data, _ = _resolve_data_and_target(data=csv_path, target="y")
     profile = ForecastingAssistant().profile(data=data, target="y")
-    note = _dialect_read(str(csv_path)).date_notes[0]
+    note = _dialect_read(str(csv_path)).notes[0]
 
     result = _with_data_path(profile, str(csv_path))
     again = _with_data_path(result, str(csv_path))
@@ -1475,6 +1486,45 @@ def test_with_data_path_output_date_notes_of_csv_read(tmp_path):
     assert note not in profile.data_profile.warnings
     assert result.data_profile.warnings == [note, *profile.data_profile.warnings]
     assert again.data_profile.warnings == result.data_profile.warnings
+
+
+@pytest.mark.parametrize(
+    "encoding, field, expected",
+    [
+        ("utf-8", "data", []),
+        ("cp1252", "data", [cp1252_note()]),
+        ("cp1252", "exog", [cp1252_note("exog")]),
+    ],
+    ids=["utf-8", "cp1252", "cp1252 of exog"],
+)
+def test_encoding_notes_output(encoding, field, expected):
+    """
+    Test that a file read as cp1252 has the note on its encoding, the one of
+    its field, and a UTF-8 file none.
+    """
+    assert encoding_notes(encoding, field) == expected
+
+
+def test_with_data_path_output_encoding_of_csv_read(tmp_path):
+    """
+    Test that the encoding of a CSV file read as cp1252 is recorded with its
+    dialect, with its note first in the warnings, when the profile was built
+    from the DataFrame read, and that data passed in memory record UTF-8.
+    """
+    csv_path = write_cp1252(tmp_path)
+    data, _ = _resolve_data_and_target(data=csv_path, target="año")
+    profile = ForecastingAssistant().profile(data=data, target="año")
+
+    result = _with_data_path(profile, csv_path)
+    in_memory = _with_data_path(result, data)
+
+    assert profile.data_profile.csv_encoding == "utf-8"
+    assert result.data_profile.csv_encoding == "cp1252"
+    assert (result.data_profile.csv_sep, result.data_profile.csv_decimal) == (
+        ";", ","
+    )
+    assert result.data_profile.warnings[0] == cp1252_note()
+    assert in_memory.data_profile.csv_encoding == "utf-8"
 
 
 @pytest.mark.parametrize(
@@ -2147,7 +2197,7 @@ def test_resolve_data_and_target_reads_url_with_semicolon_in_two_steps(monkeypat
 
     def read_url_sample(value):
         sampled.append(value)
-        return "date;y\n2020-01-01;1,5\n2020-01-02;2,5\n"
+        return CsvSample("date;y\n2020-01-01;1,5\n2020-01-02;2,5\n", "utf-8")
 
     monkeypatch.setattr(utils_module, "read_url_sample", read_url_sample)
 
@@ -2244,7 +2294,11 @@ def test_resolve_data_and_target_reads_url_with_given_sep(monkeypatch):
     frame = pd.DataFrame({"date": ["2020-01-01"], "y": [1.5]})
     calls = _fake_read_csv(monkeypatch, [frame])
     monkeypatch.setattr(
-        utils_module, "read_url_sample", lambda value: "date;y\n2020-01-01;1,5\n"
+        utils_module,
+        "read_url_sample",
+        lambda value: CsvSample(
+            "date;y\n2020-01-01;1,5\n", "utf-8"
+        ),
     )
 
     _resolve_data_and_target(url, "y", sep=";")
@@ -2266,7 +2320,9 @@ def test_resolve_data_and_target_InvalidInputError_when_url_dialect_is_ambiguous
     monkeypatch.setattr(
         utils_module,
         "read_url_sample",
-        lambda value: "date;y,x\n2020-01-01;1,5\n2020-01-02;2,5\n",
+        lambda value: CsvSample(
+            "date;y,x\n2020-01-01;1,5\n2020-01-02;2,5\n", "utf-8"
+        ),
     )
 
     err_msg = re.escape(
@@ -2319,7 +2375,9 @@ def test_resolve_data_and_target_reads_url_when_comma_read_cannot_parse(monkeypa
     monkeypatch.setattr(
         utils_module,
         "read_url_sample",
-        lambda value: "date;y;x\n2020-01-01;1,5;2\n2020-01-02;2;2,5\n",
+        lambda value: CsvSample(
+            "date;y;x\n2020-01-01;1,5;2\n2020-01-02;2;2,5\n", "utf-8"
+        ),
     )
 
     data, _ = _resolve_data_and_target(url, "y")
@@ -2345,7 +2403,9 @@ def test_resolve_data_and_target_DataNotFoundError_when_comma_url_cannot_parse(
     monkeypatch.setattr(
         utils_module,
         "read_url_sample",
-        lambda value: "date,y\n2020-01-01,1\n2020-01-02,2,3,4\n",
+        lambda value: CsvSample(
+            "date,y\n2020-01-01,1\n2020-01-02,2,3,4\n", "utf-8"
+        ),
     )
 
     err_msg = re.escape(
@@ -2371,7 +2431,9 @@ def test_resolve_data_and_target_reads_url_with_thousands_detected(monkeypatch):
     monkeypatch.setattr(
         utils_module,
         "read_url_sample",
-        lambda value: "date;y\n2020-01-01;870\n2020-02-01;1.020\n",
+        lambda value: CsvSample(
+            "date;y\n2020-01-01;870\n2020-02-01;1.020\n", "utf-8"
+        ),
     )
 
     data, _ = _resolve_data_and_target(url, "y")
@@ -2384,7 +2446,9 @@ def test_resolve_data_and_target_reads_url_with_thousands_detected(monkeypatch):
         ),
     ]
     assert data["y"].tolist() == [870, 1020]
-    assert utils_module._READ_CSV_DIALECT.get() == (url, ";", ",", ".", None, ())
+    assert utils_module._READ_CSV_DIALECT.get() == (
+        url, ";", ",", ".", None, (), "utf-8"
+    )
 
 
 def test_resolve_data_and_target_reads_url_with_thousands_given(monkeypatch):
@@ -2398,7 +2462,9 @@ def test_resolve_data_and_target_reads_url_with_thousands_given(monkeypatch):
     monkeypatch.setattr(
         utils_module,
         "read_url_sample",
-        lambda value: "date;y\n2020-01-01;1.870\n2020-02-01;1.020\n",
+        lambda value: CsvSample(
+            "date;y\n2020-01-01;1.870\n2020-02-01;1.020\n", "utf-8"
+        ),
     )
 
     data, _ = _resolve_data_and_target(url, "y", thousands=".")
@@ -2475,3 +2541,79 @@ def test_resolve_data_and_target_InvalidInputError_when_no_url_sample_and_sep_mi
 
     assert not isinstance(exc_info.value, DataNotFoundError)
     assert exc_info.value.field == field
+
+
+@contextmanager
+def _served(directory):
+    """
+    Serve the files of `directory` over HTTP on the local machine while the
+    block runs, and give the URL of the directory.
+    """
+
+    class Handler(SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=str(directory), **kwargs)
+
+        def log_message(self, *args):
+            pass
+
+    http = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=http.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{http.server_address[1]}"
+    finally:
+        http.shutdown()
+        http.server_close()
+
+
+@pytest.mark.parametrize(
+    "sep, decimal, kwargs",
+    [
+        (",", ".", {}),
+        (";", ",", {}),
+        (";", ",", {"sep": ";", "decimal": ","}),
+    ],
+    ids=["comma", "semicolon", "dialect given"],
+)
+def test_resolve_data_and_target_reads_url_of_cp1252_file(
+    tmp_path, sep, decimal, kwargs
+):
+    """
+    Test that a URL of a CSV file in cp1252 (the CSV that Excel saves on
+    Windows) is read as cp1252, also with its dialect given (a file read
+    again with the dialect of its profile), and that the encoding and its
+    note are recorded with the dialect for the script.
+    """
+    write_cp1252(tmp_path, name="excel.csv", sep=sep, decimal=decimal)
+
+    with _served(tmp_path) as root:
+        url = f"{root}/excel.csv"
+        data, target = _resolve_data_and_target(url, "año", **kwargs)
+
+    assert target == "año"
+    assert data.columns.tolist() == ["fecha", "año", "zona"]
+    assert data["zona"].tolist()[:2] == ["Cádiz", "Peñíscola"]
+    assert utils_module._READ_CSV_DIALECT.get() == (
+        url, sep, decimal, None, "%d/%m/%Y", (cp1252_note(),), "cp1252"
+    )
+
+
+def test_resolve_data_and_target_InvalidInputError_when_url_is_utf16(tmp_path):
+    """
+    Test that a URL of a CSV file in UTF-16 raises an InvalidInputError with
+    the code 'data_unreadable' and the hint that asks for a copy in UTF-8,
+    instead of being read as cp1252.
+    """
+    df_dialect.to_csv(tmp_path / "unicode.csv", index=False, encoding="utf-16")
+
+    with _served(tmp_path) as root:
+        url = f"{root}/unicode.csv"
+        err_msg = re.escape(
+            f"The CSV file '{url}' could not be read: it is written in UTF-16"
+        )
+        with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+            _resolve_data_and_target(url, "y")
+
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.hint == ENCODING_HINT
