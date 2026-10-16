@@ -16,7 +16,7 @@ from skforecast_ai import (
 )
 from skforecast_ai.mcp import _runtime, create_server
 
-from ..fixtures_assistant import df_no_exog
+from ..fixtures_assistant import df_multi_long_numeric_ids, df_no_exog
 from ..fixtures_datasets import df_items_sales_long
 
 from .fixtures_mcp import (
@@ -762,3 +762,47 @@ def test_tool_compare_refined_plan_of_h2o_is_the_last_row_below_the_baseline(
         "(0.0661): 'ForecasterRecursive' and 'ForecasterStats'. The best, "
         "'ForecasterRecursive', beats it by 6.2%."
     ) in result["summary"]
+
+
+def test_tool_compare_output_when_series_ids_are_numbers(tmp_path):
+    """
+    Test that `compare` runs its candidates on long-format data whose series
+    ids are numbers ('001', '1', '10') as the Python API does, none of them
+    failing. Before, every candidate failed with `KeyError: 1` inside
+    skforecast (skforecast issue #1357) and the call was
+    `all_candidates_failed`.
+    """
+    path = write_csv(tmp_path, "stores.csv", df_multi_long_numeric_ids)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, _, cv_id = cv_of(
+        server,
+        path,
+        target="value",
+        steps=7,
+        profile_arguments={"series_id_column": "series_id"},
+    )
+    candidates = [
+        {"name": "ridge", "config": {"estimator": "Ridge"}},
+        {"name": "lgbm", "config": {"estimator": "LGBMRegressor"}},
+    ]
+
+    result = content_of(
+        call(server, "compare", {"cv_id": cv_id, "candidates": candidates})
+    )
+
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(path, target="value", series_id_column="series_id")
+    cv = assistant.create_cv(
+        profile=profile, plan=assistant.plan(profile=profile, steps=7)
+    )
+    expected = assistant.compare(
+        data=path,
+        cv=cv,
+        profile=profile,
+        show_progress=False,
+        candidates=[(c["name"], dict(c["config"])) for c in candidates],
+    )
+
+    assert result["summary"] == expected.describe()
+    assert text_of(result["files"]["leaderboard"]) == csv_of(expected.results)
+    assert not expected.failures

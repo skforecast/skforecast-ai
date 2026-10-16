@@ -88,7 +88,11 @@ from .profiling import (
     create_data_profile,
     resolve_end_train,
 )
-from .profiling.data_profile import unused_columns_note, validate_target_numeric
+from .profiling.data_profile import (
+    check_multiindex_levels,
+    unused_columns_note,
+    validate_target_numeric,
+)
 from .recommendation import (
     _build_profile_explanation,
     baseline_missing_values_note,
@@ -161,6 +165,7 @@ from ._utils import (
     _check_plan_matches_profile,
     _check_feature_name_collisions,
     _cv_in_time_zone,
+    _flatten_multiindex,
     _warn_direct_gap,
     _warn_window_without_refit,
     _resolve_data_and_target,
@@ -416,8 +421,8 @@ def _profile_values(data_profile: DataProfile) -> dict[str, str]:
     Return the fields of a data profile that describe the values of the
     data, each as text, to tell whether two profiles describe the same data.
 
-    `data_path`, `csv_sep`, `csv_decimal`, `warnings` and `unused_columns`
-    are left out: the path and how its file is written are
+    `data_path`, `csv_sep`, `csv_decimal`, `csv_thousands`, `warnings` and
+    `unused_columns` are left out: the path and how its file is written are
     set by the caller, the warnings derive from the values (and hold the
     note of an earlier refresh), and the columns the data holds besides
     those of the profile are compared by `_refresh_profile` itself. The
@@ -438,7 +443,8 @@ def _profile_values(data_profile: DataProfile) -> dict[str, str]:
 
     values = data_profile.model_dump(
         exclude={
-            "data_path", "csv_sep", "csv_decimal", "warnings", "unused_columns"
+            "data_path", "csv_sep", "csv_decimal", "csv_thousands", "warnings",
+            "unused_columns",
         }
     )
     for name in ("exog_columns", "categorical_exog"):
@@ -666,6 +672,7 @@ class ForecastingAssistant:
         exog_columns: list[str] | None = None,
         sep: str | None = None,
         decimal: str | None = None,
+        thousands: str | None = None,
     ) -> ForecastingProfile:
         """
         Profile a dataset and select the recommended forecaster and estimator.
@@ -688,7 +695,10 @@ class ForecastingAssistant:
         date_column : str, default None
             Name of the column containing timestamps.
         series_id_column : str, default None
-            Name of the column identifying individual series.
+            Name of the column identifying individual series. The ids are
+            text, as the generated script reads them: a CSV file keeps
+            `'001'` as written, and integer ids of a DataFrame become text
+            (`1` becomes `'1'`).
         exog_columns : list of str, default None
             Columns to use as exogenous variables. If None, every column that
             is not the target, the date or the series id. Otherwise a subset
@@ -706,6 +716,11 @@ class ForecastingAssistant:
             Decimal mark of a CSV file: `'.'` or `','` (only when the
             separator is not `','`). If None, it is detected from the
             first lines of the file. Ignored for data passed in memory.
+        thousands : str, default None
+            Thousands separator of a CSV file: `'.'`, with `','` as decimal
+            mark (`'1.705,11'`). If None, it is detected from the first
+            lines of the file, and the file has none when `decimal` is
+            `'.'`. Ignored for data passed in memory.
 
         Returns
         -------
@@ -715,27 +730,51 @@ class ForecastingAssistant:
 
         Notes
         -----
-        The separator and the decimal mark of a CSV file are recorded in
-        the profile (`DataProfile.csv_sep` and `DataProfile.csv_decimal`):
-        the generated script reads the file with them. A file that reads
-        with more than one separator, or that holds numbers written with
-        both decimal marks, raises `InvalidInputError` (code
-        `'data_unreadable'`) instead of guessing: pass `sep` and `decimal`.
-        The other methods detect how the file they receive is written, and
-        read such a file as the profile passed with it says.
+        The separator, the decimal mark and the thousands separator of a
+        CSV file are recorded in the profile (`DataProfile.csv_sep`,
+        `DataProfile.csv_decimal` and `DataProfile.csv_thousands`): the
+        generated script reads the file with them. A file that reads with
+        more than one separator, or that holds numbers written with both
+        decimal marks, raises `InvalidInputError` (code `'data_unreadable'`)
+        instead of guessing: pass `sep` and `decimal`. So does a file whose
+        numbers with a `'.'` all read both as thousands and as numbers with
+        three decimals (`'1.705'`): pass `thousands='.'` or `decimal='.'`.
+        `'.'` is read as thousands separator when the file says so: numbers
+        such as `'1.705,11'` or `'1.234.567'`, a column with `'870'` and
+        `'1.020'`, or `','` as decimal mark. The other methods read the file
+        a profile was built from as that profile says, so what is given
+        here holds for them; another file is read as it is written, and as
+        the profile says only when that cannot be told.
+
+        Long-format data can also be a DataFrame indexed by a
+        `(series_id, date)` MultiIndex: its two levels are read as the
+        columns of the same name, as the generated script reads the frame
+        saved with `to_csv()`. A MultiIndex of another number of levels, or
+        with a level without a name or not named with text, raises
+        `InvalidInputError`; name the levels with
+        `data.rename_axis(['series_id', 'date'])`.
         """
 
         data_path = recorded_data_path(data)
         data, target = _resolve_data_and_target(
-                           data        = data,
-                           target      = target,
-                           date_column = date_column,
-                           sep         = sep,
-                           decimal     = decimal,
+                           data             = data,
+                           target           = target,
+                           date_column      = date_column,
+                           sep              = sep,
+                           decimal          = decimal,
+                           thousands        = thousands,
+                           series_id_column = series_id_column,
                        )
         # How the file was read, which the script repeats; nothing for data
         # passed in memory.
-        sep, decimal = _dialect_read(data_path)
+        sep, decimal, thousands = _dialect_read(data_path)
+        # The levels of a MultiIndex become columns here, not only inside
+        # `create_data_profile`: the check of the target and the PACF then
+        # read the flat frame the profile describes, whose series ids are
+        # text (ordered '1', '10', '2', as in the profile).
+        data, date_column, series_id_column = _flatten_multiindex(
+            data, date_column, series_id_column
+        )
 
         data_profile = create_data_profile(
             data             = data,
@@ -746,6 +785,7 @@ class ForecastingAssistant:
             exog_columns     = exog_columns,
             sep              = sep,
             decimal          = decimal,
+            thousands        = thousands,
         )
         validate_target_numeric(data, data_profile.target)
 
@@ -4397,6 +4437,10 @@ class ForecastingAssistant:
             **overrides,
         )
 
+        # The levels of a MultiIndex of `exog` are read as columns of the
+        # same name, as those of the data, so they are checked the same way.
+        check_multiindex_levels(exog, field="exog")
+
         received_profile = profile is not None
         if profile is None:
             profile = self.profile(
@@ -4777,8 +4821,11 @@ class ForecastingAssistant:
         if unused:
             data = data.drop(columns=unused)
         frame, target = _resolve_data_and_target(
-            data, saved.target, saved.date_column
-        )
+                            data             = data,
+                            target           = saved.target,
+                            date_column      = saved.date_column,
+                            series_id_column = saved.series_id_column,
+                        )
         # The same data profiled with the same columns give the same data
         # profile: it is kept, so a workflow profiles its data once.
         fingerprint = _frame_fingerprint(frame)

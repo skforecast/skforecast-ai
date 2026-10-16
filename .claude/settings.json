@@ -85,6 +85,15 @@
             "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/post_edit_check.py\""
           }
         ]
+      },
+      {
+        "matcher": "mcp__.*__create_pull_request",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/post_pr_footer.py\""
+          }
+        ]
       }
     ],
     "Stop": [

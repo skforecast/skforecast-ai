@@ -5,7 +5,11 @@ import pytest
 from skforecast_ai.rendering import render_forecast_single_series
 from skforecast_ai.rendering._helpers import _emit_data_loading
 
-from .fixtures_rendering import plan_single_predict_exog, profile_single
+from .fixtures_rendering import (
+    plan_single_predict_exog,
+    profile_multi_long,
+    profile_single,
+)
 
 
 def _lines(profile, **kwargs) -> list[str]:
@@ -149,3 +153,140 @@ def test_emit_data_loading_in_a_full_script_with_future_exog():
     assert "data = pd.read_csv('eu.csv', sep=';', decimal=',')\n" in result.data_loading
     assert "exog_future = pd.read_csv('exog_future.csv')\n" in result.data_loading
     assert result.full_script.count("sep=';'") == 1
+
+
+@pytest.mark.parametrize(
+    "date_column, long_format, call",
+    [
+        (
+            "date",
+            False,
+            "data = pd.read_csv('eu.csv', sep=';', decimal=',', thousands='.')",
+        ),
+        (
+            None,
+            False,
+            "data = pd.read_csv('eu.csv', sep=';', decimal=',', thousands='.', "
+            "index_col=0, parse_dates=True)",
+        ),
+        (
+            "date",
+            True,
+            "data = pd.read_csv('eu.csv', sep=';', decimal=',', thousands='.')",
+        ),
+    ],
+    ids=["date column", "index stored", "long format"],
+)
+def test_emit_data_loading_output_when_csv_has_thousands(
+    date_column, long_format, call
+):
+    """
+    Test that the call to `pd.read_csv` names `thousands` after `sep` and
+    `decimal` when the file separates thousands with '.', before
+    `index_col` and `parse_dates` when the index is stored in the file.
+    """
+    profile = profile_single.model_copy(
+        update={
+            "data_path": "eu.csv",
+            "csv_sep": ";",
+            "csv_decimal": ",",
+            "csv_thousands": ".",
+            "date_column": date_column,
+        }
+    )
+
+    result = _lines(profile, long_format=long_format)
+
+    assert result == ["# Load data", call]
+
+
+def test_emit_data_loading_names_no_thousands_for_the_placeholder_or_exog_file():
+    """
+    Test that data in memory (the placeholder path) and `exog_future.csv`,
+    the frames saved with `to_csv()`, are read without `thousands` whatever
+    the thousands separator of the profile.
+    """
+    profile = profile_single.model_copy(
+        update={"csv_sep": ";", "csv_decimal": ",", "csv_thousands": "."}
+    )
+    with_path = profile.model_copy(update={"data_path": "eu.csv"})
+
+    placeholder = _lines(profile)
+    exog = _lines(
+        with_path, var="exog_future", path="exog_future.csv", comment="# Future exog"
+    )
+
+    assert placeholder == ["# Load data", "data = pd.read_csv('data.csv')"]
+    assert exog[1].startswith("exog_future = pd.read_csv('exog_future.csv'")
+    assert "thousands=" not in exog[1]
+
+
+def test_emit_data_loading_in_a_full_script_with_thousands_and_future_exog():
+    """
+    Test that the script of a prediction with exogenous variables reads the
+    data with the thousands separator of the profile, and only the data.
+    """
+    profile = profile_single.model_copy(
+        update={
+            "data_path": "eu.csv",
+            "csv_sep": ";",
+            "csv_decimal": ",",
+            "csv_thousands": ".",
+        }
+    )
+
+    result = render_forecast_single_series(plan_single_predict_exog, profile)
+
+    assert (
+        "data = pd.read_csv('eu.csv', sep=';', decimal=',', thousands='.')\n"
+        in result.data_loading
+    )
+    assert "exog_future = pd.read_csv('exog_future.csv')\n" in result.data_loading
+    assert result.full_script.count("thousands='.'") == 1
+
+
+@pytest.mark.parametrize(
+    "update, kwargs, call",
+    [
+        (
+            {"data_path": "sales.csv"},
+            {},
+            "data = pd.read_csv('sales.csv', dtype={'store': str})",
+        ),
+        (
+            {
+                "data_path": "eu.csv",
+                "csv_sep": ";",
+                "csv_decimal": ",",
+                "csv_thousands": ".",
+            },
+            {},
+            "data = pd.read_csv('eu.csv', sep=';', decimal=',', thousands='.', "
+            "dtype={'store': str})",
+        ),
+        (
+            {"csv_sep": ";", "csv_decimal": ",", "csv_thousands": "."},
+            {},
+            "data = pd.read_csv('data.csv', dtype={'store': str})",
+        ),
+        (
+            {"data_path": "eu.csv", "csv_sep": ";", "csv_decimal": ","},
+            {"var": "exog_future", "path": "exog_future.csv"},
+            "exog_future = pd.read_csv('exog_future.csv', dtype={'store': str})",
+        ),
+    ],
+    ids=["default dialect", "dialect", "placeholder", "future exog"],
+)
+def test_emit_data_loading_output_when_series_id_column(update, kwargs, call):
+    """
+    Test that the series ids of long-format data are read as text, after
+    the dialect of the file when it has one, in the data and in the future
+    exogenous variables, so that '001' keeps its zeros.
+    """
+    profile = profile_multi_long.model_copy(
+        update={"series_id_column": "store", **update}
+    )
+
+    result = _lines(profile, long_format=True, **kwargs)
+
+    assert result[-1] == call

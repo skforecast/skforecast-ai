@@ -1,4 +1,5 @@
-# Fixtures for the tests of the CSV dialects (separator and decimal mark)
+# Fixtures for the tests of the CSV dialects (separator, decimal mark and
+# thousands separator)
 
 import numpy as np
 import pandas as pd
@@ -63,5 +64,66 @@ def write_dialect(directory, frame: pd.DataFrame, name: str) -> str:
     file_name, arguments = DIALECT_FILES[name]
     path = directory / file_name
     frame.to_csv(path, index=False, **arguments)
+
+    return str(path)
+
+
+# Monthly series of 48 amounts between 870 and about 2,050, the shape of the
+# reproduction of '.' read as a decimal mark: written by `write_thousands`
+# with '.' between thousands, the amounts below 1,000 have none.
+df_dialect_thousands = pd.DataFrame(
+    {
+        "date": pd.date_range("2018-01-01", periods=48, freq="MS").strftime(
+            "%Y-%m-%d"
+        ),
+        "y": np.round(870 + 25 * np.arange(48) + 30 * np.sin(np.arange(48)), 2),
+    }
+)
+
+
+# Long data of three monthly series of amounts between about 600 and 2,300,
+# written by `write_thousands` with '.' between thousands, whose series ids
+# are numbers ('001', '1', '10', which read as integers would lose the
+# zeros and join '001' and '1').
+df_dialect_thousands_long = pd.concat(
+    [
+        df_dialect_thousands.assign(store="001"),
+        df_dialect_thousands.assign(store="1", y=df_dialect_thousands["y"] + 250),
+        df_dialect_thousands.assign(store="10", y=df_dialect_thousands["y"] - 270),
+    ],
+    ignore_index=True,
+)
+
+
+def write_thousands(
+    directory,
+    frame: pd.DataFrame,
+    decimals: bool = True,
+    name: str = "thousands.csv",
+    series_id_column: str | None = None,
+) -> str:
+    """
+    Write the columns 'date' and 'y' of `frame` to `directory` separated by
+    ';', with '.' between thousands and ',' before two decimals
+    ('1.020,50'), or as whole numbers ('1.020') when `decimals` is False,
+    as a spreadsheet of most of Europe exports them, and return the path.
+    pandas cannot write a thousands separator. With `series_id_column`,
+    that column of `frame` is written first, as it is.
+    """
+
+    def written(value: float) -> str:
+        text = f"{value:,.2f}" if decimals else f"{round(value):,}"
+        return text.replace(",", " ").replace(".", ",").replace(" ", ".")
+
+    lines = ["date;y"] + [
+        f"{date};{written(value)}" for date, value in zip(frame["date"], frame["y"])
+    ]
+    if series_id_column is not None:
+        lines = [f"{series_id_column};{lines[0]}"] + [
+            f"{series_id};{line}"
+            for series_id, line in zip(frame[series_id_column], lines[1:])
+        ]
+    path = directory / name
+    path.write_text("\n".join(lines) + "\n")
 
     return str(path)

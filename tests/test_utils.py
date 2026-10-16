@@ -374,6 +374,48 @@ def test_resolve_inputs_with_profile_raises_when_columns_missing_in_data():
         )
 
 
+@pytest.mark.parametrize(
+    "ids, expected_ids",
+    [
+        (None, None),
+        ({"store_a": 1, "store_b": 10}, {"store_a": "1", "store_b": "10"}),
+    ],
+    ids=["text_ids", "integer_ids"],
+)
+@pytest.mark.parametrize("with_profile", [False, True], ids=["no_profile", "profile"])
+def test_resolve_inputs_with_profile_output_when_multiindex(
+    with_profile, ids, expected_ids
+):
+    """
+    Test that long-format data indexed by a (series_id, date) MultiIndex is
+    returned with its levels as columns of the same name, as profiling reads
+    them and as the script reads the frame saved with `to_csv()`, that
+    integer ids of the level become text as the ids of a column do, and that
+    the date and series id columns come from the levels without a profile
+    and from the profile with one.
+    """
+    data = df_multi_long
+    expected = df_multi_long[["series_id", "date", "value"]]
+    if ids is not None:
+        data = data.assign(series_id=data["series_id"].map(ids))
+        expected = expected.assign(series_id=expected["series_id"].map(expected_ids))
+    data = data.set_index(["series_id", "date"])
+    profile = (
+        ForecastingAssistant().profile(data=data, target="value")
+        if with_profile
+        else None
+    )
+
+    data_df, target, date_column, series_id_column = _resolve_inputs_with_profile(
+        data, "value", None, None, profile=profile
+    )
+
+    pd.testing.assert_frame_equal(data_df, expected)
+    assert target == "value"
+    assert date_column == "date"
+    assert series_id_column == "series_id"
+
+
 def test_resolve_inputs_with_profile_output_when_series_input():
     """
     Test that a pandas Series takes its target from its name and that a
@@ -1779,6 +1821,43 @@ def test_resolve_data_and_target_reads_url_once_when_start_cannot_be_downloaded(
     assert list(data.columns) == ["date;y"]
 
 
+@pytest.mark.parametrize(
+    "frame, message",
+    [
+        (
+            pd.DataFrame(
+                {"date": [1.0, 2.0], "y": [None, None]},
+                index=pd.Index(["2020-01-01", "2020-02-01"]),
+            ),
+            "its header has 2 fields and its first row 3",
+        ),
+        (
+            pd.DataFrame(
+                {"date": ["2020-01-01"], "y": [1.0], "Unnamed: 2": [None]}
+            ),
+            "column 'Unnamed: 2' has no name in the header and no values",
+        ),
+    ],
+    ids=["separator at the end of every row", "column without name and values"],
+)
+def test_resolve_data_and_target_InvalidInputError_when_url_rows_longer_than_header(
+    monkeypatch, frame, message
+):
+    """
+    Test that a URL whose first row has more fields than its header, or with
+    a column without name and values, raises with the code 'data_unreadable',
+    as a local file does.
+    """
+    url = "https://example.com/a.csv"
+    _fake_read_csv(monkeypatch, [frame])
+
+    with pytest.raises(InvalidInputError, match=re.escape(message)) as exc_info:
+        _resolve_data_and_target(url, "y")
+
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.field == "data"
+
+
 def test_resolve_data_and_target_reads_url_with_given_sep(monkeypatch):
     """
     Test that a URL read with a `sep` given reads once with the dialect, the
@@ -1900,3 +1979,111 @@ def test_resolve_data_and_target_DataNotFoundError_when_comma_url_cannot_parse(
         _resolve_data_and_target(url, "y")
 
     assert exc_info.value.code == "data_unreadable"
+
+
+def test_resolve_data_and_target_reads_url_with_thousands_detected(monkeypatch):
+    """
+    Test that a URL of a ';' file whose start has '870' next to '1.020' is
+    read again with ',' as decimal mark and '.' as thousands separator, and
+    that the dialect recorded for the script names the thousands separator.
+    """
+    url = "https://example.com/eu.csv"
+    one_column = pd.DataFrame({"date;y": ["2020-01-01;870", "2020-02-01;1.020"]})
+    two_columns = pd.DataFrame({"date": ["2020-01-01", "2020-02-01"], "y": [870, 1020]})
+    calls = _fake_read_csv(monkeypatch, [one_column, two_columns])
+    monkeypatch.setattr(
+        utils_module,
+        "read_url_sample",
+        lambda value: "date;y\n2020-01-01;870\n2020-02-01;1.020\n",
+    )
+
+    data, _ = _resolve_data_and_target(url, "y")
+
+    assert calls == [
+        ((url,), {}),
+        ((url,), {"sep": ";", "decimal": ",", "thousands": "."}),
+    ]
+    assert data["y"].tolist() == [870, 1020]
+    assert utils_module._READ_CSV_DIALECT.get() == (url, ";", ",", ".")
+
+
+def test_resolve_data_and_target_reads_url_with_thousands_given(monkeypatch):
+    """
+    Test that a `thousands` given for a URL skips the read with ',' and '.'
+    and reads the file once with ',' as decimal mark.
+    """
+    url = "https://example.com/eu.csv"
+    frame = pd.DataFrame({"date": ["2020-01-01", "2020-02-01"], "y": [1870, 1020]})
+    calls = _fake_read_csv(monkeypatch, [frame])
+    monkeypatch.setattr(
+        utils_module,
+        "read_url_sample",
+        lambda value: "date;y\n2020-01-01;1.870\n2020-02-01;1.020\n",
+    )
+
+    data, _ = _resolve_data_and_target(url, "y", thousands=".")
+
+    assert calls == [((url,), {"sep": ";", "decimal": ",", "thousands": "."})]
+    assert data["y"].tolist() == [1870, 1020]
+
+
+def test_resolve_data_and_target_reads_url_again_when_text_column_has_thousands(
+    monkeypatch,
+):
+    """
+    Test that a URL read with the `sep` ';' and `decimal` ',' given, whose
+    column is text because it holds '1.705', is read again with '.' as
+    thousands separator.
+    """
+    url = "https://example.com/eu.csv"
+    text = pd.DataFrame({"date": ["2020-01-01", "2020-02-01"], "y": ["1.705", "1.870"]})
+    numbers = pd.DataFrame({"date": ["2020-01-01", "2020-02-01"], "y": [1705, 1870]})
+    calls = _fake_read_csv(monkeypatch, [text, numbers])
+
+    data, _ = _resolve_data_and_target(url, "y", sep=";", decimal=",")
+
+    assert calls == [
+        ((url,), {"sep": ";", "decimal": ","}),
+        ((url,), {"sep": ";", "decimal": ",", "thousands": "."}),
+    ]
+    assert data["y"].tolist() == [1705, 1870]
+
+
+@pytest.mark.parametrize(
+    "kwargs, field, message",
+    [
+        (
+            {"thousands": "."},
+            "thousands",
+            "`thousands` cannot be '.' when `sep` is ',': '.' separates the "
+            "thousands where ',' is the decimal mark, which cannot also "
+            "separate the fields.",
+        ),
+        (
+            {"decimal": ","},
+            "decimal",
+            "`decimal` cannot be ',' when `sep` is ',': the same character "
+            "would separate the fields and the decimals.",
+        ),
+    ],
+    ids=["thousands", "decimal comma"],
+)
+def test_resolve_data_and_target_InvalidInputError_when_no_url_sample_and_sep_misfit(
+    monkeypatch, kwargs, field, message
+):
+    """
+    Test that a URL read although its start could not be downloaded (the
+    separator is then ',') is rejected when the thousands separator or the
+    decimal mark given does not fit that separator.
+    """
+    url = "https://example.com/eu.csv"
+    frame = pd.DataFrame({"date": ["2020-01-01"], "y": [1.0]})
+    _fake_read_csv(monkeypatch, [frame])
+    monkeypatch.setattr(utils_module, "read_url_sample", lambda value: None)
+
+    err_msg = "^" + re.escape(message) + "$"
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        _resolve_data_and_target(url, "y", **kwargs)
+
+    assert not isinstance(exc_info.value, DataNotFoundError)
+    assert exc_info.value.field == field

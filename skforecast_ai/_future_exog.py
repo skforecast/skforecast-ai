@@ -562,6 +562,43 @@ def _on_business_grid(
     return np.asarray(dates.isin(grid))
 
 
+def _rewritten_ids(
+    absent: list,
+    names: pd.Index,
+    series: set,
+) -> tuple[str, str] | None:
+    """
+    Return an id of `exog` and the id of the data it writes otherwise ('1'
+    and '001') when every series of the data without rows in `exog` is the
+    same number as an id of `exog` that is not a series of the data, or
+    None.
+    """
+    if not absent:
+        return None
+    by_number = {}
+    for name in names:
+        if name in series:
+            continue
+        number = _as_number(name)
+        if number is not None:
+            by_number.setdefault(number, name)
+    found = [by_number.get(_as_number(name)) for name in absent]
+    if any(match is None for match in found):
+        return None
+
+    return str(found[0]), str(absent[0])
+
+
+def _as_number(value: object) -> float | None:
+    """Return the finite number a series id writes, or None."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+
+    return number if np.isfinite(number) else None
+
+
 def _check_long_dates(
     exog: pd.DataFrame,
     dates: pd.DatetimeIndex,
@@ -619,10 +656,14 @@ def _check_long_dates(
             by_date    = True,
             zone       = zone,
         )
+    # The ids of both are text (see `exog_as_injected`), as the generated
+    # code turns them: `1` in `exog` is the series '1' of the data.
     absent = [name for name in predicted if name not in code_of]
-    as_text = {str(name) for name in names}
-    other_type = bool(absent) and all(str(name) in as_text for name in absent)
-    if foundation and not other_type:
+    # The same numbers written otherwise ('1' for '001', '1.0' for '1') are
+    # other series for the script; a foundation model would take every
+    # series without future values, so they are reported for it too.
+    rewritten = _rewritten_ids(absent, names, set(ends))
+    if foundation and rewritten is None:
         # A series without future values takes its historical exogenous
         # columns as past-only covariates (or skforecast ignores them).
         predicted = {
@@ -631,11 +672,11 @@ def _check_long_dates(
         absent = []
     if absent:
         hint = ""
-        if other_type:
+        if rewritten is not None:
             hint = (
-                f" The ids of `exog` are of another type "
-                f"({exog[series_id].dtype}) than those of the data: use the "
-                f"same type."
+                f" The ids of `exog` write the same numbers otherwise than "
+                f"the data ({rewritten[0]!r} for {rewritten[1]!r}): write them "
+                f"as the data does."
             )
         raise DataContentError(
             f"`exog` has no rows for {len(absent)} series of the data: "
@@ -723,16 +764,17 @@ def _long_series_ends(
 
 def _row_ids(data: pd.DataFrame, series_id: str | None) -> np.ndarray | None:
     """
-    Return the series id of every row of long-format data: its column, or a
-    level of a MultiIndex (the first one when it has no name).
+    Return the series id of every row of long-format data: its column, or the
+    level of a MultiIndex of the same name.
     """
     if series_id is not None and series_id in data.columns:
         return data[series_id].to_numpy()
-    if isinstance(data.index, pd.MultiIndex):
-        if series_id is not None and series_id in data.index.names:
-            return data.index.get_level_values(series_id).to_numpy()
-        if data.index.names[0] is None:
-            return data.index.get_level_values(0).to_numpy()
+    if (
+        series_id is not None
+        and isinstance(data.index, pd.MultiIndex)
+        and series_id in data.index.names
+    ):
+        return data.index.get_level_values(series_id).to_numpy()
 
     return None
 

@@ -9,7 +9,13 @@ from skforecast_ai import ForecastingAssistant
 from skforecast_ai.mcp import create_server, server as server_module
 from skforecast_ai.mcp.models import ToolNotice
 
-from ..fixtures_csv_dialect import df_dialect, write_dialect
+from ..fixtures_csv_dialect import (
+    df_dialect,
+    df_dialect_thousands,
+    write_dialect,
+    write_thousands,
+)
+from ..fixtures_assistant import df_multi_long_numeric_ids
 from ..fixtures_datasets import df_items_sales_long, df_mixed_date_formats
 from ..tests_profiling.fixtures_profiling import df_dirty_exog
 from .fixtures_mcp import (
@@ -794,3 +800,260 @@ def test_tool_profile_without_target_lists_the_columns_of_a_semicolon_file(tmp_p
     assert "'date'" in error["message"]
     assert "'y'" in error["message"]
     assert "date;y" not in error["message"]
+
+
+def _monthly_lines(n: int = 36) -> list[str]:
+    """
+    Lines of a monthly CSV file with a date and a target column.
+    """
+    dates = pd.date_range("2015-01-01", periods=n, freq="MS").strftime("%Y-%m-%d")
+    return ["date,y"] + [f"{date},{100 + i * 0.5}" for i, date in enumerate(dates)]
+
+
+_LINES = _monthly_lines()
+
+
+@pytest.mark.parametrize(
+    "lines, message",
+    [
+        (
+            [_LINES[0]] + [line + "," for line in _LINES[1:]],
+            "its header has 2 fields and its first row 3, so the first column "
+            "would be read as the row labels and every other column would move "
+            "one place (the rows end with separators that the header does not "
+            "have).",
+        ),
+        (
+            _LINES[:1] + [_LINES[1] + ",9"] + _LINES[2:],
+            "its header has 2 fields and its first row 3, so the first column "
+            "would be read as the row labels and every other column would move "
+            "one place (a field too many in the first row, or a header without "
+            "a name for the first column).",
+        ),
+        (
+            _LINES[:20] + [_LINES[20] + ",9"] + _LINES[21:],
+            "Error tokenizing data. C error: Expected 2 fields in line 21, saw 3",
+        ),
+        (
+            [line + "," for line in _LINES],
+            "column 'Unnamed: 2' has no name in the header and no values (often "
+            "a separator at the end of every line, the header included).",
+        ),
+    ],
+    ids=["separator at the end of every row", "field too many in the first row",
+         "field too many in a middle row", "separator at the end of every line"],
+)
+def test_tool_profile_data_unreadable_when_rows_longer_than_header(
+    tmp_path, lines, message
+):
+    """
+    Test that a file whose rows have more fields than its header is
+    `data_unreadable` naming `data_path`, with or without `target`, instead
+    of a target without values or a profile with the dates as an exogenous
+    variable, and that the same file without the extra fields is profiled.
+    """
+    path = tmp_path / "data.csv"
+    path.write_text("\n".join(lines) + "\n")
+    fixed = tmp_path / "fixed.csv"
+    fixed.write_text("\n".join(_LINES) + "\n")
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    errors = [
+        error_of(call(server, "profile", {"data_path": str(path), **target}), "profile")
+        for target in ({"target": "y"}, {})
+    ]
+    result = content_of(
+        call(server, "profile", {"data_path": str(fixed), "target": "y"})
+    )
+
+    for error in errors:
+        assert error["code"] == "data_unreadable"
+        assert error["field"] == "data_path"
+        assert error["message"] == (
+            f"The CSV file '{path.resolve()}' could not be read: {message}"
+        )
+        assert error["hint"]
+    assert result["kind"] == "profile"
+    assert "- Frequency: MS" in result["summary"]
+    assert "- Exogenous columns: none" in result["summary"]
+
+
+@pytest.mark.parametrize(
+    "decimals",
+    [True, False],
+    ids=["thousands and decimal comma", "whole numbers with and without separator"],
+)
+def test_tool_profile_plan_and_forecast_when_point_separates_thousands(
+    tmp_path, decimals
+):
+    """
+    Test that `profile` reads a ';' file with '.' between thousands
+    ('1.020,50', or '870' next to '1.020') as the same amounts written with
+    ',' and '.': the same summary and notices, and a plan and a forecast with
+    the same predictions.
+    """
+    path = write_thousands(tmp_path, df_dialect_thousands, decimals=decimals)
+    amounts = df_dialect_thousands.assign(
+        y=df_dialect_thousands["y"] if decimals else df_dialect_thousands["y"].round()
+    )
+    comma_path = write_csv(tmp_path, "us.csv", amounts)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    results = {}
+    for data_path in (path, comma_path):
+        profile = content_of(
+            call(server, "profile", {"data_path": data_path, "target": "y"})
+        )
+        plan = content_of(
+            call(server, "plan", {"profile_id": profile["id"], "steps": 6})
+        )
+        forecast = content_of(call(server, "forecast", {"plan_id": plan["id"]}))
+        results[data_path] = (profile, forecast)
+
+    profile, forecast = results[path]
+    expected_profile, expected_forecast = results[comma_path]
+    assert profile["summary"] == expected_profile["summary"]
+    assert profile["notices"] == expected_profile["notices"]
+    assert forecast["notices"] == expected_forecast["notices"]
+    pd.testing.assert_frame_equal(
+        pd.read_csv(forecast["files"]["predictions"]),
+        pd.read_csv(expected_forecast["files"]["predictions"]),
+    )
+
+
+def test_tool_profile_error_when_thousands_are_ambiguous(tmp_path):
+    """
+    Test that a ';' file whose only numbers with a '.' read both as
+    thousands and as numbers with three decimals is `data_unreadable`,
+    naming `data_path`, with the hint that asks for `thousands` or
+    `decimal`; giving `thousands` reads the amounts as thousands and giving
+    `decimal` '.' as numbers with three decimals.
+    """
+    path = tmp_path / "thousands.csv"
+    path.write_text(
+        "date;y\n" + "".join(
+            f"2020-{month:02d}-01;{1 + month % 3}.{month:03d}\n"
+            for month in range(1, 13)
+        )
+    )
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    error = error_of(
+        call(server, "profile", {"data_path": str(path), "target": "y"}), "profile"
+    )
+    with_thousands = content_of(
+        call(
+            server, "profile",
+            {"data_path": str(path), "target": "y", "thousands": "."},
+        )
+    )
+    with_decimals = content_of(
+        call(server, "profile", {"data_path": str(path), "target": "y", "decimal": "."})
+    )
+
+    assert error == {
+        "code": "data_unreadable",
+        "message": (
+            f"The thousands separator of the CSV file '{path.resolve()}' cannot "
+            f"be told: its numbers with a '.' (such as '2.001') read both as "
+            f"thousands and as numbers with three decimals."
+        ),
+        "field": "data_path",
+        "hint": (
+            "Profile the file saying what its '.' is: `thousands` '.' when it "
+            "separates the thousands, or `decimal` '.' when it is the decimal "
+            "mark, in `profile()`, `--thousands` or `--decimal` in the "
+            "`profile` command, or `thousands` or `decimal` in the `profile` "
+            "tool of the MCP server, and use that profile."
+        ),
+        "details": None,
+    }
+    assert "Target statistics: min 1003, max 3011," in with_thousands["summary"]
+    assert "Target statistics: min 1.003, max 3.011," in with_decimals["summary"]
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"thousands": ","},
+        {"thousands": ".", "sep": ","},
+        {"thousands": ".", "decimal": "."},
+    ],
+    ids=["comma", "with sep comma", "with decimal point"],
+)
+def test_tool_profile_error_when_thousands_not_valid(tmp_path, arguments):
+    """
+    Test that a `thousands` that is not accepted, or '.' with `sep` ',' or
+    `decimal` '.', is `invalid_argument` naming `thousands`.
+    """
+    path = write_dialect(tmp_path, df_dialect, "semicolon_comma")
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    error = error_of(
+        call(server, "profile", {"data_path": path, "target": "y", **arguments}),
+        "profile",
+    )
+
+    assert error["code"] == "invalid_argument"
+    assert error["field"] == "thousands"
+
+
+@pytest.mark.parametrize(
+    "values, written",
+    [
+        (["10,025.1", "11,023.6"], "with a thousands separator"),
+        (["10.0%", "11.0%"], "with '%'"),
+    ],
+    ids=["thousands separator", "percent"],
+)
+def test_tool_profile_error_when_target_numbers_are_written_in_another_format(
+    tmp_path, values, written
+):
+    """
+    Test that a target whose numbers are written with a thousands separator
+    or with '%' is an error of the file: it names `data_path`, says the
+    format, and carries the hint that leaves the file to the user.
+    """
+    path = tmp_path / "formatted.csv"
+    pd.DataFrame(
+        {"date": ["2020-01-01", "2020-02-01"], "y": values}
+    ).to_csv(path, index=False)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    error = error_of(
+        call(server, "profile", {"data_path": str(path), "target": "y"}), "profile"
+    )
+
+    assert error == {
+        "code": "invalid_argument",
+        "message": (
+            f"Target column 'y' is not numeric: values such as {values} are "
+            f"numbers written {written}, a format that is not read. Write them "
+            f"as plain numbers."
+        ),
+        "field": "data_path",
+        "hint": server_module.DATA_PROBLEM_HINT,
+        "details": None,
+    }
+
+
+def test_tool_profile_output_when_series_ids_are_numbers(tmp_path):
+    """
+    Test that the series ids of long-format data written as numbers ('001',
+    '1', '10') name the series as written in the file, as by the Python API:
+    '001' keeps its zeros and is not the series '1'.
+    """
+    path = write_csv(tmp_path, "stores.csv", df_multi_long_numeric_ids)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    arguments = {"target": "value", "series_id_column": "series_id"}
+
+    result = content_of(call(server, "profile", {"data_path": path, **arguments}))
+    expected = ForecastingAssistant().profile(path, **arguments)
+
+    assert result["summary"] == expected.describe()
+    assert list(expected.data_profile.series_lengths) == ["001", "1", "10"]
+    assert [
+        line.split("(")[1].split(")")[0]
+        for line in result["summary"].splitlines()
+        if line.startswith("- Target statistics (")
+    ] == ["001", "1", "10"]

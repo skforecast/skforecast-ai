@@ -77,29 +77,9 @@ def test_load_exog_DataNotFoundError_when_file_missing(tmp_path):
             "with the format of the first one. Write every date in the same "
             "format, such as '2023-01-02'.",
         ),
-        (
-            "date,temp\n2023-01-01,1,,\n2023-01-02,2,,\n",
-            None,
-            "have more fields than its header (often separators at the end of "
-            "the rows).",
-        ),
-        (
-            "date,temp\n2023-01-01,1,\n2023-01-02,2,\n",
-            None,
-            "have more fields than its header (often separators at the end of "
-            "the rows).",
-        ),
-        (
-            "date,temp\n2023-01-01,1,\n2023-01-02,2,\n",
-            "date",
-            "have more fields than its header (often separators at the end of "
-            "the rows).",
-        ),
     ],
     ids=["empty_date_cell", "mixed_offsets", "missing_date_column",
-         "date_column_without_dates", "mixed_formats", "mixed_formats_named",
-         "more_fields_than_header", "separator_at_row_end",
-         "separator_at_row_end_named"],
+         "date_column_without_dates", "mixed_formats", "mixed_formats_named"],
 )
 def test_load_exog_InvalidInputError_when_dates_wrong(
     tmp_path, text, date_column, err_msg
@@ -108,10 +88,7 @@ def test_load_exog_InvalidInputError_when_dates_wrong(
     Test that the dates are read as the CSV loader of the data reads them:
     an empty date cell and offsets that change raise, and so do a named date
     column that is missing or holds no dates, instead of a raw `KeyError`,
-    dates in mixed formats, which the generated script cannot read, and rows
-    with more fields than the header (instead of a raw `TypeError`), also
-    one more field that leaves the last column empty (a separator at the
-    end of every row), which was read as a header one field short.
+    and dates in mixed formats, which the generated script cannot read.
     """
     path = tmp_path / "exog.csv"
     path.write_text(text)
@@ -210,14 +187,15 @@ def test_load_exog_output_when_first_column_holds_values(tmp_path, text, expecte
 
 def test_load_exog_output_when_integer_series_ids(tmp_path):
     """
-    Test that, for long-format data, integer series ids in the first column
-    are not read as dates (pandas reads 2001 as a year).
+    Test that, for long-format data, series ids written as integers in the
+    first column are read as text, as the ids of the data, and not as dates
+    (pandas reads '2001' as a year).
     """
     path = tmp_path / "exog.csv"
     path.write_text("store,date,price\n2001,2023-04-11,1\n2002,2023-04-11,2\n")
 
     expected = pd.DataFrame(
-        {"store": [2001, 2002], "price": [1, 2]},
+        {"store": ["2001", "2002"], "price": [1, 2]},
         index=pd.DatetimeIndex(["2023-04-11", "2023-04-11"], name="date"),
     )
     pd.testing.assert_frame_equal(
@@ -238,6 +216,71 @@ def test_load_exog_output_when_integer_dates_and_text_dates(tmp_path):
 
     expected = _EXPECTED.assign(updated="2022-12-15")
     pd.testing.assert_frame_equal(load_exog(path), expected)
+
+
+@pytest.mark.parametrize(
+    "text, date_column, err_msg",
+    [
+        (
+            "date,temp\n2023-01-01,1,,\n2023-01-02,2,,\n",
+            None,
+            "its header has 2 fields and its first row 4, so the first column "
+            "would be read as the row labels and every other column would move "
+            "one place (the rows end with separators that the header does not "
+            "have).",
+        ),
+        (
+            "date,temp\n2023-01-01,1,\n2023-01-02,2,\n",
+            None,
+            "its header has 2 fields and its first row 3, so the first column "
+            "would be read as the row labels and every other column would move "
+            "one place (the rows end with separators that the header does not "
+            "have).",
+        ),
+        (
+            "date,temp\n2023-01-01,1,\n2023-01-02,2,\n",
+            "date",
+            "its header has 2 fields and its first row 3",
+        ),
+        (
+            "date,temp\n2023-01-01,1,9\n2023-01-02,2\n2023-01-03,3\n",
+            None,
+            "its header has 2 fields and its first row 3, so the first column "
+            "would be read as the row labels and every other column would move "
+            "one place (a field too many in the first row, or a header without "
+            "a name for the first column).",
+        ),
+        (
+            "date,temp,\n2023-01-01,1,\n2023-01-02,2,\n",
+            None,
+            "column 'Unnamed: 2' has no name in the header and no values (often "
+            "a separator at the end of every line, the header included).",
+        ),
+    ],
+    ids=["more_fields_than_header", "separator_at_row_end",
+         "separator_at_row_end_named", "field_too_many_in_first_row",
+         "separator_at_line_end_with_header"],
+)
+def test_load_exog_InvalidInputError_when_rows_longer_than_header(
+    tmp_path, text, date_column, err_msg
+):
+    """
+    Test that, as for the data, rows with more fields than the header that
+    are not a header one field short (separators at the end of every row, a
+    field too many only in the first row) and a column without name and
+    values (a separator at the end of every line, the header included) raise
+    with the code 'data_unreadable' and a hint, instead of a raw `TypeError`
+    or future exogenous variables moved one column.
+    """
+    path = tmp_path / "exog.csv"
+    path.write_text(text)
+
+    with pytest.raises(InvalidInputError, match=re.escape(err_msg)) as exc_info:
+        load_exog(path, date_column=date_column)
+
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.field == "exog"
+    assert "ask its owner before writing it" in exc_info.value.hint
 
 
 def test_load_exog_output_when_header_one_field_short(tmp_path):
@@ -571,3 +614,50 @@ def test_load_exog_output_when_integer_dates_and_dialect_is_semicolon(tmp_path):
         index=pd.DatetimeIndex(["2023-01-01", "2023-01-02"], name="date"),
     )
     pd.testing.assert_frame_equal(result, expected, check_freq=False)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "date;temp\n2023-01-01;870\n2023-01-02;1.020\n2023-01-03;1.705\n",
+        "date;temp\n2023-01-01;870,0\n2023-01-02;1.020,0\n2023-01-03;1.705,0\n",
+    ],
+    ids=["whole numbers", "decimal comma"],
+)
+def test_load_exog_output_when_point_separates_thousands(tmp_path, text):
+    """
+    Test that an exog file with '.' between thousands is read as the amounts
+    it holds, as the data are.
+    """
+    path = tmp_path / "exog.csv"
+    path.write_text(text)
+
+    result = load_exog(path)
+
+    np.testing.assert_array_equal(result["temp"].to_numpy(), [870, 1020, 1705])
+    pd.testing.assert_index_equal(
+        result.index,
+        pd.DatetimeIndex(["2023-01-01", "2023-01-02", "2023-01-03"], name="date"),
+    )
+
+
+def test_load_exog_InvalidInputError_when_thousands_are_ambiguous(tmp_path):
+    """
+    Test that an exog file whose numbers with a '.' all read as thousands
+    and as three decimals raises an InvalidInputError with the field 'exog'
+    and the exog hint.
+    """
+    path = tmp_path / "exog.csv"
+    path.write_text("date;temp\n2023-01-01;1.870\n2023-01-02;1.020\n")
+
+    err_msg = re.escape(
+        f"The thousands separator of the CSV file '{path}' cannot be told: its "
+        f"numbers with a '.' (such as '1.870') read both as thousands and as "
+        f"numbers with three decimals."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg + "$") as exc_info:
+        load_exog(path)
+
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.field == "exog"
+    assert exc_info.value.hint == EXOG_DIALECT_HINT

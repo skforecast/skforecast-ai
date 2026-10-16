@@ -27,7 +27,9 @@ from tests.fixtures_datasets import (
 from tests.fixtures_csv_dialect import (
     df_dialect,
     df_dialect_monthly,
+    df_dialect_thousands,
     write_dialect,
+    write_thousands,
 )
 from tests.fixtures_assistant import (
     df_categorical_exog,
@@ -35,6 +37,7 @@ from tests.fixtures_assistant import (
     df_no_exog,
     df_short,
     df_multi_long,
+    df_multi_long_integer_ids,
     df_multi_wide,
     df_with_missing,
     df_constant_target,
@@ -177,6 +180,47 @@ def test_profile_output_when_multi_series_long_format():
     assert profile.data_profile.n_series == 2
     assert profile.data_profile.data_format == "long"
     assert profile.forecaster == "ForecasterRecursiveMultiSeries"
+
+
+def test_profile_series_pacf_when_long_format_multiindex_with_integer_ids():
+    """
+    Test that profile() computes the PACF of long-format data indexed by a
+    (series_id, date) MultiIndex on the flat frame the profile describes:
+    the integer ids are named and ordered as text ('1', '10', '2'), as those
+    of the same data with the levels as columns. Before, the PACF read the
+    MultiIndex and listed the series in numeric order ('1', '2', '10').
+    """
+    assistant = ForecastingAssistant()
+    expected = assistant.profile(
+        data             = df_multi_long_integer_ids,
+        target           = "value",
+        date_column      = "date",
+        series_id_column = "series_id",
+    )
+    data = df_multi_long_integer_ids.set_index(["series_id", "date"])
+
+    profile = assistant.profile(data=data, target="value")
+
+    assert [
+        (pacf.series_id, pacf.n_observations, pacf.lags)
+        for pacf in profile.series_pacf
+    ] == [
+        ("1", 100, [1, 2, 3]),
+        ("10", 100, [7, 5, 6, 8, 4, 3, 2]),
+        ("2", 100, [1, 2, 3]),
+    ]
+    np.testing.assert_array_almost_equal(
+        np.concatenate([pacf.pacf_abs for pacf in profile.series_pacf]),
+        np.array([
+            0.9497286304844792, 0.6156822781008228, 0.3799783360889658,
+            0.7611519872802129, 0.549834183045989, 0.5300736984603612,
+            0.46977843055323154, 0.4572166474212591, 0.37154322504876336,
+            0.3292776741776512,
+            0.9360758090523229, 0.8483403398362086, 0.42448197624098877,
+        ]),
+    )
+    assert profile.series_pacf == expected.series_pacf
+    assert profile.data_profile == expected.data_profile
 
 
 def test_profile_output_when_multi_series_wide_format():
@@ -634,6 +678,83 @@ def test_profile_InvalidInputError_when_series_id_column_invalid(
 
     assert exc_info.value.code == "invalid_argument"
     assert exc_info.value.field == "series_id_column"
+
+
+@pytest.mark.parametrize(
+    "names",
+    [[None, None], ["series_id", None], [None, "date"]],
+    ids=lambda names: f"names: {names}",
+)
+def test_profile_InvalidInputError_when_multiindex_level_unnamed(names):
+    """
+    Test that profile() rejects long-format data indexed by a MultiIndex with
+    a level without a name, with a hint to name the levels: the generated
+    script reads the levels by name from the frame saved with `to_csv()`,
+    which writes an empty header for them. Before, two unnamed levels raised
+    KeyError: 'series_id', and an unnamed date level was profiled as a column
+    'datetime' that the script did not have.
+    """
+    data = df_multi_long.set_index(["series_id", "date"]).rename_axis(names)
+    err_msg = re.escape(
+        f"`data` is indexed by a MultiIndex with levels without a name "
+        f"(names {names})."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        ForecastingAssistant().profile(data=data, target="value")
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "data"
+    assert exc_info.value.hint == (
+        "Name the levels with text, as in "
+        "`data.rename_axis(['series_id', 'date'])`, or turn them into columns "
+        "with `data.reset_index()` and pass their names as `series_id_column` "
+        "and `date_column`."
+    )
+
+
+@pytest.mark.parametrize(
+    "levels, names, err_msg",
+    [
+        (
+            ["series_id", "date", "region"],
+            None,
+            "`data` is indexed by a MultiIndex with 3 levels (names "
+            "['series_id', 'date', 'region']). A MultiIndex is read as the "
+            "series id and the date, `(series_id, date)`, so it must have two "
+            "levels.",
+        ),
+        (
+            ["region", "series_id", "date"],
+            None,
+            "`data` is indexed by a MultiIndex with 3 levels (names "
+            "['region', 'series_id', 'date']).",
+        ),
+        (
+            ["series_id", "date"],
+            [0, "date"],
+            "`data` is indexed by a MultiIndex with levels not named with text "
+            "(names [0, 'date']).",
+        ),
+    ],
+    ids=["three levels", "three levels, dates last", "level named with a number"],
+)
+def test_profile_InvalidInputError_when_multiindex_not_two_levels_named_with_text(
+    levels, names, err_msg
+):
+    """
+    Test that profile() rejects a MultiIndex that is not `(series_id, date)`,
+    with a hint: a third level, which would otherwise be profiled as an
+    exogenous variable when last and would shift the dates to the series ids
+    when first, or a level named with a number, which raised a
+    ValidationError of the profile.
+    """
+    data = df_multi_long.assign(region="north").set_index(levels)
+    if names is not None:
+        data = data.rename_axis(names)
+    with pytest.raises(InvalidInputError, match=re.escape(err_msg)) as exc_info:
+        ForecastingAssistant().profile(data=data, target="value")
+
+    assert exc_info.value.field == "data"
 
 
 def test_profile_InvalidInputError_when_target_is_empty_list():
@@ -1392,3 +1513,145 @@ def test_profile_InvalidInputError_when_sep_not_valid_for_data_in_memory():
         ForecastingAssistant().profile(data, target="y", sep="x")
 
     assert exc_info.value.field == "sep"
+
+
+@pytest.mark.parametrize(
+    "decimals, expected",
+    [
+        (True, {"min": 870.0, "max": 2048.71, "mean": 1458.6779166666665}),
+        (False, {"min": 870.0, "max": 2049.0, "mean": 1458.7083333333333}),
+    ],
+    ids=["thousands and decimal comma", "whole numbers with and without separator"],
+)
+def test_profile_records_the_thousands_separator_of_the_csv_file(
+    tmp_path, decimals, expected
+):
+    """
+    Test that profile() reads a ';' file with '.' between thousands as the
+    amounts it holds and records ';', ',' and '.' as its dialect.
+    """
+    path = write_thousands(tmp_path, df_dialect_thousands, decimals=decimals)
+
+    result = ForecastingAssistant().profile(path, target="y")
+
+    data_profile = result.data_profile
+    assert (data_profile.csv_sep, data_profile.csv_decimal) == (";", ",")
+    assert data_profile.csv_thousands == "."
+    assert data_profile.target_dtype == "numeric"
+    for name, value in expected.items():
+        assert data_profile.target_stats["y"][name] == pytest.approx(value)
+
+
+@pytest.mark.parametrize(
+    "kwargs, expected",
+    [
+        ({"thousands": "."}, (",", ".", [1870.0, 1020.0])),
+        ({"decimal": ","}, (",", ".", [1870.0, 1020.0])),
+        ({"decimal": "."}, (".", None, [1.87, 1.02])),
+    ],
+    ids=["thousands", "decimal comma", "decimal point"],
+)
+def test_profile_output_when_thousands_ambiguous_and_dialect_given(
+    tmp_path, kwargs, expected
+):
+    """
+    Test that a file whose numbers all read both as thousands and as three
+    decimals raises an InvalidInputError with the code 'data_unreadable',
+    and that profile() reads it as the caller says: `thousands` '.' or
+    `decimal` ',' as thousands, `decimal` '.' as three decimals. A decimal
+    mark ',' given that reads '1.870' as text no longer leaves the target as
+    text.
+    """
+    path = tmp_path / "thousands.csv"
+    path.write_text(
+        "date;y\n" + "".join(
+            f"2020-{month:02d}-01;{'1.870' if month % 2 else '1.020'}\n"
+            for month in range(1, 13)
+        )
+    )
+    decimal, thousands, values = expected
+    assistant = ForecastingAssistant()
+
+    err_msg = re.escape(
+        f"The thousands separator of the CSV file '{path}' cannot be told: its "
+        f"numbers with a '.' (such as '1.870') read both as thousands and as "
+        f"numbers with three decimals."
+    )
+    with pytest.raises(InvalidInputError, match="^" + err_msg + "$") as exc_info:
+        assistant.profile(path, target="y")
+    result = assistant.profile(path, target="y", **kwargs)
+
+    assert exc_info.value.code == "data_unreadable"
+    assert result.data_profile.csv_decimal == decimal
+    assert result.data_profile.csv_thousands == thousands
+    assert result.data_profile.target_dtype == "numeric"
+    assert result.data_profile.target_stats["y"]["max"] == pytest.approx(values[0])
+    assert result.data_profile.target_stats["y"]["min"] == pytest.approx(values[1])
+
+
+def test_profile_thousands_is_ignored_for_data_in_memory():
+    """
+    Test that a DataFrame is profiled without thousands separator whatever
+    `thousands` says, because there is no file to read.
+    """
+    result = ForecastingAssistant().profile(
+        df_dialect.assign(date=pd.to_datetime(df_dialect["date"])),
+        target="y",
+        thousands=".",
+    )
+
+    assert result.data_profile.csv_thousands is None
+    assert result.data_profile.csv_decimal == "."
+
+
+@pytest.mark.parametrize(
+    "kwargs, message",
+    [
+        ({"thousands": ","}, "`thousands` must be '.', got ','."),
+        (
+            {"thousands": ".", "decimal": "."},
+            "`thousands` cannot be '.' when `decimal` is '.': the same "
+            "character would separate the thousands and the decimals.",
+        ),
+    ],
+    ids=["comma", "with decimal point"],
+)
+def test_profile_InvalidInputError_when_thousands_not_valid(tmp_path, kwargs, message):
+    """
+    Test that profile() raises InvalidInputError naming `thousands` when it
+    is not '.', or when it is the decimal mark.
+    """
+    path = write_dialect(tmp_path, df_dialect, "semicolon_comma")
+
+    with pytest.raises(InvalidInputError, match=re.escape(message)) as exc_info:
+        ForecastingAssistant().profile(path, target="y", **kwargs)
+
+    assert exc_info.value.field == "thousands"
+
+
+def test_profile_reads_thousands_of_a_series_after_the_sample(tmp_path, monkeypatch):
+    """
+    Test that a long-format ';' file sorted by series, whose first series
+    holds amounts below 1,000 in the lines the dialect is told from and
+    whose second series holds amounts written as '1.020' after them, is
+    profiled with '.' as thousands separator and the amounts of both series.
+    """
+    monkeypatch.setattr("skforecast_ai.profiling.csv_dialect.SAMPLE_BYTES", 400)
+    dates = pd.date_range("2020-01-01", periods=30, freq="D").strftime("%Y-%m-%d")
+    path = tmp_path / "long.csv"
+    path.write_text(
+        "series;date;y\n"
+        + "".join(f"a;{date};{800 + i}\n" for i, date in enumerate(dates))
+        + "".join(f"b;{date};1.{100 + i}\n" for i, date in enumerate(dates))
+    )
+    assert len(path.read_bytes()) > 400
+
+    result = ForecastingAssistant().profile(
+        path, target="y", series_id_column="series"
+    )
+
+    data_profile = result.data_profile
+    assert data_profile.csv_thousands == "."
+    assert data_profile.target_stats["a"]["max"] == 829.0
+    assert data_profile.target_stats["b"]["min"] == 1100.0
+    assert data_profile.target_stats["b"]["max"] == 1129.0

@@ -7,7 +7,12 @@ from skforecast.model_selection import TimeSeriesFold
 
 from skforecast_ai import ForecastingAssistant
 
-from tests.fixtures_assistant import df_multi_long, df_single
+from tests.fixtures_assistant import (
+    df_multi_long,
+    df_multi_long_integer_ids,
+    df_multi_long_numeric_ids,
+    df_single,
+)
 
 
 @pytest.mark.parametrize(
@@ -16,8 +21,9 @@ from tests.fixtures_assistant import df_multi_long, df_single
         (df_single, {"target": "sales", "date_column": "date"}),
         (df_multi_long, {"target": "value", "date_column": "date", "series_id_column": "series_id"}),
         (df_single, {"target": "sales", "date_column": "date", "forecaster": "ForecasterEquivalentDate"}),
+        (df_multi_long_integer_ids, {"target": "value", "date_column": "date", "series_id_column": "series_id"}),
     ],
-    ids=["single series", "multi series", "baseline"],
+    ids=["single series", "multi series", "baseline", "multi series integer ids"],
 )
 def test_forecast_workflow_is_deterministic(data, kwargs):
     """
@@ -63,8 +69,9 @@ def test_forecast_code_and_forecast_render_the_same_script():
     [
         (df_single, {"target": "sales", "date_column": "date"}),
         (df_multi_long, {"target": "value", "date_column": "date", "series_id_column": "series_id"}),
+        (df_multi_long_numeric_ids, {"target": "value", "date_column": "date", "series_id_column": "series_id"}),
     ],
-    ids=["single series", "multi series"],
+    ids=["single series", "multi series", "multi series numeric ids"],
 )
 def test_forecast_workflow_is_deterministic_when_data_is_csv_path(
     tmp_path, data, kwargs
@@ -89,7 +96,11 @@ def test_forecast_workflow_is_deterministic_when_data_is_csv_path(
     assert profile_1.model_dump() == profile_2.model_dump()
     assert plan_1.model_dump() == plan_2.model_dump()
     assert result_1.code == result_2.code
-    assert f"data = pd.read_csv({str(csv_path)!r})" in result_1.code
+    read_ids = (
+        f", dtype={{{kwargs['series_id_column']!r}: str}}"
+        if "series_id_column" in kwargs else ""
+    )
+    assert f"data = pd.read_csv({str(csv_path)!r}{read_ids})" in result_1.code
     pd.testing.assert_frame_equal(result_1.predictions, result_2.predictions)
     pd.testing.assert_frame_equal(result_1.metrics, result_2.metrics)
 

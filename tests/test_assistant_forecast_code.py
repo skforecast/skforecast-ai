@@ -11,7 +11,12 @@ from skforecast_ai import ForecastingAssistant
 from skforecast_ai.exceptions import InvalidInputError
 from skforecast_ai.schemas import CodeGenerationResult, PreprocessingStep
 
-from tests.fixtures_csv_dialect import df_dialect, write_dialect
+from tests.fixtures_csv_dialect import (
+    df_dialect,
+    df_dialect_thousands,
+    write_dialect,
+    write_thousands,
+)
 from tests.fixtures_assistant import (
     df_multi_long,
     df_multi_wide,
@@ -23,6 +28,7 @@ from tests.fixtures_datasets import (
     df_h2o,
     df_h2o_daily,
 )
+from tests.fixtures_future_exog import data_long, exog_long
 
 
 # =============================================================================
@@ -306,6 +312,54 @@ def test_forecast_code_ValueError_when_exog_without_exog_data():
             data=df_no_exog, target="sales", date_column="date", steps=10,
             exog=exog,
         )
+
+
+@pytest.mark.parametrize("with_profile", [True, False], ids=["profile", "no_profile"])
+def test_forecast_code_InvalidInputError_when_multiindex_level_unnamed(with_profile):
+    """
+    Test that forecast_code() rejects long-format data indexed by a
+    MultiIndex with a level without a name, also with a profile of the same
+    data with named levels, as forecast() does: the script it returns reads
+    the levels by name from the frame saved with `to_csv()`, which writes an
+    empty header for them.
+    """
+    assistant = ForecastingAssistant()
+    data = df_multi_long.set_index(["series_id", "date"])
+    kwargs = {"target": "value", "steps": 7}
+    if with_profile:
+        kwargs = {"profile": assistant.profile(data=data, target="value"), "steps": 7}
+    err_msg = re.escape(
+        "`data` is indexed by a MultiIndex with levels without a name "
+        "(names ['series_id', None])."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.forecast_code(
+            data = data.rename_axis(["series_id", None]),
+            **kwargs,
+        )
+
+    assert exc_info.value.field == "data"
+
+
+def test_forecast_code_InvalidInputError_when_exog_multiindex_level_unnamed():
+    """
+    Test that forecast_code() rejects future exogenous variables indexed by a
+    MultiIndex with a level without a name, as forecast() does.
+    """
+    exog = exog_long.set_index(["series", "date"]).rename_axis([None, None])
+    err_msg = re.escape(
+        "`exog` is indexed by a MultiIndex with levels without a name "
+        "(names [None, None])."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        ForecastingAssistant().forecast_code(
+            data   = data_long.set_index(["series", "date"]),
+            target = "value",
+            steps  = 7,
+            exog   = exog,
+        )
+
+    assert exc_info.value.field == "exog"
 
 
 # =============================================================================
@@ -844,3 +898,88 @@ def test_forecast_code_detects_the_dialect_when_profile_was_built_from_a_datafra
     assert f"data = pd.read_csv({path!r}, sep=';', decimal=',')\n" in result.code
     assert result.profile.data_profile.csv_sep == ";"
     assert result.profile.data_profile.csv_decimal == ","
+
+
+def test_forecast_code_reads_csv_with_the_thousands_separator_of_the_file(tmp_path):
+    """
+    Test that forecast_code() on a ';' file with '.' between thousands
+    returns a script that reads it with `thousands='.'` and a profile that
+    records it.
+    """
+    path = write_thousands(tmp_path, df_dialect_thousands)
+
+    result = ForecastingAssistant().forecast_code(data=path, target="y", steps=3)
+
+    assert (
+        f"data = pd.read_csv({path!r}, sep=';', decimal=',', thousands='.')\n"
+        in result.code
+    )
+    assert result.profile.data_profile.csv_thousands == "."
+
+
+def test_forecast_code_reads_file_with_the_thousands_of_a_saved_profile(tmp_path):
+    """
+    Test that a profile built with an explicit `thousands` is used to read a
+    file whose thousands separator cannot be told otherwise, and the script
+    reads it with it; one built with `decimal` '.' reads it with three
+    decimals and names no thousands.
+    """
+    path = tmp_path / "thousands.csv"
+    dates = pd.date_range("2020-01-01", periods=24, freq="MS").strftime("%Y-%m-%d")
+    path.write_text(
+        "date;y\n" + "".join(
+            f"{date};{1 + i % 3}.{100 + i}\n" for i, date in enumerate(dates)
+        )
+    )
+    assistant = ForecastingAssistant()
+    with_thousands = assistant.profile(data=path, target="y", thousands=".")
+    with_decimals = assistant.profile(data=path, target="y", decimal=".")
+
+    err_msg = re.escape(
+        f"The thousands separator of the CSV file '{path}' cannot be told: its "
+        f"numbers with a '.' (such as '1.100') read both as thousands and as "
+        f"numbers with three decimals."
+    )
+    with pytest.raises(InvalidInputError, match="^" + err_msg + "$"):
+        assistant.forecast_code(data=path, target="y", steps=3)
+    result = assistant.forecast_code(data=path, profile=with_thousands, steps=3)
+    decimals = assistant.forecast_code(data=path, profile=with_decimals, steps=3)
+
+    assert (
+        f"data = pd.read_csv({str(path)!r}, sep=';', decimal=',', thousands='.')\n"
+        in result.code
+    )
+    assert result.profile.data_profile.csv_thousands == "."
+    assert f"data = pd.read_csv({str(path)!r}, sep=';', decimal='.')\n" in decimals.code
+    assert decimals.profile.data_profile.csv_thousands is None
+
+
+def test_forecast_code_reads_the_file_of_a_saved_profile_with_its_dialect(tmp_path):
+    """
+    Test that a profile built with `decimal='.'` from a file whose column
+    of whole numbers and '1.250' would be read as thousands keeps reading
+    that file with '.' as decimal mark, while another file with the same
+    values is read as it is written.
+    """
+    dates = pd.date_range("2020-01-01", periods=40, freq="D").strftime("%Y-%m-%d")
+    text = "date;y\n" + "".join(
+        f"{date};{value}\n"
+        for date, value in zip(dates, ["2", "1.250", "3", "4.125"] * 10)
+    )
+    path = tmp_path / "mixed.csv"
+    path.write_text(text)
+    other = tmp_path / "copy.csv"
+    other.write_text(text)
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=path, target="y", decimal=".")
+
+    result = assistant.forecast_code(data=path, profile=profile, steps=3)
+    copy = assistant.forecast_code(data=other, profile=profile, steps=3)
+
+    assert profile.data_profile.target_stats["y"]["max"] == 4.125
+    assert f"data = pd.read_csv({str(path)!r}, sep=';', decimal='.')\n" in result.code
+    assert result.profile.data_profile.csv_thousands is None
+    assert (
+        f"data = pd.read_csv({str(other)!r}, sep=';', decimal=',', thousands='.')\n"
+        in copy.code
+    )

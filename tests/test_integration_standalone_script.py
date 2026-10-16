@@ -16,13 +16,22 @@ from skforecast_ai import ForecastingAssistant
 
 from tests.fixtures_assistant import (
     df_multi_long,
+    df_multi_long_integer_ids,
+    df_multi_long_numeric_ids,
     df_multi_long_staggered,
     df_multi_wide,
     df_no_exog,
     df_single,
 )
-from tests.fixtures_csv_dialect import df_dialect, write_dialect
+from tests.fixtures_csv_dialect import (
+    df_dialect,
+    df_dialect_thousands,
+    df_dialect_thousands_long,
+    write_dialect,
+    write_thousands,
+)
 from tests.fixtures_datasets import df_h2o, df_items_sales_long
+from tests.fixtures_future_exog import data_long, exog_long
 
 
 def _run_standalone(script: str, workdir) -> pd.DataFrame:
@@ -64,7 +73,8 @@ def _run_standalone(script: str, workdir) -> pd.DataFrame:
     )
     assert proc.returncode == 0, proc.stderr[-3000:]
 
-    predictions = pd.read_csv(export_path, index_col=0)
+    # The series names are text, as the script names them ('001').
+    predictions = pd.read_csv(export_path, index_col=0, dtype={"level": str})
     predictions.index = pd.to_datetime(predictions.index)
     return predictions
 
@@ -532,6 +542,32 @@ def test_standalone_script_matches_forecast_when_long_format_future_exog(tmp_pat
     )
 
 
+def test_standalone_script_matches_forecast_when_long_format_multiindex(tmp_path):
+    """
+    Test that the script of long-format data passed in memory indexed by a
+    (series, date) MultiIndex, with the future exogenous variables indexed
+    the same way, runs as a file on the frames saved with `to_csv()` and
+    gives the predictions of forecast(): `to_csv()` writes the levels as
+    columns, which is how forecast() runs the data. Before, forecast() failed
+    because the executed script did not find the date column.
+    """
+    data = data_long.set_index(["series", "date"])
+    exog = exog_long.set_index(["series", "date"])
+    executed = ForecastingAssistant().forecast(
+        data=data, target="value", steps=7, estimator="Ridge", exog=exog
+    )
+    data.to_csv(tmp_path / "data.csv")
+    exog.to_csv(tmp_path / "exog_future.csv")
+
+    assert executed.plan.use_exog is True
+    standalone = _run_standalone(executed.code, tmp_path)
+    assert list(standalone["level"]) == list(executed.predictions["level"])
+    np.testing.assert_allclose(
+        standalone["pred"].to_numpy(), executed.predictions["pred"].to_numpy(),
+        rtol=1e-6,
+    )
+
+
 _N_RANGE = 120
 _y_range = 10.0 + np.sin(np.arange(_N_RANGE) / 4)
 
@@ -964,3 +1000,145 @@ def test_forecast_gives_equal_predictions_when_same_data_in_semicolon_and_comma_
 
     pd.testing.assert_frame_equal(result.predictions, expected.predictions)
 
+
+@pytest.mark.parametrize(
+    "decimals",
+    [True, False],
+    ids=["thousands and decimal comma", "whole numbers with and without separator"],
+)
+def test_standalone_script_matches_forecast_when_csv_separates_thousands(
+    tmp_path, decimals
+):
+    """
+    Test that the script of a ';' file with '.' between thousands ('1.020,50'
+    or '870' next to '1.020'), run as a real file, reads it with
+    `thousands='.'` and yields the same predictions as forecast(), which
+    are those of the same amounts written with ',' and '.'.
+    """
+    csv_path = write_thousands(tmp_path, df_dialect_thousands, decimals=decimals)
+    comma_path = tmp_path / "us.csv"
+    df_dialect_thousands.assign(
+        y=df_dialect_thousands["y"] if decimals else df_dialect_thousands["y"].round()
+    ).to_csv(comma_path, index=False)
+    assistant = ForecastingAssistant()
+
+    code = assistant.forecast_code(data=csv_path, target="y", steps=5).code
+    executed = assistant.forecast(data=csv_path, target="y", steps=5)
+    expected = assistant.forecast(data=str(comma_path), target="y", steps=5)
+
+    assert (
+        f"data = pd.read_csv({csv_path!r}, sep=';', decimal=',', thousands='.')\n"
+        in code
+    )
+    _assert_same_predictions(_run_standalone(code, tmp_path), executed.predictions)
+    pd.testing.assert_frame_equal(executed.predictions, expected.predictions)
+
+
+@pytest.mark.parametrize(
+    "data, levels",
+    [
+        ("csv", ["001", "1", "10"]),
+        (df_multi_long_numeric_ids, ["001", "1", "10"]),
+        (df_multi_long_integer_ids, ["1", "10", "2"]),
+    ],
+    ids=["csv path", "dataframe with text ids", "dataframe with integer ids"],
+)
+def test_standalone_script_matches_forecast_when_series_ids_are_numbers(
+    tmp_path, data, levels
+):
+    """
+    Test that the script of long-format data whose series ids are numbers
+    ('001', '1', '10'), run as a file, reads them as text, turns them into
+    text again before the reshape (data passed in memory does not run the
+    loading) and gives the predictions of forecast(), with the series named
+    as in the file: '001' keeps its zeros and is not the series '1'. Before,
+    every run failed inside skforecast with `KeyError: 1` (skforecast issue
+    #1357).
+    """
+    if isinstance(data, str):
+        data = tmp_path / "series.csv"
+        df_multi_long_numeric_ids.to_csv(data, index=False)
+        path = str(data)
+    else:
+        data.to_csv(tmp_path / "data.csv", index=False)
+        path = "data.csv"
+    assistant = ForecastingAssistant()
+    kwargs = dict(
+        data=data, target="value", date_column="date",
+        series_id_column="series_id", steps=5, test_size=5,
+    )
+
+    code = assistant.forecast_code(**kwargs).code
+    executed = assistant.forecast(**kwargs)
+
+    assert code == executed.code
+    assert f"data = pd.read_csv({path!r}, dtype={{'series_id': str}})\n" in code
+    assert (
+        "data['series_id'] = data['series_id'].map(str, na_action='ignore')\n"
+        in code
+    )
+    assert sorted(executed.predictions["level"].unique()) == levels
+    assert sorted(executed.metrics["series"]) == levels
+    standalone = _run_standalone(code, tmp_path)
+    assert list(standalone["level"]) == list(executed.predictions["level"])
+    np.testing.assert_allclose(
+        standalone["pred"].to_numpy(), executed.predictions["pred"].to_numpy(),
+        rtol=1e-6,
+    )
+
+
+def test_standalone_backtesting_script_matches_backtest_when_series_ids_are_numbers(
+    tmp_path,
+):
+    """
+    Test that the backtesting script of long-format data whose series ids are
+    numbers ('001', '1', '10'), run as a file, gives the backtest
+    predictions of backtest(), with the series named as in the file.
+    """
+    csv_path = tmp_path / "series.csv"
+    df_multi_long_numeric_ids.to_csv(csv_path, index=False)
+    assistant = ForecastingAssistant()
+    cv = TimeSeriesFold(steps=5, initial_train_size=80, refit=False)
+    kwargs = dict(
+        data=csv_path, target="value", date_column="date",
+        series_id_column="series_id", cv=cv,
+    )
+
+    code = assistant.backtest_code(**kwargs).code
+    executed = assistant.backtest(**kwargs, show_progress=False)
+
+    assert sorted(executed.predictions["level"].unique()) == ["001", "1", "10"]
+    standalone = _run_standalone(code, tmp_path)
+    assert list(standalone["level"]) == list(executed.predictions["level"])
+    np.testing.assert_allclose(
+        standalone["pred"].to_numpy(), executed.predictions["pred"].to_numpy(),
+        rtol=1e-6,
+    )
+
+
+def test_standalone_script_matches_forecast_when_series_ids_and_thousands(tmp_path):
+    """
+    Test that the script of a ';' file of long-format data with '.' between
+    thousands ('1.020,50') and series ids that are numbers ('001', '1',
+    '10'), run as a file, reads the ids as text after the dialect, so the
+    thousands separator does not touch them, and yields the predictions of
+    forecast(), which are those of the same data written with ',' and '.'.
+    """
+    csv_path = write_thousands(
+        tmp_path, df_dialect_thousands_long, series_id_column="store"
+    )
+    comma_path = tmp_path / "us.csv"
+    df_dialect_thousands_long[["store", "date", "y"]].to_csv(comma_path, index=False)
+    assistant = ForecastingAssistant()
+    kwargs = dict(target="y", series_id_column="store", steps=6, test_size=6)
+
+    executed = assistant.forecast(data=csv_path, **kwargs)
+    expected = assistant.forecast(data=str(comma_path), **kwargs)
+
+    assert (
+        f"data = pd.read_csv({csv_path!r}, sep=';', decimal=',', thousands='.', "
+        f"dtype={{'store': str}})\n"
+    ) in executed.code
+    assert sorted(executed.predictions["level"].unique()) == ["001", "1", "10"]
+    _assert_same_predictions(_run_standalone(executed.code, tmp_path), executed.predictions)
+    pd.testing.assert_frame_equal(executed.predictions, expected.predictions)

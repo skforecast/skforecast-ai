@@ -123,8 +123,7 @@ def row_dates(data: pd.DataFrame, date_column: str | None) -> pd.DatetimeIndex |
         Input dataset.
     date_column : str, None
         Name of the date column, or of the MultiIndex level holding the
-        dates (the second level when it has no name). When None, the
-        DatetimeIndex is used.
+        dates. When None, the DatetimeIndex is used.
 
     Returns
     -------
@@ -134,16 +133,12 @@ def row_dates(data: pd.DataFrame, date_column: str | None) -> pd.DatetimeIndex |
     """
     if date_column is not None and date_column in data.columns:
         return _as_dates(data[date_column])
-    if date_column is not None and isinstance(data.index, pd.MultiIndex):
-        # An unnamed date level is the second one, as profiling reads it.
-        if date_column in data.index.names:
-            level = date_column
-        elif data.index.nlevels >= 2 and data.index.names[1] is None:
-            level = 1
-        else:
-            level = None
-        if level is not None:
-            return _as_dates(data.index.get_level_values(level))
+    if (
+        date_column is not None
+        and isinstance(data.index, pd.MultiIndex)
+        and date_column in data.index.names
+    ):
+        return _as_dates(data.index.get_level_values(date_column))
     if isinstance(data.index, pd.DatetimeIndex):
         return data.index
 

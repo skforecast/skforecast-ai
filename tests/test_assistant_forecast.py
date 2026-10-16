@@ -20,6 +20,7 @@ from skforecast_ai import _validation as validation_module
 from skforecast_ai._constants import ALLOWED_METRICS
 
 from tests.fixtures_csv_dialect import df_dialect, write_dialect
+from tests.fixtures_future_exog import data_long, exog_long
 from tests.fixtures_datasets import (
     df_h2o,
     df_h2o_changed_value,
@@ -226,6 +227,111 @@ def test_forecast_output_when_multi_series_long_format():
     assert result.plan.task_type == "multi_series"
     assert result.predictions is not None
     assert len(result.predictions) > 0
+
+
+@pytest.mark.parametrize(
+    "ids",
+    [None, {"item_1": 1, "item_2": 2, "item_3": 10}],
+    ids=["text_ids", "integer_ids"],
+)
+@pytest.mark.parametrize("with_profile", [True, False], ids=["profile", "no_profile"])
+def test_forecast_output_when_long_format_multiindex(with_profile, ids):
+    """
+    Test that long-format data indexed by a (series, date) MultiIndex, with
+    its future exogenous variables indexed the same way, is forecast as the
+    same data with the levels as columns, which is how the script reads the
+    frame saved with `to_csv()`: same script, same predictions, also with
+    integer ids, which become text in the level as in a column (otherwise
+    `exog` named none of the series of the data). Before, the profile read
+    the levels as columns but the executed script did not find them
+    (KeyError: 'date').
+    """
+    data_flat, exog_flat = data_long, exog_long
+    if ids is not None:
+        data_flat = data_flat.assign(series=data_flat["series"].map(ids))
+        exog_flat = exog_flat.assign(series=exog_flat["series"].map(ids))
+    assistant = ForecastingAssistant()
+    expected = assistant.forecast(
+        data             = data_flat,
+        target           = "value",
+        date_column      = "date",
+        series_id_column = "series",
+        steps            = 7,
+        estimator        = "Ridge",
+        exog             = exog_flat,
+    )
+    data = data_flat.set_index(["series", "date"])
+    if with_profile:
+        profile = assistant.profile(data=data, target="value")
+        plan = assistant.plan(profile, steps=7, estimator="Ridge")
+        kwargs = {"profile": profile, "plan": plan}
+    else:
+        kwargs = {"target": "value", "steps": 7, "estimator": "Ridge"}
+
+    result = assistant.forecast(
+        data=data, exog=exog_flat.set_index(["series", "date"]), **kwargs
+    )
+
+    assert result.plan.use_exog is True
+    assert result.code == expected.code
+    pd.testing.assert_frame_equal(result.predictions, expected.predictions)
+
+
+@pytest.mark.parametrize("with_profile", [True, False], ids=["profile", "no_profile"])
+def test_forecast_InvalidInputError_when_multiindex_level_unnamed(with_profile):
+    """
+    Test that forecast() rejects long-format data indexed by a MultiIndex with
+    a level without a name, also with a profile of the same data with named
+    levels: the script reads the levels by name from the frame saved with
+    `to_csv()`, which writes an empty header for them. Before, it ran on
+    columns 'series_id' and 'datetime' that the script did not have.
+    """
+    assistant = ForecastingAssistant()
+    data = data_long.set_index(["series", "date"])
+    kwargs = {"target": "value", "steps": 7, "estimator": "Ridge"}
+    if with_profile:
+        kwargs = {"profile": assistant.profile(data=data, target="value"), "steps": 7}
+    err_msg = re.escape(
+        "`data` is indexed by a MultiIndex with levels without a name "
+        "(names [None, None])."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.forecast(
+            data = data.rename_axis([None, None]),
+            exog = exog_long,
+            **kwargs,
+        )
+
+    assert exc_info.value.field == "data"
+
+
+def test_forecast_InvalidInputError_when_exog_multiindex_level_unnamed():
+    """
+    Test that forecast() rejects future exogenous variables indexed by a
+    MultiIndex with a level without a name, with a hint to name the levels
+    as the series id and date columns of the data. Before, it failed with a
+    DataContentError saying that `exog` had no column 'series', 'date'.
+    """
+    exog = exog_long.set_index(["series", "date"]).rename_axis(["series", None])
+    err_msg = re.escape(
+        "`exog` is indexed by a MultiIndex with levels without a name "
+        "(names ['series', None])."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        ForecastingAssistant().forecast(
+            data      = data_long.set_index(["series", "date"]),
+            target    = "value",
+            steps     = 7,
+            estimator = "Ridge",
+            exog      = exog,
+        )
+
+    assert exc_info.value.field == "exog"
+    assert exc_info.value.hint == (
+        "Name the levels as the series id and date columns of the data, as in "
+        "`exog.rename_axis(['series_id', 'date'])`, and pass it as it is or "
+        "with `reset_index()`."
+    )
 
 
 # =============================================================================

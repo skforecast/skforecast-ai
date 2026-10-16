@@ -90,8 +90,12 @@ argumento explícito.
   error con hint y un argumento explícito. En el mismo PR: el mensaje de V14
   (hoy pide "escribirlas en ISO 8601" a fechas que ya lo están: separar
   "espaciado irregular" de "ambigüedad día y mes"), las fechas `yyyymmdd`
-  enteras que hoy se usan como exógena (V13), y las fechas día primero del
-  `exog_future` de datos largos. *[script]*
+  enteras que hoy se usan como exógena (V13), las fechas día primero del
+  `exog_future` de datos largos, y las fechas con punto junto a miles con
+  punto (el Excel alemán, `15.01.2020;1.234,56`): con `thousands='.'` pandas
+  las lee como el entero 15012020, así que 1a las rechaza con
+  `data_unreadable`; leerlas pide sacar la columna de fechas de `thousands`
+  en el `read_csv` del script (`dtype={'date': str}` o similar). *[script]*
 - **1e. Frecuencia con huecos regulares (V14, de fondo).**
   `_infer_frequency_with_gaps` (`data_profile.py:129-171`) exige ventanas de
   10 sin huecos: datos diarios sin domingos (una tienda que cierra) dan
@@ -301,11 +305,100 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
   el de hoy. Cuando es ambiguo (todos los valores con tres cifras tras el
   punto), `data_unreadable` con hint. El rechazo a secas solo es el plan B de
   una 0.4.3.
+  Concretado en [#86](https://github.com/skforecast/skforecast-ai/pull/86)
+  (2026-10-15):
+  - Solo `thousands='.'`, con `,` decimal: `thousands=','` (`"10,025.1"` en un
+    fichero con `,`) queda fuera; su error nombra el formato, y añadir `,`
+    más tarde no rompe nada.
+  - La mezcla "con y sin separador" se mira por columna: enteros de hasta tres
+    cifras junto a valores como `1.020`; un entero de cuatro cifras sin
+    separador la anula. Pistas que se contradicen (esa columna junto a un
+    `0.5` en otra) dan `data_unreadable`, nunca se elige una.
+  - Con `.` de miles, cualquier otro valor de cifras y puntos (`15.01.2020`,
+    `0.5`) da `data_unreadable`: pandas le quitaría todos los puntos. Las
+    fechas con punto van a 1d.
+  - Más allá de la muestra de 256 KB, si el fichero (con `;` o tabulador y `.`
+    decimal detectado) no cabe en ella, se releen como texto las columnas
+    leídas como `float` con las mismas reglas: unos datos largos ordenados
+    por serie pueden traer los miles solo en series posteriores. Las URL no
+    se releen. Solo se releen las columnas con valores de 1 a 999 y tres
+    decimales como mucho, y nada si los números ya leídos lo deciden: en un
+    fichero de 73 MB con decimales de precisión, 1,3 s frente a 1,0 s de una
+    lectura simple; en el peor caso (precios con dos decimales, 35 MB),
+    2,7 s frente a 0,6 s.
+  - Con `.` de miles (detectado o dado), los valores con punto que no
+    separan miles (`0.5`) solo se buscan en la muestra: un fichero
+    incoherente, concatenado de dos configuraciones regionales, con un `0.5`
+    tras los 256 KB, lo lee pandas como 5. Cubrirlo exigiría releer todas las
+    columnas numéricas de cualquier fichero grande con miles.
+  - El fichero del que se construyó un perfil (mismo `data_path`) se lee con
+    el dialecto del perfil, también cuando se detectaría otro: así un
+    `decimal='.'` dado contra la regla de mezcla se mantiene en `forecast()`.
+    Otro fichero se detecta, como en la 0.4.2.
+  - V15: el error de un objetivo con separador de miles o `%` es del fichero
+    (`DataContentError` en `data`), para que el servidor MCP añada
+    `DATA_PROBLEM_HINT`.
+  - Nota de release sin destacado (se decide al consolidar la fase 1), con
+    una línea en "Before upgrading": los ficheros cuyos números con punto
+    tienen todos tres decimales ahora dan error.
 - **D2. V28: solo detección** (2026-10-15): las filas más largas que la
   cabecera dan `data_unreadable` con hint, sin tocar los scripts.
   `index_col=False` leería bien el separador final, pero tendría que ir
   también en el script y rehacer todos los goldens de renderizado.
-- **D5. 1g: avisos de exógenas sucias en el perfil** (2026-10-16). V12: una
+  Concretado en [#85](https://github.com/skforecast/skforecast-ai/pull/85)
+  (2026-10-15):
+  - Cabecera con un campo menos (`to_csv(index_label=False)`): en los datos
+    da `data_unreadable`, porque su perfil nunca funcionó (sin fechas ni
+    frecuencia); en las exógenas se sigue aceptando, como documentaban 0.3.x
+    y 0.4.x, solo si todas las filas tienen exactamente un campo más y la
+    última columna no queda vacía.
+  - Una columna sin nombre y sin valores (`Unnamed: N`, separador al final
+    de todas las líneas) da `data_unreadable` nombrándola, en cualquier
+    posición, no solo al final: ignorarla en silencio iría contra el
+    principio 3.
+  - Un único hint neutro, para personas y agentes, igual en datos y
+    exógenas: escribir una copia sin los campos sobrantes y pedir permiso al
+    dueño del fichero si no es propio. El servidor MCP no lo sustituye por
+    `EXOG_FILE_HINT`: quitar separadores no cambia ningún valor.
+  - Nota de release solo en **Fixed**, sin destacado ni "Before upgrading";
+    el destacado se decide al consolidar las notas de la fase 1.
+- **D5. G02: los ids de serie son texto** (2026-10-16), en la librería y en
+  el script, sin esperar a
+  [#1357](https://github.com/skforecast/skforecast/issues/1357). Concretado
+  en [#90](https://github.com/skforecast/skforecast-ai/pull/90):
+  - El `read_csv` de la librería y el del preámbulo leen la columna de ids
+    con `dtype={<id>: str}`, después de los argumentos de dialecto, también
+    `exog_future.csv` y el fichero de exógenas futuras de la librería. Se
+    emite siempre que el perfil tenga `series_id_column`, también con una
+    sola serie en formato largo, que no usa la columna: así el script lee el
+    fichero como la librería.
+  - El cuerpo común convierte los ids antes del `to_datetime`, en `data` y
+    en `exog_future`, con `map(str, na_action='ignore')` y no con
+    `astype(str)`: con pandas 2, `astype(str)` haría de un id vacío la serie
+    `'nan'`, y las filas sin id se quedan fuera como antes.
+  - La librería convierte también los ids de un DataFrame (datos y
+    exógenas futuras) antes de perfilar, validar y ejecutar, así el perfil
+    nombra `'1'` y las comprobaciones ven lo que ve el script; en `exec`, la
+    línea del script es la misma conversión. Un DataFrame con ids enteros
+    ordena sus series como texto (`'1'`, `'10'`, `'2'`).
+  - La columna de ids no cuenta para el dialecto (ni en la muestra ni
+    después de ella: un id `1.2.3` no da `data_unreadable`, uno `1.020` no
+    decide los miles) ni para buscar la columna de fechas (`'2001'` se lee
+    como un año).
+  - Exógenas futuras con ids enteros y datos con ids de texto: antes, error
+    con la pista "of another type"; ahora se emparejan como texto (`1` es la
+    serie `'1'`). La pista pasa a ser la de los mismos números escritos de
+    otra forma (`1` frente a `'001'`, `1.0` frente a `'1'`), también con un
+    modelo fundacional, que sin ella tomaría todas las series sin valores
+    futuros sin avisar.
+  - DataFrame ancho con columnas de nombre entero: `InvalidInputError`
+    (`field` `target`) con un hint para renombrarlas, en vez de la
+    `ValidationError` de Pydantic. No se convierten a texto (pregunta abierta
+    en la PR).
+  - Nota de release en **Changed** (scripts) y **Fixed**, con una línea en
+    "Before upgrading" por el cambio de los scripts; sin destacado, que se
+    decide al consolidar la fase 1.
+- **D6. 1g: avisos de exógenas sucias en el perfil** (2026-10-16). V12: una
   columna `object` avisa cuando al menos el 90 % de sus valores (sin contar
   faltantes) son números una vez quitados los espacios y un `%` final, o
   celdas solo de `-` o en blanco, y hay al menos un número. No cuentan como
