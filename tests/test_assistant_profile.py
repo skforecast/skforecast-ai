@@ -37,6 +37,7 @@ from tests.fixtures_assistant import (
     df_no_exog,
     df_short,
     df_multi_long,
+    df_multi_long_integer_ids,
     df_multi_wide,
     df_with_missing,
     df_constant_target,
@@ -179,6 +180,30 @@ def test_profile_output_when_multi_series_long_format():
     assert profile.data_profile.n_series == 2
     assert profile.data_profile.data_format == "long"
     assert profile.forecaster == "ForecasterRecursiveMultiSeries"
+
+
+def test_profile_series_pacf_when_long_format_multiindex_with_integer_ids():
+    """
+    Test that profile() computes the PACF of long-format data indexed by a
+    (series_id, date) MultiIndex on the flat frame the profile describes:
+    the integer ids are named and ordered as text ('1', '10', '2'), as those
+    of the same data with the levels as columns. Before, the PACF read the
+    MultiIndex and listed the series in numeric order ('1', '2', '10').
+    """
+    assistant = ForecastingAssistant()
+    expected = assistant.profile(
+        data             = df_multi_long_integer_ids,
+        target           = "value",
+        date_column      = "date",
+        series_id_column = "series_id",
+    )
+    data = df_multi_long_integer_ids.set_index(["series_id", "date"])
+
+    profile = assistant.profile(data=data, target="value")
+
+    assert [pacf.series_id for pacf in profile.series_pacf] == ["1", "10", "2"]
+    assert profile.series_pacf == expected.series_pacf
+    assert profile.data_profile == expected.data_profile
 
 
 def test_profile_output_when_multi_series_wide_format():
@@ -636,6 +661,37 @@ def test_profile_InvalidInputError_when_series_id_column_invalid(
 
     assert exc_info.value.code == "invalid_argument"
     assert exc_info.value.field == "series_id_column"
+
+
+@pytest.mark.parametrize(
+    "names",
+    [[None, None], ["series_id", None], [None, "date"]],
+    ids=lambda names: f"names: {names}",
+)
+def test_profile_InvalidInputError_when_multiindex_level_unnamed(names):
+    """
+    Test that profile() rejects long-format data indexed by a MultiIndex with
+    a level without a name, with a hint to name the levels: the generated
+    script reads the levels by name from the frame saved with `to_csv()`,
+    which writes an empty header for them. Before, two unnamed levels raised
+    KeyError: 'series_id', and an unnamed date level was profiled as a column
+    'datetime' that the script did not have.
+    """
+    data = df_multi_long.set_index(["series_id", "date"]).rename_axis(names)
+    err_msg = re.escape(
+        f"`data` is indexed by a MultiIndex with levels without a name "
+        f"(names {names})."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        ForecastingAssistant().profile(data=data, target="value")
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "data"
+    assert exc_info.value.hint == (
+        "Name the levels, as in `data.rename_axis(['series_id', 'date'])`, or "
+        "turn them into columns with `data.reset_index()` and pass their names "
+        "as `series_id_column` and `date_column`."
+    )
 
 
 def test_profile_InvalidInputError_when_target_is_empty_list():

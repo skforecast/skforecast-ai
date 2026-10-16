@@ -88,7 +88,11 @@ from .profiling import (
     create_data_profile,
     resolve_end_train,
 )
-from .profiling.data_profile import unused_columns_note, validate_target_numeric
+from .profiling.data_profile import (
+    check_multiindex_names,
+    unused_columns_note,
+    validate_target_numeric,
+)
 from .recommendation import (
     _build_profile_explanation,
     baseline_missing_values_note,
@@ -161,6 +165,7 @@ from ._utils import (
     _check_plan_matches_profile,
     _check_feature_name_collisions,
     _cv_in_time_zone,
+    _flatten_multiindex,
     _warn_direct_gap,
     _warn_window_without_refit,
     _resolve_data_and_target,
@@ -740,6 +745,12 @@ class ForecastingAssistant:
         a profile was built from as that profile says, so what is given
         here holds for them; another file is read as it is written, and as
         the profile says only when that cannot be told.
+
+        Long-format data can also be a DataFrame indexed by a
+        `(series_id, date)` MultiIndex: its levels are read as the columns
+        of the same name, as the generated script reads the frame saved
+        with `to_csv()`. A level without a name raises `InvalidInputError`;
+        name the levels with `data.rename_axis(['series_id', 'date'])`.
         """
 
         data_path = recorded_data_path(data)
@@ -755,6 +766,13 @@ class ForecastingAssistant:
         # How the file was read, which the script repeats; nothing for data
         # passed in memory.
         sep, decimal, thousands = _dialect_read(data_path)
+        # The levels of a MultiIndex become columns here, not only inside
+        # `create_data_profile`: the check of the target and the PACF then
+        # read the flat frame the profile describes, whose series ids are
+        # text (ordered '1', '10', '2', as in the profile).
+        data, date_column, series_id_column = _flatten_multiindex(
+            data, date_column, series_id_column
+        )
 
         data_profile = create_data_profile(
             data             = data,
@@ -4416,6 +4434,10 @@ class ForecastingAssistant:
             window_features  = window_features,
             **overrides,
         )
+
+        # The levels of a MultiIndex of `exog` are read as columns of the
+        # same name, as those of the data, so they need names too.
+        check_multiindex_names(exog, field="exog")
 
         received_profile = profile is not None
         if profile is None:

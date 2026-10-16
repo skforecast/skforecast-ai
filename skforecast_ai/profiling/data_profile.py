@@ -242,6 +242,11 @@ def create_data_profile(
 
     Notes
     -----
+    A DataFrame indexed by a `(series_id, date)` MultiIndex is read as long
+    format, with its levels as columns of the same name, which fill
+    `series_id_column` and `date_column` when they are None. A level without
+    a name raises `InvalidInputError` (see `check_multiindex_names`).
+
     A timestamp that appears in more than one row of the same series with
     different values raises a `ValueError` (for example long-format data
     profiled without `series_id_column`). Timestamps repeated in identical
@@ -288,7 +293,8 @@ def create_data_profile(
         data = _try_parse_first_date_column(data, date_column, series_id_column)
 
     # Normalize a MultiIndex (level 0 = series_id, level 1 = datetime) into
-    # flat long format so every downstream helper sees named columns.
+    # flat long format so every downstream helper sees named columns. A
+    # level without a name raises: the script reads the levels by name.
     data, date_column, series_id_column = _normalize_multiindex(
         data, date_column, series_id_column
     )
@@ -1388,6 +1394,68 @@ def detect_date_column(
     return None, "other"
 
 
+_MULTIINDEX_HINTS = {
+    "data": (
+        "Name the levels, as in `data.rename_axis(['series_id', 'date'])`, or "
+        "turn them into columns with `data.reset_index()` and pass their names "
+        "as `series_id_column` and `date_column`."
+    ),
+    "exog": (
+        "Name the levels as the series id and date columns of the data, as in "
+        "`exog.rename_axis(['series_id', 'date'])`, and pass it as it is or "
+        "with `reset_index()`."
+    ),
+}
+
+
+def check_multiindex_names(
+    data: pd.DataFrame | pd.Series | None,
+    field: str = "data",
+) -> None:
+    """
+    Check that every level of a MultiIndex has a name.
+
+    The levels of a `(series_id, date)` MultiIndex are read as columns of
+    the same name, and the generated script reads them from the frame saved
+    with `to_csv()`, which leaves the header of a level without a name
+    empty (`pd.read_csv` reads it back as `'Unnamed: 0'`). A level without
+    a name would run here on one column and in the script on another, so it
+    is rejected instead of named.
+
+    Parameters
+    ----------
+    data : pandas DataFrame, pandas Series, None
+        Data, or future exogenous variables, to check. Nothing is checked
+        when it has no MultiIndex (None included).
+    field : str, default 'data'
+        Argument that passed `data`: `'data'` or `'exog'`, reported with
+        the error.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    InvalidInputError
+        When a level of the MultiIndex has no name.
+    """
+    if not isinstance(getattr(data, "index", None), pd.MultiIndex):
+        return
+    names = list(data.index.names)
+    if all(name is not None for name in names):
+        return
+
+    raise InvalidInputError(
+        f"`{field}` is indexed by a MultiIndex with levels without a name "
+        f"(names {names}). The levels are read as columns of the same name, "
+        f"and `to_csv()` writes an empty header for a level without a name, "
+        f"so the generated script could not read it from the saved file.",
+        field = field,
+        hint  = _MULTIINDEX_HINTS[field],
+    )
+
+
 def _normalize_multiindex(
     data: pd.DataFrame,
     date_column: str | None,
@@ -1398,8 +1466,9 @@ def _normalize_multiindex(
 
     A two-level MultiIndex is interpreted as `(series_id, datetime)`:
     level 0 identifies the series and level 1 is the datetime index.
-    The levels are reset into regular columns so that all downstream
-    profiling helpers operate on a flat long-format DataFrame.
+    The levels are reset into regular columns of the same name so that all
+    downstream profiling helpers operate on a flat long-format DataFrame.
+    A level without a name raises (see `check_multiindex_names`).
 
     Parameters
     ----------
@@ -1420,16 +1489,17 @@ def _normalize_multiindex(
         Resolved date column name.
     series_id_column : str, None
         Resolved series identifier column name.
+
+    Raises
+    ------
+    InvalidInputError
+        When a level of the MultiIndex has no name.
     """
+    check_multiindex_names(data, field="data")
     if not isinstance(data.index, pd.MultiIndex) or data.index.nlevels < 2:
         return data, date_column, series_id_column
 
-    names = list(data.index.names)
-    id_name = names[0] if names[0] is not None else "series_id"
-    date_name = names[1] if names[1] is not None else "datetime"
-
-    data = data.copy()
-    data.index = data.index.set_names([id_name, date_name])
+    id_name, date_name = data.index.names[:2]
     data = data.reset_index()
 
     if series_id_column is None:
