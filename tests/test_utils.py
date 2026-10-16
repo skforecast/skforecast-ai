@@ -374,16 +374,32 @@ def test_resolve_inputs_with_profile_raises_when_columns_missing_in_data():
         )
 
 
+@pytest.mark.parametrize(
+    "ids, expected_ids",
+    [
+        (None, None),
+        ({"store_a": 1, "store_b": 10}, {"store_a": "1", "store_b": "10"}),
+    ],
+    ids=["text_ids", "integer_ids"],
+)
 @pytest.mark.parametrize("with_profile", [False, True], ids=["no_profile", "profile"])
-def test_resolve_inputs_with_profile_output_when_multiindex(with_profile):
+def test_resolve_inputs_with_profile_output_when_multiindex(
+    with_profile, ids, expected_ids
+):
     """
     Test that long-format data indexed by a (series_id, date) MultiIndex is
     returned with its levels as columns of the same name, as profiling reads
-    them and as the script reads the frame saved with `to_csv()`, and that
+    them and as the script reads the frame saved with `to_csv()`, that
+    integer ids of the level become text as the ids of a column do, and that
     the date and series id columns come from the levels without a profile
     and from the profile with one.
     """
-    data = df_multi_long.set_index(["series_id", "date"])
+    data = df_multi_long
+    expected = df_multi_long[["series_id", "date", "value"]]
+    if ids is not None:
+        data = data.assign(series_id=data["series_id"].map(ids))
+        expected = expected.assign(series_id=expected["series_id"].map(expected_ids))
+    data = data.set_index(["series_id", "date"])
     profile = (
         ForecastingAssistant().profile(data=data, target="value")
         if with_profile
@@ -394,9 +410,7 @@ def test_resolve_inputs_with_profile_output_when_multiindex(with_profile):
         data, "value", None, None, profile=profile
     )
 
-    pd.testing.assert_frame_equal(
-        data_df, df_multi_long[["series_id", "date", "value"]]
-    )
+    pd.testing.assert_frame_equal(data_df, expected)
     assert target == "value"
     assert date_column == "date"
     assert series_id_column == "series_id"

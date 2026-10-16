@@ -1349,7 +1349,8 @@ def _resolve_inputs_with_profile(
     Long-format data indexed by a `(series_id, date)` MultiIndex is
     flattened as profiling flattens it (`_normalize_multiindex`): its
     levels become columns of the same name, which is also how the
-    generated script reads the frame saved with `to_csv()`. Without a
+    generated script reads the frame saved with `to_csv()`, and the series
+    ids of its first level become text (`series_ids_as_text`). Without a
     profile, a None `date_column` or `series_id_column` is taken from the
     levels, as `profile()` does.
 
@@ -1388,6 +1389,8 @@ def _resolve_inputs_with_profile(
         data_df, date_column, series_id_column = _normalize_multiindex(
             data_df, date_column, series_id_column
         )
+        # The ids of a MultiIndex were a level, not a column turned into text.
+        data_df = series_ids_as_text(data_df, series_id_column)
         return data_df, target, date_column, series_id_column
 
     dp = profile.data_profile
@@ -1449,9 +1452,10 @@ def _resolve_inputs_with_profile(
 
     # The script reads the date and series identifier as columns: the levels
     # of a MultiIndex are reset into columns of the same name, as profiling
-    # does. The columns of the profile are already resolved, so the names
-    # the levels would give are not taken.
+    # does, and the ids of the level become text. The columns of the profile
+    # are already resolved, so the names the levels would give are not taken.
     data_df, *_ = _normalize_multiindex(data_df, date_column, series_id_column)
+    data_df = series_ids_as_text(data_df, series_id_column)
 
     required = list(target) if isinstance(target, list) else [target]
     required += [col for col in (date_column, series_id_column) if col is not None]

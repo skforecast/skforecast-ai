@@ -229,27 +229,38 @@ def test_forecast_output_when_multi_series_long_format():
     assert len(result.predictions) > 0
 
 
+@pytest.mark.parametrize(
+    "ids",
+    [None, {"item_1": 1, "item_2": 2, "item_3": 10}],
+    ids=["text_ids", "integer_ids"],
+)
 @pytest.mark.parametrize("with_profile", [True, False], ids=["profile", "no_profile"])
-def test_forecast_output_when_long_format_multiindex(with_profile):
+def test_forecast_output_when_long_format_multiindex(with_profile, ids):
     """
     Test that long-format data indexed by a (series, date) MultiIndex, with
     its future exogenous variables indexed the same way, is forecast as the
     same data with the levels as columns, which is how the script reads the
-    frame saved with `to_csv()`: same script, same predictions. Before, the
-    profile read the levels as columns but the executed script did not find
-    them (KeyError: 'date').
+    frame saved with `to_csv()`: same script, same predictions, also with
+    integer ids, which become text in the level as in a column (otherwise
+    `exog` named none of the series of the data). Before, the profile read
+    the levels as columns but the executed script did not find them
+    (KeyError: 'date').
     """
+    data_flat, exog_flat = data_long, exog_long
+    if ids is not None:
+        data_flat = data_flat.assign(series=data_flat["series"].map(ids))
+        exog_flat = exog_flat.assign(series=exog_flat["series"].map(ids))
     assistant = ForecastingAssistant()
     expected = assistant.forecast(
-        data             = data_long,
+        data             = data_flat,
         target           = "value",
         date_column      = "date",
         series_id_column = "series",
         steps            = 7,
         estimator        = "Ridge",
-        exog             = exog_long,
+        exog             = exog_flat,
     )
-    data = data_long.set_index(["series", "date"])
+    data = data_flat.set_index(["series", "date"])
     if with_profile:
         profile = assistant.profile(data=data, target="value")
         plan = assistant.plan(profile, steps=7, estimator="Ridge")
@@ -258,7 +269,7 @@ def test_forecast_output_when_long_format_multiindex(with_profile):
         kwargs = {"target": "value", "steps": 7, "estimator": "Ridge"}
 
     result = assistant.forecast(
-        data=data, exog=exog_long.set_index(["series", "date"]), **kwargs
+        data=data, exog=exog_flat.set_index(["series", "date"]), **kwargs
     )
 
     assert result.plan.use_exog is True
