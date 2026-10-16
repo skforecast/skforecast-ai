@@ -70,9 +70,9 @@ Pick the tab of your agent. Every setup gives the server one directory, `--allow
 
     This button adds the server to your user configuration and asks for the directory the first time it starts:
 
-    [![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_Server-0098FF?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect?url=vscode%3Amcp%2Finstall%3F%257B%2522name%2522%253A%2522skforecast-ai%2522%252C%2522command%2522%253A%2522uvx%2522%252C%2522args%2522%253A%255B%2522skforecast-ai-mcp%2522%252C%2522--allow-dir%2522%252C%2522%2524%257Binput%253Aallow_dir%257D%2522%255D%252C%2522inputs%2522%253A%255B%257B%2522type%2522%253A%2522promptString%2522%252C%2522id%2522%253A%2522allow_dir%2522%252C%2522description%2522%253A%2522Absolute%2520path%2520of%2520the%2520directory%2520with%2520your%2520CSV%2520files%2520%2528the%2520server%2520reads%2520only%2520inside%2520it%2529%2522%257D%255D%257D)
+    [![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_Server-0098FF?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect?url=vscode%3Amcp%2Finstall%3F%257B%2522name%2522%253A%2522io.github.skforecast%252Fskforecast-ai%2522%252C%2522gallery%2522%253Atrue%252C%2522command%2522%253A%2522uvx%2522%252C%2522args%2522%253A%255B%2522skforecast-ai-mcp%2522%252C%2522--allow-dir%2522%252C%2522%2524%257Binput%253Aallow_dir%257D%2522%255D%252C%2522inputs%2522%253A%255B%257B%2522type%2522%253A%2522promptString%2522%252C%2522id%2522%253A%2522allow_dir%2522%252C%2522description%2522%253A%2522Absolute%2520path%2520of%2520the%2520directory%2520with%2520your%2520CSV%2520files%2520%2528the%2520server%2520reads%2520only%2520inside%2520it%2529%2522%257D%255D%257D)
 
-    It writes the command `uvx skforecast-ai-mcp --allow-dir <the directory you give>` (see the note below the tabs). To write the configuration yourself: in `.vscode/mcp.json` of the project (or run **MCP: Open User Configuration** from the Command Palette for every project). The key is `servers`, not `mcpServers`:
+    It opens the entry of the server in the MCP gallery of VS Code, which writes the command `uvx skforecast-ai-mcp@<version> --allow-dir <the directory you give>` pinned to the latest version; where the gallery is turned off, it writes the same command without the version (see the note below the tabs). To write the configuration yourself: in `.vscode/mcp.json` of the project (or run **MCP: Open User Configuration** from the Command Palette for every project). The key is `servers`, not `mcpServers`:
 
     ```json
     {
@@ -247,7 +247,7 @@ When it starts, the server checks that it can write to the output directory and 
 
 With `claude mcp add`, the variables go before `--`: `claude mcp add --scope user skforecast-ai -e HF_HUB_OFFLINE=1 -- uvx ...`. In `~/.codex/config.toml`, an `env = { HF_HUB_OFFLINE = "1" }` line under `[mcp_servers.skforecast-ai]`.
 
-**Update.** The plugin of Claude Code runs the version it was published with: update it with `claude plugin update skforecast-ai@skforecast-ai`. `uvx` keeps using the version it downloaded first: run `uvx --refresh --from "skforecast-ai[mcp]" skforecast-ai --version` to get the newest one, or pin the one you want in `args` (`"skforecast-ai[mcp]==<version>"`). With pip, `pip install -U "skforecast-ai[mcp]"`.
+**Update.** The plugin of Claude Code runs the version it was published with: update it with `claude plugin update skforecast-ai@skforecast-ai`. The button of VS Code pins the version it installed: change it in `args` of the configuration. `uvx` keeps using the version it downloaded first: run `uvx --refresh --from "skforecast-ai[mcp]" skforecast-ai --version` to get the newest one, or pin the one you want in `args` (`"skforecast-ai[mcp]==<version>"`). With pip, `pip install -U "skforecast-ai[mcp]"`.
 
 ---
 
