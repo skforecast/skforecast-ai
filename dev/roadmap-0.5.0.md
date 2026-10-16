@@ -418,7 +418,7 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
   estimador que no acepta faltantes falla, sin recomendar ninguno (eso es
   3a).
 - **D7. 1d: el orden de día y mes de las fechas** (2026-10-16). Concretado
-  en la PR de `fix/csv-day-first-dates`:
+  en [#96](https://github.com/skforecast/skforecast-ai/pull/96):
   - El perfil guarda el formato, `DataProfile.date_format` (`'%d/%m/%Y'`),
     no un `dayfirst`: así cubre también `'%Y%m%d'` y `'%d.%m.%Y'`. Sin
     prefijo `csv_`, porque describe también las fechas de texto de un

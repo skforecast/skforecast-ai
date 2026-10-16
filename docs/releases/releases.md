@@ -33,7 +33,7 @@ The main changes in this release are:
 
 + New argument `thousands` of [<code>ForecastingAssistant.profile()</code>][assistant] (`--thousands` in the CLI, `thousands` in the `profile` tool of the MCP server), recorded as `DataProfile.csv_thousands` and passed to `pd.read_csv` by the generated script. See the [CLI guide][cli-guide] ([#86](https://github.com/skforecast/skforecast-ai/pull/86)).
 
-+ New argument `dayfirst` of [<code>ForecastingAssistant.profile()</code>][assistant] (`--dayfirst` or `--monthfirst` in the CLI, `dayfirst` in the `profile` tool of the MCP server) for CSV dates that read both day first and month first. The profile records the format of the dates as `DataProfile.date_format`, shown in its table as "Date format". See the [CLI guide][cli-guide].
++ New argument `dayfirst` of [<code>ForecastingAssistant.profile()</code>][assistant] (`--dayfirst` or `--monthfirst` in the CLI, `dayfirst` in the `profile` tool of the MCP server) for CSV dates that read both day first and month first. The profile records the format of the dates as `DataProfile.date_format`, shown in its table as "Date format". See the [CLI guide][cli-guide] ([#96](https://github.com/skforecast/skforecast-ai/pull/96)).
 
 
 **Changed**
@@ -44,9 +44,9 @@ The main changes in this release are:
 
 + The methods that take a saved profile read the file it was built from with its separator, decimal mark and thousands separator, so what was given to [<code>ForecastingAssistant.profile()</code>][assistant] holds for them; another file is still read as it is written ([#86](https://github.com/skforecast/skforecast-ai/pull/86)).
 
-+ The generated scripts read the dates with their format when pandas would not read them right on its own (dates written day first, the order given with `dayfirst`, whole numbers such as `20200131`), with `pd.to_datetime(data['date'], format='%d/%m/%Y')`, also for `exog_future.csv`, whose dates must then follow that format. With `.` between thousands, they read the date column as text (`dtype={'date': str}`). The predictions are the same.
++ The generated scripts read the dates with their format when pandas would not read them right on its own (dates written day first, the order given with `dayfirst`, whole numbers such as `20200131`), with `pd.to_datetime(data['date'], format='%d/%m/%Y')`, also for `exog_future.csv`, whose dates must then follow that format. With `.` between thousands, they read the date column as text (`dtype={'date': str}`). The predictions are the same ([#96](https://github.com/skforecast/skforecast-ai/pull/96)).
 
-+ The error of [<code>ForecastingAssistant.plan()</code>][assistant] for dates without a regular frequency describes their spacing instead of asking for ISO 8601 dates that may already be, and the description of the profile that the LLM and the MCP server read lists the irregular spacing instead of "none detected".
++ The error of [<code>ForecastingAssistant.plan()</code>][assistant] for dates without a regular frequency describes their spacing instead of asking for ISO 8601 dates that may already be, and the description of the profile that the LLM and the MCP server read lists the irregular spacing instead of "none detected" ([#96](https://github.com/skforecast/skforecast-ai/pull/96)).
 
 
 **Fixed**
@@ -55,9 +55,9 @@ The main changes in this release are:
 
 + In CSV files separated by `;` or tabulators, `.` between thousands was read as a decimal mark without a warning (`1.020` as 1.02), and `1.705,11` failed as a target that is not numeric. It is now read as thousands separator when the file says so; otherwise `profile()` raises `data_unreadable` and asks for `thousands` or `decimal`. A file whose other values also hold a `.` (`0.5`) raises `data_unreadable` too ([#86](https://github.com/skforecast/skforecast-ai/pull/86)).
 
-+ Dates written day first (`31/01/2024`, the Excel of most of Europe) were read month first or rejected, and monthly data on the first of each month had no frequency, so `forecast()` failed. [<code>ForecastingAssistant.profile()</code>][assistant] now reads them day first when a day after the 12th says so (also `15.01.2020` with `.` between thousands, and years of two digits), and asks for `dayfirst` when no date tells. The future exogenous variables follow the same order.
++ Dates written day first (`31/01/2024`, the Excel of most of Europe) were read month first or rejected, and monthly data on the first of each month had no frequency, so `forecast()` failed. [<code>ForecastingAssistant.profile()</code>][assistant] now reads them day first when a day after the 12th says so (also `15.01.2020` with `.` between thousands, and years of two digits), and asks for `dayfirst` when no date tells. The future exogenous variables follow the same order ([#96](https://github.com/skforecast/skforecast-ai/pull/96)).
 
-+ Fixed an issue in [<code>ForecastingAssistant.profile()</code>][assistant] where a CSV column of dates written as whole numbers (`20200131`) was taken for an exogenous variable, and rejected as `date_column`. It is now the date column, as is the `date_column` of a DataFrame with such numbers.
++ Fixed an issue in [<code>ForecastingAssistant.profile()</code>][assistant] where a CSV column of dates written as whole numbers (`20200131`) was taken for an exogenous variable, and rejected as `date_column`. It is now the date column, as is the `date_column` of a DataFrame with such numbers ([#96](https://github.com/skforecast/skforecast-ai/pull/96)).
 
 + Fixed an issue with long-format data whose series ids are numbers (`001`, `1`, `10`), where every backtest, forecast and comparison failed with `KeyError: 1` and [<code>ForecastingAssistant.profile()</code>][assistant] dropped the leading zeros. The ids are now kept as written; integer ids of a DataFrame become text, so its series are ordered as text (`1`, `10`, `2`). A DataFrame whose series columns are named with integers raises `InvalidInputError` with a hint instead of a validation error ([#90](https://github.com/skforecast/skforecast-ai/pull/90)).
 
