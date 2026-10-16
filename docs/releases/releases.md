@@ -49,7 +49,7 @@ The main changes in this release are:
 
 + Fixed an issue with long-format data whose series ids are numbers (`001`, `1`, `10`), where every backtest, forecast and comparison failed with `KeyError: 1` and [<code>ForecastingAssistant.profile()</code>][assistant] dropped the leading zeros. The ids are now kept as written; integer ids of a DataFrame become text, so its series are ordered as text (`1`, `10`, `2`). A DataFrame whose series columns are named with integers raises `InvalidInputError` with a hint instead of a validation error ([#90](https://github.com/skforecast/skforecast-ai/pull/90)).
 
-+ Fixed an issue with long-format data indexed by a `(series_id, date)` MultiIndex, where [<code>ForecastingAssistant.forecast()</code>][assistant], `backtest()` and `compare()` raised `ForecastExecutionError` (`KeyError` on the date column), and `profile()` raised `KeyError` when the levels had no names. A level without a name, also in the future `exog`, now raises `InvalidInputError` in every method, with a hint to name the levels ([#91](https://github.com/skforecast/skforecast-ai/pull/91)).
++ Fixed an issue with long-format data indexed by a `(series_id, date)` MultiIndex, where [<code>ForecastingAssistant.forecast()</code>][assistant], `backtest()` and `compare()` raised `ForecastExecutionError` (`KeyError` on the date column), and `profile()` raised `KeyError` when the levels had no names. A level without a name, also in the future `exog`, now raises `InvalidInputError` in every method, with a hint to name the levels ([#91](https://github.com/skforecast/skforecast-ai/pull/91), [#94](https://github.com/skforecast/skforecast-ai/pull/94)).
 
 
 ## 0.4.2 <small>Oct 12, 2026</small> { id="0.4.2" }
