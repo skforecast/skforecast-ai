@@ -333,7 +333,10 @@ def test_forecast_code_InvalidInputError_when_multiindex_level_unnamed(with_prof
         "(names ['series_id', None])."
     )
     with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
-        assistant.forecast_code(data=data.rename_axis(["series_id", None]), **kwargs)
+        assistant.forecast_code(
+            data = data.rename_axis(["series_id", None]),
+            **kwargs,
+        )
 
     assert exc_info.value.field == "data"
 

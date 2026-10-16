@@ -297,7 +297,9 @@ def test_forecast_InvalidInputError_when_multiindex_level_unnamed(with_profile):
     )
     with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
         assistant.forecast(
-            data=data.rename_axis([None, None]), exog=exog_long, **kwargs
+            data = data.rename_axis([None, None]),
+            exog = exog_long,
+            **kwargs,
         )
 
     assert exc_info.value.field == "data"

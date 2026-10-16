@@ -75,7 +75,9 @@ def test_backtest_code_InvalidInputError_when_multiindex_level_unnamed(with_prof
     )
     with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
         assistant.backtest_code(
-            data=data.rename_axis([None, None]), cv=cv, **kwargs
+            data = data.rename_axis([None, None]),
+            cv   = cv,
+            **kwargs,
         )
 
     assert exc_info.value.field == "data"

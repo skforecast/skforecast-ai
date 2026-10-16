@@ -1340,8 +1340,8 @@ def _flatten_multiindex(
     columns of the frame saved with `to_csv()`: the levels are reset into
     columns of the same name, as profiling does (`_normalize_multiindex`,
     which rejects a level without a name), and the ids of the first level
-    become text (`series_ids_as_text`). Data without a MultiIndex are
-    returned as they are.
+    become text (`series_ids_as_text`). Data without a MultiIndex keep
+    their columns, with the series ids turned into text too.
 
     Parameters
     ----------

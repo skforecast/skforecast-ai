@@ -201,7 +201,24 @@ def test_profile_series_pacf_when_long_format_multiindex_with_integer_ids():
 
     profile = assistant.profile(data=data, target="value")
 
-    assert [pacf.series_id for pacf in profile.series_pacf] == ["1", "10", "2"]
+    assert [
+        (pacf.series_id, pacf.n_observations, pacf.lags)
+        for pacf in profile.series_pacf
+    ] == [
+        ("1", 100, [1, 2, 3]),
+        ("10", 100, [7, 5, 6, 8, 4, 3, 2]),
+        ("2", 100, [1, 2, 3]),
+    ]
+    np.testing.assert_array_almost_equal(
+        np.concatenate([pacf.pacf_abs for pacf in profile.series_pacf]),
+        np.array([
+            0.9497286304844792, 0.6156822781008228, 0.3799783360889658,
+            0.7611519872802129, 0.549834183045989, 0.5300736984603612,
+            0.46977843055323154, 0.4572166474212591, 0.37154322504876336,
+            0.3292776741776512,
+            0.9360758090523229, 0.8483403398362086, 0.42448197624098877,
+        ]),
+    )
     assert profile.series_pacf == expected.series_pacf
     assert profile.data_profile == expected.data_profile
 

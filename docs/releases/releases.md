@@ -21,7 +21,10 @@ The main changes in this release are:
 
     + The scripts of long-format data read the series ids as text and turn them into text before the reshape: one more line (two with future exogenous variables), with the same predictions. See **Changed**.
 
-    And some code needs to be updated: [<code>ForecastingAssistant.profile()</code>][assistant] of a file separated by `;` or tabulators raises `data_unreadable` instead of reading `.` as decimal mark when its only numbers with a `.` have three decimals (`1.870`), or when a column mixes them with whole numbers (`3`, `1.375`) next to other decimals (`0.75`). Pass `decimal='.'` to read them as before. See **Fixed**.
+    And some code needs to be updated:
+
+    + [<code>ForecastingAssistant.profile()</code>][assistant] of a file separated by `;` or tabulators raises `data_unreadable` instead of reading `.` as decimal mark when its only numbers with a `.` have three decimals (`1.870`), or when a column mixes them with whole numbers (`3`, `1.375`) next to other decimals (`0.75`). Pass `decimal='.'` to read them as before. See **Fixed**.
+    + `profile()` of a DataFrame indexed by a MultiIndex with a level without a name raises `InvalidInputError` instead of naming it (`'datetime'`), a column the generated script did not have. Name the levels: `data.rename_axis(['series_id', 'date'])`. See **Fixed**.
 
 
 **Added**
