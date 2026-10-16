@@ -1889,7 +1889,7 @@
             }
           ],
           "default": null,
-          "description": "Absolute path of a CSV file with the future values of the exogenous variables, one row per date (and series) of the horizon. Required to forecast the future when the plan uses exogenous variables. The script of `get_code` reads them from 'exog_future.csv' in its working directory."
+          "description": "Absolute path of a CSV file with the future values of the exogenous variables, one row per date (and series) of the horizon. Required to forecast the future when the plan uses exogenous variables. The script of `get_code` reads them from this file, by its path, as it reads the data."
         }
       },
       "required": [

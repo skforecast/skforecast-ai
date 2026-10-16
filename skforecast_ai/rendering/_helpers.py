@@ -9,7 +9,7 @@
 
 import numbers
 import unicodedata
-from ..schemas import DataProfile, ForecastPlan
+from ..schemas import DataProfile, ForecastPlan, FutureExogFile
 from .._constants import (
     BLOCKING_PREPROCESSING_TEMPLATES,
     COMMENT_ESCAPED_CATEGORIES,
@@ -466,33 +466,33 @@ def _emit_data_loading(
     long_format: bool = False,
     *,
     var: str = "data",
-    path: str | None = None,
+    exog_file: FutureExogFile | None = None,
     comment: str = "# Load data",
-    encoding: str = "utf-8",
 ) -> None:
     """
     Append CSV-loading code lines (only the read_csv call).
 
     The CSV is read with `index_col=0, parse_dates=True` only when there is
     no `date_column` in wide format and the index is stored in the file:
-    for the future exogenous variables (`path` given), for a datetime
+    for the future exogenous variables (`exog_file` given), for a datetime
     index, and for data passed in memory (the placeholder `data_path`,
     the frame saved with `to_csv()`). Without dates, the integer index
     read is then turned into a RangeIndex, which skforecast requires. A
     CSV read by path without dates holds no index, so it is read as is.
 
     A file written with another separator than `','` or with `','` as
-    decimal mark is read with the `sep` and `decimal` of the profile
-    (`csv_sep`, `csv_decimal`), and with its `thousands` when it has one
-    (`csv_thousands`); otherwise the call does not name them. The column
-    of series ids of long-format data is read as text (`dtype`), in the
-    data and in the future exogenous variables, as the library reads it:
-    `'001'` keeps its zeros and the thousands separator does not touch it.
-    With a thousands separator, so is the date column of the data: pandas
-    would read `'15.01.2020'` as the number 15012020. A file that is not
-    UTF-8 is read with `encoding='cp1252'`: the data file with the encoding
-    of the profile (`csv_encoding`), the future exogenous variables with
-    their own (`encoding`).
+    decimal mark is read with its `sep` and `decimal`, and with its
+    `thousands` when it has one; otherwise the call does not name them. A
+    file that is not UTF-8 is read with `encoding='cp1252'`. The data file
+    is read with the dialect of the profile (`csv_sep`, `csv_decimal`,
+    `csv_thousands`, `csv_encoding`), the future exogenous variables with
+    their own (`exog_file`): that of the file they were read from, or the
+    defaults for the frame saved with `to_csv()`. The column of series ids
+    of long-format data is read as text (`dtype`), in the data and in the
+    future exogenous variables, as the library reads it: `'001'` keeps its
+    zeros and the thousands separator does not touch it. With a thousands
+    separator, so is the date column: pandas would read `'15.01.2020'` as
+    the number 15012020.
 
     Parameters
     ----------
@@ -507,13 +507,12 @@ def _emit_data_loading(
         Name of the variable to assign the loaded frame to. Allows the
         same loader to be reused for the future exogenous frame
         (`var='exog_future'`).
-    path : str, default None
-        CSV path to read from. Defaults to `profile.data_path`.
+    exog_file : FutureExogFile, default None
+        File of the future exogenous variables to read, with its path and
+        dialect. If None, the data file, `profile.data_path`, is read with
+        the dialect of the profile.
     comment : str, default '# Load data'
         Comment header emitted above the read_csv call.
-    encoding : str, default 'utf-8'
-        Encoding of the file of `path`, `'utf-8'` or `'cp1252'`. Ignored
-        without `path`: the data file is read with `profile.csv_encoding`.
 
     Returns
     -------
@@ -521,7 +520,7 @@ def _emit_data_loading(
     
     """
 
-    data_path = profile.data_path if path is None else path
+    data_path = profile.data_path if exog_file is None else exog_file.path
     date_col = profile.date_column
 
     # Without a date column the index is saved as the first column of the
@@ -532,34 +531,30 @@ def _emit_data_loading(
     # which must carry the positions that follow the data; without dates,
     # that index is turned back into the RangeIndex skforecast needs.
     index_read = not date_col and (
-        path is not None
+        exog_file is not None
         or profile.index_type == "datetime"
         or profile.data_path == PLACEHOLDER_DATA_PATH
     )
 
-    # A file written with another separator, decimal mark or thousands
-    # separator is read with the ones recorded when it was profiled. Data
-    # passed in memory and the future exogenous variables are the frames
-    # saved with `to_csv()`.
+    # A file is read with the separator, decimal mark, thousands separator
+    # and encoding it was read with: the data file with those recorded when
+    # it was profiled, the future exogenous variables with those of their
+    # own file. Data passed in memory are saved with `to_csv()`.
+    if exog_file is not None:
+        sep, decimal = exog_file.sep, exog_file.decimal
+        thousands, encoding = exog_file.thousands, exog_file.encoding
+    elif profile.data_path == PLACEHOLDER_DATA_PATH:
+        sep, decimal, thousands, encoding = ",", ".", None, "utf-8"
+    else:
+        sep, decimal = profile.csv_sep, profile.csv_decimal
+        thousands, encoding = profile.csv_thousands, profile.csv_encoding
     dialect = ""
     text_columns = [profile.series_id_column]
-    if (
-        path is None
-        and profile.data_path != PLACEHOLDER_DATA_PATH
-        and (profile.csv_sep, profile.csv_decimal) != (",", ".")
-    ):
-        dialect = f", sep={profile.csv_sep!r}, decimal={profile.csv_decimal!r}"
-        if profile.csv_thousands is not None:
-            dialect += f", thousands={profile.csv_thousands!r}"
+    if (sep, decimal) != (",", "."):
+        dialect = f", sep={sep!r}, decimal={decimal!r}"
+        if thousands is not None:
+            dialect += f", thousands={thousands!r}"
             text_columns.append(date_col)
-    # The encoding is the file's own: that of the data file was profiled,
-    # the future exogenous variables were read from their own file. Data
-    # passed in memory are saved with `to_csv()`, in UTF-8.
-    if path is None:
-        encoding = (
-            "utf-8" if profile.data_path == PLACEHOLDER_DATA_PATH
-            else profile.csv_encoding
-        )
     if encoding != "utf-8":
         dialect += f", encoding={encoding!r}"
 
@@ -609,7 +604,7 @@ def _emit_index_setup(
     and the month as numbers, or whole numbers such as 20200131), and as
     pandas guesses it from the first date otherwise. The future exogenous
     variables are read with their own format, which may not be the one of
-    the data (see `exog_date_format`).
+    the data (see `future_exog_file`).
 
     Parameters
     ----------
@@ -809,32 +804,52 @@ def _emit_split_dates(lines: list[str]) -> None:
 def _emit_future_exog_loading(
     lines: list[str],
     profile: DataProfile,
-    encoding: str = "utf-8",
+    exog_file: FutureExogFile | None = None,
 ) -> None:
     """Emit code loading future exogenous variables (prediction mode).
 
     Delegates to `_emit_data_loading` so `exog_future` is loaded exactly
     like `data` (same `date_column`-driven read). Only used by the
     standalone script (`full_script`); in exec mode the `exog_future`
-    variable is injected directly into the namespace. The file is read in
-    its own `encoding`, `'cp1252'` when the file the future values were
-    read from is not UTF-8 (see `exog_encoding`).
+    variable is injected directly into the namespace. The file is the one
+    the future values were read from, with its own dialect, or
+    `exog_future.csv` for a frame passed in memory (see
+    `future_exog_file`). The script then drops the rows of the file made
+    only of separators and names its date column as the one of the data,
+    when it has to, as the file was read (see `load_exog`).
     """
+    exog_file = FutureExogFile() if exog_file is None else exog_file
     _emit_data_loading(
         lines,
         profile,
-        var="exog_future",
-        path="exog_future.csv",
-        comment="# Load future exogenous variables covering the forecast horizon",
-        encoding=encoding,
+        var       = "exog_future",
+        exog_file = exog_file,
+        comment   = "# Load future exogenous variables covering the forecast horizon",
     )
+    date_col = profile.date_column
+    rename = (
+        date_col is not None
+        and exog_file.date_column is not None
+        and exog_file.date_column != date_col
+    )
+    if exog_file.blank_rows or rename:
+        # Before the blank line that closes the loading section.
+        lines.pop()
+        if exog_file.blank_rows:
+            lines.append("exog_future = exog_future.dropna(how='all')")
+        if rename:
+            lines.append(
+                f"exog_future = exog_future.rename(columns="
+                f"{{{exog_file.date_column!r}: {date_col!r}}})"
+            )
+        lines.append("")
 
 
 def _emit_future_exog_index_setup(
     lines: list[str],
     profile: DataProfile,
     long_format: bool = False,
-    date_format: str | None = None,
+    exog_file: FutureExogFile | None = None,
 ) -> None:
     """Append index-setup code for the future exogenous variables.
 
@@ -847,8 +862,8 @@ def _emit_future_exog_index_setup(
     required by skforecast. In long format the dates read from
     `exog_future.csv` are text until parsed, and the reshape to a dict
     would not match them with the dates to predict. The dates are read with
-    `date_format`, the format of the future values (see
-    `exog_date_format`), not the one of the data: a file saved with
+    the format of the dates of `exog_file`, that of the future values (see
+    `future_exog_file`), not the one of the data: a file saved with
     `to_csv()` has them in ISO 8601.
     """
     _emit_index_setup(
@@ -856,7 +871,7 @@ def _emit_future_exog_index_setup(
         profile,
         long_format = long_format,
         var         = "exog_future",
-        date_format = date_format,
+        date_format = None if exog_file is None else exog_file.date_format,
     )
 
 

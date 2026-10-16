@@ -188,3 +188,59 @@ def write_cp1252(
     )
 
     return str(path)
+
+
+# Data and future values as the Excel in Spanish saves them (see
+# `write_excel_es`): dates day first, prices with '.' between thousands and
+# ',' as decimal mark, and accents in the names and the categories. The ten
+# future dates, up to the 11th, read in both orders, which the format of
+# the data settles.
+_steps = np.arange(_n_obs + 10)
+_precio = np.round(870 + 15 * _steps + 40 * np.sin(_steps), 2)
+df_dialect_excel = pd.DataFrame(
+    {
+        "fecha": pd.to_datetime(df_dialect["date"]).dt.strftime("%d/%m/%Y"),
+        "año": np.round(1000 + 2.5 * _precio[:_n_obs], 2),
+        "precio": _precio[:_n_obs],
+        "zona": np.where(np.arange(_n_obs) % 2 == 0, "Cádiz", "Peñíscola"),
+    }
+)
+df_dialect_excel_exog = pd.DataFrame(
+    {
+        "fecha": pd.to_datetime(df_dialect_exog["date"]).dt.strftime("%d/%m/%Y"),
+        "precio": _precio[_n_obs:],
+        "zona": np.where(np.arange(10) % 2 == 0, "Cádiz", "Peñíscola"),
+    }
+)
+
+
+def write_excel_es(
+    directory,
+    frame: pd.DataFrame,
+    name: str,
+    blank_rows: int = 0,
+) -> str:
+    """
+    Write `frame` to `directory` as Excel saves a CSV file on Windows in
+    Spanish: in cp1252, with ';', ',' as decimal mark, '.' between
+    thousands, '\r\n' at the end of every line and, with `blank_rows`, that
+    many rows made only of separators at the end (cells that were
+    formatted); return the path.
+    """
+
+    def cell(value: object) -> str:
+        if isinstance(value, float):
+            text = f"{value:,.2f}"
+            return text.replace(",", "_").replace(".", ",").replace("_", ".")
+        return str(value)
+
+    lines = [";".join(frame.columns)]
+    lines += [
+        ";".join(cell(value) for value in row)
+        for row in frame.itertuples(index=False)
+    ]
+    lines += [";" * (frame.shape[1] - 1)] * blank_rows
+    path = directory / name
+    path.write_bytes(("\r\n".join(lines) + "\r\n").encode("cp1252"))
+
+    return str(path)

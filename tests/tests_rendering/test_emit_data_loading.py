@@ -4,6 +4,7 @@ import pytest
 
 from skforecast_ai.rendering import render_forecast_single_series
 from skforecast_ai.rendering._helpers import _emit_data_loading
+from skforecast_ai.schemas import FutureExogFile
 
 from .fixtures_rendering import (
     plan_single_predict_exog,
@@ -130,7 +131,7 @@ def test_emit_data_loading_names_no_dialect_for_the_future_exog_file():
     )
 
     result = _lines(
-        profile, var="exog_future", path="exog_future.csv", comment="# Future exog"
+        profile, var="exog_future", exog_file=FutureExogFile(), comment="# Future exog"
     )
 
     assert result[0] == "# Future exog"
@@ -217,7 +218,7 @@ def test_emit_data_loading_names_no_thousands_for_the_placeholder_or_exog_file()
 
     placeholder = _lines(profile)
     exog = _lines(
-        with_path, var="exog_future", path="exog_future.csv", comment="# Future exog"
+        with_path, var="exog_future", exog_file=FutureExogFile(), comment="# Future exog"
     )
 
     assert placeholder == ["# Load data", "data = pd.read_csv('data.csv')"]
@@ -276,7 +277,7 @@ def test_emit_data_loading_in_a_full_script_with_thousands_and_future_exog():
         ),
         (
             {"data_path": "eu.csv", "csv_sep": ";", "csv_decimal": ","},
-            {"var": "exog_future", "path": "exog_future.csv"},
+            {"var": "exog_future", "exog_file": FutureExogFile()},
             "exog_future = pd.read_csv('exog_future.csv', dtype={'store': str})",
         ),
     ],
@@ -364,10 +365,89 @@ def test_emit_data_loading_output_when_exog_file_has_its_own_encoding(
 
     result = _lines(
                  profile,
-                 var      = "exog_future",
-                 path     = "exog_future.csv",
-                 comment  = "# Future exog",
-                 encoding = encoding,
+                 var       = "exog_future",
+                 exog_file = FutureExogFile(encoding=encoding),
+                 comment   = "# Future exog",
              )
 
     assert result == ["# Future exog", expected]
+
+
+@pytest.mark.parametrize(
+    "dialect, arguments",
+    [
+        ({}, ""),
+        ({"sep": ";"}, ", sep=';', decimal='.'"),
+        ({"sep": "\t"}, ", sep='\\t', decimal='.'"),
+        ({"sep": ";", "decimal": ","}, ", sep=';', decimal=','"),
+        (
+            {"sep": ";", "decimal": ",", "thousands": "."},
+            ", sep=';', decimal=',', thousands='.', dtype={'date': str}",
+        ),
+        ({"encoding": "cp1252"}, ", encoding='cp1252'"),
+        (
+            {
+                "sep": ";", "decimal": ",", "thousands": ".",
+                "encoding": "cp1252",
+            },
+            ", sep=';', decimal=',', thousands='.', encoding='cp1252', "
+            "dtype={'date': str}",
+        ),
+    ],
+    ids=["defaults", "sep", "tab", "decimal", "thousands", "encoding", "all"],
+)
+def test_emit_data_loading_output_when_exog_file_has_its_own_dialect(
+    dialect, arguments
+):
+    """
+    Test that the file of the future exogenous variables is read by its path
+    with its own dialect, each argument named only when it is not the
+    default of pandas, one by one and all together (the Excel in Spanish),
+    in the order of the data: `sep` and `decimal`, `thousands` (with the
+    date column as text), `encoding` and `dtype`. The data file, written
+    as `to_csv()` writes it, does not lend it its dialect.
+    """
+    profile = profile_single.model_copy(update={"data_path": "ventas.csv"})
+    exog_file = FutureExogFile(path="/datos/futuro.csv", **dialect)
+
+    result = _lines(
+                 profile,
+                 var       = "exog_future",
+                 exog_file = exog_file,
+                 comment   = "# Future exog",
+             )
+
+    assert result == [
+        "# Future exog",
+        f"exog_future = pd.read_csv('/datos/futuro.csv'{arguments})",
+    ]
+
+
+def test_emit_data_loading_output_when_exog_file_and_data_have_other_dialects():
+    """
+    Test that the data file is read with the dialect of the profile and the
+    file of the future exogenous variables with its own, not the one of the
+    data, with the series ids as text in both.
+    """
+    profile = profile_multi_long.model_copy(
+        update={
+            "series_id_column": "store",
+            "data_path": "ventas.csv",
+            "csv_sep": ";",
+            "csv_decimal": ",",
+            "csv_encoding": "cp1252",
+        }
+    )
+    exog_file = FutureExogFile(path="futuro.csv", sep="\t")
+
+    data = _lines(profile, long_format=True)
+    exog = _lines(profile, long_format=True, var="exog_future", exog_file=exog_file)
+
+    assert data[-1] == (
+        "data = pd.read_csv('ventas.csv', sep=';', decimal=',', "
+        "encoding='cp1252', dtype={'store': str})"
+    )
+    assert exog[-1] == (
+        "exog_future = pd.read_csv('futuro.csv', sep='\\t', decimal='.', "
+        "dtype={'store': str})"
+    )

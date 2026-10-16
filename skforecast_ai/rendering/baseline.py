@@ -5,7 +5,7 @@
 # This work by skforecast team is licensed under the Apache License 2.0        #
 ################################################################################
 
-from ..schemas import ForecastPlan, DataProfile, RenderedScript
+from ..schemas import ForecastPlan, DataProfile, FutureExogFile, RenderedScript
 from ._helpers import (
     _emit_aligned_kwargs,
     _emit_end_train,
@@ -44,8 +44,7 @@ def _emit_forecaster_creation_baseline(
 def render_forecast_baseline(
     plan: ForecastPlan,
     profile: DataProfile,
-    exog_date_format: str | None = None,
-    exog_encoding: str = "utf-8",
+    exog_file: FutureExogFile | None = None,
 ) -> RenderedScript:
     """
     Render forecasting code for `ForecasterEquivalentDate` (baseline).
@@ -63,11 +62,9 @@ def render_forecast_baseline(
         `offset` and `n_offsets` of the forecaster.
     profile : DataProfile
         Data profile of the series.
-    exog_date_format : str, default None
+    exog_file : FutureExogFile, default None
         Not used: the script reads no future exogenous variables. Taken as
         every forecast renderer takes it.
-    exog_encoding : str, default 'utf-8'
-        Not used, as `exog_date_format`.
 
     Returns
     -------

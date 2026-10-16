@@ -3,7 +3,7 @@
 import pytest
 
 from skforecast_ai.rendering import render_forecast_multi_series, render_forecast_multivariate
-from skforecast_ai.schemas import RenderedScript
+from skforecast_ai.schemas import FutureExogFile, RenderedScript
 
 from .fixtures_rendering import (
     plan_multi_series,
@@ -480,12 +480,12 @@ def test_render_forecast_multi_series_output_when_long_format_with_date_format(
     Test that in prediction mode with long-format data whose dates are
     written day first the dates of the data are read with the format the
     profile records, those of `exog_future.csv` with their own format
-    (`exog_date_format`), and that nothing else of the script changes.
+    (that of `exog_file`), and that nothing else of the script changes.
     """
     plan = plan_multi_series_exog.model_copy(update={"end_train": None})
     profile = profile_multi_long_exog.model_copy(update={"date_format": "%d/%m/%Y"})
     result = render_forecast_multi_series(
-                 plan, profile, exog_date_format=exog_date_format
+                 plan, profile, exog_file=FutureExogFile(date_format=exog_date_format)
              )
 
     expected = (

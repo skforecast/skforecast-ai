@@ -101,7 +101,7 @@ skforecast-ai forecast "$H2O" --target x --date-column fecha --steps 12
 
 `--interval` takes two quantiles between 0 and 1: `"0.1,0.9"` is an 80% interval. Percentile values such as `"10,90"` are deprecated and will stop working in a future skforecast release.
 
-`forecast-code` builds the same plan and writes the prediction script instead of running it, to the terminal or to `--output`. The script is the code `forecast` would execute: when the data has exogenous variables, it reads their future values from `exog_future.csv`, whose dates are best written in ISO 8601 (`2024-01-31`), as `to_csv()` writes them: the script reads them as pandas guesses them from the first date. The script of `forecast --exog` reads them in the format of the file it was given. `--format json` wraps the script with the profile and the plan.
+`forecast-code` builds the same plan and writes the prediction script instead of running it, to the terminal or to `--output`. The script is the code `forecast` would execute: when the data has exogenous variables, it reads their future values from the file given with `--exog`, by its path, with its separator, decimal mark, encoding and date format, as `forecast --exog` reads it. Without `--exog`, it reads them from `exog_future.csv`, whose dates are best written in ISO 8601 (`2024-01-31`), as `to_csv()` writes them: the script reads them as pandas guesses them from the first date. `--format json` wraps the script with the profile and the plan.
 
 ```bash
 skforecast-ai forecast-code "$DATA" --target y --date-column fecha --steps 12 --output forecast.py

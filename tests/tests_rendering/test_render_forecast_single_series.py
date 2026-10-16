@@ -3,7 +3,7 @@
 import pytest
 
 from skforecast_ai.rendering import render_forecast_single_series
-from skforecast_ai.schemas import RenderedScript
+from skforecast_ai.schemas import FutureExogFile, RenderedScript
 
 from .fixtures_rendering import (
     plan_single_differentiation,
@@ -201,7 +201,7 @@ def test_render_forecast_single_series_output_when_date_format(
     """
     Test that the dates of the data are read with the format the profile
     records (day-first dates), those of the future exogenous variables with
-    their own format (`exog_date_format`: none for ISO 8601, as `to_csv()`
+    their own format (that of `exog_file`: none for ISO 8601, as `to_csv()`
     writes them), and that the rest of the prediction script does not
     change.
     """
@@ -210,7 +210,7 @@ def test_render_forecast_single_series_output_when_date_format(
     result = render_forecast_single_series(
                  plan_single_predict_exog,
                  profile,
-                 exog_date_format = exog_date_format,
+                 exog_file = FutureExogFile(date_format=exog_date_format),
              )
 
     expected = (
@@ -265,8 +265,8 @@ def test_render_forecast_single_series_output_when_csv_encoding_cp1252(
     """
     Test that the CSV that Excel saves on Windows in Spanish (cp1252, ';',
     ',' as decimal mark, dates day first) is read with `encoding='cp1252'`
-    after its dialect, and `exog_future.csv` in its own encoding
-    (`exog_encoding`), and that the rest of the prediction script does not
+    after its dialect, and `exog_future.csv` in its own encoding (that of
+    `exog_file`), and that the rest of the prediction script does not
     change.
     """
     profile = profile_single.model_copy(
@@ -282,8 +282,10 @@ def test_render_forecast_single_series_output_when_csv_encoding_cp1252(
     result = render_forecast_single_series(
                  plan_single_predict_exog,
                  profile,
-                 exog_date_format = "%d/%m/%Y",
-                 exog_encoding    = exog_encoding,
+                 exog_file = FutureExogFile(
+                                 date_format = "%d/%m/%Y",
+                                 encoding    = exog_encoding,
+                             ),
              )
 
     expected = (
@@ -1032,3 +1034,146 @@ def test_render_forecast_single_series_output_when_feature_overrides():
     )
 
     assert result.full_script == expected
+
+
+def test_render_forecast_single_series_output_when_future_exog_file_is_utf8_comma():
+    """
+    Test that future exogenous variables read from a UTF-8 file with ','
+    and '.', as `to_csv()` writes it, are read from that file by its path:
+    the script is the one that reads `exog_future.csv`, byte for byte, with
+    only that path changed.
+    """
+    exog_file = FutureExogFile(path="/datos/futuro.csv", date_column="date")
+
+    result = render_forecast_single_series(
+                 plan_single_predict_exog, profile_single, exog_file=exog_file
+             )
+
+    expected = render_forecast_single_series(
+                   plan_single_predict_exog, profile_single
+               ).full_script.replace("'exog_future.csv'", "'/datos/futuro.csv'")
+    assert result.full_script == expected
+    assert "exog_future = pd.read_csv('/datos/futuro.csv')\n" in expected
+
+
+def test_render_forecast_single_series_output_when_future_exog_file_from_excel():
+    """
+    Test that data and future exogenous variables saved by Excel in Spanish
+    (cp1252, ';', ',' as decimal mark, '.' between thousands, dates day
+    first) are both read by their path with their own dialect: the data
+    with that of the profile, the future values with that of their file,
+    the date column as text with the thousands separator.
+    """
+    profile = profile_single.model_copy(
+        update={
+            "data_path": "/datos/ventas.csv",
+            "csv_sep": ";",
+            "csv_decimal": ",",
+            "csv_thousands": ".",
+            "csv_encoding": "cp1252",
+            "date_format": "%d/%m/%Y",
+        }
+    )
+    exog_file = FutureExogFile(
+                    path        = "/datos/futuro.csv",
+                    sep         = ";",
+                    decimal     = ",",
+                    thousands   = ".",
+                    encoding    = "cp1252",
+                    date_format = "%d/%m/%Y",
+                    date_column = "date",
+                )
+
+    result = render_forecast_single_series(
+                 plan_single_predict_exog, profile, exog_file=exog_file
+             )
+
+    expected = (
+        "import pandas as pd\n"
+        "from lightgbm import LGBMRegressor\n"
+        "from skforecast.recursive import ForecasterRecursive\n"
+        "\n"
+        "# Load data\n"
+        "data = pd.read_csv('/datos/ventas.csv', sep=';', decimal=',', "
+        "thousands='.', encoding='cp1252', dtype={'date': str})\n"
+        "\n"
+        "# Load future exogenous variables covering the forecast horizon\n"
+        "exog_future = pd.read_csv('/datos/futuro.csv', sep=';', decimal=',', "
+        "thousands='.', encoding='cp1252', dtype={'date': str})\n"
+        "\n"
+        "data['date'] = pd.to_datetime(data['date'], format='%d/%m/%Y')\n"
+        "data = data.set_index('date')\n"
+        "data = data.asfreq('D')\n"
+        "data = data.sort_index()\n"
+        "\n"
+        "exog_future['date'] = pd.to_datetime(exog_future['date'], "
+        "format='%d/%m/%Y')\n"
+        "exog_future = exog_future.set_index('date')\n"
+        "exog_future = exog_future.asfreq('D')\n"
+        "exog_future = exog_future.sort_index()\n"
+        "\n"
+        "exog_features = ['promo']\n"
+        "\n"
+        "# Create forecaster\n"
+        "forecaster = ForecasterRecursive(\n"
+        "    estimator = LGBMRegressor(random_state=123, verbose=-1),\n"
+        "    lags      = 7,\n"
+        ")\n"
+        "\n"
+        "# Fit\n"
+        "forecaster.fit(y=data['sales'], exog=data[exog_features])\n"
+        "\n"
+        "# Predict\n"
+        "steps = 10\n"
+        "predictions = forecaster.predict(steps=steps, exog=exog_future[exog_features])\n"
+        "print(predictions)\n"
+    )
+    assert result.full_script == expected
+
+
+@pytest.mark.parametrize(
+    "blank_rows, date_column, extra_lines",
+    [
+        (True, "date", "exog_future = exog_future.dropna(how='all')\n"),
+        (
+            False,
+            "fecha",
+            "exog_future = exog_future.rename(columns={'fecha': 'date'})\n",
+        ),
+        (
+            True,
+            "Unnamed: 0",
+            "exog_future = exog_future.dropna(how='all')\n"
+            "exog_future = exog_future.rename(columns={'Unnamed: 0': 'date'})\n",
+        ),
+    ],
+    ids=["blank rows", "other date column", "both"],
+)
+def test_render_forecast_single_series_output_when_future_exog_file_needs_cleaning(
+    blank_rows, date_column, extra_lines
+):
+    """
+    Test that the script drops the rows made only of separators of the file
+    of the future values, and names its date column as the one of the data
+    when the file names it otherwise, as the file was read, right after
+    reading it; the rest of the loading section does not change.
+    """
+    exog_file = FutureExogFile(
+                    path        = "futuro.csv",
+                    date_column = date_column,
+                    blank_rows  = blank_rows,
+                )
+
+    result = render_forecast_single_series(
+                 plan_single_predict_exog, profile_single, exog_file=exog_file
+             )
+
+    expected = (
+        "# Load data\n"
+        "data = pd.read_csv('data.csv')\n"
+        "\n"
+        "# Load future exogenous variables covering the forecast horizon\n"
+        "exog_future = pd.read_csv('futuro.csv')\n"
+        f"{extra_lines}"
+    )
+    assert result.data_loading == expected

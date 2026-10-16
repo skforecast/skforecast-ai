@@ -4,6 +4,7 @@ import re
 import subprocess
 import sys
 import textwrap
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -28,10 +29,13 @@ from tests.fixtures_csv_dialect import (
     df_dialect,
     df_dialect_cp1252,
     df_dialect_cp1252_exog,
+    df_dialect_excel,
+    df_dialect_excel_exog,
     df_dialect_thousands,
     df_dialect_thousands_long,
     write_cp1252,
     write_dialect,
+    write_excel_es,
     write_thousands,
 )
 from tests.fixtures_datasets import df_h2o, df_items_sales_long
@@ -1406,8 +1410,8 @@ def test_standalone_script_matches_forecast_when_csv_and_future_exog_are_cp1252(
     Test that the CSV that Excel saves on Windows in Spanish (cp1252, ';',
     ',' as decimal mark, dates day first, 'año' as target and accents in the
     categories of 'zona') and future values saved by Excel in cp1252 with
-    ',' are read as cp1252 by the library and by the script run as a file
-    with that file as `exog_future.csv`, also with the data compressed: the
+    ',' are read as cp1252 by the library and by the script run as a file,
+    which reads that file by its path, also with the data compressed: the
     script names `encoding='cp1252'` in both reads, and the predictions are
     those of the same files written in UTF-8.
     """
@@ -1442,11 +1446,158 @@ def test_standalone_script_matches_forecast_when_csv_and_future_exog_are_cp1252(
         f"encoding='cp1252')\n" in executed.code
     )
     assert (
-        "exog_future = pd.read_csv('exog_future.csv', encoding='cp1252')\n"
+        f"exog_future = pd.read_csv("
+        f"{str(tmp_path / 'exog_future.csv')!r}, encoding='cp1252')\n"
         in executed.code
     )
     assert "encoding='cp1252'" not in expected.code
     pd.testing.assert_frame_equal(executed.predictions, expected.predictions)
+    _assert_same_predictions(
+        _run_standalone(executed.code, tmp_path), executed.predictions
+    )
+
+
+@pytest.mark.parametrize("blank_rows", [0, 3], ids=["no blank rows", "blank rows"])
+def test_standalone_script_matches_forecast_when_future_exog_file_from_excel_es(
+    tmp_path, blank_rows
+):
+    """
+    Test that data and future values saved by the Excel in Spanish (cp1252,
+    ';', ',' as decimal mark, '.' between thousands, dates day first, and
+    rows made only of separators at the end of the future values) read by
+    load_exog() give a script that reads that same file by its path, with
+    its whole dialect, and not `exog_future.csv`: run as a file in another
+    directory, it gives the predictions of forecast(), which are those of
+    the same values passed in memory.
+    """
+    data_dir = tmp_path / "datos"
+    data_dir.mkdir()
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    csv_path = write_excel_es(data_dir, df_dialect_excel, "ventas.csv")
+    exog_path = write_excel_es(
+        data_dir, df_dialect_excel_exog, "futuro.csv", blank_rows=blank_rows
+    )
+    assistant = ForecastingAssistant()
+
+    with warnings.catch_warnings():
+        # The note on cp1252 is tested with profile() and load_exog().
+        warnings.simplefilter("ignore", UserWarning)
+        profile = assistant.profile(data=csv_path, target="año")
+        exog = load_exog(
+            exog_path,
+            date_column = profile.data_profile.date_column,
+            date_format = profile.data_profile.date_format,
+        )
+        executed = assistant.forecast(
+            data=csv_path, steps=10, profile=profile, estimator="Ridge", exog=exog
+        )
+    # The same future values as a frame not read from a file.
+    future = exog.copy()
+    future.attrs = {}
+    in_memory = assistant.forecast(
+        data=csv_path, steps=10, profile=profile, estimator="Ridge", exog=future
+    )
+
+    assert (
+        f"exog_future = pd.read_csv({exog_path!r}, sep=';', decimal=',', "
+        f"thousands='.', encoding='cp1252', dtype={{'fecha': str}})\n"
+        in executed.code
+    )
+    assert (
+        "exog_future['fecha'] = pd.to_datetime(exog_future['fecha'], "
+        "format='%d/%m/%Y')\n" in executed.code
+    )
+    assert ("exog_future.dropna(how='all')" in executed.code) is bool(blank_rows)
+    assert "exog_future.csv" not in executed.code
+    pd.testing.assert_frame_equal(executed.predictions, in_memory.predictions)
+    _assert_same_predictions(
+        _run_standalone(executed.code, run_dir), executed.predictions
+    )
+    assert not (run_dir / "exog_future.csv").exists()
+
+
+def test_standalone_script_matches_forecast_when_future_exog_file_long_format(
+    tmp_path,
+):
+    """
+    Test that long-format data and future values read from a file with ';',
+    ',' as decimal mark and '.' between thousands, with series ids that
+    look like numbers ('001', '1', '10'), give a script that reads that file
+    by its path with its dialect and the ids as text, and that run as a
+    file gives the predictions of forecast().
+    """
+    data = df_dialect_thousands_long[["store", "date", "y"]].assign(
+        promo=np.tile(np.arange(48) % 3 == 0, 3).astype(float) * 1500.5
+    )
+    future = pd.DataFrame(
+        {
+            "date": np.tile(
+                pd.date_range("2022-01-01", periods=3, freq="MS").strftime(
+                    "%Y-%m-%d"
+                ),
+                3,
+            ),
+            "store": np.repeat(["001", "1", "10"], 3),
+            "promo": np.tile([1500.5, 0.0, 0.0], 3),
+        }
+    )
+    csv_path = write_excel_es(tmp_path, data, "ventas.csv")
+    exog_path = write_excel_es(tmp_path, future[["store", "date", "promo"]], "futuro.csv")
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    assistant = ForecastingAssistant()
+    kwargs = {"target": "y", "date_column": "date", "series_id_column": "store"}
+
+    profile = assistant.profile(data=csv_path, **kwargs)
+    exog = load_exog(
+        exog_path,
+        date_column      = "date",
+        series_id_column = "store",
+        date_format      = profile.data_profile.date_format,
+    )
+    executed = assistant.forecast(
+        data=csv_path, steps=3, profile=profile, estimator="Ridge", exog=exog
+    )
+
+    assert (
+        f"exog_future = pd.read_csv({exog_path!r}, sep=';', decimal=',', "
+        f"thousands='.', dtype={{'store': str, 'date': str}})\n" in executed.code
+    )
+    assert sorted(executed.predictions["level"].unique()) == ["001", "1", "10"]
+    standalone = _run_standalone(executed.code, run_dir)
+    assert list(standalone["level"]) == list(executed.predictions["level"])
+    _assert_same_predictions(standalone, executed.predictions)
+
+
+def test_standalone_script_reads_exog_future_csv_when_future_exog_in_memory(
+    tmp_path,
+):
+    """
+    Test that future values passed as a DataFrame in memory, not read from
+    a file, still give a script that reads `exog_future.csv` from its
+    working directory as `to_csv()` writes it (no dialect), also with data
+    from the Excel in Spanish: saved there with `to_csv()`, it gives the
+    predictions of forecast().
+    """
+    csv_path = write_excel_es(tmp_path, df_dialect_excel, "ventas.csv")
+    future = df_dialect_excel_exog.assign(
+        fecha=pd.to_datetime(df_dialect_excel_exog["fecha"], format="%d/%m/%Y")
+    ).set_index("fecha")
+    assistant = ForecastingAssistant()
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        profile = assistant.profile(data=csv_path, target="año")
+    executed = assistant.forecast(
+        data=csv_path, steps=10, profile=profile, estimator="Ridge", exog=future
+    )
+    future.to_csv(tmp_path / "exog_future.csv")
+
+    assert "exog_future = pd.read_csv('exog_future.csv')\n" in executed.code
+    assert "exog_future['fecha'] = pd.to_datetime(exog_future['fecha'])\n" in (
+        executed.code
+    )
     _assert_same_predictions(
         _run_standalone(executed.code, tmp_path), executed.predictions
     )

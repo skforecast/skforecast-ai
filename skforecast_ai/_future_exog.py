@@ -10,11 +10,14 @@ import warnings
 import numpy as np
 import pandas as pd
 
-from ._constants import AUTOREG_FORECASTERS, NAN_TOLERANT_ESTIMATORS
+from ._constants import (
+    AUTOREG_FORECASTERS,
+    EXOG_FILE_ATTR,
+    NAN_TOLERANT_ESTIMATORS,
+)
 from ._dates import is_text, parse_text_dates, row_dates
 from .exceptions import DataContentError, InvalidInputTypeError
 from .execution.forecast_runner import exog_as_injected
-from .profiling.csv_dialect import CSV_ENCODINGS
 from .profiling.data_profile import (
     COMPACT_DATE_FORMAT,
     _caller_stacklevel,
@@ -25,7 +28,7 @@ from .profiling.data_profile import (
 )
 from .rendering._helpers import _get_numeric_exog
 from .rendering.foundation import _get_foundation_exog
-from .schemas import DataProfile, ForecastPlan
+from .schemas import DataProfile, ForecastPlan, FutureExogFile
 
 # Values listed in a message, at most.
 _SHOWN = 5
@@ -69,30 +72,44 @@ def as_exog_frame(exog: object) -> pd.DataFrame | None:
     )
 
 
-def exog_encoding(exog: pd.DataFrame | None) -> str:
+def future_exog_file(
+    exog: pd.DataFrame | None,
+    profile: DataProfile,
+) -> FutureExogFile:
     """
-    Return the encoding the generated script reads `exog_future.csv` with:
-    that of the file the future exogenous variables were read from by
-    `load_exog` (`exog.attrs['encoding']`), `'utf-8'` or `'cp1252'`, and
-    `'utf-8'` for any other frame, which `to_csv()` writes in UTF-8, also
-    when its `attrs` name another encoding.
+    Return the CSV file the generated script reads the future exogenous
+    variables from, and how it is written (see `FutureExogFile`).
+
+    Future values read from a file by `load_exog` carry that file
+    (`exog.attrs['exog_file']`): the script reads the same path with its
+    separator, decimal mark, thousands separator, encoding and format of
+    the dates, as the data are read with the dialect of the profile. Any
+    other frame is read from `exog_future.csv`, the frame saved with
+    `to_csv()` (`','`, `'.'`, UTF-8), with the format of its own dates (see
+    `exog_date_format`).
 
     Parameters
     ----------
     exog : pandas DataFrame, None
         Future exogenous variables (see `as_exog_frame`).
+    profile : DataProfile
+        Profiled dataset metadata, with the format of the dates of the data
+        (`date_format`).
 
     Returns
     -------
-    encoding : str
-        `'utf-8'` or `'cp1252'`.
+    exog_file : FutureExogFile
+        File the script reads the future exogenous variables from.
     """
     if exog is None:
-        return "utf-8"
-    encoding = exog.attrs.get("encoding")
-    # Only the encodings `load_exog` reads reach the script: a frame read by
-    # another tool may carry another name there.
-    return encoding if encoding in CSV_ENCODINGS else "utf-8"
+        return FutureExogFile()
+    # Only a file read by `load_exog` reaches the script: a frame built by
+    # another tool may carry another value under that key.
+    exog_file = exog.attrs.get(EXOG_FILE_ATTR)
+    if isinstance(exog_file, FutureExogFile):
+        return exog_file
+
+    return FutureExogFile(date_format=exog_date_format(exog, profile))
 
 
 def exog_date_format(
@@ -101,11 +118,11 @@ def exog_date_format(
 ) -> str | None:
     """
     Return the format the generated script reads the dates of
-    `exog_future.csv` with: that of the future exogenous variables, not
-    that of the data.
+    `exog_future.csv` with, for future exogenous variables passed in memory:
+    that of the future exogenous variables, not that of the data (a file
+    read by `load_exog` carries its own, see `future_exog_file`).
 
-    A frame read with `load_exog` carries the format of its file
-    (`exog.attrs['date_format']`). The text dates of another frame, in the
+    The text dates of the frame, in the
     `date_column` or in the index, which the executed code takes as that
     column (see `exog_as_injected`), are read as `load_exog` reads those of
     a file (see `_day_month_order`): the format of the data decides only
@@ -131,8 +148,6 @@ def exog_date_format(
     """
     if exog is None:
         return None
-    if "date_format" in exog.attrs:
-        return exog.attrs["date_format"]
     date_column = profile.date_column
     if date_column is None:
         # The script reads the dates of the index with `parse_dates`.
@@ -202,7 +217,7 @@ def validate_future_exog(
     data: pd.DataFrame,
     profile: DataProfile,
     plan: ForecastPlan,
-    date_format: str | None = None,
+    exog_file: FutureExogFile | None = None,
 ) -> None:
     """
     Check the future exogenous variables against the data and the plan.
@@ -244,9 +259,10 @@ def validate_future_exog(
         Profiled dataset metadata.
     plan : ForecastPlan
         Forecast plan, in prediction mode.
-    date_format : str, default None
-        Format of the dates of `exog` (see `exog_date_format`), with which
-        the generated code reads them.
+    exog_file : FutureExogFile, default None
+        File the generated code reads `exog` from (see `future_exog_file`),
+        with the format of its dates. If None, `exog_future.csv` with dates
+        that need none.
 
     Returns
     -------
@@ -255,6 +271,7 @@ def validate_future_exog(
     columns = used_exog_columns(plan, profile)
     if not columns:
         return
+    date_format = None if exog_file is None else exog_file.date_format
     per_series = _per_series(plan, profile)
     # Repeated columns the generated code does not read are harmless.
     keys = [profile.series_id_column, profile.date_column] if per_series else []

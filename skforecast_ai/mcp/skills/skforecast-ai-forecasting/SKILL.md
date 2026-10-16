@@ -322,8 +322,8 @@ of `details` at 500 and each notice at 1,000. An unexpected error
 (`details.error_id`): its message, which can quote a value, goes to the log
 of the server with that id. A failure (`get_failure`) holds a traceback,
 which can quote values. The scripts of `get_code` and the summary of a
-plan name the path of the data file; the other summaries and the failures
-do not. Tell the user when they ask what you can see.
+plan name the path of the data file (a script of `forecast`, also that of
+`exog_path`); the other summaries and the failures do not. Tell the user when they ask what you can see.
 
 Foundation models download their weights from the Hugging Face Hub the
 first time they run; a `ModelDownloadNotice` (source `plan`) says so, with

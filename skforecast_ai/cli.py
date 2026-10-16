@@ -1341,6 +1341,7 @@ def forecast_code(
     calendar_features: CalendarFeaturesOption = None,
     target_transformer: TargetTransformerOption = None,
     dropna_from_series: DropnaOption = None,
+    exog: Annotated[Path | None, typer.Option("--exog", help="CSV with future exogenous values covering the forecast horizon, which the script reads by its path with its separator, decimal mark, encoding and date format, as forecast --exog reads it. When omitted, the script reads exog_future.csv.")] = None,
     from_plan: FromPlanOption = None,
     format: CodeFormatOption = "code",
     output: OutputOption = None,
@@ -1348,6 +1349,7 @@ def forecast_code(
 ) -> None:
     """Generate a complete Python forecasting script."""
     from ._display import render_code
+    from ._utils import load_exog
     from .assistant import ForecastingAssistant
     with _error_handler(json_errors=format == "json"):
         assistant = ForecastingAssistant()
@@ -1386,11 +1388,31 @@ def forecast_code(
                 plan_obj = assistant.refine_plan(
                     profile=prof, plan=plan_obj, **plan_overrides
                 )
+            # The dates of the file the script loads decide the order of the
+            # future dates that read both ways, as in `forecast --exog`.
+            exog_df = None
+            if exog is not None:
+                data_format = (
+                    prof.data_profile.date_format if data is None
+                    else _data_date_format(
+                             data             = data,
+                             target           = None,
+                             date_column      = date_column,
+                             series_id_column = series_id_column,
+                             profile          = prof,
+                         )
+                )
+                exog_df = load_exog(
+                    exog,
+                    date_column      = prof.data_profile.date_column,
+                    series_id_column = prof.data_profile.series_id_column,
+                    date_format      = data_format,
+                )
             # DATA, when given, is the file the script loads (as in
             # `backtest-code`); the profile of the bundle describes it.
             result = assistant.forecast_code(
                 data=data, target=None, steps=plan_obj.steps,
-                profile=prof, plan=plan_obj,
+                exog=exog_df, profile=prof, plan=plan_obj,
             )
         else:
             if data is None or target is None or steps is None:
@@ -1400,9 +1422,23 @@ def forecast_code(
                 )
             parsed_target = _parse_target(target)
 
+            exog_df = None
+            if exog is not None:
+                exog_df = load_exog(
+                    exog,
+                    date_column      = date_column,
+                    series_id_column = series_id_column,
+                    date_format      = _data_date_format(
+                                           data             = data,
+                                           target           = parsed_target,
+                                           date_column      = date_column,
+                                           series_id_column = series_id_column,
+                                       ),
+                )
+
             with _spinner("Generating code...", quiet):
                 result = assistant.forecast_code(
-                    data=data, target=parsed_target, steps=steps,
+                    data=data, target=parsed_target, steps=steps, exog=exog_df,
                     date_column=date_column, series_id_column=series_id_column,
                     forecaster=forecaster, estimator=estimator,
                     estimator_kwargs=parsed_estimator_kwargs,

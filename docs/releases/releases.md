@@ -19,7 +19,11 @@ The main changes in this release are:
 
     Some results change with this version, without any change in your code:
 
-    + The scripts of long-format data read the series ids as text and turn them into text before the reshape: one more line (two with future exogenous variables), with the same predictions. See **Changed**.
+    + The scripts of long-format data read the series ids as text and turn them into text before the reshape: one more line (two with future exogenous variables), with the same predictions. See + New option `--exog` of the `forecast-code` command of the [CLI][cli], so the script reads the future exogenous values from that file, as `forecast --exog` does, instead of `exog_future.csv`. See the [CLI guide][cli-guide].
+
+
+**Changed**.
+    + The scripts of a forecast with future exogenous values read from a file (`exog_path` of the MCP server, `--exog` of the CLI) read that file by its path, with its own separator, decimal mark and encoding, instead of `exog_future.csv` in the working directory. See **Fixed**.
     + The scripts of dates that write the day and the month as numbers read them with their format (`format='%d/%m/%Y'`, or `'%m/%d/%Y'` month first), also when the first date already said so, and those of files with `.` between thousands read the date column as text: the same predictions. See **Changed**.
 
     And some code needs to be updated:
@@ -44,7 +48,7 @@ The main changes in this release are:
 
 + The methods that take a saved profile read the file it was built from with its separator, decimal mark and thousands separator, so what was given to [<code>ForecastingAssistant.profile()</code>][assistant] holds for them; another file is still read as it is written ([#86](https://github.com/skforecast/skforecast-ai/pull/86)).
 
-+ The generated scripts read the dates with their format when they write the day and the month as numbers or are whole numbers such as `20200131` (`format='%d/%m/%Y'`), and `exog_future.csv` with its own format, none for ISO 8601 as `to_csv()` writes it; future values whose dates read both ways take the order of the data, or warn or raise as the data do. With `.` between thousands, the date column is read as text. The predictions are the same ([#96](https://github.com/skforecast/skforecast-ai/pull/96)).
++ The generated scripts read the dates with their format when they write the day and the month as numbers or are whole numbers such as `20200131` (`format='%d/%m/%Y'`), and the future values with their own, none for ISO 8601 as `to_csv()` writes it; future values whose dates read both ways take the order of the data, or warn or raise as the data do. With `.` between thousands, the date column is read as text. The predictions are the same ([#96](https://github.com/skforecast/skforecast-ai/pull/96)).
 
 + The error of [<code>ForecastingAssistant.plan()</code>][assistant] for dates without a regular frequency describes their spacing instead of asking for ISO 8601 dates that may already be, and the description of the profile that the LLM and the MCP server read lists the irregular spacing instead of "none detected" ([#96](https://github.com/skforecast/skforecast-ai/pull/96)).
 
@@ -57,7 +61,7 @@ The main changes in this release are:
 
 + Dates written day first (`31/01/2024`, the Excel of most of Europe) were read month first or rejected, so monthly data on the first of each month had no frequency. [<code>ForecastingAssistant.profile()</code>][assistant] now reads them day first when a day after the 12th says so (also `15.01.2020` and years of two digits) or, when no date tells, in the only order with a regular frequency, with a note in `DataProfile.warnings`; otherwise it asks for `dayfirst` ([#96](https://github.com/skforecast/skforecast-ai/pull/96)).
 
-+ CSV files that are not UTF-8, as Excel saves them on Windows, raised `data_unreadable` when a header or a category held an `ñ` or an accent. [<code>ForecastingAssistant.profile()</code>][assistant] now reads them as cp1252, recorded as `DataProfile.csv_encoding` with a note in `DataProfile.warnings`, and the generated script passes `encoding='cp1252'`, also for `exog_future.csv`. UTF-16 files still raise `data_unreadable`, asking for UTF-8 ([#97](https://github.com/skforecast/skforecast-ai/pull/97)).
++ CSV files that are not UTF-8, as Excel saves them on Windows, raised `data_unreadable` when a header or a category held an `ñ` or an accent. [<code>ForecastingAssistant.profile()</code>][assistant] now reads them as cp1252, recorded as `DataProfile.csv_encoding` with a note in `DataProfile.warnings`, and the generated script passes `encoding='cp1252'`, also for the future exogenous values. UTF-16 files still raise `data_unreadable`, asking for UTF-8 ([#97](https://github.com/skforecast/skforecast-ai/pull/97)).
 
 + Fixed an issue in [<code>ForecastingAssistant.profile()</code>][assistant] where a CSV column of dates written as whole numbers (`20200131`) was taken for an exogenous variable, and rejected as `date_column`. It is now the date column, as is the `date_column` of a DataFrame with such numbers ([#96](https://github.com/skforecast/skforecast-ai/pull/96)).
 
@@ -66,6 +70,8 @@ The main changes in this release are:
 + Fixed an issue with long-format data indexed by a `(series_id, date)` MultiIndex, where [<code>ForecastingAssistant.forecast()</code>][assistant], `backtest()` and `compare()` raised `ForecastExecutionError` (`KeyError` on the date column), and `profile()` raised `KeyError` when the levels had no names. A MultiIndex that is not two levels named with text, also in the future `exog`, now raises `InvalidInputError` in every method, with a hint ([#91](https://github.com/skforecast/skforecast-ai/pull/91), [#94](https://github.com/skforecast/skforecast-ai/pull/94)).
 
 + [<code>ForecastingAssistant.profile()</code>][assistant] gave no warning for numbers written as text in an exogenous column (`12%`, `-` for a missing value), used then as a categorical variable, nor for its missing values below a rate of 20 %. Both now add a warning naming the column (a `DataProfileWarning` notice in the MCP server); the data are not changed ([#95](https://github.com/skforecast/skforecast-ai/pull/95)).
+
++ The script of a forecast with future exogenous values read from a file (`exog_path` of the MCP server, `--exog` of the CLI) read `exog_future.csv` from its working directory as `to_csv()` writes it, so it failed, also when copied there from a file of the Excel in Spanish (`;`, `,` as decimal mark). It now reads that file by its path with its separator, decimal mark, thousands separator, encoding and date format. See the [MCP server guide][mcp-guide].
 
 
 ## 0.4.2 <small>Oct 12, 2026</small> { id="0.4.2" }

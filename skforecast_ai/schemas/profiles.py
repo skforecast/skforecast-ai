@@ -392,6 +392,94 @@ class DataProfile(PickleDefaultsMixin, BaseModel):
         return self.span_index_length
 
 
+class FutureExogFile(BaseModel):
+    """
+    CSV file the generated script reads the future exogenous variables from,
+    and how it is written.
+
+    Future values read from a file (`exog_path` of the MCP server, `--exog`
+    of the CLI) are read by the script from that same path, with the
+    dialect detected when they were read, as the data are read with the
+    one of the profile (`csv_sep`, `csv_decimal`, `csv_thousands`,
+    `csv_encoding`). Future values passed in memory are read from
+    `exog_future.csv`, the frame saved with `to_csv()`: `','`, `'.'`, no
+    thousands separator and UTF-8. The script names each argument only when
+    it is not the default of pandas.
+
+    Attributes
+    ----------
+    path : str, default 'exog_future.csv'
+        Path of the CSV file the script reads.
+    sep : str, default ','
+        Separator of the fields: `','`, `';'` or a tabulator.
+    decimal : str, default '.'
+        Decimal mark: `'.'` or `','`, the latter only when `sep` is not
+        `','`.
+    thousands : str, None, default None
+        Thousands separator: `'.'`, only with `','` as `decimal`, or None
+        when the numbers have none.
+    encoding : str, default 'utf-8'
+        Encoding of the file: `'utf-8'` or `'cp1252'`.
+    date_format : str, None, default None
+        Format the script reads the dates with (see
+        `DataProfile.date_format`), the one of the future values and not
+        the one of the data, or None when it reads them without one.
+    date_column : str, None, default None
+        Column of the file that holds the dates, or None for
+        `exog_future.csv`. When it is not the date column of the data (a
+        file read without naming it), the script renames it.
+    blank_rows : bool, default False
+        Whether the file has rows made only of separators (a spreadsheet
+        saved as CSV), which hold no date and no value: the script drops
+        them, as they were dropped when the file was read.
+    """
+
+    model_config = {"frozen": True}
+
+    path: str = "exog_future.csv"
+    sep: Literal[",", ";", "\t"] = ","
+    decimal: Literal[".", ","] = "."
+    thousands: Literal["."] | None = None
+    encoding: Literal["utf-8", "cp1252"] = "utf-8"
+    date_format: str | None = None
+    date_column: str | None = None
+    blank_rows: bool = False
+
+    @field_validator("date_format")
+    @classmethod
+    def _check_date_format(cls, value: str | None) -> str | None:
+        """
+        Check that `date_format` is a format of dates: it is written into the
+        generated script.
+        """
+        if value is not None and "%" not in value:
+            raise InvalidInputError(
+                f"`date_format` must be a format of dates such as '%d/%m/%Y', "
+                f"got {value!r}.",
+                field = "exog",
+            )
+        return value
+
+    @model_validator(mode="after")
+    def _check_csv_dialect(self) -> "FutureExogFile":
+        """
+        Check that the decimal mark is not the separator, and that a
+        thousands separator goes with `','` as decimal mark, as for the data.
+        """
+        if self.decimal == "," and self.sep == ",":
+            raise InvalidInputError(
+                "`decimal` cannot be ',' when `sep` is ','.",
+                field = "exog",
+            )
+        if self.thousands is not None and self.decimal != ",":
+            raise InvalidInputError(
+                f"`thousands` cannot be {self.thousands!r} when `decimal` is "
+                f"{self.decimal!r}.",
+                field = "exog",
+            )
+        return self
+
+
 class SeriesPacf(BaseModel):
     """
     PACF-significant lags for a single series.

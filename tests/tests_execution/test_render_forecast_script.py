@@ -3,6 +3,7 @@
 import pytest
 
 from skforecast_ai.execution.forecast_runner import render_forecast_script
+from skforecast_ai.schemas import FutureExogFile
 
 from tests.tests_rendering.fixtures_rendering import (
     plan_baseline,
@@ -56,12 +57,14 @@ def test_render_forecast_script_output_reads_future_exog_with_its_own_format(
     """
     Test that every family of forecaster reads the dates of the data with
     the format of the profile (month first here) and those of
-    `exog_future.csv` with `exog_date_format`, their own format, which may
+    `exog_future.csv` with the format of `exog_file`, their own, which may
     be another one or none (ISO 8601, as `to_csv()` writes them).
     """
     profile = profile.model_copy(update={"date_format": "%m/%d/%Y"})
 
-    script = render_forecast_script(profile, plan, exog_date_format).full_script
+    script = render_forecast_script(
+                 profile, plan, FutureExogFile(date_format=exog_date_format)
+             ).full_script
 
     assert (
         "data['date'] = pd.to_datetime(data['date'], format='%m/%d/%Y')\n"
@@ -73,17 +76,23 @@ def test_render_forecast_script_output_reads_future_exog_with_its_own_format(
     )
 
 
-def test_render_forecast_script_output_when_baseline_and_exog_date_format():
+def test_render_forecast_script_output_when_baseline_and_exog_file():
     """
     Test that a baseline, whose script reads no future exogenous variables,
-    takes `exog_date_format` and `exog_encoding` as every renderer does and
-    does not read `exog_future.csv`.
+    takes `exog_file` as every renderer does and reads no future exogenous
+    variables.
     """
     plan = plan_baseline.model_copy(update={"end_train": None})
 
-    script = render_forecast_script(
-                 profile_single, plan, "%d/%m/%Y", exog_encoding="cp1252"
-             ).full_script
+    exog_file = FutureExogFile(
+                    path        = "futuro.csv",
+                    sep         = ";",
+                    decimal     = ",",
+                    encoding    = "cp1252",
+                    date_format = "%d/%m/%Y",
+                )
+
+    script = render_forecast_script(profile_single, plan, exog_file).full_script
 
     assert "exog_future" not in script
 
@@ -104,16 +113,61 @@ def test_render_forecast_script_output_reads_future_exog_in_its_own_encoding(
     """
     Test that every family of forecaster reads the data file in the
     encoding of the profile (cp1252 here) and `exog_future.csv` in
-    `exog_encoding`, its own, which may be UTF-8 (no argument).
+    the encoding of `exog_file`, its own, which may be UTF-8 (no argument).
     """
     profile = profile.model_copy(
         update={"data_path": "excel.csv", "csv_encoding": "cp1252"}
     )
 
     script = render_forecast_script(
-                 profile, plan, exog_encoding=exog_encoding
+                 profile, plan, exog_file=FutureExogFile(encoding=exog_encoding)
              ).full_script
 
     assert "data = pd.read_csv('excel.csv', encoding='cp1252'" in script
     assert f"exog_future = pd.read_csv('exog_future.csv'{encoding_arg}" in script
     assert script.count("encoding='cp1252'") == (2 if encoding_arg else 1)
+
+
+@pytest.mark.parametrize(
+    "plan, profile",
+    list(_PLANS_WITH_FUTURE_EXOG.values()),
+    ids=list(_PLANS_WITH_FUTURE_EXOG),
+)
+def test_render_forecast_script_output_reads_future_exog_file_with_its_dialect(
+    plan, profile
+):
+    """
+    Test that every family of forecaster reads the future exogenous
+    variables from the file they were read from, by its path, with its
+    separator, decimal mark, thousands separator, encoding and date format
+    (the Excel in Spanish), and not from `exog_future.csv`, also when the
+    data file is written as `to_csv()` writes it.
+    """
+    exog_file = FutureExogFile(
+                    path        = "/datos/futuro.csv",
+                    sep         = ";",
+                    decimal     = ",",
+                    thousands   = ".",
+                    encoding    = "cp1252",
+                    date_format = "%d/%m/%Y",
+                    date_column = "date",
+                )
+    profile = profile.model_copy(update={"data_path": "/datos/ventas.csv"})
+
+    script = render_forecast_script(profile, plan, exog_file).full_script
+
+    text_columns = (
+        "'series_id': str, 'date': str" if profile.series_id_column
+        else "'date': str"
+    )
+    assert "data = pd.read_csv('/datos/ventas.csv'" in script
+    assert "data = pd.read_csv('/datos/ventas.csv', sep" not in script
+    assert (
+        f"exog_future = pd.read_csv('/datos/futuro.csv', sep=';', decimal=',', "
+        f"thousands='.', encoding='cp1252', dtype={{{text_columns}}})\n"
+    ) in script
+    assert (
+        "exog_future['date'] = pd.to_datetime(exog_future['date'], "
+        "format='%d/%m/%Y')\n" in script
+    )
+    assert "exog_future.csv" not in script

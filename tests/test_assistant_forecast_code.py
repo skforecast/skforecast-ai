@@ -1050,8 +1050,9 @@ def test_forecast_code_reads_csv_and_future_exog_in_their_own_encoding(
     """
     Test that forecast_code() of a CSV file in cp1252 (the CSV that Excel
     saves on Windows) with future values read by load_exog() renders the
-    script forecast() runs: the data read with `encoding='cp1252'`, and
-    `exog_future.csv` in the encoding of the file given, none for UTF-8.
+    script forecast() runs: the data read with `encoding='cp1252'`, and the
+    file of the future values by its path, in its own encoding, none for
+    UTF-8.
     """
     csv_path = write_cp1252(tmp_path)
     exog_path = tmp_path / "exog.csv"
@@ -1079,4 +1080,4 @@ def test_forecast_code_reads_csv_and_future_exog_in_their_own_encoding(
         f"data = pd.read_csv({csv_path!r}, sep=';', decimal=',', "
         f"encoding='cp1252')\n" in code
     )
-    assert f"exog_future = pd.read_csv('exog_future.csv'{encoding_arg})\n" in code
+    assert f"exog_future = pd.read_csv({str(exog_path)!r}{encoding_arg})\n" in code

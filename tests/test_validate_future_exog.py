@@ -12,6 +12,7 @@ from skforecast.preprocessing import reshape_exog_long_to_dict
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai._future_exog import used_exog_columns, validate_future_exog
 from skforecast_ai.exceptions import DataContentError, InvalidInputError
+from skforecast_ai.schemas import FutureExogFile
 from skforecast_ai.execution.forecast_runner import (
     exog_as_injected,
     render_forecast_script,
@@ -1273,15 +1274,16 @@ def test_validate_future_exog_output_when_text_dates_follow_date_format(exog):
     """
     Test that text dates of the future exog that read both day first and
     month first ('01/02/2021' to '07/02/2021') are read with their format
-    (`date_format`, the one `exog_date_format` gives them from the order of
-    the data), as the generated code reads them, whatever the order of the
+    (the `date_format` of `exog_file`, the one `exog_date_format` gives
+    them from the order of the data), as the generated code reads them, whatever the order of the
     rows: they are the seven days after the last date of the data,
     2021-01-31.
     """
     assert profile_day_first.date_format == "%d/%m/%Y"
 
     result = validate_future_exog(
-        exog, data_day_first, profile_day_first, plan_day_first, "%d/%m/%Y"
+        exog, data_day_first, profile_day_first, plan_day_first,
+        FutureExogFile(date_format="%d/%m/%Y"),
     )
 
     assert result is None
@@ -1362,7 +1364,8 @@ def test_validate_future_exog_DataContentError_when_missing_value_in_day_first_d
     )
     with pytest.raises(DataContentError, match=err_msg) as exc_info:
         validate_future_exog(
-            exog, data_day_first, profile, plan_day_first, "%d/%m/%Y"
+            exog, data_day_first, profile, plan_day_first,
+            FutureExogFile(date_format="%d/%m/%Y"),
         )
 
     assert exc_info.value.field == "exog"
@@ -1387,7 +1390,8 @@ def test_validate_future_exog_DataContentError_when_text_dates_not_in_date_forma
     )
     with pytest.raises(DataContentError, match=err_msg) as exc_info:
         validate_future_exog(
-            exog, data_day_first, profile_day_first, plan_day_first, "%d/%m/%Y"
+            exog, data_day_first, profile_day_first, plan_day_first,
+            FutureExogFile(date_format="%d/%m/%Y"),
         )
 
     assert exc_info.value.field == "exog"
