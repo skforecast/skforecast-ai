@@ -370,20 +370,25 @@ def test_render_profile_summarizes_missing_target_and_exog(sample_profile):
 
 
 @pytest.mark.parametrize(
-    "csv_sep, csv_decimal, expected",
+    "csv_sep, csv_decimal, csv_encoding, expected",
     [
-        (";", ",", "separator ';', decimal ','"),
-        (";", ".", "separator ';', decimal '.'"),
-        ("\t", ",", "separator tabulator, decimal ','"),
+        (";", ",", "utf-8", "separator ';', decimal ','"),
+        (";", ".", "utf-8", "separator ';', decimal '.'"),
+        ("\t", ",", "utf-8", "separator tabulator, decimal ','"),
+        (";", ",", "cp1252", "separator ';', decimal ',', encoding 'cp1252'"),
+        (",", ".", "cp1252", "separator ',', decimal '.', encoding 'cp1252'"),
     ],
-    ids=["semicolon and comma", "semicolon and point", "tabulator"],
+    ids=[
+        "semicolon and comma", "semicolon and point", "tabulator",
+        "semicolon and cp1252", "comma and cp1252",
+    ],
 )
 def test_render_profile_shows_csv_format_when_not_the_default(
-    sample_profile, csv_sep, csv_decimal, expected
+    sample_profile, csv_sep, csv_decimal, csv_encoding, expected
 ):
     """
     Test that render_profile shows how the CSV file is written when its
-    separator or decimal mark is not the default one.
+    separator, its decimal mark or its encoding is not the default one.
     """
     profile = sample_profile.model_copy(
         update={
@@ -392,6 +397,7 @@ def test_render_profile_shows_csv_format_when_not_the_default(
                     "data_path": "eu.csv",
                     "csv_sep": csv_sep,
                     "csv_decimal": csv_decimal,
+                    "csv_encoding": csv_encoding,
                 }
             )
         }

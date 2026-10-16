@@ -163,3 +163,25 @@ def test_csv_read_kwargs_date_column_is_ignored_when_no_thousands(
 
     assert result == expected
 
+
+
+@pytest.mark.parametrize(
+    "sep, decimal, thousands, encoding, expected",
+    [
+        (",", ".", None, "utf-8", {}),
+        (",", ".", None, "cp1252", {"encoding": "cp1252"}),
+        (
+            ";", ",", ".", "cp1252",
+            {"sep": ";", "decimal": ",", "thousands": ".", "encoding": "cp1252"},
+        ),
+    ],
+    ids=["utf-8", "cp1252", "cp1252 with dialect"],
+)
+def test_csv_read_kwargs_output_when_encoding(
+    sep, decimal, thousands, encoding, expected
+):
+    """
+    Test that `encoding` is returned only when it is not UTF-8, the default
+    of `pd.read_csv`, after the dialect, so a UTF-8 file is read as before.
+    """
+    assert csv_read_kwargs(sep, decimal, thousands, encoding=encoding) == expected

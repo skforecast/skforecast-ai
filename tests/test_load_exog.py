@@ -7,14 +7,19 @@ import pandas as pd
 import pytest
 
 from skforecast_ai._utils import load_exog
-from skforecast_ai.profiling.csv_dialect import EXOG_DIALECT_HINT
+from skforecast_ai.profiling.csv_dialect import ENCODING_HINT, EXOG_DIALECT_HINT
 from skforecast_ai.exceptions import (
     DataContentError,
     DataNotFoundError,
     InvalidInputError,
 )
 
-from tests.fixtures_csv_dialect import df_dialect_exog, write_dialect
+from tests.fixtures_csv_dialect import (
+    df_dialect_cp1252_exog,
+    df_dialect_exog,
+    write_cp1252,
+    write_dialect,
+)
 
 _EXPECTED = pd.DataFrame(
     {"temp": [1, 2]},
@@ -409,21 +414,11 @@ def test_load_exog_output_when_no_path():
     [
         (b"", "No columns to parse from file"),
         (
-            bytes(range(256)),
-            "'utf-8' codec can't decode byte 0x80 in position 128: invalid "
-            "start byte",
-        ),
-        (
             b"date,temp\n2023-01-01,1\n2023-01-02,2,3,4\n2023-01-03,4\n",
             "Error tokenizing data. C error: Expected 2 fields in line 3, saw 4",
         ),
-        (
-            "date,temp,name\n2023-01-01,1,caf\xe9\n".encode("latin-1"),
-            "'utf-8' codec can't decode byte 0xe9 in position 31: invalid "
-            "continuation byte",
-        ),
     ],
-    ids=["empty", "binary", "more fields than the header", "latin-1"],
+    ids=["empty", "more fields than the header"],
 )
 def test_load_exog_InvalidInputError_when_file_unreadable(tmp_path, content, reason):
     """
@@ -706,7 +701,7 @@ def test_load_exog_output_when_date_format_day_first(
         index=pd.DatetimeIndex(_DAY_FIRST_DATES, name=index_name),
     )
     pd.testing.assert_frame_equal(result, expected)
-    assert result.attrs == {"date_format": "%d/%m/%Y"}
+    assert result.attrs == {"date_format": "%d/%m/%Y", "encoding": "utf-8"}
 
 
 @pytest.mark.parametrize("date_column", [None, "date"], ids=["found", "named"])
@@ -738,7 +733,7 @@ def test_load_exog_output_when_no_date_format_and_only_one_reading_is_regular(
         index=pd.DatetimeIndex(_DAY_FIRST_DATES, name="date"),
     )
     pd.testing.assert_frame_equal(result, expected)
-    assert result.attrs == {"date_format": "%d/%m/%Y"}
+    assert result.attrs == {"date_format": "%d/%m/%Y", "encoding": "utf-8"}
 
 
 @pytest.mark.parametrize(
@@ -815,7 +810,7 @@ def test_load_exog_output_when_integer_dates(tmp_path, date_column, date_format)
         index=pd.DatetimeIndex(["2021-02-01", "2021-02-02"], name="date"),
     )
     pd.testing.assert_frame_equal(result, expected)
-    assert result.attrs == {"date_format": "%Y%m%d"}
+    assert result.attrs == {"date_format": "%Y%m%d", "encoding": "utf-8"}
 
 
 def test_load_exog_output_when_date_format_and_semicolon_dialect(tmp_path):
@@ -885,7 +880,7 @@ def test_load_exog_output_when_iso_dates_and_data_in_another_format(
         index=pd.DatetimeIndex(["2021-02-01", "2021-02-02"], name="date"),
     )
     pd.testing.assert_frame_equal(result, expected)
-    assert result.attrs == {"date_format": None}
+    assert result.attrs == {"date_format": None, "encoding": "utf-8"}
 
 
 @pytest.mark.parametrize("date_column", [None, "date"], ids=["found", "named"])
@@ -907,7 +902,7 @@ def test_load_exog_output_when_day_first_dates_and_data_in_iso(
         index=pd.DatetimeIndex(["2021-02-12", "2021-02-13"], name="date"),
     )
     pd.testing.assert_frame_equal(result, expected)
-    assert result.attrs == {"date_format": "%d/%m/%Y"}
+    assert result.attrs == {"date_format": "%d/%m/%Y", "encoding": "utf-8"}
 
 
 def test_load_exog_DataContentError_when_dates_in_more_than_one_format(tmp_path):
@@ -931,3 +926,55 @@ def test_load_exog_DataContentError_when_dates_in_more_than_one_format(tmp_path)
         load_exog(path, date_column="date", date_format="%d/%m/%Y")
 
     assert exc_info.value.field == "exog"
+
+
+@pytest.mark.parametrize(
+    "date_column", [None, "fecha"], ids=["found", "named"]
+)
+def test_load_exog_output_when_file_is_cp1252(tmp_path, date_column):
+    """
+    Test that future values saved by Excel on Windows in Spanish (cp1252,
+    ';', accents in the categories, dates day first that read in both
+    orders) are read as cp1252, their own encoding, kept in `attrs` with
+    their date format, with a warning that the encoding cannot be checked.
+    """
+    path = write_cp1252(tmp_path, df_dialect_cp1252_exog, name="exog.csv")
+
+    warn_msg = re.escape(
+        f"Exog CSV '{path}': The CSV file is not UTF-8: it was read as cp1252 "
+        f"(Windows-1252), the encoding of the CSV files that Excel saves on "
+        f"Windows, and the generated script reads it so. That encoding cannot "
+        f"be checked: if column names or categories show wrong characters, "
+        f"save the file as UTF-8 and pass it again."
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
+        result = load_exog(path, date_column=date_column, date_format="%d/%m/%Y")
+
+    expected = pd.DataFrame(
+        {"zona": df_dialect_cp1252_exog["zona"].to_numpy()},
+        index=pd.DatetimeIndex(
+            pd.date_range("2023-03-02", periods=10, freq="D"), name="fecha"
+        ),
+    )
+    pd.testing.assert_frame_equal(result, expected, check_freq=False)
+    assert result.attrs == {"date_format": "%d/%m/%Y", "encoding": "cp1252"}
+
+
+def test_load_exog_InvalidInputError_when_file_is_utf16(tmp_path):
+    """
+    Test that future values in UTF-16 raise an InvalidInputError with the
+    code 'data_unreadable', the field 'exog' and the hint that asks for a
+    copy in UTF-8.
+    """
+    path = tmp_path / "exog.csv"
+    df_dialect_exog.to_csv(path, index=False, encoding="utf-16")
+
+    err_msg = re.escape(
+        f"The CSV file '{path}' could not be read: it is written in UTF-16"
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        load_exog(path)
+
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.field == "exog"
+    assert exc_info.value.hint == ENCODING_HINT

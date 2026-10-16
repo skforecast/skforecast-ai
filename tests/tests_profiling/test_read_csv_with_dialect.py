@@ -11,12 +11,18 @@ from skforecast_ai.profiling import data_profile as data_profile_module
 from skforecast_ai.profiling.csv_dialect import (
     DIALECT_HINT,
     DOTTED_VALUES_HINT,
+    ENCODING_HINT,
     EXOG_DIALECT_HINT,
     THOUSANDS_HINT,
 )
 from skforecast_ai.profiling.data_profile import read_csv_with_dialect
 
-from ..fixtures_csv_dialect import df_dialect_thousands_long, write_thousands
+from ..fixtures_csv_dialect import (
+    df_dialect_cp1252,
+    df_dialect_thousands_long,
+    write_cp1252,
+    write_thousands,
+)
 
 _EXPECTED = pd.DataFrame(
     {
@@ -103,7 +109,7 @@ def test_read_csv_with_dialect_output(
     path.write_text(text)
     calls = _record_read_csv(monkeypatch)
 
-    data, sep, decimal, thousands = read_csv_with_dialect(path)
+    data, sep, decimal, thousands, _ = read_csv_with_dialect(path)
 
     pd.testing.assert_frame_equal(data, _EXPECTED)
     assert (sep, decimal, thousands) == (expected_sep, expected_decimal, None)
@@ -131,7 +137,7 @@ def test_read_csv_with_dialect_output_when_file_is_gzip(
     assert path.read_bytes()[:2] == b"\x1f\x8b"
     calls = _record_read_csv(monkeypatch)
 
-    data, result_sep, result_decimal, thousands = read_csv_with_dialect(str(path))
+    data, result_sep, result_decimal, thousands, _ = read_csv_with_dialect(str(path))
 
     pd.testing.assert_frame_equal(data, _EXPECTED)
     assert (result_sep, result_decimal, thousands) == (sep, decimal, None)
@@ -150,7 +156,7 @@ def test_read_csv_with_dialect_comma_file_is_read_with_pd_read_csv_of_the_path(
     path.write_text('date,note\n2020-01-01,"a;b,c"\n2020-01-02,"d;e"\n')
     calls = _record_read_csv(monkeypatch)
 
-    data, sep, decimal, thousands = read_csv_with_dialect(path)
+    data, sep, decimal, thousands, _ = read_csv_with_dialect(path)
 
     expected = pd.DataFrame(
         {"date": ["2020-01-01", "2020-01-02"], "note": ["a;b,c", "d;e"]}
@@ -171,7 +177,7 @@ def test_read_csv_with_dialect_output_when_quoted_fields_hold_other_separators(
     path = tmp_path / "data.csv"
     path.write_text('date;note;y\n2020-01-01;"a,b";1.5\n2020-01-02;"c,d";2.5\n')
 
-    data, sep, decimal, thousands = read_csv_with_dialect(path)
+    data, sep, decimal, thousands, _ = read_csv_with_dialect(path)
 
     expected = pd.DataFrame(
         {
@@ -194,7 +200,7 @@ def test_read_csv_with_dialect_output_when_header_is_one_field_short(tmp_path):
     path = tmp_path / "data.csv"
     path.write_text("y;z\n2020-01-01;1,5;10\n2020-01-02;2,5;20\n")
 
-    data, sep, decimal, thousands = read_csv_with_dialect(path, index_first=True)
+    data, sep, decimal, thousands, _ = read_csv_with_dialect(path, index_first=True)
 
     expected = pd.DataFrame(
         {"y": [1.5, 2.5], "z": [10, 20]},
@@ -243,7 +249,7 @@ def test_read_csv_with_dialect_output_when_single_column(tmp_path, monkeypatch):
     path.write_text("y\n1\n2\n3\n")
     calls = _record_read_csv(monkeypatch)
 
-    data, sep, decimal, thousands = read_csv_with_dialect(path)
+    data, sep, decimal, thousands, _ = read_csv_with_dialect(path)
 
     pd.testing.assert_frame_equal(data, pd.DataFrame({"y": [1, 2, 3]}))
     assert (sep, decimal, thousands) == (",", ".", None)
@@ -269,7 +275,7 @@ def test_read_csv_with_dialect_output_when_sep_or_decimal_given(
     path = tmp_path / "data.csv"
     _EXPECTED.to_csv(path, index=False, sep=";", decimal=",")
 
-    data, result_sep, result_decimal, thousands = read_csv_with_dialect(
+    data, result_sep, result_decimal, thousands, _ = read_csv_with_dialect(
         path, sep=sep, decimal=decimal
     )
 
@@ -279,23 +285,30 @@ def test_read_csv_with_dialect_output_when_sep_or_decimal_given(
     )
 
 
-def test_read_csv_with_dialect_does_not_read_the_file_twice_when_both_given(
+def test_read_csv_with_dialect_does_not_detect_the_dialect_when_both_given(
     tmp_path, monkeypatch
 ):
     """
-    Test that the start of the file is not sampled when the caller gives the
-    separator and the decimal mark.
+    Test that the dialect is not told from the start of the file when the
+    caller gives the separator and the decimal mark; the start is still
+    read, for the encoding.
     """
     path = tmp_path / "data.csv"
     _EXPECTED.to_csv(path, index=False, sep=";", decimal=",")
-    sampled = []
+    detected = []
     monkeypatch.setattr(
-        data_profile_module, "read_sample", lambda path: sampled.append(path)
+        data_profile_module,
+        "detect_csv_dialect",
+        lambda *args, **kwargs: detected.append(args),
     )
 
-    read_csv_with_dialect(path, sep=";", decimal=",")
+    data, sep, decimal, thousands, encoding = read_csv_with_dialect(
+        path, sep=";", decimal=","
+    )
 
-    assert sampled == []
+    assert detected == []
+    pd.testing.assert_frame_equal(data, _EXPECTED)
+    assert (sep, decimal, thousands, encoding) == (";", ",", None, "utf-8")
 
 
 def test_read_csv_with_dialect_gives_the_given_sep_even_when_it_does_not_fit(
@@ -308,7 +321,7 @@ def test_read_csv_with_dialect_gives_the_given_sep_even_when_it_does_not_fit(
     path = tmp_path / "data.csv"
     path.write_text("date;y\n2020-01-01;1.5\n")
 
-    data, sep, decimal, thousands = read_csv_with_dialect(path, sep=",")
+    data, sep, decimal, thousands, _ = read_csv_with_dialect(path, sep=",")
 
     assert list(data.columns) == ["date;y"]
     assert (sep, decimal, thousands) == (",", ".", None)
@@ -458,12 +471,6 @@ def test_read_csv_with_dialect_InvalidInputError_when_decimal_is_ambiguous(
     [
         ("empty.csv", b"", "No columns to parse from file"),
         (
-            "latin1.csv",
-            "date;x;name\n2020-01-01;1;caf\xe9\n".encode("latin-1"),
-            "'utf-8' codec can't decode byte 0xe9 in position 28: invalid "
-            "continuation byte",
-        ),
-        (
             "damaged.csv.gz",
             b"this is not gzip at all",
             "Not a gzipped file (b'th')",
@@ -474,14 +481,14 @@ def test_read_csv_with_dialect_InvalidInputError_when_decimal_is_ambiguous(
             "Compressed file ended before the end-of-stream marker was reached",
         ),
     ],
-    ids=["empty", "latin-1", "damaged gzip", "truncated gzip"],
+    ids=["empty", "damaged gzip", "truncated gzip"],
 )
 @pytest.mark.parametrize("field", ["data", "exog"])
 def test_read_csv_with_dialect_InvalidInputError_when_file_unreadable(
     tmp_path, name, content, reason, field
 ):
     """
-    Test that an empty, not UTF-8 or damaged compressed file raises an
+    Test that an empty or damaged compressed file raises an
     InvalidInputError (a ValueError) with the code 'data_unreadable', the
     reason of the first line, the argument that named the file and the hint
     that names the three separators.
@@ -507,17 +514,16 @@ def test_read_csv_with_dialect_InvalidInputError_when_unreadable_and_dialect_giv
     tmp_path, kwargs
 ):
     """
-    Test that a file whose start cannot be read is reported as unreadable
-    when the caller gives a thousands separator or a decimal mark ',' and no
+    Test that a file pandas cannot read is reported as unreadable when the
+    caller gives a thousands separator or a decimal mark ',' and no
     separator, instead of as an argument that does not fit the default
     separator ','.
     """
-    path = tmp_path / "latin1.csv"
-    path.write_bytes("date;x;name\n2020-01-01;1;caf\xe9\n".encode("latin-1"))
+    path = tmp_path / "data.csv.gz"
+    path.write_bytes(b"this is not gzip at all")
 
     err_msg = re.escape(
-        f"The CSV file '{path}' could not be read: 'utf-8' codec can't decode "
-        f"byte 0xe9 in position 28: invalid continuation byte"
+        f"The CSV file '{path}' could not be read: Not a gzipped file (b'th')"
     )
     with pytest.raises(InvalidInputError, match="^" + err_msg + "$") as exc_info:
         read_csv_with_dialect(path, **kwargs)
@@ -551,7 +557,9 @@ def test_read_csv_with_dialect_InvalidInputError_when_no_sample_and_dialect_give
     (the separator is then ',') is rejected when the thousands separator or
     the decimal mark given does not fit that separator.
     """
-    monkeypatch.setattr(data_profile_module, "read_sample", lambda path: None)
+    monkeypatch.setattr(
+        data_profile_module, "read_sample", lambda path, field: None
+    )
     path = tmp_path / "data.csv"
     path.write_text("date,y\n2020-01-01,1\n")
 
@@ -573,7 +581,7 @@ def test_read_csv_with_dialect_decimal_comma_after_the_sample(tmp_path, monkeypa
         "date;y;x\n2020-01-01;1;10\n2020-01-02;2;20\n2020-01-03;3;2,5\n"
     )
 
-    data, sep, decimal, thousands = read_csv_with_dialect(path)
+    data, sep, decimal, thousands, _ = read_csv_with_dialect(path)
 
     expected = pd.DataFrame(
         {
@@ -594,7 +602,7 @@ def test_read_csv_with_dialect_keeps_decimal_given_after_the_sample(tmp_path):
     path = tmp_path / "given.csv"
     path.write_text("date;y;x\n2020-01-01;1;10\n2020-01-02;2;2,5\n")
 
-    data, sep, decimal, thousands = read_csv_with_dialect(path, decimal=".")
+    data, sep, decimal, thousands, _ = read_csv_with_dialect(path, decimal=".")
 
     assert (sep, decimal, thousands) == (";", ".", None)
     assert data["x"].tolist() == ["10", "2,5"]
@@ -643,7 +651,7 @@ def test_read_csv_with_dialect_output_when_thousands_detected(
     path.write_text(text)
     calls = _record_read_csv(monkeypatch)
 
-    data, sep, decimal, thousands = read_csv_with_dialect(path)
+    data, sep, decimal, thousands, _ = read_csv_with_dialect(path)
 
     pd.testing.assert_frame_equal(data, expected)
     assert (sep, decimal, thousands) == (";", ",", ".")
@@ -663,7 +671,7 @@ def test_read_csv_with_dialect_output_when_thousands_detected_in_tab_file(tmp_pa
     path = tmp_path / "thousands.tsv"
     path.write_text("date\ty\n2020-01-01\t1.705,11\n2020-01-02\t2.870,5\n")
 
-    data, sep, decimal, thousands = read_csv_with_dialect(path)
+    data, sep, decimal, thousands, _ = read_csv_with_dialect(path)
 
     expected = pd.DataFrame(
         {"date": ["2020-01-01", "2020-01-02"], "y": [1705.11, 2870.5]}
@@ -684,7 +692,7 @@ def test_read_csv_with_dialect_output_when_decimal_comma_given_and_thousands(
     path.write_text("date;y\n2020-01-01;1.705\n2020-01-02;1.870\n")
     calls = _record_read_csv(monkeypatch)
 
-    data, sep, decimal, thousands = read_csv_with_dialect(
+    data, sep, decimal, thousands, _ = read_csv_with_dialect(
         path, sep=";", decimal=","
     )
 
@@ -718,7 +726,7 @@ def test_read_csv_with_dialect_thousands_after_the_sample(tmp_path, monkeypatch)
     )
     calls = _record_read_csv(monkeypatch)
 
-    data, sep, decimal, thousands = read_csv_with_dialect(path)
+    data, sep, decimal, thousands, _ = read_csv_with_dialect(path)
 
     expected = pd.DataFrame(
         {
@@ -756,7 +764,7 @@ def test_read_csv_with_dialect_thousands_of_whole_numbers_after_the_sample(
     )
     calls = _record_read_csv(monkeypatch)
 
-    data, sep, decimal, thousands = read_csv_with_dialect(path)
+    data, sep, decimal, thousands, _ = read_csv_with_dialect(path)
 
     assert data["y"].tolist() == [870, 945, 1020, 2015]
     assert (sep, decimal, thousands) == (";", ",", ".")
@@ -781,7 +789,7 @@ def test_read_csv_with_dialect_reads_once_when_the_sample_holds_the_file(
     path.write_text("date;y\n2020-01-01;1.5\n2020-01-02;2.25\n")
     calls = _record_read_csv(monkeypatch)
 
-    data, sep, decimal, thousands = read_csv_with_dialect(path)
+    data, sep, decimal, thousands, _ = read_csv_with_dialect(path)
 
     assert data["y"].tolist() == [1.5, 2.25]
     assert (sep, decimal, thousands) == (";", ".", None)
@@ -833,7 +841,7 @@ def test_read_csv_with_dialect_decimal_is_comma_when_thousands_given(
     path.write_text("date;y\n2020-01-01;870\n2020-01-02;1.020\n")
     calls = _record_read_csv(monkeypatch)
 
-    data, result_sep, decimal, thousands = read_csv_with_dialect(
+    data, result_sep, decimal, thousands, _ = read_csv_with_dialect(
         path, sep=sep, thousands="."
     )
 
@@ -922,7 +930,7 @@ def test_read_csv_with_dialect_output_when_thousands_is_ambiguous_and_decimal_po
     path.write_text("date;y\n2020-01-01;1.870\n2020-01-02;1.020\n")
     calls = _record_read_csv(monkeypatch)
 
-    data, sep, decimal, thousands = read_csv_with_dialect(path, decimal=".")
+    data, sep, decimal, thousands, _ = read_csv_with_dialect(path, decimal=".")
 
     expected = pd.DataFrame(
         {"date": ["2020-01-01", "2020-01-02"], "y": [1.87, 1.02]}
@@ -947,7 +955,7 @@ def test_read_csv_with_dialect_series_ids_are_text_with_default_dialect(
     )
     calls = _record_read_csv(monkeypatch)
 
-    data, sep, decimal, thousands = read_csv_with_dialect(
+    data, sep, decimal, thousands, _ = read_csv_with_dialect(
         path, series_id_column="store"
     )
 
@@ -981,7 +989,7 @@ def test_read_csv_with_dialect_series_ids_are_text_with_thousands(
     )
     calls = _record_read_csv(monkeypatch)
 
-    data, sep, decimal, thousands = read_csv_with_dialect(
+    data, sep, decimal, thousands, _ = read_csv_with_dialect(
         path, series_id_column="store"
     )
 
@@ -1036,7 +1044,7 @@ def test_read_csv_with_dialect_series_ids_with_point_do_not_tell_the_thousands(
     )
     calls = _record_read_csv(monkeypatch)
 
-    data, sep, decimal, thousands = read_csv_with_dialect(
+    data, sep, decimal, thousands, _ = read_csv_with_dialect(
         path, series_id_column="store"
     )
 
@@ -1083,7 +1091,7 @@ def test_read_csv_with_dialect_series_ids_with_point_when_thousands_after_the_sa
     )
     calls = _record_read_csv(monkeypatch)
 
-    data, sep, decimal, thousands = read_csv_with_dialect(
+    data, sep, decimal, thousands, _ = read_csv_with_dialect(
         path, series_id_column="store"
     )
 
@@ -1124,7 +1132,7 @@ def test_read_csv_with_dialect_series_ids_with_comma_do_not_tell_the_decimal_mar
         "store;date;y\n1,5;2020-01-01;1\n1,5;2020-01-02;2\n1,5;2020-01-03;3\n"
     )
 
-    data, sep, decimal, thousands = read_csv_with_dialect(
+    data, sep, decimal, thousands, _ = read_csv_with_dialect(
         path, series_id_column="store"
     )
 
@@ -1138,7 +1146,7 @@ def test_read_csv_with_dialect_series_ids_with_comma_do_not_tell_the_decimal_mar
     pd.testing.assert_frame_equal(data, expected)
     assert (sep, decimal, thousands) == (";", ".", None)
 
-    data, sep, decimal, thousands = read_csv_with_dialect(path)
+    data, sep, decimal, thousands, _ = read_csv_with_dialect(path)
 
     assert data["store"].tolist() == [1.5, 1.5, 1.5]
     assert (sep, decimal, thousands) == (";", ",", None)
@@ -1159,7 +1167,7 @@ def test_read_csv_with_dialect_series_ids_with_point_do_not_tell_thousands_when_
         "1.020;2020-01-03;3,5\n"
     )
 
-    data, sep, decimal, thousands = read_csv_with_dialect(
+    data, sep, decimal, thousands, _ = read_csv_with_dialect(
         path, decimal=",", series_id_column="store"
     )
 
@@ -1173,7 +1181,7 @@ def test_read_csv_with_dialect_series_ids_with_point_do_not_tell_thousands_when_
     pd.testing.assert_frame_equal(data, expected)
     assert (sep, decimal, thousands) == (";", ",", None)
 
-    data, sep, decimal, thousands = read_csv_with_dialect(path, decimal=",")
+    data, sep, decimal, thousands, _ = read_csv_with_dialect(path, decimal=",")
 
     assert data["store"].tolist() == [1020, 1020, 1020]
     assert (sep, decimal, thousands) == (";", ",", ".")
@@ -1233,7 +1241,7 @@ def test_read_csv_with_dialect_output_when_german_spreadsheet(
     path.write_text(_GERMAN_SPREADSHEET)
     calls = _record_read_csv(monkeypatch)
 
-    data, sep, decimal, thousands = read_csv_with_dialect(path, **kwargs)
+    data, sep, decimal, thousands, _ = read_csv_with_dialect(path, **kwargs)
 
     pd.testing.assert_frame_equal(data, _GERMAN_EXPECTED)
     assert (sep, decimal, thousands) == (";", ",", ".")
@@ -1253,7 +1261,7 @@ def test_read_csv_with_dialect_output_when_german_spreadsheet_with_series_ids(
     )
     calls = _record_read_csv(monkeypatch)
 
-    data, sep, decimal, thousands = read_csv_with_dialect(
+    data, sep, decimal, thousands, _ = read_csv_with_dialect(
         path, series_id_column="store"
     )
 
@@ -1293,7 +1301,7 @@ def test_read_csv_with_dialect_dates_with_points_do_not_tell_the_thousands_when_
     path.write_text("datum;umsatz\n15.01.2020;870,5\n16.01.2020;945,25\n")
     calls = _record_read_csv(monkeypatch)
 
-    data, sep, decimal, thousands = read_csv_with_dialect(
+    data, sep, decimal, thousands, _ = read_csv_with_dialect(
         path, sep=";", decimal=","
     )
 
@@ -1316,7 +1324,7 @@ def test_read_csv_with_dialect_date_column_is_not_read_as_text_without_thousands
     path.write_text("date,y\n2020-01-15,1.5\n2020-01-16,2.5\n")
     calls = _record_read_csv(monkeypatch)
 
-    data, sep, decimal, thousands = read_csv_with_dialect(path, date_column="date")
+    data, sep, decimal, thousands, _ = read_csv_with_dialect(path, date_column="date")
 
     expected = pd.DataFrame({"date": ["2020-01-15", "2020-01-16"], "y": [1.5, 2.5]})
     pd.testing.assert_frame_equal(data, expected)
@@ -1356,7 +1364,7 @@ def test_read_csv_with_dialect_thousands_after_the_sample_with_dates_with_points
     path.write_text(text)
     calls = _record_read_csv(monkeypatch)
 
-    data, sep, decimal, thousands = read_csv_with_dialect(path)
+    data, sep, decimal, thousands, _ = read_csv_with_dialect(path)
 
     expected = pd.DataFrame(
         {
@@ -1394,10 +1402,204 @@ def test_read_csv_with_dialect_InvalidInputError_when_dates_with_points_not_foun
     assert exc_info.value.code == "data_unreadable"
     assert exc_info.value.hint == DOTTED_VALUES_HINT
 
-    data, sep, decimal, thousands = read_csv_with_dialect(path, date_column="datum")
+    data, sep, decimal, thousands, _ = read_csv_with_dialect(path, date_column="datum")
 
     expected = pd.DataFrame(
         {"datum": ["15.01.20", "16.01.20"], "umsatz": [1234.56, 2345.67]}
     )
     pd.testing.assert_frame_equal(data, expected)
     assert (sep, decimal, thousands) == (";", ",", ".")
+
+
+@pytest.mark.parametrize("name", ["excel.csv", "excel.csv.gz"], ids=["plain", "gzip"])
+@pytest.mark.parametrize(
+    "kwargs",
+    [{}, {"sep": ";", "decimal": ","}],
+    ids=["detected", "dialect given"],
+)
+def test_read_csv_with_dialect_output_when_file_is_cp1252(
+    tmp_path, monkeypatch, name, kwargs
+):
+    """
+    Test that the CSV that Excel saves on Windows in Spanish (cp1252, ';',
+    ',' as decimal mark, 'año' in the header and accents in the categories)
+    is read as cp1252, also compressed with gzip and with its dialect given,
+    and that `pd.read_csv` receives the encoding as the script does.
+    """
+    path = write_cp1252(tmp_path, name=name)
+    calls = _record_read_csv(monkeypatch)
+
+    data, sep, decimal, thousands, encoding = read_csv_with_dialect(path, **kwargs)
+
+    pd.testing.assert_frame_equal(data, df_dialect_cp1252)
+    assert (sep, decimal, thousands, encoding) == (";", ",", None, "cp1252")
+    assert calls == [
+        ((path,), {"sep": ";", "decimal": ",", "encoding": "cp1252"}),
+    ]
+
+
+def test_read_csv_with_dialect_output_when_file_is_utf8_with_bom(
+    tmp_path, monkeypatch
+):
+    """
+    Test that a UTF-8 file with a byte order mark (the 'CSV UTF-8' of
+    Excel) is UTF-8: its first column keeps its name, and `pd.read_csv`
+    receives no encoding.
+    """
+    path = tmp_path / "bom.csv"
+    df_dialect_cp1252.to_csv(
+        path, index=False, sep=";", decimal=",", encoding="utf-8-sig"
+    )
+    calls = _record_read_csv(monkeypatch)
+
+    data, sep, decimal, thousands, encoding = read_csv_with_dialect(path)
+
+    pd.testing.assert_frame_equal(data, df_dialect_cp1252)
+    assert (sep, decimal, thousands, encoding) == (";", ",", None, "utf-8")
+    assert calls == [((path,), {"sep": ";", "decimal": ","})]
+
+
+def test_read_csv_with_dialect_output_when_cp1252_bytes_after_the_sample(
+    tmp_path, monkeypatch
+):
+    """
+    Test that a file whose first lines are UTF-8 (only ASCII) and whose
+    bytes that are not UTF-8 come after them is read again as cp1252, with
+    the categories that hold them read right.
+    """
+    rows = ["2020-01-01;1,5;Madrid"] * 20000 + ["2020-01-02;2,5;Cádiz"]
+    path = tmp_path / "late.csv"
+    path.write_bytes(("date;y;zona\n" + "\n".join(rows) + "\n").encode("cp1252"))
+    calls = _record_read_csv(monkeypatch)
+
+    data, sep, decimal, thousands, encoding = read_csv_with_dialect(path)
+
+    assert data["zona"].iloc[-1] == "Cádiz"
+    assert (sep, decimal, thousands, encoding) == (";", ",", None, "cp1252")
+    assert [kwargs.get("encoding") for _, kwargs in calls] == [None, "cp1252"]
+
+
+@pytest.mark.parametrize(
+    "encoding, name",
+    [("utf-16", "UTF-16"), ("utf-16-be", None), ("utf-32", "UTF-32")],
+    ids=["utf-16 with bom", "utf-16 without bom", "utf-32"],
+)
+@pytest.mark.parametrize("field", ["data", "exog"])
+def test_read_csv_with_dialect_InvalidInputError_when_file_is_utf16(
+    tmp_path, encoding, name, field
+):
+    """
+    Test that a file in UTF-16 or UTF-32, which cp1252 would read with a
+    null byte in every character, raises an InvalidInputError with the code
+    'data_unreadable' and the hint that asks for a copy in UTF-8: told by
+    its byte order mark, or by its null bytes without one.
+    """
+    path = tmp_path / "unicode.csv"
+    path.write_bytes("fecha;año\n01/01/2020;1,5\n".encode(encoding))
+
+    if name is None:
+        err_msg = (
+            f"The CSV file '{path}' could not be read: it holds null bytes, so "
+            f"it is not text in UTF-8 or in cp1252 (Windows-1252); it may be "
+            f"UTF-16 without its byte order mark, or not a text file."
+        )
+    else:
+        err_msg = (
+            f"The CSV file '{path}' could not be read: it is written in {name} "
+            f"(its first bytes say so), and only files in UTF-8 or in cp1252 "
+            f"(Windows-1252) are read."
+        )
+    with pytest.raises(InvalidInputError, match="^" + re.escape(err_msg) + "$") as exc_info:
+        read_csv_with_dialect(path, field=field)
+
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.field == field
+    assert exc_info.value.hint == ENCODING_HINT
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"date;y;zona\n2020-01-01;1,5;caf\xe9\n2020-01-02;2,5;\x81\n",
+        (
+            b"date;y;zona\n" + b"2020-01-01;1,5;Madrid\n" * 20000
+            + b"2020-01-02;2,5;caf\xe9\x81\n"
+        ),
+    ],
+    ids=["in the sample", "after the sample"],
+)
+def test_read_csv_with_dialect_InvalidInputError_when_byte_undefined_in_cp1252(
+    tmp_path, content
+):
+    """
+    Test that a file that is not UTF-8 and holds a byte that cp1252 does
+    not define raises an InvalidInputError with the code 'data_unreadable'
+    that names the byte, in the first lines or after them.
+    """
+    path = tmp_path / "other.csv"
+    path.write_bytes(content)
+
+    err_msg = re.escape(
+        f"The CSV file '{path}' could not be read: it is not UTF-8, and its "
+        f"byte 0x81 is not a character of cp1252 (Windows-1252), the other "
+        f"encoding read."
+    )
+    with pytest.raises(InvalidInputError, match="^" + err_msg + "$") as exc_info:
+        read_csv_with_dialect(path)
+
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.hint == ENCODING_HINT
+
+
+def test_read_csv_with_dialect_output_when_utf8_file_holds_bytes_undefined_in_cp1252(
+    tmp_path,
+):
+    """
+    Test that the bytes cp1252 does not define are only looked for in a file
+    that is not UTF-8: 'Á' is written in UTF-8 with the byte 0x81.
+    """
+    path = tmp_path / "utf8.csv"
+    path.write_bytes("date;y;zona\n2020-01-01;1,5;ÁVILA\n".encode("utf-8"))
+
+    data, *_, encoding = read_csv_with_dialect(path)
+
+    assert data["zona"].tolist() == ["ÁVILA"]
+    assert encoding == "utf-8"
+
+
+def test_read_csv_with_dialect_output_when_cp1252_row_longer_than_header(tmp_path):
+    """
+    Test that the fields of every row of a cp1252 file are counted in that
+    encoding: a header one field short (`to_csv(index_label=False)`) of
+    future values in cp1252 is read with its first field as the index.
+    """
+    path = tmp_path / "exog.csv"
+    path.write_bytes(
+        "zona\n2023-03-02;Cádiz\n2023-03-03;Peñíscola\n".replace(";", ",")
+        .encode("cp1252")
+    )
+
+    data, *_, encoding = read_csv_with_dialect(path, field="exog", index_first=True)
+
+    assert data["zona"].tolist() == ["Cádiz", "Peñíscola"]
+    assert data.index.tolist() == ["2023-03-02", "2023-03-03"]
+    assert encoding == "cp1252"
+
+
+def test_read_csv_with_dialect_thousands_after_the_sample_when_file_is_cp1252(
+    tmp_path,
+):
+    """
+    Test that the columns of a cp1252 file larger than its sample are read
+    again as text in cp1252 to look for '.' between thousands after the
+    sample ('870' in it, '1.020' after it).
+    """
+    rows = ["2020-01-01;870;Cádiz"] * 15000 + ["2020-01-02;1.020;Peñíscola"]
+    path = tmp_path / "large.csv"
+    path.write_bytes(("date;y;zona\n" + "\n".join(rows) + "\n").encode("cp1252"))
+
+    data, sep, decimal, thousands, encoding = read_csv_with_dialect(path)
+
+    assert data["y"].iloc[-1] == 1020
+    assert data["zona"].iloc[-1] == "Peñíscola"
+    assert (sep, decimal, thousands, encoding) == (";", ",", ".", "cp1252")

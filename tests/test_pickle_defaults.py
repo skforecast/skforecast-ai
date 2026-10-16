@@ -56,6 +56,7 @@ def _saved_without(obj, names):
             [",", ".", None],
         ),
         (profile.data_profile, ["date_format"], [None]),
+        (profile.data_profile, ["csv_encoding"], ["utf-8"]),
     ],
     ids=[
         "CVResult",
@@ -64,6 +65,7 @@ def _saved_without(obj, names):
         "DataProfile",
         "DataProfile CSV dialect",
         "DataProfile date format",
+        "DataProfile CSV encoding",
     ],
 )
 def test_pickle_defaults_output_fields_added_after_the_object_was_saved(

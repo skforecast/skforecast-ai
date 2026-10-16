@@ -254,6 +254,80 @@ def test_render_forecast_single_series_output_when_date_format(
     assert result.full_script == expected
 
 
+@pytest.mark.parametrize(
+    "exog_encoding, exog_encoding_arg",
+    [("cp1252", ", encoding='cp1252'"), ("utf-8", "")],
+    ids=["exog in cp1252", "exog in utf-8"],
+)
+def test_render_forecast_single_series_output_when_csv_encoding_cp1252(
+    exog_encoding, exog_encoding_arg
+):
+    """
+    Test that the CSV that Excel saves on Windows in Spanish (cp1252, ';',
+    ',' as decimal mark, dates day first) is read with `encoding='cp1252'`
+    after its dialect, and `exog_future.csv` in its own encoding
+    (`exog_encoding`), and that the rest of the prediction script does not
+    change.
+    """
+    profile = profile_single.model_copy(
+        update={
+            "data_path": "ventas.csv",
+            "csv_sep": ";",
+            "csv_decimal": ",",
+            "csv_encoding": "cp1252",
+            "date_format": "%d/%m/%Y",
+        }
+    )
+
+    result = render_forecast_single_series(
+                 plan_single_predict_exog,
+                 profile,
+                 exog_date_format = "%d/%m/%Y",
+                 exog_encoding    = exog_encoding,
+             )
+
+    expected = (
+        "import pandas as pd\n"
+        "from lightgbm import LGBMRegressor\n"
+        "from skforecast.recursive import ForecasterRecursive\n"
+        "\n"
+        "# Load data\n"
+        "data = pd.read_csv('ventas.csv', sep=';', decimal=',', "
+        "encoding='cp1252')\n"
+        "\n"
+        "# Load future exogenous variables covering the forecast horizon\n"
+        f"exog_future = pd.read_csv('exog_future.csv'{exog_encoding_arg})\n"
+        "\n"
+        "data['date'] = pd.to_datetime(data['date'], format='%d/%m/%Y')\n"
+        "data = data.set_index('date')\n"
+        "data = data.asfreq('D')\n"
+        "data = data.sort_index()\n"
+        "\n"
+        "exog_future['date'] = pd.to_datetime(exog_future['date'], "
+        "format='%d/%m/%Y')\n"
+        "exog_future = exog_future.set_index('date')\n"
+        "exog_future = exog_future.asfreq('D')\n"
+        "exog_future = exog_future.sort_index()\n"
+        "\n"
+        "exog_features = ['promo']\n"
+        "\n"
+        "# Create forecaster\n"
+        "forecaster = ForecasterRecursive(\n"
+        "    estimator = LGBMRegressor(random_state=123, verbose=-1),\n"
+        "    lags      = 7,\n"
+        ")\n"
+        "\n"
+        "# Fit\n"
+        "forecaster.fit(y=data['sales'], exog=data[exog_features])\n"
+        "\n"
+        "# Predict\n"
+        "steps = 10\n"
+        "predictions = forecaster.predict(steps=steps, exog=exog_future[exog_features])\n"
+        "print(predictions)\n"
+    )
+    assert result.full_script == expected
+
+
 def test_render_forecast_single_series_output_when_dotted_dates_and_thousands():
     """
     Test that a ';' file with '.' between thousands and dates such as

@@ -3,6 +3,7 @@
 import numpy as np
 import pandas as pd
 import re
+import warnings
 
 import pytest
 
@@ -14,7 +15,9 @@ from skforecast_ai.schemas import CodeGenerationResult, PreprocessingStep
 
 from tests.fixtures_csv_dialect import (
     df_dialect,
+    df_dialect_cp1252_exog,
     df_dialect_thousands,
+    write_cp1252,
     write_dialect,
     write_thousands,
 )
@@ -1034,3 +1037,46 @@ def test_forecast_code_reads_future_exog_with_its_own_format(
         f"exog_future['date'] = pd.to_datetime(exog_future['date']"
         f"{exog_format_arg})\n" in code
     )
+
+
+@pytest.mark.parametrize(
+    "exog_encoding, encoding_arg",
+    [("cp1252", ", encoding='cp1252'"), ("utf-8", "")],
+    ids=["exog in cp1252", "exog in utf-8"],
+)
+def test_forecast_code_reads_csv_and_future_exog_in_their_own_encoding(
+    tmp_path, exog_encoding, encoding_arg
+):
+    """
+    Test that forecast_code() of a CSV file in cp1252 (the CSV that Excel
+    saves on Windows) with future values read by load_exog() renders the
+    script forecast() runs: the data read with `encoding='cp1252'`, and
+    `exog_future.csv` in the encoding of the file given, none for UTF-8.
+    """
+    csv_path = write_cp1252(tmp_path)
+    exog_path = tmp_path / "exog.csv"
+    df_dialect_cp1252_exog.to_csv(exog_path, index=False, encoding=exog_encoding)
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=csv_path, target="año")
+    with warnings.catch_warnings():
+        # The note on cp1252 is tested with load_exog.
+        warnings.simplefilter("ignore", UserWarning)
+        exog = load_exog(
+            exog_path,
+            date_column = "fecha",
+            date_format = profile.data_profile.date_format,
+        )
+
+    code = assistant.forecast_code(
+        data=csv_path, profile=profile, steps=10, exog=exog, estimator="Ridge"
+    ).code
+    executed = assistant.forecast(
+        data=csv_path, profile=profile, steps=10, exog=exog, estimator="Ridge"
+    )
+
+    assert code == executed.code
+    assert (
+        f"data = pd.read_csv({csv_path!r}, sep=';', decimal=',', "
+        f"encoding='cp1252')\n" in code
+    )
+    assert f"exog_future = pd.read_csv('exog_future.csv'{encoding_arg})\n" in code

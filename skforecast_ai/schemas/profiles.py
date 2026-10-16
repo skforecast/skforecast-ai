@@ -195,6 +195,13 @@ class DataProfile(PickleDefaultsMixin, BaseModel):
         with `','` as `csv_decimal`, or None when its numbers have none.
         Detected when the file is profiled, or given with `thousands`; the
         generated script reads the file with it.
+    csv_encoding : str, default 'utf-8'
+        Encoding of the CSV file of `data_path`: `'utf-8'`, with or without
+        a byte order mark, or `'cp1252'` (Windows-1252, the "CSV" that
+        Excel saves on Windows) for a file that is not UTF-8, with a note
+        in `warnings`, as that encoding cannot be checked. Detected every
+        time the file is read; the generated script reads the file with
+        `encoding='cp1252'`. `'utf-8'` for data passed in memory.
     date_format : str, None, default None
         Format the generated script reads the dates of `date_column` with
         (`pandas.to_datetime(..., format=date_format)`), or None when it
@@ -242,6 +249,7 @@ class DataProfile(PickleDefaultsMixin, BaseModel):
     csv_sep: Literal[",", ";", "\t"] = ","
     csv_decimal: Literal[".", ","] = "."
     csv_thousands: Literal["."] | None = None
+    csv_encoding: Literal["utf-8", "cp1252"] = "utf-8"
     date_format: str | None = None
 
     # -- Train/test split --

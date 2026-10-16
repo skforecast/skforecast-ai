@@ -123,6 +123,7 @@ def render_forecast_foundation(
     plan: ForecastPlan,
     profile: DataProfile,
     exog_date_format: str | None = None,
+    exog_encoding: str = "utf-8",
 ) -> RenderedScript:
     """Render code for ForecasterFoundation with the model of `plan.estimator`.
 
@@ -135,6 +136,9 @@ def render_forecast_foundation(
     exog_date_format : str, default None
         Format of the dates of the future exogenous variables, which the
         script reads `exog_future.csv` with (see `exog_date_format`).
+    exog_encoding : str, default 'utf-8'
+        Encoding the script reads `exog_future.csv` with, `'cp1252'` when
+        the file of the future values is not UTF-8 (see `exog_encoding`).
 
     Returns
     -------
@@ -171,7 +175,7 @@ def render_forecast_foundation(
         loading_lines, core_lines, profile, long_format=is_long
     )
     if not evaluate and use_exog:
-        _emit_future_exog_loading(loading_lines, profile)
+        _emit_future_exog_loading(loading_lines, profile, exog_encoding)
         _emit_future_exog_index_setup(
             core_lines, profile, long_format=is_long, date_format=exog_date_format
         )

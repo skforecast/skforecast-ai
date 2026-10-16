@@ -16,6 +16,7 @@ from skforecast_ai.exceptions import (
     InvalidInputTypeError,
 )
 from skforecast_ai.schemas import DataProfile, ForecastingProfile
+from skforecast_ai.profiling.csv_dialect import ENCODING_HINT
 from skforecast_ai.profiling.data_profile import DAYFIRST_FRAME_HINT, DAYFIRST_HINT
 
 from tests.fixtures_datasets import (
@@ -27,8 +28,10 @@ from tests.fixtures_datasets import (
 )
 from tests.fixtures_csv_dialect import (
     df_dialect,
+    df_dialect_cp1252,
     df_dialect_monthly,
     df_dialect_thousands,
+    write_cp1252,
     write_dialect,
     write_thousands,
 )
@@ -1022,21 +1025,11 @@ def test_profile_output_when_target_is_numeric_strings():
     [
         (b"", "No columns to parse from file"),
         (
-            bytes(range(256)),
-            "'utf-8' codec can't decode byte 0x80 in position 128: invalid "
-            "start byte",
-        ),
-        (
             b"date,x\n2020-01-01,1\n2020-01-02,2,3,4\n2020-01-03,4\n",
             "Error tokenizing data. C error: Expected 2 fields in line 3, saw 4",
         ),
-        (
-            "date,x,name\n2020-01-01,1,caf\xe9\n".encode("latin-1"),
-            "'utf-8' codec can't decode byte 0xe9 in position 28: invalid "
-            "continuation byte",
-        ),
     ],
-    ids=["empty", "binary", "more fields than the header", "latin-1"],
+    ids=["empty", "more fields than the header"],
 )
 def test_profile_InvalidInputError_when_csv_unreadable(tmp_path, content, reason):
     """
@@ -1058,6 +1051,73 @@ def test_profile_InvalidInputError_when_csv_unreadable(tmp_path, content, reason
         "Pass a text file in UTF-8 separated by ',', ';' or tabulators, with a "
         "header row and the same number of fields in every row."
     )
+
+
+@pytest.mark.parametrize("name", ["excel.csv", "excel.csv.gz"], ids=["plain", "gzip"])
+def test_profile_output_when_csv_is_cp1252(tmp_path, name):
+    """
+    Test that profile() of the CSV that Excel saves on Windows in Spanish
+    (cp1252, ';', ',' as decimal mark, 'año' as target and accents in the
+    categories of 'zona') records the encoding with the dialect, reads the
+    names and the categories right and says first among the warnings that
+    the encoding cannot be checked; also compressed with gzip.
+    """
+    csv_path = write_cp1252(tmp_path, name=name)
+
+    profile = ForecastingAssistant().profile(data=csv_path, target="año")
+
+    data_profile = profile.data_profile
+    assert data_profile.csv_encoding == "cp1252"
+    assert (data_profile.csv_sep, data_profile.csv_decimal) == (";", ",")
+    assert data_profile.date_format == "%d/%m/%Y"
+    assert data_profile.exog_columns == ["zona"]
+    assert data_profile.categorical_exog == ["zona"]
+    assert data_profile.warnings[0] == (
+        "The CSV file is not UTF-8: it was read as cp1252 (Windows-1252), the "
+        "encoding of the CSV files that Excel saves on Windows, and the "
+        "generated script reads it so. That encoding cannot be checked: if "
+        "column names or categories show wrong characters, save the file as "
+        "UTF-8 and profile it again."
+    )
+
+
+def test_profile_output_when_csv_is_utf8_with_bom(tmp_path):
+    """
+    Test that profile() of a UTF-8 file with a byte order mark records UTF-8
+    and gives no note on the encoding.
+    """
+    csv_path = tmp_path / "bom.csv"
+    df_dialect_cp1252.to_csv(
+        csv_path, index=False, sep=";", decimal=",", encoding="utf-8-sig"
+    )
+
+    profile = ForecastingAssistant().profile(data=csv_path, target="año")
+
+    assert profile.data_profile.csv_encoding == "utf-8"
+    assert profile.data_profile.exog_columns == ["zona"]
+    assert not any("UTF-8" in warning for warning in profile.data_profile.warnings)
+
+
+def test_profile_InvalidInputError_when_csv_is_utf16(tmp_path):
+    """
+    Test that profile() of a file in UTF-16, which cp1252 would read with
+    null bytes, raises an InvalidInputError with the code 'data_unreadable'
+    and the hint that asks for a copy in UTF-8.
+    """
+    csv_path = tmp_path / "unicode.csv"
+    df_dialect_cp1252.to_csv(
+        csv_path, index=False, sep=";", decimal=",", encoding="utf-16"
+    )
+
+    err_msg = re.escape(
+        f"The CSV file '{csv_path}' could not be read: it is written in UTF-16"
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        ForecastingAssistant().profile(data=csv_path, target="año")
+
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.field == "data"
+    assert exc_info.value.hint == ENCODING_HINT
 
 
 @pytest.mark.parametrize(

@@ -11,6 +11,7 @@ from skforecast.exceptions import IgnoredArgumentWarning
 
 from skforecast_ai.exceptions import InvalidInputError
 from skforecast_ai.profiling import create_data_profile
+from skforecast_ai.profiling.csv_dialect import cp1252_note
 from skforecast_ai.profiling.data_profile import DAYFIRST_FRAME_HINT, DAYFIRST_HINT
 from skforecast_ai.schemas import DataProfile
 
@@ -18,6 +19,7 @@ from ..fixtures_assistant import (
     df_multi_long_integer_ids,
     df_multi_long_numeric_ids,
 )
+from ..fixtures_csv_dialect import write_cp1252
 from ..fixtures_datasets import df_h2o, df_items_sales_long, df_items_sales_wide
 from .fixtures_profiling import (
     df_dates_compact,
@@ -2523,3 +2525,49 @@ def test_create_data_profile_date_format_is_None_when_dates_in_the_index():
     profile = create_data_profile(data=df_single_daily, target="y")
 
     assert profile.date_format is None
+
+
+@pytest.mark.parametrize("name", ["excel.csv", "excel.csv.gz"], ids=["plain", "gzip"])
+def test_create_data_profile_output_when_csv_is_cp1252(tmp_path, name):
+    """
+    Test that the CSV that Excel saves on Windows in Spanish (cp1252, ';',
+    ',' as decimal mark, 'año' in the header, accents in the categories) is
+    profiled with its names and categories read right, its encoding
+    recorded next to its dialect and a note first among the warnings that
+    says the encoding cannot be checked; also compressed with gzip.
+    """
+    csv_file = write_cp1252(tmp_path, name=name)
+
+    profile = create_data_profile(data=csv_file, target="año")
+
+    assert (profile.csv_sep, profile.csv_decimal, profile.csv_encoding) == (
+        ";", ",", "cp1252",
+    )
+    assert profile.date_column == "fecha"
+    assert profile.date_format == "%d/%m/%Y"
+    assert profile.exog_columns == ["zona"]
+    assert profile.categorical_exog == ["zona"]
+    assert profile.series_lengths["año"].length == 60
+    assert profile.warnings == [cp1252_note()]
+
+
+@pytest.mark.parametrize(
+    "encoding, expected_warnings",
+    [(None, []), ("utf-8", []), ("cp1252", [cp1252_note()])],
+    ids=lambda dt: f"{dt}",
+)
+def test_create_data_profile_output_when_encoding_of_dataframe_read(
+    encoding, expected_warnings
+):
+    """
+    Test that the encoding of the CSV file a DataFrame was read from is
+    recorded ('utf-8' when it is not given), with the note on cp1252.
+    """
+    profile = create_data_profile(
+                  data     = df_single_daily,
+                  target   = "y",
+                  encoding = encoding,
+              )
+
+    assert profile.csv_encoding == (encoding or "utf-8")
+    assert profile.warnings == expected_warnings

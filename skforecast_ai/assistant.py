@@ -152,6 +152,7 @@ from ._foundation import foundation_exog_columns, validate_foundation_plan
 from ._future_exog import (
     as_exog_frame,
     exog_date_format,
+    exog_encoding,
     used_exog_columns,
     validate_future_exog,
 )
@@ -190,7 +191,7 @@ from ._utils import (
     KNOWN_DATE_FORMAT,
     _data_path_of_run,
     _dialect_read,
-    with_date_notes,
+    with_read_notes,
     _revalidate_plan,
     discarded_plan_edits,
     plan_override_value,
@@ -429,11 +430,11 @@ def _profile_values(data_profile: DataProfile) -> dict[str, str]:
     Return the fields of a data profile that describe the values of the
     data, each as text, to tell whether two profiles describe the same data.
 
-    `data_path`, `csv_sep`, `csv_decimal`, `csv_thousands`, `date_format`,
-    `warnings` and `unused_columns` are left out: the path and how its file
-    is written (also its dates) are set by the caller and by how the data
-    are passed (a DataFrame read from the file holds dates already parsed),
-    the warnings derive from the values (and hold the
+    `data_path`, `csv_sep`, `csv_decimal`, `csv_thousands`, `csv_encoding`,
+    `date_format`, `warnings` and `unused_columns` are left out: the path
+    and how its file is written (also its dates) are set by the caller and
+    by how the data are passed (a DataFrame read from the file holds dates
+    already parsed), the warnings derive from the values (and hold the
     note of an earlier refresh), and the columns the data holds besides
     those of the profile are compared by `_refresh_profile` itself. The
     column lists are sorted, as `structure_differences` reads them, and NaN
@@ -454,7 +455,7 @@ def _profile_values(data_profile: DataProfile) -> dict[str, str]:
     values = data_profile.model_dump(
         exclude={
             "data_path", "csv_sep", "csv_decimal", "csv_thousands",
-            "date_format", "warnings", "unused_columns",
+            "csv_encoding", "date_format", "warnings", "unused_columns",
         }
     )
     for name in ("exog_columns", "categorical_exog"):
@@ -767,6 +768,17 @@ class ForecastingAssistant:
         here holds for them; another file is read as it is written, and as
         the profile says only when that cannot be told.
 
+        A CSV file that is not UTF-8 (with or without a byte order mark) is
+        read as cp1252 (Windows-1252, the "CSV" that Excel saves on
+        Windows), recorded in `DataProfile.csv_encoding`, and the generated
+        script reads it with `encoding='cp1252'`. That encoding cannot be
+        checked, so a note in `DataProfile.warnings` says so and asks for
+        the file saved as UTF-8 when names or categories show wrong
+        characters. The encoding is told again every time the file is read.
+        A file in UTF-16 or UTF-32, with null bytes, or with a byte that
+        cp1252 does not define raises `InvalidInputError` (code
+        `'data_unreadable'`).
+
         Dates that write the day and the month as numbers before the year
         are read in the only order that reads every date (a day after the
         12th, `'13/01/2020'`, settles day first), and the profile records
@@ -834,8 +846,9 @@ class ForecastingAssistant:
             # The dates of a file were read with it already.
             dayfirst         = dayfirst if read.sep is None else None,
             date_format      = date_format,
+            encoding         = read.encoding,
         )
-        data_profile = with_date_notes(data_profile, read.date_notes)
+        data_profile = with_read_notes(data_profile, read.notes)
         validate_target_numeric(data, data_profile.target)
 
         forecaster, forecaster_candidates = select_forecaster_and_candidates(data_profile)
@@ -2219,17 +2232,18 @@ class ForecastingAssistant:
         )
         profile = _with_data_path(profile, data)
 
-        # The script reads `exog_future.csv` in the format of the future
-        # values given, which need not be the one of the data.
-        exog_format = (
-            exog_date_format(as_exog_frame(exog), profile.data_profile)
-            if plan.end_train is None
-            and used_exog_columns(plan, profile.data_profile) else None
-        )
+        # The script reads `exog_future.csv` in the format and the encoding
+        # of the future values given, which need not be those of the data.
+        exog_format, exog_file_encoding = None, "utf-8"
+        if plan.end_train is None and used_exog_columns(plan, profile.data_profile):
+            exog_frame = as_exog_frame(exog)
+            exog_format = exog_date_format(exog_frame, profile.data_profile)
+            exog_file_encoding = exog_encoding(exog_frame)
         code = render_forecast_script(
                    profile          = profile.data_profile,
                    plan             = plan,
                    exog_date_format = exog_format,
+                   exog_encoding    = exog_file_encoding,
                ).full_script
 
         return CodeGenerationResult(
@@ -2499,7 +2513,7 @@ class ForecastingAssistant:
         )
         profile = _with_data_path(profile, data)
 
-        exog_format = None
+        exog_format, exog_file_encoding = None, "utf-8"
         if plan.end_train is not None:
             _check_evaluated_target(
                 data         = data_df,
@@ -2520,6 +2534,7 @@ class ForecastingAssistant:
             # of the data: a file saved with `to_csv()` has ISO 8601 dates.
             if used_exog_columns(plan, profile.data_profile):
                 exog_format = exog_date_format(exog, profile.data_profile)
+                exog_file_encoding = exog_encoding(exog)
             validate_future_exog(
                 exog        = exog,
                 data        = data_df,
@@ -2555,6 +2570,7 @@ class ForecastingAssistant:
             plan             = plan,
             exog             = exog,
             exog_date_format = exog_format,
+            exog_encoding    = exog_file_encoding,
         )
 
         return ForecastResult(

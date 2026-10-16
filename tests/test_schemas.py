@@ -1373,6 +1373,56 @@ def test_data_profile_ValidationError_when_csv_thousands_not_valid(
         )
 
 
+def test_data_profile_output_when_json_has_no_csv_encoding():
+    """
+    Test that a profile saved before `csv_encoding` existed loads as UTF-8,
+    that the field defaults to 'utf-8', and that 'cp1252' survives a JSON
+    round trip.
+    """
+    profile = DataProfile(
+        n_series       = 1,
+        series_lengths = {"y": 100},
+        target         = "y",
+        index_type     = "datetime",
+        data_path      = "excel.csv",
+        csv_sep        = ";",
+        csv_decimal    = ",",
+        csv_encoding   = "cp1252",
+    )
+    saved = profile.model_dump(mode="json")
+    del saved["csv_encoding"]
+    default = DataProfile(
+        n_series=1, series_lengths={"y": 100}, target="y", index_type="datetime"
+    )
+
+    old = DataProfile.model_validate_json(json.dumps(saved))
+    restored = DataProfile.model_validate_json(profile.model_dump_json())
+
+    assert old.csv_encoding == "utf-8"
+    assert default.csv_encoding == "utf-8"
+    assert restored.csv_encoding == "cp1252"
+    assert restored == profile
+
+
+@pytest.mark.parametrize(
+    "csv_encoding", ["latin-1", "utf-16", "UTF-8"], ids=lambda dt: dt
+)
+def test_data_profile_ValidationError_when_csv_encoding_not_valid(csv_encoding):
+    """
+    Test that a profile whose encoding is not one of those read raises a
+    ValidationError: it is written into the generated script, also from a
+    profile loaded from JSON.
+    """
+    with pytest.raises(ValidationError, match=re.escape("Input should be 'utf-8' or 'cp1252'")):
+        DataProfile(
+            n_series       = 1,
+            series_lengths = {"y": 100},
+            target         = "y",
+            index_type     = "datetime",
+            csv_encoding   = csv_encoding,
+        )
+
+
 @pytest.mark.parametrize(
     "date_format",
     [None, "%d/%m/%Y", "%m/%d/%Y", "%Y%m%d", "%d.%m.%Y %H:%M"],
