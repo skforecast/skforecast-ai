@@ -83,3 +83,69 @@ def test_parse_text_dates_output_when_first_date_is_not_text():
     pd.testing.assert_series_equal(
         parsed, pd.Series(pd.to_datetime(["2012-01-12", "2012-01-13", "2012-01-02"]))
     )
+
+
+@pytest.mark.parametrize(
+    "values, date_format, expected",
+    [
+        (
+            ["01/02/2020", "02/02/2020", "03/02/2020"],
+            "%d/%m/%Y",
+            ["2020-02-01", "2020-02-02", "2020-02-03"],
+        ),
+        (
+            ["01/02/2020", "02/02/2020", "03/02/2020"],
+            "%m/%d/%Y",
+            ["2020-01-02", "2020-02-02", "2020-03-02"],
+        ),
+        (
+            ["01/02/2020", "13/02/2020", "01/03/2020"],
+            "%d/%m/%Y",
+            ["2020-02-01", "2020-02-13", "2020-03-01"],
+        ),
+    ],
+    ids=["ambiguous_day_first", "ambiguous_month_first", "day_first_not_first"],
+)
+def test_parse_text_dates_output_when_date_format(values, date_format, expected):
+    """
+    Test that every date is read with `date_format`, instead of the format
+    guessed from the first one: an ambiguous '01/02/2020' is the first of
+    February with '%d/%m/%Y' and the second of January with '%m/%d/%Y', and
+    a later day-first date such as '13/02/2020' is read with it too.
+    """
+    parsed = parse_text_dates(pd.Series(values), date_format)
+
+    pd.testing.assert_series_equal(parsed, pd.Series(pd.to_datetime(expected)))
+
+
+@pytest.mark.parametrize(
+    "values, err_msg",
+    [
+        (
+            ["01/02/2020", "2020-02-02"],
+            'time data "2020-02-02" doesn\'t match format "%d/%m/%Y", at '
+            "position 1.",
+        ),
+        (
+            ["01/02/2020", "31/02/2020"],
+            "day is out of range for month, at position 1.",
+        ),
+        (
+            ["01/02/2020", "13/02/2020 10:30"],
+            'unconverted data remains when parsing with format "%d/%m/%Y": '
+            '" 10:30", at position 1.',
+        ),
+    ],
+    ids=["other_format", "day_out_of_range", "unconverted_data"],
+)
+def test_parse_text_dates_ValueError_when_date_does_not_follow_date_format(
+    values, err_msg
+):
+    """
+    Test that, with `date_format`, a date that does not follow it raises the
+    error of pandas.to_datetime, as the generated script does with
+    `format=`, instead of falling back to the format guessed from the first
+    date.
+    """
+    with pytest.raises(ValueError, match=re.escape(err_msg)):
+        parse_text_dates(pd.Series(values), "%d/%m/%Y")

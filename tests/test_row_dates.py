@@ -1,5 +1,7 @@
 # Unit test row_dates
 
+import re
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -126,3 +128,87 @@ def test_row_dates_output_when_no_datetime_source():
 
     assert row_dates(data, None) is None
     assert row_dates(data, "missing") is None
+
+
+@pytest.mark.parametrize(
+    "date_format, expected",
+    [
+        ("%d/%m/%Y", ["2023-02-01", "2023-02-02", "2023-02-03"]),
+        ("%m/%d/%Y", ["2023-01-02", "2023-02-02", "2023-03-02"]),
+    ],
+    ids=["day_first", "month_first"],
+)
+def test_row_dates_output_when_date_format_and_text_column(date_format, expected):
+    """
+    Test that the text of the date column is read with `date_format`, as the
+    generated script reads it with `format=`: dates that read in both orders
+    ('01/02/2023') are read in the one the format says.
+    """
+    data = pd.DataFrame({
+        "date": ["01/02/2023", "02/02/2023", "03/02/2023"],
+        "y": [1.0, 2.0, 3.0],
+    })
+
+    dates = row_dates(data, "date", date_format)
+
+    np.testing.assert_array_equal(dates.to_numpy(), pd.to_datetime(expected).to_numpy())
+
+
+def test_row_dates_output_when_date_format_and_integer_column():
+    """
+    Test that a column of integers is read as dates with `date_format`
+    ('%Y%m%d' for 20230131), as the generated script reads them.
+    """
+    data = pd.DataFrame({"date": [20230131, 20230201, 20230202], "y": [1.0, 2.0, 3.0]})
+
+    dates = row_dates(data, "date", "%Y%m%d")
+
+    np.testing.assert_array_equal(
+        dates.to_numpy(),
+        pd.to_datetime(["2023-01-31", "2023-02-01", "2023-02-02"]).to_numpy(),
+    )
+
+
+def test_row_dates_output_when_date_format_and_multiindex_level_holds_text():
+    """
+    Test that the text of a MultiIndex level is read with `date_format` as a
+    date column is.
+    """
+    data = pd.DataFrame(
+        {"y": [1.0, 2.0, 3.0]},
+        index=pd.MultiIndex.from_arrays(
+            [["a", "a", "a"], ["01/02/2023", "02/02/2023", "03/02/2023"]],
+            names=["series", "date"],
+        ),
+    )
+
+    dates = row_dates(data, "date", "%d/%m/%Y")
+
+    np.testing.assert_array_equal(
+        dates.to_numpy(),
+        pd.to_datetime(["2023-02-01", "2023-02-02", "2023-02-03"]).to_numpy(),
+    )
+
+
+def test_row_dates_output_when_date_format_and_dates_already_parsed():
+    """
+    Test that dates that are already datetimes are not read again with
+    `date_format`, which a profile of text dates may still carry.
+    """
+    data = pd.DataFrame({"date": _dates, "y": [1.0, 2.0, 3.0]})
+
+    dates = row_dates(data, "date", "%d/%m/%Y")
+
+    np.testing.assert_array_equal(dates.to_numpy(), _dates.to_numpy())
+
+
+def test_row_dates_ValueError_when_date_does_not_follow_date_format():
+    """
+    Test that a date that does not follow `date_format` raises the error of
+    pandas.to_datetime, as the generated script does.
+    """
+    data = pd.DataFrame({"date": ["01/02/2023", "2023-02-02"], "y": [1.0, 2.0]})
+
+    err_msg = re.escape('time data "2023-02-02" doesn\'t match format "%d/%m/%Y"')
+    with pytest.raises(ValueError, match=err_msg):
+        row_dates(data, "date", "%d/%m/%Y")

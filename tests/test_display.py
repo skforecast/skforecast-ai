@@ -427,6 +427,42 @@ def test_render_profile_hides_csv_format_when_default_or_in_memory(
     assert "CSV format" not in text
 
 
+@pytest.mark.parametrize(
+    "date_format",
+    ["%d/%m/%Y", "%m/%d/%Y", "%Y%m%d"],
+    ids=lambda date_format: f"date_format: {date_format}",
+)
+def test_render_profile_shows_date_format_when_set(sample_profile, date_format):
+    """
+    Test that render_profile shows the format the script reads the dates
+    with, quoted, in a 'Date format' row when the profile records one (day
+    first, the order given, or whole numbers).
+    """
+    profile = sample_profile.model_copy(
+        update={
+            "data_profile": sample_profile.data_profile.model_copy(
+                update={"date_format": date_format}
+            )
+        }
+    )
+    text = _render_to_text(render_profile(profile))
+
+    assert "Date format" in text
+    assert f"'{date_format}'" in text
+
+
+def test_render_profile_hides_date_format_when_none(sample_profile):
+    """
+    Test that render_profile has no 'Date format' row when the script reads
+    the dates without a format.
+    """
+    assert sample_profile.data_profile.date_format is None
+
+    text = _render_to_text(render_profile(sample_profile))
+
+    assert "Date format" not in text
+
+
 def test_render_profile_marks_categorical_exog(sample_profile):
     """
     Test that render_profile flags which exogenous columns are categorical.

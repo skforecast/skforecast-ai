@@ -924,23 +924,56 @@ def test_plan_ValueError_when_interval_invalid(forecaster, interval, match):
 
 def test_plan_ValueError_when_datetime_index_has_no_frequency():
     """
-    Test that plan() raises, also pointing at day-first dates, when the
-    datetime index has no inferable frequency (irregular timestamps), since
-    the script would fail inside skforecast. Day-first dates that a later
-    date proves wrong are rejected earlier, by profile().
+    Test that plan() raises when the datetime index has no inferable
+    frequency (irregular timestamps), since the script would fail inside
+    skforecast. The message and the hint are about the spacing of the
+    dates, not about day-first dates, which profile() reads day first or
+    rejects when their order cannot be told.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_irregular, target="sales", date_column="date")
 
     err_msg = re.escape(
-        "The frequency of the datetime index could not be inferred (the "
-        "timestamps are irregular or too few), and 'ForecasterRecursive' needs "
-        "a regular DatetimeIndex. Check the dates: day-first values such as "
-        "'13/02/2023' are read month-first unless parsed explicitly, for "
-        "example with pandas.to_datetime(..., dayfirst=True)."
+        "The frequency of the datetime index could not be inferred: the dates "
+        "are not regularly spaced, or there are too few of them, and "
+        "'ForecasterRecursive' needs a regular DatetimeIndex. Missing dates are "
+        "filled in only when the other dates follow a regular frequency."
     )
-    with pytest.raises(ValueError, match=err_msg):
+    with pytest.raises(ValueError, match="^" + err_msg + "$") as exc_info:
         assistant.plan(profile, steps=5)
+
+    assert exc_info.value.hint == (
+        "Give the data a regular frequency: one row per period (day, week, "
+        "month), with an empty value where a period has none, or values "
+        "aggregated to a frequency the dates follow."
+    )
+
+
+def test_plan_InvalidInputError_without_day_first_advice_when_iso_dates_are_irregular():
+    """
+    Test that daily dates already written in ISO 8601 with days missing at
+    random (no regular frequency) get a message and a hint about their
+    spacing, and neither asks to write them in ISO 8601 nor names day-first
+    dates (finding V14 of the MCP audit).
+    """
+    dates = pd.date_range("2020-01-01", periods=150, freq="D")
+    kept = np.sort(np.random.default_rng(3).choice(150, size=110, replace=False))
+    data = pd.DataFrame(
+        {
+            "date": dates[kept].strftime("%Y-%m-%d"),
+            "y": np.arange(110, dtype=float),
+        }
+    )
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=data, target="y", date_column="date")
+
+    with pytest.raises(InvalidInputError) as exc_info:
+        assistant.plan(profile, steps=7)
+
+    assert profile.data_profile.frequency is None
+    assert "not regularly spaced" in str(exc_info.value)
+    assert "ISO 8601" not in exc_info.value.hint
+    assert "first" not in str(exc_info.value) + exc_info.value.hint
 
 
 # =============================================================================
@@ -1122,11 +1155,11 @@ def test_plan_InvalidInputError_when_baseline_on_datetime_index_without_frequenc
     profile = assistant.profile(data=df_irregular, target="sales", date_column="date")
 
     err_msg = re.escape(
-        "The frequency of the datetime index could not be inferred (the "
-        "timestamps are irregular or too few), and 'ForecasterEquivalentDate' "
-        "needs a regular DatetimeIndex. Check the dates: day-first values "
-        "such as '13/02/2023' are read month-first unless parsed explicitly, "
-        "for example with pandas.to_datetime(..., dayfirst=True)."
+        "The frequency of the datetime index could not be inferred: the dates "
+        "are not regularly spaced, or there are too few of them, and "
+        "'ForecasterEquivalentDate' needs a regular DatetimeIndex. Missing "
+        "dates are filled in only when the other dates follow a regular "
+        "frequency."
     )
     with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
         assistant.plan(profile, steps=3, forecaster="ForecasterEquivalentDate")
@@ -1149,9 +1182,9 @@ def test_plan_InvalidInputError_without_warning_when_baseline_has_no_frequency_a
         profile = assistant.profile(data=data, target="sales", date_column="date")
 
     err_msg = re.escape(
-        "The frequency of the datetime index could not be inferred (the "
-        "timestamps are irregular or too few), and 'ForecasterEquivalentDate' "
-        "needs a regular DatetimeIndex."
+        "The frequency of the datetime index could not be inferred: the dates "
+        "are not regularly spaced, or there are too few of them, and "
+        "'ForecasterEquivalentDate' needs a regular DatetimeIndex."
     )
     with warnings.catch_warnings():
         warnings.simplefilter("error")
@@ -1241,9 +1274,9 @@ def test_plan_InvalidInputError_field_when_datetime_index_has_no_frequency():
     profile = assistant.profile(data=df_irregular, target="sales", date_column="date")
 
     err_msg = re.escape(
-        "The frequency of the datetime index could not be inferred (the "
-        "timestamps are irregular or too few), and 'ForecasterRecursive' needs "
-        "a regular DatetimeIndex."
+        "The frequency of the datetime index could not be inferred: the dates "
+        "are not regularly spaced, or there are too few of them, and "
+        "'ForecasterRecursive' needs a regular DatetimeIndex."
     )
     with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
         assistant.plan(profile, steps=5)

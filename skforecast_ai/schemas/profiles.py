@@ -195,6 +195,15 @@ class DataProfile(PickleDefaultsMixin, BaseModel):
         with `','` as `csv_decimal`, or None when its numbers have none.
         Detected when the file is profiled, or given with `thousands`; the
         generated script reads the file with it.
+    date_format : str, None, default None
+        Format the generated script reads the dates of `date_column` with
+        (`pandas.to_datetime(..., format=date_format)`), or None when it
+        reads them without one, as pandas guesses it from the first date:
+        `'%d/%m/%Y'` and the like for dates written day first (which pandas
+        reads month first unless told, whatever the first date), the order
+        given with `dayfirst` for dates that read both day first and month
+        first, and `'%Y%m%d'` for dates written as whole numbers
+        (`20200131`).
     warnings : list
         Human-readable warnings generated during profiling.
     """
@@ -233,6 +242,7 @@ class DataProfile(PickleDefaultsMixin, BaseModel):
     csv_sep: Literal[",", ";", "\t"] = ","
     csv_decimal: Literal[".", ","] = "."
     csv_thousands: Literal["."] | None = None
+    date_format: str | None = None
 
     # -- Train/test split --
     start_date: str | None = None
@@ -260,6 +270,21 @@ class DataProfile(PickleDefaultsMixin, BaseModel):
         into the generated script, also from a profile loaded from JSON.
         """
         validate_frequency(value)
+        return value
+
+    @field_validator("date_format")
+    @classmethod
+    def _check_date_format(cls, value: str | None) -> str | None:
+        """
+        Check that `date_format` is a format of dates: it is written into the
+        generated script, also from a profile loaded from JSON.
+        """
+        if value is not None and "%" not in value:
+            raise InvalidInputError(
+                f"`date_format` must be a format of dates such as '%d/%m/%Y', "
+                f"got {value!r}.",
+                field = "date_format",
+            )
         return value
 
     @model_validator(mode="after")

@@ -91,8 +91,25 @@ def _emit_forecaster_creation_single(
 def render_forecast_single_series(
     plan: ForecastPlan,
     profile: DataProfile,
+    exog_date_format: str | None = None,
 ) -> RenderedScript:
-    """Render code for ForecasterRecursive or ForecasterDirect."""
+    """Render code for ForecasterRecursive or ForecasterDirect.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Validated forecast plan.
+    profile : DataProfile
+        Profile of the data.
+    exog_date_format : str, default None
+        Format of the dates of the future exogenous variables, which the
+        script reads `exog_future.csv` with (see `exog_date_format`).
+
+    Returns
+    -------
+    script : RenderedScript
+        Imports, data loading and core sections of the forecasting script.
+    """
 
     target = _get_target_str(profile)
 
@@ -116,7 +133,9 @@ def render_forecast_single_series(
     _emit_loading_and_index(loading_lines, core_lines, profile)
     if not evaluate and use_exog:
         _emit_future_exog_loading(loading_lines, profile)
-        _emit_future_exog_index_setup(core_lines, profile)
+        _emit_future_exog_index_setup(
+            core_lines, profile, date_format=exog_date_format
+        )
 
     # --- Preprocessing steps ---
     _emit_preprocessing_steps(core_lines, plan, profile)

@@ -74,6 +74,14 @@ WHOLE_NUMBER = re.compile(r"[+-]?\d+")
 # as 15012020 and '0.5' as 5.
 DOTTED_NUMBER = re.compile(r"[+-]?[\d.]*\d[\d.]*(?:,\d*)?(?:[eE][+-]?\d+)?")
 
+# A date written with numbers, the year last or first, with or without a
+# time: with '.' between its fields ('15.01.2020'), pandas would read it as
+# a number when '.' separates the thousands.
+NUMERIC_DATE = re.compile(
+    r"(?:\d{1,2}[./-]\d{1,2}[./-]\d{4}|\d{4}[./-]\d{1,2}[./-]\d{1,2})"
+    r"(?:[ T]\d{1,2}:\d{2}(?::\d{2}(?:[.,]\d+)?)?)?"
+)
+
 DIALECT_HINT = (
     "Profile the file saying how it is written, with `sep` (',', ';' or a "
     "tabulator) and `decimal` ('.' or ',') in `profile()`, `--sep` and "
@@ -457,6 +465,68 @@ def _without_column(rows: list[list[str]], name: str) -> list[list[str]]:
     ]
 
 
+def _date_column_of(
+    rows: list[list[str]],
+    series_id_column: str | None = None,
+    date_column: str | None = None,
+) -> str | None:
+    """
+    Return the column of the dates of the records of a sample: `date_column`
+    when its header holds it, otherwise the first column but the series ids
+    whose fields are all dates written with numbers (`NUMERIC_DATE`).
+    """
+    if not rows:
+        return None
+    header = rows[0]
+    if date_column is not None:
+        return date_column if date_column in header else None
+    for position, name in enumerate(header):
+        if name == series_id_column:
+            continue
+        cells = [
+            row[position].strip() for row in rows[1:]
+            if position < len(row) and row[position].strip()
+        ]
+        if cells and all(NUMERIC_DATE.fullmatch(cell) for cell in cells):
+            return name
+    return None
+
+
+def sample_date_column(
+    sample: str,
+    sep: str,
+    series_id_column: str | None = None,
+    date_column: str | None = None,
+) -> str | None:
+    """
+    Return the column of the dates of a CSV file, from its start.
+
+    It is `date_column` when the header holds it, and otherwise the first
+    column (but the series ids) whose values in the sample are all dates
+    written with numbers (`'15.01.2020'`, `'2020-01-15'`). That column is
+    read as text when `'.'` separates the thousands, which pandas would
+    drop from `'15.01.2020'` to read the number 15012020, and its values do
+    not tell how the numbers are written (see `detect_csv_dialect`).
+
+    Parameters
+    ----------
+    sample : str
+        Start of the file (see `sample_text`).
+    sep : str
+        Separator of the fields.
+    series_id_column : str, default None
+        Column of the series ids of long-format data, never the dates.
+    date_column : str, default None
+        Column of the dates given by the caller.
+
+    Returns
+    -------
+    date_column : str, None
+        Name of the column, or None when the sample has none.
+    """
+    return _date_column_of(_records(sample, sep) or [], series_id_column, date_column)
+
+
 def _dotted_value(values: list[str]) -> str | None:
     """
     Return the first value with a `'.'` that `pandas.read_csv` would read as
@@ -579,6 +649,7 @@ def detect_csv_dialect(
     decimal: str | None = None,
     thousands: str | None = None,
     series_id_column: str | None = None,
+    date_column: str | None = None,
 ) -> tuple[str, str, str | None]:
     """
     Tell the separator, the decimal mark and the thousands separator of a
@@ -623,6 +694,11 @@ def detect_csv_dialect(
         Column of the series ids of long-format data. It is read as text,
         so its values (`'1.020'`, `'0.5'`) neither tell the decimal mark
         and the thousands separator nor stop them.
+    date_column : str, default None
+        Column of the dates given by the caller. Its values, or those of the
+        column of dates of the sample when it is None (see
+        `sample_date_column`), are dates and not numbers: `'15.01.2020'`
+        does not stop `'.'` from separating the thousands.
 
     Returns
     -------
@@ -643,8 +719,9 @@ def detect_csv_dialect(
     both as thousands and as numbers with three decimals (`'1.705'`), unless
     another number has decimals after a `'.'` (`'0.5'`), and a file with
     `'.'` as thousands separator that holds other values with a `'.'`
-    (`'15.01.2020'`, `'0.5'`), which pandas would read as numbers without
-    it.
+    (`'0.5'`, or `'15.01.2020'` outside the column of the dates), which
+    pandas would read as numbers without it. The column of the dates is
+    read as text (see `sample_date_column`), so its points stay.
     """
 
     hint = DIALECT_HINT if field == "data" else EXOG_DIALECT_HINT
@@ -696,6 +773,9 @@ def detect_csv_dialect(
         rows = records.get(sep) or _records(sample, sep) or []
         if series_id_column is not None and rows:
             rows = _without_column(rows, series_id_column)
+        dates = _date_column_of(rows, series_id_column, date_column)
+        if dates is not None:
+            rows = _without_column(rows, dates)
         decimal, thousands = _number_marks(
                                  rows      = rows,
                                  source    = source,

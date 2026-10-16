@@ -14,7 +14,14 @@ from ._constants import AUTOREG_FORECASTERS, NAN_TOLERANT_ESTIMATORS
 from ._dates import is_text, parse_text_dates, row_dates
 from .exceptions import DataContentError, InvalidInputTypeError
 from .execution.forecast_runner import exog_as_injected
-from .profiling.data_profile import _caller_stacklevel, _fmt_timestamp
+from .profiling.data_profile import (
+    COMPACT_DATE_FORMAT,
+    _caller_stacklevel,
+    _compact_dates,
+    _fmt_timestamp,
+    _read_date_column,
+    date_issue_hint,
+)
 from .rendering._helpers import _get_numeric_exog
 from .rendering.foundation import _get_foundation_exog
 from .schemas import DataProfile, ForecastPlan
@@ -61,6 +68,78 @@ def as_exog_frame(exog: object) -> pd.DataFrame | None:
     )
 
 
+def exog_date_format(
+    exog: pd.DataFrame | None,
+    profile: DataProfile,
+) -> str | None:
+    """
+    Return the format the generated script reads the dates of
+    `exog_future.csv` with: that of the future exogenous variables, not
+    that of the data.
+
+    A frame read with `load_exog` carries the format of its file
+    (`exog.attrs['date_format']`). The text dates of another frame, in the
+    `date_column` or in the index, which the executed code takes as that
+    column (see `exog_as_injected`), are read as `load_exog` reads those of
+    a file (see `_day_month_order`): the format of the data decides only
+    the order of dates that read both day first and month first, which
+    otherwise is the only one in which they have a regular frequency, with
+    a warning, and raise when both orders have one, or neither. Whole
+    numbers of eight digits are `'%Y%m%d'`, and dates already parsed need
+    no format: `to_csv()` writes them in ISO 8601.
+
+    Parameters
+    ----------
+    exog : pandas DataFrame, None
+        Future exogenous variables (see `as_exog_frame`).
+    profile : DataProfile
+        Profiled dataset metadata, with the format of the dates of the data
+        (`date_format`).
+
+    Returns
+    -------
+    date_format : str, None
+        Format of the dates of the future exogenous variables, or None when
+        the script reads them without one.
+    """
+    if exog is None:
+        return None
+    if "date_format" in exog.attrs:
+        return exog.attrs["date_format"]
+    date_column = profile.date_column
+    if date_column is None:
+        # The script reads the dates of the index with `parse_dates`.
+        return None
+    values = exog_as_injected(exog, profile)[date_column]
+    if isinstance(values, pd.DataFrame):
+        # A repeated column name: `validate_future_exog` reports it.
+        return None
+    if not is_text(values):
+        return COMPACT_DATE_FORMAT if _compact_dates(values) is not None else None
+    notes = []
+    _, issue, date_format = _read_date_column(
+                                name        = date_column,
+                                values      = values,
+                                named       = True,
+                                date_format = profile.date_format,
+                                source      = "exog",
+                                notes       = notes,
+                            )
+    if issue is not None:
+        raise DataContentError(
+            f"`exog`: {''.join(issue)}",
+            code  = getattr(issue, "code", None),
+            field = "exog",
+            hint  = date_issue_hint(issue),
+        )
+    for note in notes:
+        warnings.warn(
+            f"`exog`: {note}", UserWarning, stacklevel=_caller_stacklevel()
+        )
+
+    return date_format
+
+
 def used_exog_columns(plan: ForecastPlan, profile: DataProfile) -> list[str]:
     """
     Return the exogenous columns the generated code reads from the future
@@ -96,6 +175,7 @@ def validate_future_exog(
     data: pd.DataFrame,
     profile: DataProfile,
     plan: ForecastPlan,
+    date_format: str | None = None,
 ) -> None:
     """
     Check the future exogenous variables against the data and the plan.
@@ -137,6 +217,9 @@ def validate_future_exog(
         Profiled dataset metadata.
     plan : ForecastPlan
         Forecast plan, in prediction mode.
+    date_format : str, default None
+        Format of the dates of `exog` (see `exog_date_format`), with which
+        the generated code reads them.
 
     Returns
     -------
@@ -167,7 +250,9 @@ def validate_future_exog(
         if profile.data_format != "long":
             # Without dates on a grid, the generated code reads the first
             # `steps` rows in the order of the index (or of the dates).
-            horizon, dates = _first_rows(injected, profile, plan.steps)
+            horizon, dates = _first_rows(
+                                 injected, profile, plan.steps, date_format
+                             )
             _check_values(
                 exog       = injected,
                 horizon    = horizon,
@@ -183,7 +268,7 @@ def validate_future_exog(
         # Long-format data dated by its index: the generated code cannot read
         # it and fails on its own, so there are no dates to check against.
         return
-    exog_dates = _exog_dates(injected, profile, per_series)
+    exog_dates = _exog_dates(injected, profile, per_series, date_format)
     if per_series:
         horizon = _check_long_dates(injected, exog_dates, data, profile, plan)
     else:
@@ -298,10 +383,11 @@ def _exog_dates(
     exog: pd.DataFrame,
     profile: DataProfile,
     per_series: bool,
+    date_format: str | None = None,
 ) -> pd.DatetimeIndex:
     """
     Return the date of every row of the future exogenous variables, read as
-    the generated code reads them.
+    the generated code reads them (with `date_format`, their own format).
     """
     date_column = profile.date_column
     if per_series:
@@ -327,11 +413,8 @@ def _exog_dates(
                 field = "exog",
             ) from exc
     elif date_column:
-        values = exog[date_column]
         try:
-            dates = pd.DatetimeIndex(
-                parse_text_dates(values) if is_text(values) else values
-            )
+            dates = row_dates(exog, date_column, date_format)
         except (ValueError, TypeError) as exc:
             raise DataContentError(
                 f"The dates of `exog` (column or index {date_column!r}) cannot be "
@@ -374,7 +457,7 @@ def _last_date(
     (ForecasterRecursiveMultiSeries, which drops the missing values at the
     end of each series), the last date with a target value.
     """
-    dates = row_dates(data, profile.date_column)
+    dates = row_dates(data, profile.date_column, profile.date_format)
     if dates is not None and by_value:
         targets = profile.target if isinstance(profile.target, list) else [
             profile.target
@@ -750,7 +833,7 @@ def _long_series_ends(
     row, or of its last value when `by_value` (skforecast drops the missing
     values at the end of a series).
     """
-    dates = row_dates(data, profile.date_column)
+    dates = row_dates(data, profile.date_column, profile.date_format)
     ids = _row_ids(data, profile.series_id_column)
     if dates is None or ids is None:
         return {}
@@ -783,6 +866,7 @@ def _first_rows(
     exog: pd.DataFrame,
     profile: DataProfile,
     steps: int,
+    date_format: str | None = None,
 ) -> tuple[np.ndarray, pd.DatetimeIndex | None]:
     """
     Return the positions of the first `steps` rows in the order the generated
@@ -798,7 +882,7 @@ def _first_rows(
     dates = None
     try:
         if is_text(keys):
-            keys = parse_text_dates(keys)
+            keys = parse_text_dates(keys, date_format)
         if pd.api.types.is_datetime64_any_dtype(keys):
             dates = pd.DatetimeIndex(keys)
         order = np.argsort(keys.to_numpy(), kind="stable")
@@ -1047,7 +1131,7 @@ def _fitted_rows(
     """
     if plan.task_type != "multi_series":
         return None
-    dates = row_dates(data, profile.date_column)
+    dates = row_dates(data, profile.date_column, profile.date_format)
     if dates is None:
         return None
     dates = pd.Series(dates, index=data.index)
@@ -1087,7 +1171,7 @@ def _learned_rows(
     size = _window_size(plan)
     if not size:
         return None
-    dates = row_dates(data, profile.date_column)
+    dates = row_dates(data, profile.date_column, profile.date_format)
     if dates is not None:
         order = pd.Series(dates, index=data.index)
     elif isinstance(data.index, pd.RangeIndex):

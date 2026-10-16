@@ -122,8 +122,25 @@ def _emit_forecaster_creation_foundation(
 def render_forecast_foundation(
     plan: ForecastPlan,
     profile: DataProfile,
+    exog_date_format: str | None = None,
 ) -> RenderedScript:
-    """Render code for ForecasterFoundation with the model of `plan.estimator`."""
+    """Render code for ForecasterFoundation with the model of `plan.estimator`.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Validated forecast plan.
+    profile : DataProfile
+        Profile of the data.
+    exog_date_format : str, default None
+        Format of the dates of the future exogenous variables, which the
+        script reads `exog_future.csv` with (see `exog_date_format`).
+
+    Returns
+    -------
+    script : RenderedScript
+        Imports, data loading and core sections of the forecasting script.
+    """
 
     target = _get_target_str(profile)
     exog_columns, excluded_categorical = _get_foundation_exog(plan, profile)
@@ -155,7 +172,9 @@ def render_forecast_foundation(
     )
     if not evaluate and use_exog:
         _emit_future_exog_loading(loading_lines, profile)
-        _emit_future_exog_index_setup(core_lines, profile, long_format=is_long)
+        _emit_future_exog_index_setup(
+            core_lines, profile, long_format=is_long, date_format=exog_date_format
+        )
 
     # --- Preprocessing steps ---
     _emit_preprocessing_steps(core_lines, plan, profile)

@@ -22,7 +22,7 @@ from ..rendering.baseline import render_forecast_baseline
 from ..exceptions import InvalidInputError
 from ._exec import exec_rendered
 
-_RENDER_DISPATCH: dict[str, Callable[[ForecastPlan, DataProfile], RenderedScript]] = {
+_RENDER_DISPATCH: dict[str, Callable[..., RenderedScript]] = {
     "single_series": render_forecast_single_series,
     "multi_series": render_forecast_multi_series,
     "multivariate": render_forecast_multivariate,
@@ -35,6 +35,7 @@ _RENDER_DISPATCH: dict[str, Callable[[ForecastPlan, DataProfile], RenderedScript
 def render_forecast_script(
     profile: DataProfile,
     plan: ForecastPlan,
+    exog_date_format: str | None = None,
 ) -> RenderedScript:
     """
     Render structured code from a plan and data profile.
@@ -45,6 +46,11 @@ def render_forecast_script(
         Profile of the input dataset.
     plan : ForecastPlan
         Validated forecast plan.
+    exog_date_format : str, default None
+        Format of the dates of the future exogenous variables, which the
+        script reads `exog_future.csv` with (see `exog_date_format`). If
+        None, pandas guesses it from the first date, as for a file saved
+        with `to_csv()`.
 
     Returns
     -------
@@ -60,7 +66,7 @@ def render_forecast_script(
             f"Supported types: {supported}",
             field = "task_type",
         )
-    return render_fn(plan, profile)
+    return render_fn(plan, profile, exog_date_format=exog_date_format)
 
 
 def run_forecast(
@@ -68,6 +74,7 @@ def run_forecast(
     profile: DataProfile,
     plan: ForecastPlan,
     exog: pd.DataFrame | None = None,
+    exog_date_format: str | None = None,
 ) -> dict[str, Any]:
     """
     Execute a forecasting workflow by running the generated code.
@@ -98,6 +105,9 @@ def run_forecast(
         Future exogenous variables covering the forecast horizon. Used
         only in prediction mode; injected into the executed code as the
         `exog_future` variable.
+    exog_date_format : str, default None
+        Format of the dates of `exog` (see `exog_date_format`), with which
+        the executed code reads them.
 
     Returns
     -------
@@ -107,7 +117,7 @@ def run_forecast(
         prediction intervals are requested, the interval columns are
         included in `'predictions'`.
     """
-    rendered = render_forecast_script(profile, plan)
+    rendered = render_forecast_script(profile, plan, exog_date_format)
     if exog is not None:
         exog = exog_as_injected(exog, profile)
 

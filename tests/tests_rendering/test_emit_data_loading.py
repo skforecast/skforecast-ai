@@ -161,7 +161,8 @@ def test_emit_data_loading_in_a_full_script_with_future_exog():
         (
             "date",
             False,
-            "data = pd.read_csv('eu.csv', sep=';', decimal=',', thousands='.')",
+            "data = pd.read_csv('eu.csv', sep=';', decimal=',', thousands='.', "
+            "dtype={'date': str})",
         ),
         (
             None,
@@ -172,7 +173,8 @@ def test_emit_data_loading_in_a_full_script_with_future_exog():
         (
             "date",
             True,
-            "data = pd.read_csv('eu.csv', sep=';', decimal=',', thousands='.')",
+            "data = pd.read_csv('eu.csv', sep=';', decimal=',', thousands='.', "
+            "dtype={'date': str})",
         ),
     ],
     ids=["date column", "index stored", "long format"],
@@ -183,7 +185,9 @@ def test_emit_data_loading_output_when_csv_has_thousands(
     """
     Test that the call to `pd.read_csv` names `thousands` after `sep` and
     `decimal` when the file separates thousands with '.', before
-    `index_col` and `parse_dates` when the index is stored in the file.
+    `index_col` and `parse_dates` when the index is stored in the file,
+    and reads the date column as text, as the library reads it: with '.'
+    as thousands separator, pandas would read '15.01.2020' as a number.
     """
     profile = profile_single.model_copy(
         update={
@@ -238,7 +242,8 @@ def test_emit_data_loading_in_a_full_script_with_thousands_and_future_exog():
     result = render_forecast_single_series(plan_single_predict_exog, profile)
 
     assert (
-        "data = pd.read_csv('eu.csv', sep=';', decimal=',', thousands='.')\n"
+        "data = pd.read_csv('eu.csv', sep=';', decimal=',', thousands='.', "
+        "dtype={'date': str})\n"
         in result.data_loading
     )
     assert "exog_future = pd.read_csv('exog_future.csv')\n" in result.data_loading
@@ -262,7 +267,7 @@ def test_emit_data_loading_in_a_full_script_with_thousands_and_future_exog():
             },
             {},
             "data = pd.read_csv('eu.csv', sep=';', decimal=',', thousands='.', "
-            "dtype={'store': str})",
+            "dtype={'store': str, 'date': str})",
         ),
         (
             {"csv_sep": ";", "csv_decimal": ",", "csv_thousands": "."},

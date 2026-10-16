@@ -14,8 +14,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from dateutil import parser as dateutil_parser
+from skforecast.exceptions import IgnoredArgumentWarning
 from .._dates import (
     date_positions,
+    day_month_formats,
     first_date,
     guess_datetime_format,
     guessed_date_format,
@@ -24,6 +26,7 @@ from .._dates import (
     missing_dates,
     parse_text_dates,
     row_dates,
+    short_year_format,
     time_zones,
     training_end,
 )
@@ -31,6 +34,7 @@ from ..schemas import DataProfile
 from ..exceptions import DataContentError, InvalidInputError, InvalidInputTypeError
 from .csv_dialect import (
     DECIMAL_NUMBERS,
+    NUMERIC_DATE,
     DECOMPRESSION_ERRORS,
     DEFAULT_CSV_DECIMAL,
     DEFAULT_CSV_SEP,
@@ -47,6 +51,7 @@ from .csv_dialect import (
     only_thousands_error,
     read_row_lengths,
     read_sample,
+    sample_date_column,
     sample_holds_file,
 )
 
@@ -191,6 +196,8 @@ def create_data_profile(
     sep: str | None = None,
     decimal: str | None = None,
     thousands: str | None = None,
+    dayfirst: bool | None = None,
+    date_format: str | None = None,
 ) -> DataProfile:
     """
     Generate a deterministic data profile from a dataset.
@@ -233,6 +240,20 @@ def create_data_profile(
         mark. If None, it is detected when `data` is a path, and none is
         recorded for a DataFrame. The profile records it as
         `csv_thousands`.
+    dayfirst : bool, default None
+        Order of the day and the month of dates written as text that read in
+        both (`'01/02/2020'`), those of a CSV file or the text `date_column`
+        of a DataFrame: True for day first, False for month first. If None,
+        it is told from the dates (see Notes). Ignored for dates whose
+        format leaves no doubt (`'2020-02-01'`, `'01 Feb 2020'`); for a
+        DataFrame whose dates are not text (already datetime), an
+        `IgnoredArgumentWarning` says that it does not apply.
+    date_format : str, default None
+        Format the text dates of `data` were read with, when it is a
+        DataFrame read from a CSV file (see `_try_parse_first_date_column`),
+        recorded as `date_format`; for text dates still in `data`, the
+        format of a profile of the data, which decides the order of dates
+        that read in both.
 
     Returns
     -------
@@ -264,10 +285,22 @@ def create_data_profile(
     data.
 
     A CSV date column with empty cells raises a `ValueError` that says so,
-    as does one whose dates mix UTC offsets, are written in more than one
-    format, or are day-first dates whose first date also reads month-first
-    while a later one does not (see `_try_parse_first_date_column` and
-    `_read_date_column`).
+    as does one whose dates mix UTC offsets or are written in more than one
+    format (see `_try_parse_first_date_column` and `_read_date_column`).
+    Dates that write the day and the month as numbers before the year are
+    read in the only order that reads every date (a day after the 12th
+    settles day first), and the profile records the format the generated
+    script reads them with (`date_format`). When every date reads in both
+    orders, `dayfirst` gives it; without it, the dates are read in both
+    orders, and when only one of the readings has a regular frequency
+    (monthly data of a US file, `'02/01/2015'`, are `'MS'` month first and
+    have no frequency day first), it is the order, with a note in
+    `warnings` that says so and how to give the other one with `dayfirst`.
+    When both readings have a frequency (a few dates: `'D'` and `'MS'`),
+    or neither has one, the order is not guessed: `InvalidInputError` with
+    code `'data_unreadable'` and a hint that names `dayfirst`. Whole numbers
+    that are all dates of eight digits (`20200131`) are dates, recorded
+    with `date_format` `'%Y%m%d'`.
 
     In long format, the frequency of every series is read: series of
     different frequencies, or with timestamps off the grid of the others,
@@ -281,18 +314,29 @@ def create_data_profile(
     grid.
     """
     check_csv_dialect(sep, decimal, thousands)
-    if isinstance(data, (str, Path)):
+    # Notes on how the dates were read, first among the warnings.
+    date_notes: list[str] = []
+    in_memory = not isinstance(data, (str, Path))
+    if not in_memory:
         data, sep, decimal, thousands = read_csv_with_dialect(
                                             path             = data,
                                             sep              = sep,
                                             decimal          = decimal,
                                             thousands        = thousands,
                                             series_id_column = series_id_column,
+                                            date_column      = date_column,
                                         )
         # Attempt to parse the first object-dtype column as datetime.
         # This handles CSVs exported with df.to_csv() where the date
         # index becomes a regular column.
-        data = _try_parse_first_date_column(data, date_column, series_id_column)
+        data, date_format = _try_parse_first_date_column(
+                                data             = data,
+                                date_column      = date_column,
+                                series_id_column = series_id_column,
+                                dayfirst         = dayfirst,
+                                date_format      = date_format,
+                                notes            = date_notes,
+                            )
 
     # Normalize a MultiIndex (level 0 = series_id, level 1 = datetime) into
     # flat long format so every downstream helper sees named columns. Other
@@ -312,12 +356,27 @@ def create_data_profile(
     _validate_series_id_column(data, target, date_column, series_id_column)
     _validate_target_has_values(data, target)
 
-    date_col, index_type = detect_date_column(data, date_column)
+    # The dates of a CSV file were read above, in the order of `dayfirst`.
+    frame_dayfirst = dayfirst if in_memory else None
+    date_col, index_type = detect_date_column(
+                               data        = data,
+                               date_column = date_column,
+                               date_format = date_format,
+                               dayfirst    = frame_dayfirst,
+                           )
+    if frame_dayfirst is not None:
+        _warn_dayfirst_not_applied(data, date_col)
 
     # Text dates are parsed once, as the generated script parses the whole
     # column, so every check below reads the same dates. Parsed one by one,
     # '01/02/2012' is read month-first in a column of day-first dates.
-    data = _parse_text_date_column(data, date_col)
+    data, date_format = _parse_text_date_column(
+                            data        = data,
+                            date_col    = date_col,
+                            date_format = date_format,
+                            dayfirst    = frame_dayfirst,
+                            notes       = date_notes,
+                        )
 
     detected_exog = detect_exog_columns(
         data, target, date_col, series_id_column
@@ -467,6 +526,7 @@ def create_data_profile(
         ),
         numbers_as_text        = numbers_as_text,
     )
+    warnings[:0] = date_notes
     if long_dates is not None and series_dates is None:
         warnings.append(
             "Long-format dates outside the years 1677 to 2262: the frequency "
@@ -533,6 +593,7 @@ def create_data_profile(
         csv_sep=DEFAULT_CSV_SEP if sep is None else sep,
         csv_decimal=DEFAULT_CSV_DECIMAL if decimal is None else decimal,
         csv_thousands=thousands,
+        date_format=date_format,
         # Train/test split
         start_date=start_date,
         time_zone=time_zone,
@@ -545,7 +606,11 @@ def _try_parse_first_date_column(
     data: pd.DataFrame,
     date_column: str | None = None,
     series_id_column: str | None = None,
-) -> pd.DataFrame:
+    dayfirst: bool | None = None,
+    date_format: str | None = None,
+    source: str = "file",
+    notes: list[str] | None = None,
+) -> tuple[pd.DataFrame, str | None]:
     """
     Try to convert the first object or string dtype column to datetime.
 
@@ -555,14 +620,26 @@ def _try_parse_first_date_column(
     auto-parse these. This helper converts the first parseable column
     in-place so that downstream `detect_date_column` can identify it. The
     dates are parsed as the generated script parses them (see
-    `parse_text_dates`).
+    `parse_text_dates`), day first when they read only so, and in the order
+    of `dayfirst` or `date_format` when they read in both (see
+    `_day_month_order`). A column of whole numbers that are all dates of
+    eight digits ('20200131') is a column of dates too, in the same order of
+    columns (see `_compact_dates`).
 
     A column of dates with empty cells, with UTC offsets that change or
     written in more than one format cannot be the date column (see
     `_read_date_column`). When it is the `date_column`, or no later column
     is converted, an error says why. When
     a later column is converted instead, a warning names the columns. The
-    `date_column` is checked even when an earlier column was converted.
+    `date_column` is checked even when an earlier column was converted, and
+    converted itself. Dates whose day and month read in both orders, with
+    neither `dayfirst` nor `date_format` to decide, are read in the only
+    order in which they have a regular frequency, with a note in `notes`;
+    when both orders or neither have one, they raise `InvalidInputError`
+    with code `'data_unreadable'` and a hint that names `dayfirst`, and so
+    do dates that `dayfirst` contradicts (field `'dayfirst'`), also when a
+    later column holds dates: such a column holds every date, so it is the
+    date column.
 
     Parameters
     ----------
@@ -573,22 +650,55 @@ def _try_parse_first_date_column(
     series_id_column : str, default None
         Name of the column of series ids, read as text, which is never the
         date column: ids such as `'2001'` read as dates.
+    dayfirst : bool, default None
+        Order of the day and the month given by the caller, for dates that
+        read in both.
+    date_format : str, default None
+        Format recorded by a profile of the data, which decides the order of
+        dates that read in both.
+    source : str, default 'file'
+        Where the data come from: `'file'` for the CSV file of the data,
+        `'exog'` for that of the future exogenous variables (see
+        `_day_month_order`).
+    notes : list of str, default None
+        List the note of an order of the day and the month told from the
+        regularity of the dates of the converted column is appended to
+        (see `_day_month_order`).
 
     Returns
     -------
     data : pandas DataFrame
         DataFrame with the first date-like column converted (if found).
+    date_format : str, None
+        Format the generated script reads the dates of the date column with
+        (`DataProfile.date_format`), or None when it needs none.
     """
     skipped = []
+    converted, found_format, found_notes = None, None, []
     for col in data.columns:
-        if not is_text(data[col]) or col == series_id_column:
+        if col == series_id_column:
             continue
-        parsed, issue = _read_date_column(col, data[col], named=col == date_column)
+        col_notes = []
+        if is_text(data[col]):
+            parsed, issue, col_format = _read_date_column(
+                                            name        = col,
+                                            values      = data[col],
+                                            named       = col == date_column,
+                                            dayfirst    = dayfirst,
+                                            date_format = date_format,
+                                            source      = source,
+                                            notes       = col_notes,
+                                        )
+        else:
+            parsed, issue = _compact_dates(data[col]), None
+            col_format = COMPACT_DATE_FORMAT
+            if parsed is None:
+                continue
         if issue is not None:
-            if col == date_column:
-                raise InvalidInputError(
-                    "".join(issue), field="data", hint=date_issue_hint(issue)
-                )
+            if col == date_column or getattr(issue, "order", False):
+                # A column whose order cannot be told holds every date: it is
+                # the date column, and no later column takes its place.
+                raise date_issue_error(issue)
             if date_column is None:
                 skipped.append((col, issue))
             continue
@@ -599,6 +709,7 @@ def _try_parse_first_date_column(
         if skipped and not _has_date_part(_first_value(data[col])):
             continue
         data[col] = parsed
+        converted, found_format, found_notes = col, col_format, col_notes
         if skipped:
             # The skipped columns may be exogenous variables, so the warning
             # says what was found and not how to fix a date column.
@@ -612,43 +723,68 @@ def _try_parse_first_date_column(
         break
     else:
         if skipped:
+            col, issue = skipped[0]
             # A sparse column of dates may be an exogenous variable of data
             # without dates, which only a DataFrame can pass.
-            col, issue = skipped[0]
-            raise InvalidInputError(
+            raise date_issue_error(
+                issue,
                 f"{''.join(issue)} If the dates are in another column, pass its "
                 f"name as `date_column`; if {col!r} is an exogenous variable "
                 f"and the data has no dates, read the CSV with pandas and pass "
                 f"the DataFrame instead of its path.",
-                field = "data",
-                hint  = date_issue_hint(issue),
             )
 
     # The named column is checked even when an earlier column was parsed,
-    # as with a saved profile nothing else checks it before the script runs.
+    # as with a saved profile nothing else checks it before the script runs,
+    # and it is converted here, with the order of its own dates.
     if (
         date_column is not None
         and date_column in data.columns
-        and is_text(data[date_column])
+        and date_column != converted
     ):
-        _, issue = _read_date_column(date_column, data[date_column], named=True)
-        if issue is not None:
-            raise InvalidInputError(
-                "".join(issue), field="data", hint=date_issue_hint(issue)
-            )
+        found_format, found_notes = None, []
+        values = data[date_column]
+        if is_text(values):
+            col_notes = []
+            parsed, issue, col_format = _read_date_column(
+                                            name        = date_column,
+                                            values      = values,
+                                            named       = True,
+                                            dayfirst    = dayfirst,
+                                            date_format = date_format,
+                                            source      = source,
+                                            notes       = col_notes,
+                                        )
+            if issue is not None:
+                raise date_issue_error(issue)
+            if parsed is not None and not parsed.isna().any():
+                data[date_column] = parsed
+                found_format, found_notes = col_format, col_notes
+        else:
+            parsed = _compact_dates(values)
+            if parsed is not None:
+                data[date_column] = parsed
+                found_format = COMPACT_DATE_FORMAT
+    if notes is not None:
+        notes.extend(found_notes)
 
-    return data
+    return data, found_format
 
 
 def _read_date_column(
     name: str,
     values: pd.Series,
     named: bool,
-) -> tuple[pd.Series | None, tuple[str, str] | None]:
+    dayfirst: bool | None = None,
+    date_format: str | None = None,
+    source: str = "file",
+    notes: list[str] | None = None,
+) -> tuple[pd.Series | None, tuple[str, str] | None, str | None]:
     """
     Parse a text column as the generated script does, and say why it cannot
     be the date column when its dates have empty cells, UTC offsets that
-    change or more than one format.
+    change, more than one format, or a day and a month whose order cannot
+    be told.
 
     Parameters
     ----------
@@ -659,26 +795,101 @@ def _read_date_column(
     named : bool
         Whether the caller named this column as the date column (see
         `_text_dates_issue`).
+    dayfirst : bool, default None
+        Order of the day and the month given by the caller, for dates that
+        read in both (see `_day_month_order`).
+    date_format : str, default None
+        Format recorded by a profile of these data, which decides the order
+        of dates that read in both.
+    source : str, default 'file'
+        Where the column comes from, for the remedy of an issue and of a
+        note (see `_day_month_order`).
+    notes : list of str, default None
+        List the note of an order of the day and the month told from the
+        regularity of the dates is appended to, when the column is read
+        (see `_day_month_order`).
 
     Returns
     -------
     parsed : pandas Series, None
-        The column parsed as `parse_text_dates` parses it (with NaT for the
-        values that hold no date), or None when it does not parse or has an
-        issue.
+        The column parsed as the generated script parses it (with NaT for
+        the values that hold no date), or None when it does not parse or
+        has an issue.
     issue : tuple, None
         Why the column holds dates but cannot be the date column, as what was
-        found and how to fix it (see `_text_dates_issue` and
-        `_mixed_formats_issue`), or None.
+        found and how to fix it (see `_text_dates_issue`,
+        `_mixed_formats_issue` and `_day_month_order`), or None.
+    date_format : str, None
+        Format the generated script reads the dates with
+        (`DataProfile.date_format`), or None when it reads them without one.
     """
+    found_notes: list[str] = []
+    parsed, issue, recorded = _read_date_column_in_order(
+                                  name        = name,
+                                  values      = values,
+                                  named       = named,
+                                  dayfirst    = dayfirst,
+                                  date_format = date_format,
+                                  source      = source,
+                                  notes       = found_notes,
+                              )
+    if parsed is not None and notes is not None:
+        # Only the notes of a column that is read: one with an issue is not
+        # the date column.
+        notes.extend(found_notes)
+
+    return parsed, issue, recorded
+
+
+def _read_date_column_in_order(
+    name: str,
+    values: pd.Series,
+    named: bool,
+    dayfirst: bool | None,
+    date_format: str | None,
+    source: str,
+    notes: list[str],
+) -> tuple[pd.Series | None, tuple[str, str] | None, str | None]:
+    """
+    Do the work of `_read_date_column`, whose parameters and returns it
+    takes, appending to `notes` the note of the order of the day and the
+    month even when the column then has an issue.
+    """
+    chosen, recorded, issue = _day_month_order(
+                                  name        = name,
+                                  values      = values,
+                                  named       = named,
+                                  dayfirst    = dayfirst,
+                                  date_format = date_format,
+                                  source      = source,
+                                  notes       = notes,
+                              )
+    if issue is not None:
+        return None, issue, None
+    if chosen is not None and chosen != guessed_date_format(values):
+        # Day first after a first date that reads month first: pandas would
+        # guess the other order from it.
+        issue = _text_dates_issue(name, values, named)
+        if issue is not None:
+            return None, issue, None
+        with _warnings.catch_warnings():
+            _warnings.simplefilter("ignore")
+            parsed = pd.to_datetime(values, format=chosen)
+        issue = _mixed_offsets_issue(name, parsed)
+        return (None, issue, None) if issue is not None else (parsed, None, recorded)
+
     # Most date columns parse with the format of their first date, with no
     # empty cell and one time zone: no further check needed.
     parsed = _parse_with_guessed_format(values)
     if parsed is not None:
-        return parsed, None
+        if guessed_date_format(values) == COMPACT_DATE_FORMAT:
+            # '20200131' read as text (with a thousands separator) is named as
+            # the same dates read as whole numbers are.
+            recorded = COMPACT_DATE_FORMAT
+        return parsed, None, recorded
     issue = _text_dates_issue(name, values, named)
     if issue is not None:
-        return None, issue
+        return None, issue, None
     # Mixed offsets are reported below, so the pandas warning about them
     # would only repeat it; so would its note that, without a format, it
     # parses each date on its own.
@@ -697,12 +908,13 @@ def _read_date_column(
             parsed = parse_text_dates(values)
         except (ValueError, TypeError, AttributeError, OverflowError):
             # The generated script cannot read them either.
-            return _read_dates_one_by_one(name, values, named)
+            parsed, issue = _read_dates_one_by_one(name, values, named)
+            return parsed, issue, recorded if parsed is not None else None
     # Offsets in a spelling `time_zones` does not read give pandas
     # Timestamps of several offsets.
     issue = _mixed_offsets_issue(name, parsed)
 
-    return (None, issue) if issue is not None else (parsed, None)
+    return (None, issue, None) if issue is not None else (parsed, None, recorded)
 
 
 def _read_dates_one_by_one(
@@ -871,9 +1083,10 @@ def _mixed_formats_issue(
     not), so the message quotes the format read and an ISO 8601 example. Zone names that
     change at a daylight saving time change ('CET', then 'CEST') are
     reported as time zones. Day-first dates whose first date reads
-    month-first ('01/02/2023', then '13/02/2023') are in one format, but
-    the script reads them all month-first and fails on a date that does
-    not fit that reading, which proves it wrong: the message says they are
+    month-first ('01/02/2023', then '13/02/2023') are read day first before
+    this check (see `_day_month_order`); a format whose year comes first
+    and whose day reads before its month ('2023-13-02') does not fit the
+    format pandas guesses either, and the message says the dates are
     day-first (see `_day_first_issue`).
 
     Parameters
@@ -1054,14 +1267,32 @@ class DateIssue(tuple):
     """
     Why a column of dates cannot be the date column: what was found and how
     to fix it, which joined make the message, plus `hint`, the remedy
-    without the pandas calls that only apply in Python.
+    without the pandas calls that only apply in Python, the `code` and
+    `field` of the error (None for the default code, and `'data'`), and
+    whether it is about the order of the day and the month (`order`): such
+    a column holds every date, so it is the date column, and another one is
+    never used in its place.
     """
 
     hint: str
+    code: str | None
+    field: str
+    order: bool
 
-    def __new__(cls, found: str, fix: str, hint: str) -> "DateIssue":
+    def __new__(
+        cls,
+        found: str,
+        fix: str,
+        hint: str,
+        code: str | None = None,
+        field: str = "data",
+        order: bool = False,
+    ) -> "DateIssue":
         issue = super().__new__(cls, (found, fix))
         issue.hint = hint
+        issue.code = code
+        issue.field = field
+        issue.order = order
         return issue
 
 
@@ -1070,6 +1301,391 @@ def date_issue_hint(issue: tuple[str, str]) -> str | None:
     Return the remedy of a date issue of `_read_date_column` as a hint.
     """
     return getattr(issue, "hint", None)
+
+
+def date_issue_error(
+    issue: tuple[str, str],
+    message: str | None = None,
+) -> InvalidInputError:
+    """
+    Return the error of a date issue of `_read_date_column`, with its code,
+    its field and its hint.
+
+    Parameters
+    ----------
+    issue : tuple
+        What was found and how to fix it, a `DateIssue` or a plain tuple.
+    message : str, default None
+        Message of the error. If None, the joined issue.
+
+    Returns
+    -------
+    error : InvalidInputError
+        Error with the code (`'invalid_argument'` by default), the field
+        (`'data'` by default) and the hint of the issue.
+    """
+    return InvalidInputError(
+        "".join(issue) if message is None else message,
+        code  = getattr(issue, "code", None),
+        field = getattr(issue, "field", "data"),
+        hint  = date_issue_hint(issue),
+    )
+
+
+# Remedy of a CSV file whose dates read both day first and month first,
+# which only whoever wrote them can tell.
+DAYFIRST_HINT = (
+    "Profile the file saying the order of its dates, with `dayfirst` (True "
+    "when they are written day first, as '31/01/2024', False when month "
+    "first, as '01/31/2024') in `profile()`, `--dayfirst` or `--monthfirst` "
+    "in the `profile` command, or `dayfirst` (true or false) in the "
+    "`profile` tool of the MCP server, and use that profile. The dates do "
+    "not tell it: ask whoever wrote the file if it is not known."
+)
+
+# Remedy of the same dates in a DataFrame, which only the Python API takes.
+DAYFIRST_FRAME_HINT = (
+    "Profile the data saying the order of its dates, with `dayfirst` in "
+    "`profile()` (True when they are written day first, as '31/01/2024', "
+    "False when month first, as '01/31/2024'), and use that profile. The "
+    "dates do not tell it: ask whoever wrote them if it is not known."
+)
+
+# Remedy of a file of future exogenous variables whose dates read both day
+# first and month first, when the format of the data does not decide it.
+EXOG_DATES_HINT = (
+    "Write the dates of the future exogenous values in ISO 8601, such as "
+    "'2024-01-31', which reads one way only."
+)
+
+# Format of the dates written as whole numbers of eight digits, year, month
+# and day ('20200131'), as many exports write them.
+COMPACT_DATE_FORMAT = "%Y%m%d"
+
+
+def _reads_with(values: pd.Series, date_format: str) -> pd.Series:
+    """
+    Return which values read as a date with a format.
+    """
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("ignore")
+        try:
+            parsed = pd.to_datetime(values, format=date_format, errors="coerce")
+        except (ValueError, TypeError, AttributeError, OverflowError):
+            return pd.Series(False, index=values.index)
+
+    return pd.Series(pd.notna(parsed), index=values.index)
+
+
+def _day_month_order(
+    name: str,
+    values: pd.Series,
+    named: bool,
+    dayfirst: bool | None = None,
+    date_format: str | None = None,
+    source: str = "file",
+    notes: list[str] | None = None,
+) -> tuple[str | None, str | None, "DateIssue | None"]:
+    """
+    Tell the order of the day and the month of text dates that write both
+    as numbers before the year ('01/02/2020'), which pandas reads month
+    first unless told otherwise.
+
+    The order is told when every date reads in only one of them (a day
+    after the 12th, '13/02/2020', settles day first). When every date reads
+    in both, it is never guessed: `date_format` (the format of a profile of
+    these data) or `dayfirst` decide it; otherwise, the dates are read in
+    both orders, and when only one of the readings has a regular frequency
+    (`infer_frequency` on the sorted dates: monthly data of five years
+    written '02/01/2015' reads `'MS'` month first and none day first), it
+    is the order, with a note that says so and how to give the other one.
+    When both readings are regular (three dates, `'D'` and `'MS'`), or
+    neither is, the order is an issue. `dayfirst` against the dates is an
+    issue too.
+
+    Parameters
+    ----------
+    name : str
+        Name of the column, for the message.
+    values : pandas Series
+        Values of the column: text, or date objects.
+    named : bool
+        Whether the caller named this column as the date column. When
+        False, its first date must clearly be one (see `_is_clearly_date`).
+    dayfirst : bool, default None
+        Order given by the caller: True for day first, False for month
+        first. None when it is not given.
+    date_format : str, default None
+        Format a profile of the data recorded (`DataProfile.date_format`),
+        which decides the order of dates that read in both.
+    source : str, default 'file'
+        Where the column comes from, for the remedy of the issue and of the
+        note: `'file'` for the CSV file of the data (`dayfirst` in every
+        interface), `'frame'` for data passed in memory (`dayfirst` in
+        `profile()`) and `'exog'` for the CSV file of the future exogenous
+        variables (dates in ISO 8601), whose order `date_format`, the
+        format of the data, decides when it can.
+    notes : list of str, default None
+        List the note of an order told from the regularity of the dates is
+        appended to (see `_regular_order_note`).
+
+    Returns
+    -------
+    chosen : str, None
+        Format to read the dates with, or None when their order is not in
+        question (other formats, or dates that read in neither order).
+    recorded : str, None
+        Format the generated script names (`DataProfile.date_format`): the
+        chosen one, in either order (pandas reads day-first dates month
+        first unless told, even when their first date says so, and a file
+        of future exogenous variables whose dates read in both is read in
+        the order of the data), or None when the order is not in question.
+    issue : DateIssue, None
+        Why the order cannot be told, or None.
+    """
+    first = first_date(values)
+    if type(first) is not str:
+        return None, None, None
+    # pandas guesses no format for a year of two digits ('01/02/18'), and
+    # reads such dates one by one, month first when it can.
+    short_year = short_year_format(first)
+    if not named and short_year is None and not _is_clearly_date(first):
+        return None, None, None
+    guessed = guessed_date_format(values)
+    formats = day_month_formats(guessed if guessed is not None else short_year)
+    if formats is None:
+        return None, None, None
+    month_first, day_first = formats
+    present = values[~missing_dates(values)]
+    by_month = _reads_with(present, month_first)
+    by_day = _reads_with(present, day_first)
+    if by_month.all() and by_day.all():
+        if _same_dates(present, formats):
+            # Each day is its month ('01/01/2000' every year): either order
+            # gives the same dates, so there is nothing to tell.
+            return None, None, None
+        if date_format in formats:
+            chosen = date_format
+        elif dayfirst is not None:
+            chosen = day_first if dayfirst else month_first
+        else:
+            frequencies = [_reading_frequency(present, fmt) for fmt in formats]
+            regular = [fmt for fmt, freq in zip(formats, frequencies) if freq]
+            if len(regular) != 1:
+                return None, None, _ambiguous_order_issue(
+                    name, present, formats, source, frequencies
+                )
+            chosen = regular[0]
+            if notes is not None:
+                notes.append(
+                    _regular_order_note(
+                        name      = name,
+                        values    = present,
+                        formats   = formats,
+                        chosen    = chosen,
+                        frequency = frequencies[formats.index(chosen)],
+                        source    = source,
+                    )
+                )
+        return chosen, chosen, None
+    if not by_month.all() and not by_day.all():
+        return None, None, None
+    chosen = day_first if by_day.all() else month_first
+    if dayfirst is not None and dayfirst != (chosen == day_first):
+        other = present[~(by_month if dayfirst is False else by_day)].iloc[0]
+        return None, None, _order_contradiction_issue(name, dayfirst, other)
+
+    # Named in either order: the future exogenous variables, whose dates may
+    # read in both, are read in the order of the data.
+    return chosen, chosen, None
+
+
+def _same_dates(values: pd.Series, formats: tuple[str, str]) -> bool:
+    """
+    Return whether text dates read the same in both orders of the day and
+    the month: every day is its month.
+    """
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("ignore")
+        readings = [
+            pd.to_datetime(values, format=date_format) for date_format in formats
+        ]
+
+    return bool((readings[0] == readings[1]).all())
+
+
+def _reading_frequency(values: pd.Series, date_format: str) -> str | None:
+    """
+    Return the frequency of text dates read with a format, as the profile
+    infers it on the sorted dates (`infer_frequency`), or None when they
+    have none.
+    """
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("ignore")
+        try:
+            dates = pd.to_datetime(values, format=date_format)
+            index = pd.DatetimeIndex(dates.drop_duplicates()).sort_values()
+        except (ValueError, TypeError, AttributeError, OverflowError):
+            # Offsets that change: the dates are rejected further on.
+            return None
+
+    return infer_frequency(index)
+
+
+def _first_two_readings(
+    values: pd.Series,
+    formats: tuple[str, str],
+) -> tuple[object, list[str]]:
+    """
+    Return the first date whose day is not its month, as written, with its
+    readings day first and month first.
+    """
+    month_first, day_first = formats
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("ignore")
+        by_day = pd.to_datetime(values, format=day_first)
+        by_month = pd.to_datetime(values, format=month_first)
+    differ = np.flatnonzero((by_day != by_month).to_numpy())
+    position = differ[0] if len(differ) else 0
+    readings = [by_day.iloc[position], by_month.iloc[position]]
+    has_time = any(reading != reading.normalize() for reading in readings)
+    shown = [
+        reading.isoformat(sep=" ") if has_time else reading.strftime("%Y-%m-%d")
+        for reading in readings
+    ]
+
+    return values.iloc[position], shown
+
+
+def _ambiguous_order_issue(
+    name: str,
+    values: pd.Series,
+    formats: tuple[str, str],
+    source: str,
+    frequencies: list[str | None],
+) -> "DateIssue":
+    """
+    Say that the dates of a column read both day first and month first,
+    with the two readings of the first one whose day is not its month, and
+    that the regularity of the dates does not tell the order either: both
+    readings have a frequency (`frequencies`, month first and day first),
+    or neither has one.
+    """
+    date, shown = _first_two_readings(values, formats)
+    by_month, by_day = frequencies
+    regularity = (
+        f"both readings have a regular frequency ({by_day!r} day first and "
+        f"{by_month!r} month first)"
+        if by_month and by_day else
+        "neither reading has a regular frequency"
+    )
+    found = (
+        f"The dates of column {name!r} read both day first and month first: "
+        f"no day is after the 12th, so {_shown_date(date)!r} may be "
+        f"{shown[0]!r} or {shown[1]!r}, and {regularity}, so the order is not "
+        f"guessed"
+    )
+    if source == "exog":
+        return DateIssue(
+            found,
+            ". Write them in ISO 8601, which reads one way only.",
+            hint  = EXOG_DATES_HINT,
+            code  = "data_unreadable",
+            field = "exog",
+            order = True,
+        )
+    noun = "file" if source == "file" else "data"
+
+    return DateIssue(
+        found,
+        f". Profile the {noun} saying which it is, with `dayfirst`.",
+        hint  = DAYFIRST_HINT if source == "file" else DAYFIRST_FRAME_HINT,
+        code  = "data_unreadable",
+        order = True,
+    )
+
+
+def _regular_order_note(
+    name: str,
+    values: pd.Series,
+    formats: tuple[str, str],
+    chosen: str,
+    frequency: str,
+    source: str,
+) -> str:
+    """
+    Say that the order of the day and the month of dates that read in both
+    was told from their regularity: only the reading in `chosen` has a
+    regular frequency. The note says how to give the other order.
+    """
+    date, shown = _first_two_readings(values, formats)
+    day_first = chosen == formats[1]
+    read, other = ("day", "month") if day_first else ("month", "day")
+    if not day_first:
+        shown = shown[::-1]
+    if source == "exog":
+        remedy = f"write them in ISO 8601 (such as {shown[1]!r})"
+    elif source == "file":
+        remedy = (
+            f"profile the file again with `dayfirst={not day_first}` in "
+            f"`profile()`, `--{other}first` in the `profile` command or "
+            f"`dayfirst` {str(not day_first).lower()} in the `profile` tool "
+            f"of the MCP server"
+        )
+    else:
+        remedy = f"profile the data again with `dayfirst={not day_first}`"
+
+    return (
+        f"The dates of column {name!r} read both day first and month first "
+        f"(no day is after the 12th): they were read {read} first, the only "
+        f"order in which they have a regular frequency ({frequency!r}), so "
+        f"{_shown_date(date)!r} is {shown[0]!r} and not {shown[1]!r}. If they "
+        f"are written {other} first, {remedy}."
+    )
+
+
+def _order_contradiction_issue(
+    name: str,
+    dayfirst: bool,
+    other: str,
+) -> "DateIssue":
+    """
+    Say that the dates of a column do not read in the order `dayfirst`
+    gives, quoting one that does not.
+    """
+    given, read = ("day", "month") if dayfirst else ("month", "day")
+
+    return DateIssue(
+        f"`dayfirst` is {dayfirst}, but the dates of column {name!r} do not "
+        f"read {given} first: {_shown_date(other)!r} only reads {read} first",
+        ". Leave `dayfirst` out to tell the order from the dates.",
+        hint  = "Leave `dayfirst` out, so the order is told from the dates.",
+        field = "dayfirst",
+        order = True,
+    )
+
+
+def _compact_dates(values: pd.Series) -> pd.Series | None:
+    """
+    Return a column of whole numbers that are all dates of eight digits,
+    year, month and day ('20200131'), read as dates; None otherwise.
+
+    Whole numbers only (no missing value), of eight digits, and each a
+    real day that pandas can hold (years 1677 to 2262): amounts, counts and
+    codes are not dates.
+    """
+    if pd.api.types.is_bool_dtype(values) or not pd.api.types.is_integer_dtype(values):
+        return None
+    if values.empty or values.isna().any():
+        return None
+    numbers = values.astype("int64")
+    if not ((numbers >= 10_000_101) & (numbers <= 99_991_231)).all():
+        return None
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("ignore")
+        parsed = pd.to_datetime(numbers, format=COMPACT_DATE_FORMAT, errors="coerce")
+
+    return parsed if parsed.notna().all() else None
 
 
 def _mixed_zones_message(name: str, zones: list[str]) -> tuple[str, str]:
@@ -1310,6 +1926,8 @@ def _unparsable_dates(values: pd.Series, n: int = 3) -> list[str]:
 def detect_date_column(
     data: pd.DataFrame,
     date_column: str | None,
+    date_format: str | None = None,
+    dayfirst: bool | None = None,
 ) -> tuple[str | None, str]:
     """
     Detect the datetime column and determine the index type.
@@ -1320,6 +1938,13 @@ def detect_date_column(
         Input dataset.
     date_column : str, default None
         User-specified date column name.
+    date_format : str, default None
+        Format recorded by a profile of the data, which decides the order of
+        text dates whose day and month read in both (see
+        `_day_month_order`).
+    dayfirst : bool, default None
+        Order of the day and the month of those dates given by the caller:
+        True for day first, False for month first.
 
     Returns
     -------
@@ -1341,8 +1966,11 @@ def detect_date_column(
     referenced column or index is validated with `_is_datetime_like`; when
     it does not hold dates a `ValueError` quotes values that could not be
     parsed, instead of treating the column as an exogenous variable. A text
-    column of dates with empty cells, with time zones that change or
-    written in more than one format raises a `ValueError` that says so.
+    column of dates with empty cells, with time zones that change, written
+    in more than one format, or whose day and month read in both orders
+    with nothing to tell which (see `_day_month_order`) raises a
+    `ValueError` that says so. Whole numbers that are all dates of eight
+    digits ('20200131') are dates (see `_compact_dates`).
     """
     if date_column is not None:
         if date_column in data.columns:
@@ -1350,11 +1978,20 @@ def detect_date_column(
             if is_text(values):
                 # Checked first: a column with empty cells or mixed time
                 # zones holds dates, so the message below would be wrong.
-                _, issue = _read_date_column(date_column, values, named=True)
+                # Text dates here come from a DataFrame: those of a CSV file
+                # were read already.
+                _, issue, _ = _read_date_column(
+                                  name        = date_column,
+                                  values      = values,
+                                  named       = True,
+                                  dayfirst    = dayfirst,
+                                  date_format = date_format,
+                                  source      = "frame",
+                              )
                 if issue is not None:
-                    raise InvalidInputError(
-                        "".join(issue), field="data", hint=date_issue_hint(issue)
-                    )
+                    raise date_issue_error(issue)
+            elif _compact_dates(values) is not None:
+                return date_column, "datetime"
             if _is_datetime_like(values):
                 return date_column, "datetime"
             raise InvalidInputError(
@@ -2477,10 +3114,24 @@ def _frequencies_differ(
     )
 
 
-def _parse_text_date_column(data: pd.DataFrame, date_col: str | None) -> pd.DataFrame:
+def _parse_text_date_column(
+    data: pd.DataFrame,
+    date_col: str | None,
+    date_format: str | None = None,
+    dayfirst: bool | None = None,
+    notes: list[str] | None = None,
+) -> tuple[pd.DataFrame, str | None]:
     """
     Return `data` with its text date column parsed as the generated script
     parses it, or `data` itself when the dates are not text.
+
+    Text dates here come from a DataFrame (those of a CSV file were read
+    already): day-first dates are read day first, and dates whose day and
+    month read in both orders are read in the order of `date_format` or
+    `dayfirst`, or else in the only one in which they have a regular
+    frequency, and raise when neither or both have one (see
+    `_day_month_order`). Whole numbers that are all dates of eight digits
+    are read with `'%Y%m%d'`.
 
     Parameters
     ----------
@@ -2488,24 +3139,131 @@ def _parse_text_date_column(data: pd.DataFrame, date_col: str | None) -> pd.Data
         Input dataset.
     date_col : str, None
         Resolved date column name.
+    date_format : str, default None
+        Format the dates of a CSV file were read with, or recorded by a
+        profile of the data.
+    dayfirst : bool, default None
+        Order of the day and the month of the text dates given by the
+        caller: True for day first, False for month first.
+    notes : list of str, default None
+        List the note of an order told from the regularity of the dates is
+        appended to.
 
     Returns
     -------
     data : pandas DataFrame
         A copy with the parsed dates, or the same object.
+    date_format : str, None
+        Format the generated script reads the dates with
+        (`DataProfile.date_format`): the one of the text, `'%Y%m%d'` for
+        whole numbers, `date_format` for dates already parsed, and None
+        without a date column.
     """
     if date_col is None or date_col not in data.columns:
-        return data
+        return data, None
     values = data[date_col]
-    if not (
-        pd.api.types.is_object_dtype(values) or pd.api.types.is_string_dtype(values)
-    ):
-        return data
+    if is_text(values):
+        parsed, issue, found = _read_date_column(
+                                   name        = date_col,
+                                   values      = values,
+                                   named       = True,
+                                   dayfirst    = dayfirst,
+                                   date_format = date_format,
+                                   source      = "frame",
+                                   notes       = notes,
+                               )
+        if issue is not None:
+            raise date_issue_error(issue)
+        if parsed is None:
+            # Raises as the generated script does.
+            parsed = parse_text_dates(values)
+        data = data.copy()
+        data[date_col] = parsed
+        return data, found
+    compact = _compact_dates(values)
+    if compact is not None:
+        data = data.copy()
+        data[date_col] = compact
+        return data, COMPACT_DATE_FORMAT
 
-    data = data.copy()
-    data[date_col] = parse_text_dates(values)
+    return data, date_format
 
-    return data
+
+def _warn_dayfirst_not_applied(data: pd.DataFrame, date_col: str | None) -> None:
+    """
+    Warn that `dayfirst`, given for a DataFrame, does not apply: its dates
+    are not text (a datetime column or index, whole numbers of eight
+    digits), or it has none. Text dates are read in its order.
+    """
+    if date_col is not None and is_text(data[date_col]):
+        return
+    if date_col is not None:
+        where = f"column {date_col!r}"
+    elif isinstance(data.index, pd.DatetimeIndex):
+        where = "the index"
+    else:
+        where = None
+    reason = (
+        f"the dates of {where} are not text, so the order of their day and "
+        f"month is already set"
+        if where is not None else
+        "the data has no dates written as text (a text column of dates is "
+        "read when `date_column` names it)"
+    )
+    _warnings.warn(
+        f"`dayfirst` does not apply and is ignored: {reason}. It orders the day "
+        f"and the month of dates written as text, such as '01/02/2020'.",
+        IgnoredArgumentWarning,
+        stacklevel=_caller_stacklevel(),
+    )
+
+
+def frame_date_format(
+    data: object,
+    date_column: str | None,
+    date_format: str | None = None,
+) -> str | None:
+    """
+    Return the format the generated script reads the dates of data passed
+    in memory with, as `DataProfile.date_format` records it.
+
+    The script runs on the DataFrame as it was passed, so the format is the
+    one of its own dates: that of its text (see `_parse_text_date_column`),
+    `'%Y%m%d'` for whole numbers of eight digits, and None for dates already
+    parsed, whatever the profile passed with them says.
+
+    Parameters
+    ----------
+    data : object
+        Data as the caller passed it.
+    date_column : str, None
+        Date column of the profile, or the MultiIndex level of the dates.
+    date_format : str, default None
+        Format recorded by the profile, which decides the order of text
+        dates whose day and month read in both.
+
+    Returns
+    -------
+    date_format : str, None
+        Format of the dates, or None when the script reads them without one.
+    """
+    if not isinstance(data, pd.DataFrame) or date_column is None:
+        return None
+    if date_column in data.columns:
+        values = data[date_column]
+    elif isinstance(data.index, pd.MultiIndex) and date_column in data.index.names:
+        values = pd.Series(data.index.get_level_values(date_column))
+    else:
+        return None
+    if isinstance(values, pd.DataFrame):
+        # A repeated column name: left to the checks that report it.
+        return None
+
+    if not is_text(values) and _compact_dates(values) is None:
+        return None
+    frame = pd.DataFrame({date_column: values.reset_index(drop=True)})
+
+    return _parse_text_date_column(frame, date_column, date_format)[1]
 
 
 def _sort_rows_by_date(
@@ -3343,6 +4101,7 @@ def csv_read_kwargs(
     decimal: str,
     thousands: str | None = None,
     series_id_column: str | None = None,
+    date_column: str | None = None,
 ) -> dict[str, object]:
     """
     Return the arguments `pandas.read_csv` needs to read a CSV file written
@@ -3350,7 +4109,9 @@ def csv_read_kwargs(
     generated script passes them: none for `','`, `'.'` and no thousands
     separator, `sep` and `decimal` otherwise, and `thousands` when there is
     one. The column of series ids is read as text (`dtype`), so `'001'`
-    keeps its zeros and the thousands separator does not touch it.
+    keeps its zeros and the thousands separator does not touch it, and so
+    is the column of the dates when there is a thousands separator: with
+    `'.'`, pandas would read `'15.01.2020'` as the number 15012020.
 
     Parameters
     ----------
@@ -3362,12 +4123,15 @@ def csv_read_kwargs(
         Thousands separator, or None for none.
     series_id_column : str, default None
         Column of the series ids of long-format data, or None for none.
+    date_column : str, default None
+        Column of the dates, or None for none.
 
     Returns
     -------
     kwargs : dict
         Empty, or `sep` and `decimal`, with `thousands` when it is given,
-        and `dtype` when `series_id_column` is given.
+        and `dtype` when `series_id_column` is given, or `date_column` with
+        `thousands`.
     """
     kwargs: dict[str, object] = {}
     if (
@@ -3378,19 +4142,57 @@ def csv_read_kwargs(
         kwargs = {"sep": sep, "decimal": decimal}
         if thousands is not None:
             kwargs["thousands"] = thousands
-    if series_id_column is not None:
-        kwargs["dtype"] = {series_id_column: str}
+    text = [series_id_column]
+    if thousands is not None:
+        text.append(date_column)
+    text = [column for column in dict.fromkeys(text) if column is not None]
+    if text:
+        kwargs["dtype"] = {column: str for column in text}
     return kwargs
+
+
+def frame_date_column(
+    data: pd.DataFrame,
+    series_id_column: str | None = None,
+) -> str | None:
+    """
+    Return the first column of a CSV file read as text, but the series ids,
+    whose values are all dates written with numbers (`'15.01.2020'`), as
+    `sample_date_column` finds it in the first lines; None when there is
+    none.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Content of the file.
+    series_id_column : str, default None
+        Column of the series ids, never the dates.
+
+    Returns
+    -------
+    date_column : str, None
+        Name of the column, or None.
+    """
+    for column in data.columns:
+        values = data[column]
+        if column == series_id_column or not is_text(values):
+            continue
+        values = values.dropna().astype(str).str.strip()
+        if len(values) and values.str.fullmatch(NUMERIC_DATE.pattern).all():
+            return column
+    return None
 
 
 def without_series_ids(
     data: pd.DataFrame,
     series_id_column: str | None,
+    date_column: str | None = None,
 ) -> pd.DataFrame:
     """
     Return the columns of a CSV file read with `csv_read_kwargs` whose
     numbers tell how it is written: every column but the series ids, which
-    are read as text and never as numbers.
+    are read as text and never as numbers, and but the dates, which are not
+    numbers either (`'15.01.2020'`).
 
     Parameters
     ----------
@@ -3398,16 +4200,22 @@ def without_series_ids(
         Content of the file.
     series_id_column : str, None
         Column of the series ids. None, or a column that `data` does not
-        hold, returns `data` as it is.
+        hold, keeps every column.
+    date_column : str, default None
+        Column of the dates, left out in the same way.
 
     Returns
     -------
     data : pandas DataFrame
-        `data`, or a copy without the column of series ids.
+        `data`, or a copy without the column of series ids and of dates.
     """
-    if series_id_column is None or series_id_column not in data.columns:
+    dropped = [
+        column for column in (series_id_column, date_column)
+        if column is not None and column in data.columns
+    ]
+    if not dropped:
         return data
-    return data.drop(columns=series_id_column)
+    return data.drop(columns=list(dict.fromkeys(dropped)))
 
 
 def series_ids_as_text(
@@ -3887,6 +4695,7 @@ def read_csv_with_dialect(
     thousands: str | None = None,
     index_first: bool = False,
     series_id_column: str | None = None,
+    date_column: str | None = None,
 ) -> tuple[pd.DataFrame, str, str, str | None]:
     """
     Read a CSV file with `pandas.read_csv`, as the generated script reads
@@ -3928,6 +4737,11 @@ def read_csv_with_dialect(
         (`'001'` keeps its zeros), as the generated script reads it. Its
         values are not numbers, so they do not tell how the file is
         written.
+    date_column : str, default None
+        Column of the dates, when the caller gives it; otherwise the column
+        of dates of the first lines (see `sample_date_column`). Its values
+        do not tell how the file is written, and it is read as text with a
+        thousands separator, as the generated script reads it.
 
     Returns
     -------
@@ -3942,6 +4756,10 @@ def read_csv_with_dialect(
 
     Notes
     -----
+    With a thousands separator, the column of the dates is read as text,
+    as the generated script reads it: pandas would read `'15.01.2020'` as
+    the number 15012020.
+
     A file that pandas cannot read as a CSV (empty, binary, not UTF-8, with
     rows of more fields than the others, or compressed and damaged) raises
     `InvalidInputError` with code `'data_unreadable'`, still a `ValueError`
@@ -3954,8 +4772,9 @@ def read_csv_with_dialect(
     decimal_given = decimal is not None
     unchecked = False
     whole_sample = False
+    dates = date_column
     # A thousands separator given is checked against the first lines too:
-    # pandas drops every '.' of a value such as '15.01.2020' or '0.5'.
+    # pandas drops every '.' of a value such as '0.5'.
     if sep is None or decimal is None or thousands is not None:
         sample = read_sample(path)
         if sample is None:
@@ -3975,13 +4794,16 @@ def read_csv_with_dialect(
                                           decimal          = decimal,
                                           thousands        = thousands,
                                           series_id_column = series_id_column,
+                                          date_column      = date_column,
                                       )
             check_csv_dialect(sep, decimal, thousands)
             whole_sample = sample_holds_file(path)
+            dates = sample_date_column(sample, sep, series_id_column, date_column)
 
     def read(sep: str, decimal: str, thousands: str | None = None) -> pd.DataFrame:
         return pd.read_csv(
-                   path, **csv_read_kwargs(sep, decimal, thousands, series_id_column)
+                   path,
+                   **csv_read_kwargs(sep, decimal, thousands, series_id_column, dates),
                )
 
     try:
@@ -4005,17 +4827,26 @@ def read_csv_with_dialect(
             and sep != DEFAULT_CSV_SEP
             and decimal == DEFAULT_CSV_DECIMAL
             and decimal_after_sample(
-                    without_series_ids(data, series_id_column), str(path), field, sep
+                    without_series_ids(data, series_id_column, dates),
+                    str(path),
+                    field,
+                    sep,
                 ) != decimal
         ):
             # Numbers with ',' beyond the lines the dialect was told from.
             decimal = ","
             data = read(sep, decimal)
+        if thousands is None and decimal == "," and dates is None:
+            # Without the first lines (`sep` and `decimal` given), the dates
+            # are found in the file read.
+            dates = frame_date_column(data, series_id_column)
         if (
             thousands is None
             and decimal == ","
             and thousands_after_sample(
-                    without_series_ids(data, series_id_column), str(path), field
+                    without_series_ids(data, series_id_column, dates),
+                    str(path),
+                    field,
                 ) is not None
         ):
             # '1.705' beyond those lines, or with ',' given as decimal mark.
@@ -4029,7 +4860,11 @@ def read_csv_with_dialect(
             and decimal == DEFAULT_CSV_DECIMAL
         )
         if beyond and thousands_beyond_sample(
-            path, without_series_ids(data, series_id_column), str(path), field, sep
+            path,
+            without_series_ids(data, series_id_column, dates),
+            str(path),
+            field,
+            sep,
         ):
             # '870' in the sample and '1.020' after it, read as 1.02.
             decimal, thousands = ",", "."

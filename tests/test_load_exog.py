@@ -661,3 +661,273 @@ def test_load_exog_InvalidInputError_when_thousands_are_ambiguous(tmp_path):
     assert exc_info.value.code == "data_unreadable"
     assert exc_info.value.field == "exog"
     assert exc_info.value.hint == EXOG_DIALECT_HINT
+
+
+# Seven days of a short horizon written day first: every date reads both day
+# first and month first, and only the reading day first is regular (daily).
+_DAY_FIRST_BODY = (
+    "01/02/2021,1\n02/02/2021,2\n03/02/2021,3\n04/02/2021,4\n05/02/2021,5\n"
+    "06/02/2021,6\n07/02/2021,7\n"
+)
+_DAY_FIRST_DATES = [
+    "2021-02-01", "2021-02-02", "2021-02-03", "2021-02-04", "2021-02-05",
+    "2021-02-06", "2021-02-07",
+]
+
+
+@pytest.mark.parametrize(
+    "header, date_column, index_name",
+    [
+        ("date,temp", "date", "date"),
+        ("date,temp", None, "date"),
+        (",temp", None, None),
+        ("temp", None, None),
+    ],
+    ids=["named", "found", "unnamed", "header_one_field_short"],
+)
+def test_load_exog_output_when_date_format_day_first(
+    tmp_path, header, date_column, index_name
+):
+    """
+    Test that, with the format of the dates of the data, a short horizon
+    whose dates read both ways ('01/02/2021' to '07/02/2021') is read as the
+    first to the seventh of February, without a warning, whether the date
+    column is named, found, unnamed (an index written by `to_csv()`) or the
+    index of a header one field short, and that the format is kept in
+    `attrs`.
+    """
+    path = tmp_path / "exog.csv"
+    path.write_text(f"{header}\n{_DAY_FIRST_BODY}")
+
+    result = load_exog(path, date_column=date_column, date_format="%d/%m/%Y")
+
+    expected = pd.DataFrame(
+        {"temp": [1, 2, 3, 4, 5, 6, 7]},
+        index=pd.DatetimeIndex(_DAY_FIRST_DATES, name=index_name),
+    )
+    pd.testing.assert_frame_equal(result, expected)
+    assert result.attrs == {"date_format": "%d/%m/%Y"}
+
+
+@pytest.mark.parametrize("date_column", [None, "date"], ids=["found", "named"])
+def test_load_exog_output_when_no_date_format_and_only_one_reading_is_regular(
+    tmp_path, date_column
+):
+    """
+    Test that, without a format of the data to decide, dates that read both
+    ways are read in the only order in which they have a regular frequency
+    (day first, daily), with a UserWarning that names the file, says so and
+    gives the remedy for the other order: dates in ISO 8601.
+    """
+    path = tmp_path / "exog.csv"
+    path.write_text(f"date,temp\n{_DAY_FIRST_BODY}")
+
+    warn_msg = re.escape(
+        f"Exog CSV '{path}': The dates of column 'date' read both day first "
+        f"and month first (no day is after the 12th): they were read day "
+        f"first, the only order in which they have a regular frequency "
+        f"('D'), so '01/02/2021' is '2021-02-01' and not '2021-01-02'. If "
+        f"they are written month first, write them in ISO 8601 (such as "
+        f"'2021-01-02')."
+    )
+    with pytest.warns(UserWarning, match="^" + warn_msg + "$"):
+        result = load_exog(path, date_column=date_column)
+
+    expected = pd.DataFrame(
+        {"temp": [1, 2, 3, 4, 5, 6, 7]},
+        index=pd.DatetimeIndex(_DAY_FIRST_DATES, name="date"),
+    )
+    pd.testing.assert_frame_equal(result, expected)
+    assert result.attrs == {"date_format": "%d/%m/%Y"}
+
+
+@pytest.mark.parametrize(
+    "date_format", [None, "%Y%m%d"], ids=lambda dt: f"date_format: {dt}"
+)
+@pytest.mark.parametrize("date_column", [None, "date"], ids=["found", "named"])
+def test_load_exog_DataContentError_when_dates_read_in_both_orders(
+    tmp_path, date_column, date_format
+):
+    """
+    Test that dates that read both day first and month first, regular in
+    both orders (three months: monthly day first, daily month first) and
+    with no format of the data that decides (none, or whole numbers),
+    raise a DataContentError with the code 'data_unreadable', the field
+    'exog' and the hint that asks for dates in ISO 8601.
+    """
+    path = tmp_path / "exog.csv"
+    path.write_text("date,temp\n01/01/2021,1\n01/02/2021,2\n01/03/2021,3\n")
+
+    err_msg = re.escape(
+        f"Exog CSV '{path}': The dates of column 'date' read both day first "
+        f"and month first: no day is after the 12th, so '01/02/2021' may be "
+        f"'2021-02-01' or '2021-01-02', and both readings have a regular "
+        f"frequency ('MS' day first and 'D' month first), so the order is not "
+        f"guessed. Write them in ISO 8601, which reads one way only."
+    )
+    with pytest.raises(DataContentError, match="^" + err_msg + "$") as exc_info:
+        load_exog(path, date_column=date_column, date_format=date_format)
+
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.field == "exog"
+    assert exc_info.value.hint == (
+        "Write the dates of the future exogenous values in ISO 8601, such as "
+        "'2024-01-31', which reads one way only."
+    )
+
+
+def test_load_exog_output_when_date_format_and_unsorted_dates(tmp_path):
+    """
+    Test that dates written day first become the sorted index, as the dates
+    in ISO 8601.
+    """
+    path = tmp_path / "exog.csv"
+    path.write_text("date,temp\n13/02/2021,3\n01/02/2021,1\n02/02/2021,2\n")
+
+    result = load_exog(path, date_format="%d/%m/%Y")
+
+    expected = pd.DataFrame(
+        {"temp": [1, 2, 3]},
+        index=pd.DatetimeIndex(
+            ["2021-02-01", "2021-02-02", "2021-02-13"], name="date"
+        ),
+    )
+    pd.testing.assert_frame_equal(result, expected)
+
+
+@pytest.mark.parametrize(
+    "date_format", [None, "%Y%m%d", "%d/%m/%Y"], ids=lambda dt: f"date_format: {dt}"
+)
+@pytest.mark.parametrize("date_column", [None, "date"], ids=["found", "named"])
+def test_load_exog_output_when_integer_dates(tmp_path, date_column, date_format):
+    """
+    Test that integer dates (20210201) are dates of the format '%Y%m%d',
+    kept in `attrs`, whatever the format of the dates of the data, also when
+    the date column is named.
+    """
+    path = tmp_path / "exog.csv"
+    path.write_text("date,temp\n20210202,2\n20210201,1\n")
+
+    result = load_exog(path, date_column=date_column, date_format=date_format)
+
+    expected = pd.DataFrame(
+        {"temp": [1, 2]},
+        index=pd.DatetimeIndex(["2021-02-01", "2021-02-02"], name="date"),
+    )
+    pd.testing.assert_frame_equal(result, expected)
+    assert result.attrs == {"date_format": "%Y%m%d"}
+
+
+def test_load_exog_output_when_date_format_and_semicolon_dialect(tmp_path):
+    """
+    Test that the dates of an exog file with ';' and a decimal comma that
+    read both ways are read in the order of the format of the data, the
+    values with the dialect of the file.
+    """
+    path = tmp_path / "eu.csv"
+    path.write_text("date;temp\n01/02/2021;1,5\n02/02/2021;2,5\n")
+
+    result = load_exog(path, date_format="%d/%m/%Y")
+
+    expected = pd.DataFrame(
+        {"temp": [1.5, 2.5]},
+        index=pd.DatetimeIndex(["2021-02-01", "2021-02-02"], name="date"),
+    )
+    pd.testing.assert_frame_equal(result, expected)
+
+
+def test_load_exog_output_when_date_format_and_series_id_column(tmp_path):
+    """
+    Test that long-format future exogenous variables are indexed by their
+    dates read in the order of the format of the data (sorted by date), the
+    series ids staying text.
+    """
+    path = tmp_path / "exog.csv"
+    path.write_text(
+        "series,date,temp\n001,01/02/2021,1\n001,02/02/2021,2\n"
+        "002,01/02/2021,3\n002,02/02/2021,4\n"
+    )
+
+    result = load_exog(path, series_id_column="series", date_format="%d/%m/%Y")
+
+    expected = pd.DataFrame(
+        {"series": ["001", "002", "001", "002"], "temp": [1, 3, 2, 4]},
+        index=pd.DatetimeIndex(
+            ["2021-02-01", "2021-02-01", "2021-02-02", "2021-02-02"], name="date"
+        ),
+    )
+    pd.testing.assert_frame_equal(result, expected)
+
+
+@pytest.mark.parametrize(
+    "date_format", [None, "%d/%m/%Y", "%m/%d/%Y"], ids=lambda dt: f"date_format: {dt}"
+)
+@pytest.mark.parametrize("date_column", [None, "date"], ids=["found", "named"])
+def test_load_exog_output_when_iso_dates_and_data_in_another_format(
+    tmp_path, date_column, date_format
+):
+    """
+    Test that an exog file saved with `to_csv()` from a frame indexed by its
+    dates, which writes them in ISO 8601, is read whatever the format of the
+    dates of the data (day first or month first): the format of the file is
+    its own, and it needs none (`attrs` holds None).
+    """
+    path = tmp_path / "exog.csv"
+    pd.DataFrame(
+        {"temp": [1, 2]},
+        index=pd.DatetimeIndex(["2021-02-01", "2021-02-02"], name="date"),
+    ).to_csv(path)
+
+    result = load_exog(path, date_column=date_column, date_format=date_format)
+
+    expected = pd.DataFrame(
+        {"temp": [1, 2]},
+        index=pd.DatetimeIndex(["2021-02-01", "2021-02-02"], name="date"),
+    )
+    pd.testing.assert_frame_equal(result, expected)
+    assert result.attrs == {"date_format": None}
+
+
+@pytest.mark.parametrize("date_column", [None, "date"], ids=["found", "named"])
+def test_load_exog_output_when_day_first_dates_and_data_in_iso(
+    tmp_path, date_column
+):
+    """
+    Test that an exog file written day first with a day after the 12th is
+    read day first for data whose dates are in ISO 8601 (no format), with
+    its own format kept in `attrs`.
+    """
+    path = tmp_path / "exog.csv"
+    path.write_text("date,temp\n12/02/2021,1\n13/02/2021,2\n")
+
+    result = load_exog(path, date_column=date_column)
+
+    expected = pd.DataFrame(
+        {"temp": [1, 2]},
+        index=pd.DatetimeIndex(["2021-02-12", "2021-02-13"], name="date"),
+    )
+    pd.testing.assert_frame_equal(result, expected)
+    assert result.attrs == {"date_format": "%d/%m/%Y"}
+
+
+def test_load_exog_DataContentError_when_dates_in_more_than_one_format(tmp_path):
+    """
+    Test that dates written in two formats ('01/02/2021' and '2021-02-02')
+    raise the DataContentError of the dates of the data written in more
+    than one format, with a named date column: the format of the data does
+    not apply to them.
+    """
+    path = tmp_path / "exog.csv"
+    path.write_text("date,temp\n01/02/2021,1\n2021-02-02,2\n")
+
+    err_msg = re.escape(
+        f"Exog CSV '{path}': The dates of column 'date' do not all follow the "
+        f"format of the first one ('%m/%d/%Y', read from '01/02/2021'), such "
+        f"as '2021-02-02': the generated script reads every date with the "
+        f"format of the first one. Write every date in the same format, such "
+        f"as '2021-02-02'."
+    )
+    with pytest.raises(DataContentError, match="^" + err_msg + "$") as exc_info:
+        load_exog(path, date_column="date", date_format="%d/%m/%Y")
+
+    assert exc_info.value.field == "exog"

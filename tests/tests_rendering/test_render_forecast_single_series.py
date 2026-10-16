@@ -186,6 +186,105 @@ def test_render_forecast_single_series_output_when_exog():
     assert result.full_script == expected
 
 
+@pytest.mark.parametrize(
+    "exog_date_format, exog_format_arg",
+    [
+        (None, ""),
+        ("%d/%m/%Y", ", format='%d/%m/%Y'"),
+        ("%Y%m%d", ", format='%Y%m%d'"),
+    ],
+    ids=["exog in iso", "exog day first", "exog as whole numbers"],
+)
+def test_render_forecast_single_series_output_when_date_format(
+    exog_date_format, exog_format_arg
+):
+    """
+    Test that the dates of the data are read with the format the profile
+    records (day-first dates), those of the future exogenous variables with
+    their own format (`exog_date_format`: none for ISO 8601, as `to_csv()`
+    writes them), and that the rest of the prediction script does not
+    change.
+    """
+    profile = profile_single.model_copy(update={"date_format": "%d/%m/%Y"})
+
+    result = render_forecast_single_series(
+                 plan_single_predict_exog,
+                 profile,
+                 exog_date_format = exog_date_format,
+             )
+
+    expected = (
+        "import pandas as pd\n"
+        "from lightgbm import LGBMRegressor\n"
+        "from skforecast.recursive import ForecasterRecursive\n"
+        "\n"
+        "# Load data\n"
+        "data = pd.read_csv('data.csv')\n"
+        "\n"
+        "# Load future exogenous variables covering the forecast horizon\n"
+        "exog_future = pd.read_csv('exog_future.csv')\n"
+        "\n"
+        "data['date'] = pd.to_datetime(data['date'], format='%d/%m/%Y')\n"
+        "data = data.set_index('date')\n"
+        "data = data.asfreq('D')\n"
+        "data = data.sort_index()\n"
+        "\n"
+        f"exog_future['date'] = pd.to_datetime(exog_future['date']"
+        f"{exog_format_arg})\n"
+        "exog_future = exog_future.set_index('date')\n"
+        "exog_future = exog_future.asfreq('D')\n"
+        "exog_future = exog_future.sort_index()\n"
+        "\n"
+        "exog_features = ['promo']\n"
+        "\n"
+        "# Create forecaster\n"
+        "forecaster = ForecasterRecursive(\n"
+        "    estimator = LGBMRegressor(random_state=123, verbose=-1),\n"
+        "    lags      = 7,\n"
+        ")\n"
+        "\n"
+        "# Fit\n"
+        "forecaster.fit(y=data['sales'], exog=data[exog_features])\n"
+        "\n"
+        "# Predict\n"
+        "steps = 10\n"
+        "predictions = forecaster.predict(steps=steps, exog=exog_future[exog_features])\n"
+        "print(predictions)\n"
+    )
+    assert result.full_script == expected
+
+
+def test_render_forecast_single_series_output_when_dotted_dates_and_thousands():
+    """
+    Test that a ';' file with '.' between thousands and dates such as
+    '15.01.2020' is read with its date column as text and its dates with
+    their format: only the loading and the parse of the dates change.
+    """
+    profile = profile_single_no_exog.model_copy(
+        update={
+            "data_path": "umsatz.csv",
+            "csv_sep": ";",
+            "csv_decimal": ",",
+            "csv_thousands": ".",
+            "date_format": "%d.%m.%Y",
+        }
+    )
+
+    result = render_forecast_single_series(plan_single_recursive_no_exog, profile)
+
+    assert result.data_loading == (
+        "# Load data\n"
+        "data = pd.read_csv('umsatz.csv', sep=';', decimal=',', thousands='.', "
+        "dtype={'date': str})\n"
+    )
+    assert result.core.startswith(
+        "data['date'] = pd.to_datetime(data['date'], format='%d.%m.%Y')\n"
+        "data = data.set_index('date')\n"
+        "data = data.asfreq('D')\n"
+        "data = data.sort_index()\n"
+    )
+
+
 def test_render_forecast_single_series_output_when_intervals_requested():
     """
     Test that render_forecast_single_series produces the expected full

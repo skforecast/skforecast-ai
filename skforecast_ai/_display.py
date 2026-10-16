@@ -534,6 +534,11 @@ def render_profile(profile: ForecastingProfile) -> RenderableType:
             "CSV format",
             escape(f"separator {sep_name}, decimal {dp.csv_decimal!r}{thousands}"),
         )
+    # The format the script reads the dates with, when it names one (day
+    # first, or the order given): it is told from the dates, as the CSV
+    # format is, so the user sees what was decided.
+    if dp.date_format is not None:
+        table.add_row("Date format", escape(repr(dp.date_format)))
 
     renderables: list[RenderableType] = [table]
     if dp.warnings:

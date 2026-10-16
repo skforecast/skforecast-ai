@@ -75,6 +75,7 @@ ExogColumnsOption = Annotated[str | None, typer.Option("--exog-columns", help="C
 SepOption = Annotated[str | None, typer.Option("--sep", help="Separator of the CSV file: ',', ';' or 'tab'. Detected from the file when omitted.")]
 DecimalOption = Annotated[str | None, typer.Option("--decimal", help="Decimal mark of the CSV file: '.' or ',' (only when the separator is not ','). Detected from the file when omitted.")]
 ThousandsOption = Annotated[str | None, typer.Option("--thousands", help="Thousands separator of the CSV file: '.' (with ',' as decimal mark, as in '1.705,11'). Detected from the file when omitted.")]
+DayfirstOption = Annotated[bool | None, typer.Option("--dayfirst/--monthfirst", help="Order of the day and the month of the dates of the CSV file, for dates that read both ways ('01/02/2024' in every row): day first ('31/01/2024') or month first ('01/31/2024'). When omitted, told from the dates, or from their regularity when they read both ways.")]
 FromPlanOption = Annotated[str | None, typer.Option("--from-plan", help="Load plan bundle from JSON file or '-' for stdin.")]
 FromProfileOption = Annotated[str | None, typer.Option("--from-profile", help="Load profile from JSON file or '-' for stdin.")]
 # CV options default to None so that only the flags actually passed reach
@@ -1001,6 +1002,7 @@ def profile(
     sep: SepOption = None,
     decimal: DecimalOption = None,
     thousands: ThousandsOption = None,
+    dayfirst: DayfirstOption = None,
     format: TableFormatOption = "table",
     output: OutputOption = None,
     quiet: QuietOption = False,
@@ -1018,6 +1020,7 @@ def profile(
                 series_id_column=series_id_column,
                 exog_columns=parsed_exog_columns,
                 sep=_parse_sep(sep), decimal=decimal, thousands=thousands,
+                dayfirst=dayfirst,
             )
 
         if format == "json":
@@ -1590,6 +1593,60 @@ def _render_forecast_results(result) -> None:
     console.print(render_dataframe(result.predictions, title="Predictions"))
 
 
+def _data_date_format(
+    data: str,
+    target: str | list[str] | None,
+    date_column: str | None,
+    series_id_column: str | None,
+    profile: ForecastingProfile | None = None,
+) -> str | None:
+    """
+    Return the format the dates of a CSV file of data are read with
+    (`DataProfile.date_format`), which decides the order of the dates of
+    the future exogenous variables that read both day first and month
+    first (see `load_exog`), before the forecast reads the file.
+    The file is read as the forecast reads it: with the profile of a plan
+    bundle when there is one, which decides the order of dates that read
+    both ways.
+
+    Parameters
+    ----------
+    data : str
+        Path or URL of the CSV file.
+    target : str, list, None
+        Target column(s), taken from `profile` when None.
+    date_column : str, None
+        Date column, when given.
+    series_id_column : str, None
+        Column of the series ids, when given.
+    profile : ForecastingProfile, default None
+        Profile the forecast runs with.
+
+    Returns
+    -------
+    date_format : str, None
+        Format of the dates, or None when they are read without one.
+    """
+    from ._utils import (
+        _dialect_read,
+        _resolve_inputs_with_profile,
+        recorded_data_path,
+    )
+
+    # The forecast reads the file again, and shows its warnings then.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        _resolve_inputs_with_profile(
+            data             = data,
+            target           = target,
+            date_column      = date_column,
+            series_id_column = series_id_column,
+            profile          = profile,
+        )
+
+    return _dialect_read(recorded_data_path(data)).date_format
+
+
 def _result_to_json(result) -> str:
     """
     Serialize any workflow result to JSON.
@@ -1680,10 +1737,24 @@ def forecast(
                     profile=prof, plan=plan_obj, **plan_overrides
                 )
 
+            # The dates of the file run, which may be another file than
+            # the one of the profile.
+            data_format = None
+            if exog is not None:
+                data_format = _data_date_format(
+                                  data             = data,
+                                  target           = (
+                                      _parse_target(target) if target else None
+                                  ),
+                                  date_column      = date_column,
+                                  series_id_column = series_id_column,
+                                  profile          = prof,
+                              )
             exog_df = load_exog(
                 exog,
                 date_column      = prof.data_profile.date_column,
                 series_id_column = prof.data_profile.series_id_column,
+                date_format      = data_format,
             )
 
             with _spinner("Running forecast from plan...", quiet):
@@ -1705,10 +1776,19 @@ def forecast(
                 )
             parsed_target = _parse_target(target)
 
+            data_format = None
+            if exog is not None:
+                data_format = _data_date_format(
+                                  data             = data,
+                                  target           = parsed_target,
+                                  date_column      = date_column,
+                                  series_id_column = series_id_column,
+                              )
             exog_df = load_exog(
                 exog,
                 date_column      = date_column,
                 series_id_column = series_id_column,
+                date_format      = data_format,
             )
 
             with _spinner("Running forecast...", quiet):

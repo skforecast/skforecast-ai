@@ -14,6 +14,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
+from typing import NamedTuple
 import numpy as np
 import pandas as pd
 from pydantic import BaseModel
@@ -40,8 +41,15 @@ from ._validation import (
     validate_calendar_override,
     validate_interval,
 )
-from ._dates import is_text, parse_text_dates, row_dates, training_end
+from ._dates import (
+    is_text,
+    parse_text_dates,
+    row_dates,
+    training_end,
+)
 from .profiling.data_profile import (
+    COMPACT_DATE_FORMAT,
+    _compact_dates,
     _normalize_multiindex,
     _read_date_column,
     _try_parse_first_date_column,
@@ -49,6 +57,8 @@ from .profiling.data_profile import (
     csv_read_kwargs,
     date_issue_hint,
     decimal_after_sample,
+    frame_date_column,
+    frame_date_format,
     read_csv_with_dialect,
     series_ids_as_text,
     thousands_after_sample,
@@ -62,6 +72,7 @@ from .profiling.csv_dialect import (
     check_csv_dialect,
     detect_csv_dialect,
     read_url_sample,
+    sample_date_column,
 )
 from .schemas import CVResult, DataProfile, ForecastingProfile, ForecastPlan
 from .exceptions import (
@@ -809,26 +820,67 @@ def _validate_forecast_mode(
 
 
 # How the last CSV file read in this context is written: the path recorded
-# for it, its separator, its decimal mark and its thousands separator. The
-# workflows read the file first and record its path in the profile later
+# for it, its separator, its decimal mark, its thousands separator, the
+# format of its dates and the notes on how they were read. The workflows
+# read the file first and record its path in the profile later
 # (`_with_data_path`), which takes the dialect from here instead of reading
 # the file again.
-_READ_CSV_DIALECT: ContextVar[tuple[str, str, str, str | None] | None] = (
-    ContextVar("_READ_CSV_DIALECT", default=None)
-)
+_READ_CSV_DIALECT: ContextVar[
+    tuple[str, str, str, str | None, str | None, tuple[str, ...]] | None
+] = ContextVar("_READ_CSV_DIALECT", default=None)
 
 
-def _dialect_read(data_path: str) -> tuple[str | None, str | None, str | None]:
+class DialectRead(NamedTuple):
     """
-    Return the separator, the decimal mark and the thousands separator the
-    file recorded as `data_path` was read with, or None for all three when
-    the last CSV read in this context is another one (or none, for data
-    passed in memory). The separator is never None for a file read.
+    How a CSV file was read: its separator, its decimal mark, its thousands
+    separator, the format of its dates (`DataProfile.date_format`) and the
+    notes on how they were read (an order of the day and the month told
+    from their regularity), which belong in `DataProfile.warnings`.
+    """
+
+    sep: str | None
+    decimal: str | None
+    thousands: str | None
+    date_format: str | None
+    date_notes: tuple[str, ...] = ()
+
+
+def _dialect_read(data_path: str) -> DialectRead:
+    """
+    Return how the file recorded as `data_path` was read (see
+    `DialectRead`), or None in every field (no notes) when the last CSV
+    read in this context is another one (or none, for data passed in
+    memory). The separator is never None for a file read.
     """
     read = _READ_CSV_DIALECT.get()
     if read is None or read[0] != data_path or data_path == PLACEHOLDER_DATA_PATH:
-        return None, None, None
-    return read[1], read[2], read[3]
+        return DialectRead(None, None, None, None)
+    return DialectRead(*read[1:])
+
+
+def with_date_notes(
+    data_profile: DataProfile,
+    notes: tuple[str, ...] | list[str],
+) -> DataProfile:
+    """
+    Return the data profile with the notes on how its dates were read first
+    among its warnings, as `create_data_profile` puts them, unless it has
+    them already.
+    """
+    missing = [note for note in notes if note not in data_profile.warnings]
+    if not missing:
+        return data_profile
+    return data_profile.model_copy(
+        update={"warnings": [*missing, *data_profile.warnings]}
+    )
+
+
+# The date format of the saved profile that a refresh profiles data passed in
+# memory with again (`ForecastingAssistant._refresh_profile`): it decides the
+# order of their text dates when they read both ways, as it does for a file.
+KNOWN_DATE_FORMAT: ContextVar[str | None] = ContextVar(
+    "KNOWN_DATE_FORMAT", default=None
+)
 
 
 def _read_csv_url(
@@ -837,6 +889,7 @@ def _read_csv_url(
     decimal: str | None = None,
     thousands: str | None = None,
     series_id_column: str | None = None,
+    date_column: str | None = None,
 ) -> tuple[pd.DataFrame, str, str, str | None]:
     """
     Read the CSV file of a URL and return how it is written.
@@ -862,6 +915,9 @@ def _read_csv_url(
     series_id_column : str, default None
         Column of the series ids of long-format data, read as text (see
         `read_csv_with_dialect`).
+    date_column : str, default None
+        Column of the dates, read as text with a thousands separator (see
+        `read_csv_with_dialect`).
 
     Returns
     -------
@@ -876,10 +932,12 @@ def _read_csv_url(
     """
     decimal_given = decimal is not None
     unchecked = False
+    dates = date_column
 
     def read(sep: str, decimal: str, thousands: str | None = None) -> pd.DataFrame:
         return pd.read_csv(
-                   url, **csv_read_kwargs(sep, decimal, thousands, series_id_column)
+                   url,
+                   **csv_read_kwargs(sep, decimal, thousands, series_id_column, dates),
                )
 
     if sep is None or decimal is None or thousands is not None:
@@ -912,8 +970,10 @@ def _read_csv_url(
                                           decimal          = decimal,
                                           thousands        = thousands,
                                           series_id_column = series_id_column,
+                                          date_column      = date_column,
                                       )
             check_csv_dialect(sep, decimal, thousands)
+            dates = sample_date_column(sample, sep, series_id_column, date_column)
         # Without `series_id_column`: the question is whether the dialect is
         # the default one, which the `dtype` of the ids would hide.
         if not csv_read_kwargs(sep, decimal, thousands):
@@ -930,16 +990,20 @@ def _read_csv_url(
         and sep != DEFAULT_CSV_SEP
         and decimal == DEFAULT_CSV_DECIMAL
         and decimal_after_sample(
-                without_series_ids(data, series_id_column), url, "data", sep
+                without_series_ids(data, series_id_column, dates), url, "data", sep
             ) != decimal
     ):
         decimal = ","
         data = read(sep, decimal)
+    if thousands is None and decimal == "," and dates is None:
+        # Without the start of the file (`sep` and `decimal` given), the
+        # dates are found in the file read.
+        dates = frame_date_column(data, series_id_column)
     if (
         thousands is None
         and decimal == ","
         and thousands_after_sample(
-                without_series_ids(data, series_id_column), url, "data"
+                without_series_ids(data, series_id_column, dates), url, "data"
             ) is not None
     ):
         thousands = "."
@@ -956,6 +1020,8 @@ def _resolve_data_and_target(
     decimal: str | None = None,
     thousands: str | None = None,
     series_id_column: str | None = None,
+    dayfirst: bool | None = None,
+    date_format: str | None = None,
 ) -> tuple[pd.DataFrame, str | list[str]]:
     """
     Coerce the input to a DataFrame and resolve the target column name.
@@ -972,7 +1038,10 @@ def _resolve_data_and_target(
     `_with_data_path` to record them in the profile. The series ids of
     long-format data are text, as the generated script reads them: the
     column of a CSV file is read as text and the ids of a DataFrame are
-    turned into text (see `series_ids_as_text`).
+    turned into text (see `series_ids_as_text`). The dates of a CSV file
+    are read in the order of their day and month (see `_day_month_order`),
+    and the format the script reads them with is kept with the dialect, as
+    are the notes on how they were read (see `DialectRead`).
 
     Parameters
     ----------
@@ -999,6 +1068,15 @@ def _resolve_data_and_target(
     series_id_column : str, default None
         Column of the series ids of long-format data, whose ids become
         text.
+    dayfirst : bool, default None
+        Order of the day and the month of the dates of a CSV file that read
+        in both: True for day first, False for month first. If None, it is
+        told from the dates (see `_day_month_order`). Ignored for data
+        passed in memory, whose text dates `create_data_profile` reads.
+    date_format : str, default None
+        Format of the dates recorded by a profile of the data, which decides
+        the order of dates of a CSV file that read in both. Ignored for data
+        passed in memory.
 
     Returns
     -------
@@ -1065,6 +1143,7 @@ def _resolve_data_and_target(
                                                   decimal          = decimal,
                                                   thousands        = thousands,
                                                   series_id_column = series_id_column,
+                                                  date_column      = date_column,
                                               )
             except InvalidInputError:
                 # The dialect of the file cannot be told.
@@ -1078,13 +1157,22 @@ def _resolve_data_and_target(
                     field = "data",
                 ) from e
             check_csv_fields(df, data_str)
+            notes = []
+            df, read_format = _try_parse_first_date_column(
+                                  data             = df,
+                                  date_column      = date_column,
+                                  series_id_column = series_id_column,
+                                  dayfirst         = dayfirst,
+                                  date_format      = date_format,
+                                  notes            = notes,
+                              )
             _READ_CSV_DIALECT.set(
-                (recorded_data_path(data), sep, decimal, thousands)
+                (
+                    recorded_data_path(data), sep, decimal, thousands,
+                    read_format, tuple(notes),
+                )
             )
-            return (
-                _try_parse_first_date_column(df, date_column, series_id_column),
-                target,
-            )
+            return df, target
         path = Path(data_str)
         if not path.is_file():
             raise DataNotFoundError(
@@ -1097,12 +1185,24 @@ def _resolve_data_and_target(
                                           decimal          = decimal,
                                           thousands        = thousands,
                                           series_id_column = series_id_column,
+                                          date_column      = date_column,
                                       )
-        _READ_CSV_DIALECT.set((recorded_data_path(data), sep, decimal, thousands))
-        return (
-            _try_parse_first_date_column(df, date_column, series_id_column),
-            target,
+        notes = []
+        df, read_format = _try_parse_first_date_column(
+                              data             = df,
+                              date_column      = date_column,
+                              series_id_column = series_id_column,
+                              dayfirst         = dayfirst,
+                              date_format      = date_format,
+                              notes            = notes,
+                          )
+        _READ_CSV_DIALECT.set(
+            (
+                recorded_data_path(data), sep, decimal, thousands, read_format,
+                tuple(notes),
+            )
         )
+        return df, target
 
     return series_ids_as_text(data, series_id_column), target
 
@@ -1146,6 +1246,7 @@ def load_exog(
     path: str | Path | None,
     date_column: str | None = None,
     series_id_column: str | None = None,
+    date_format: str | None = None,
 ) -> pd.DataFrame | None:
     """
     Load the future exogenous variables from a CSV file.
@@ -1171,6 +1272,16 @@ def load_exog(
     without name and values raise (see `check_csv_fields`); rows made only
     of separators (a spreadsheet saved as CSV) are dropped,
     as they hold no date and no value. The dates become the index, sorted.
+    The format of the dates is the file's own, told as for the data (see
+    `_day_month_order`): dates in ISO 8601 (`to_csv()` of a frame with
+    dates) need none, and day-first dates are read day first. Dates whose
+    day and month read in both orders (the seven days of a short horizon)
+    are read in the order of `date_format`, the format of the dates of the
+    data, when it writes them so; otherwise in the only order in which they
+    have a regular frequency, with a warning that says so, and when both
+    orders have one, or neither, they raise. The format is kept in
+    `exog.attrs['date_format']`, the one the generated script reads
+    `exog_future.csv` with (see `exog_date_format`).
 
     Parameters
     ----------
@@ -1181,6 +1292,10 @@ def load_exog(
     series_id_column : str, default None
         Name of the series id column of long-format data, read as text
         (`'001'`), as the series ids of the data.
+    date_format : str, default None
+        Format of the dates of the data (`DataProfile.date_format`), which
+        decides the order of the day and the month of dates of the file
+        that read in both.
 
     Returns
     -------
@@ -1204,6 +1319,7 @@ def load_exog(
                                         field            = "exog",
                                         index_first      = True,
                                         series_id_column = series_id_column,
+                                        date_column      = date_column,
                                     )
     if not isinstance(exog.index, pd.RangeIndex):
         # A header one field short: pandas reads the first field as the
@@ -1218,6 +1334,9 @@ def load_exog(
     filled = exog.notna().any(axis=1).to_numpy()
     exog = exog[filled].reset_index(drop=True)
     text = {column: exog[column].copy() for column in exog.columns}
+    # The format of the dates of the file, and the notes on how they were
+    # read, given as warnings.
+    exog_format, notes = None, []
     if date_column is not None:
         if date_column not in exog.columns:
             raise DataContentError(
@@ -1228,10 +1347,22 @@ def load_exog(
         values = exog[date_column]
         parsed, issue = None, None
         if is_text(values):
-            parsed, issue = _read_date_column(date_column, values, named=True)
+            parsed, issue, exog_format = _read_date_column(
+                                             name        = date_column,
+                                             values      = values,
+                                             named       = True,
+                                             date_format = date_format,
+                                             source      = "exog",
+                                             notes       = notes,
+                                         )
+        else:
+            parsed = _compact_dates(values)
+            if parsed is not None:
+                exog_format = COMPACT_DATE_FORMAT
         if issue is not None:
             raise DataContentError(
                 f"Exog CSV '{path}': {''.join(issue)}",
+                code  = getattr(issue, "code", None),
                 field = "exog",
                 hint  = date_issue_hint(issue),
             )
@@ -1260,22 +1391,28 @@ def load_exog(
             if isinstance(index, pd.DatetimeIndex) and len(index) == len(filled):
                 exog[first] = index[filled]
                 found = first
+                if _compact_dates(text[first]) is not None:
+                    exog_format = COMPACT_DATE_FORMAT
         if found is None:
             try:
-                exog = _try_parse_first_date_column(
-                           data             = exog,
-                           series_id_column = series_id_column,
-                       )
+                exog, exog_format = _try_parse_first_date_column(
+                                        data             = exog,
+                                        series_id_column = series_id_column,
+                                        date_format      = date_format,
+                                        source           = "exog",
+                                        notes            = notes,
+                                    )
             except InvalidInputError as exc:
                 raise DataContentError(
                     f"Exog CSV '{path}': {exc}",
+                    code  = exc.code,
                     field = "exog",
                     hint  = exc.hint,
                 ) from exc
             found = next(
                 (
                     column for column in exog.columns
-                    if is_text(text[column])
+                    if not pd.api.types.is_datetime64_any_dtype(text[column])
                     and pd.api.types.is_datetime64_any_dtype(exog[column])
                 ),
                 None,
@@ -1296,7 +1433,7 @@ def load_exog(
                 # The dates were read already: pandas only repeats that it
                 # parses each one on its own.
                 warnings.simplefilter("ignore", UserWarning)
-                parse_text_dates(text[found])
+                parse_text_dates(text[found], exog_format)
         except (ValueError, TypeError) as exc:
             raise DataContentError(
                 f"Exog CSV '{path}': the dates of column {found!r} cannot be "
@@ -1307,11 +1444,14 @@ def load_exog(
         # Nothing reads as dates: the first column, as `index_col=0` read it;
         # the checks of the future exogenous variables report it.
         found = exog.columns[0]
-    exog = exog.set_index(found)
+    for note in notes:
+        warnings.warn(f"Exog CSV '{path}': {note}", UserWarning, stacklevel=2)
+    exog = exog.set_index(found).sort_index()
     if str(found).startswith("Unnamed: "):
         exog.index.name = None
+    exog.attrs["date_format"] = exog_format
 
-    return exog.sort_index()
+    return exog
 
 
 def _is_row_label(name: object, values: pd.Series) -> bool:
@@ -1451,7 +1591,9 @@ def _resolve_inputs_with_profile(
     # methods: detecting it again would undo a `decimal='.'` given against
     # what the file seemed to say. Another file (the same data exported
     # again with another separator) is detected, and read as the profile
-    # says only when its dialect cannot be told.
+    # says only when its dialect cannot be told. So are the dates: their
+    # order of day and month is told from them, and the format of the
+    # profile decides it only when they read in both.
     dialect = {
         "sep": dp.csv_sep,
         "decimal": dp.csv_decimal,
@@ -1468,6 +1610,7 @@ def _resolve_inputs_with_profile(
                               target           = target,
                               date_column      = dp.date_column,
                               series_id_column = dp.series_id_column,
+                              date_format      = dp.date_format,
                               **(dialect if same_file else {}),
                           )
     except CsvDialectError:
@@ -1478,6 +1621,7 @@ def _resolve_inputs_with_profile(
                               target           = target,
                               date_column      = dp.date_column,
                               series_id_column = dp.series_id_column,
+                              date_format      = dp.date_format,
                               **dialect,
                           )
     if target != dp.target:
@@ -1577,7 +1721,9 @@ def _with_data_path(
     the file again; it reaches the script through `repr()`. The separator,
     the decimal mark and the thousands separator the file was read with are
     recorded with it (`','`, `'.'` and none for data passed in memory), so
-    the script reads the file as it was read.
+    the script reads the file as it was read. So is the format of its dates
+    (`DataProfile.date_format`); for data passed in memory, the format of
+    its own dates, on which the script runs (see `frame_date_format`).
 
     Parameters
     ----------
@@ -1600,21 +1746,28 @@ def _with_data_path(
         data_path = _RUN_DATA_PATH.get()
     dp = profile.data_profile
     sep, decimal, thousands = dp.csv_sep, dp.csv_decimal, dp.csv_thousands
+    date_format = dp.date_format
     if data_path == PLACEHOLDER_DATA_PATH:
         sep, decimal, thousands = DEFAULT_CSV_SEP, DEFAULT_CSV_DECIMAL, None
+        date_format = frame_date_format(data, dp.date_column, dp.date_format)
     else:
         # Also for the DataFrame of a comparison, whose path is the one of
-        # the file it was read from.
+        # the file it was read from. The notes on how its dates were read
+        # go with them: the profile was built from the DataFrame read.
         read = _dialect_read(data_path)
-        if read[0] is not None:
-            sep, decimal, thousands = read
+        if read.sep is not None:
+            sep, decimal, thousands, date_format = read[:4]
+            dp = with_date_notes(dp, read.date_notes)
     update = {
         "data_path": data_path,
         "csv_sep": sep,
         "csv_decimal": decimal,
         "csv_thousands": thousands,
+        "date_format": date_format,
     }
-    if all(getattr(dp, name) == value for name, value in update.items()):
+    if dp is profile.data_profile and all(
+        getattr(dp, name) == value for name, value in update.items()
+    ):
         return profile
     return profile.model_copy(update={"data_profile": dp.model_copy(update=update)})
 
@@ -2062,7 +2215,7 @@ def _cv_in_time_zone(
         or not isinstance(initial_train_size, (str, pd.Timestamp))
     ):
         return cv
-    dates = row_dates(data, data_profile.date_column)
+    dates = row_dates(data, data_profile.date_column, data_profile.date_format)
     if getattr(dates, "tz", None) is None:
         return cv
     try:
@@ -2178,7 +2331,7 @@ def _check_evaluated_target(
     # Rebuild the target as the generated script does: datetime index,
     # sorted, and on its regular grid when the frequency is known.
     if data_profile.date_column is not None and data_profile.date_column in data:
-        index = pd.to_datetime(data[data_profile.date_column])
+        index = row_dates(data, data_profile.date_column, data_profile.date_format)
     else:
         index = data.index
     if target not in data:

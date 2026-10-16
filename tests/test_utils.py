@@ -13,6 +13,7 @@ from skforecast.model_selection import TimeSeriesFold
 
 from skforecast_ai._utils import (
     _check_cv_matches_profile,
+    _dialect_read,
     _check_evaluated_target,
     _check_plan_matches_profile,
     _check_feature_name_collisions,
@@ -36,10 +37,14 @@ from skforecast_ai.exceptions import (
     InvalidInputError,
 )
 from skforecast_ai.profiling import create_data_profile
+from skforecast_ai.profiling.data_profile import DAYFIRST_HINT
 from skforecast_ai.schemas import DataProfile
+
+from tests.fixtures_csv_dialect import df_dialect_monthly
 
 from tests.fixtures_assistant import (
     df_categorical_exog,
+    df_day_first,
     df_multi_long,
     df_multi_wide,
     df_no_exog,
@@ -282,6 +287,223 @@ def test_resolve_data_and_target_ValueError_when_csv_date_column_has_empty_cell(
     )
     with pytest.raises(InvalidInputError, match=err_msg + "$"):
         _resolve_data_and_target(csv_path, target="x", date_column="date")
+
+
+@pytest.mark.parametrize(
+    "dayfirst, expected_dates, expected_format",
+    [
+        (True, ["2018-01-01", "2018-02-01", "2018-03-01"], "%d/%m/%Y"),
+        (False, ["2018-01-01", "2018-01-02", "2018-01-03"], "%m/%d/%Y"),
+    ],
+    ids=["day_first", "month_first"],
+)
+def test_resolve_data_and_target_output_when_dayfirst_and_ambiguous_dates(
+    tmp_path, dayfirst, expected_dates, expected_format
+):
+    """
+    Test that `dayfirst` gives the order of the dates of a CSV whose dates
+    all read in both (the first of every month, '01/02/2018'): day first
+    reads the months of the year, month first the days of January. The
+    format the file was read with is kept with its dialect.
+    """
+    csv_path = tmp_path / "monthly.csv"
+    df_dialect_monthly.to_csv(csv_path, index=False)
+
+    data, target = _resolve_data_and_target(
+                       data     = csv_path,
+                       target   = "y",
+                       dayfirst = dayfirst,
+                   )
+
+    assert target == "y"
+    assert data["date"].iloc[:3].tolist() == [
+        pd.Timestamp(date) for date in expected_dates
+    ]
+    assert utils_module._READ_CSV_DIALECT.get() == (
+        str(csv_path), ",", ".", None, expected_format, ()
+    )
+
+
+def test_resolve_data_and_target_InvalidInputError_when_dates_in_both_orders(
+    tmp_path,
+):
+    """
+    Test that dates of a CSV that read both day first and month first and
+    are regular in both orders (three months, daily month first) are never
+    guessed: without `dayfirst` the read raises with the code
+    'data_unreadable', the field 'data' and the hint that names `dayfirst`.
+    """
+    csv_path = tmp_path / "monthly.csv"
+    df_dialect_monthly.head(3).to_csv(csv_path, index=False)
+
+    err_msg = re.escape(
+        "The dates of column 'date' read both day first and month first: no "
+        "day is after the 12th, so '01/02/2018' may be '2018-02-01' or "
+        "'2018-01-02', and both readings have a regular frequency ('MS' day "
+        "first and 'D' month first), so the order is not guessed. Profile the "
+        "file saying which it is, with `dayfirst`."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg + "$") as exc_info:
+        _resolve_data_and_target(data=csv_path, target="y", date_column="date")
+
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.field == "data"
+    assert exc_info.value.hint == DAYFIRST_HINT
+
+
+@pytest.mark.parametrize(
+    "date_format, expected_first_dates",
+    [
+        ("%d/%m/%Y", ["2018-01-01", "2018-02-01"]),
+        ("%m/%d/%Y", ["2018-01-01", "2018-01-02"]),
+    ],
+    ids=["day_first", "month_first"],
+)
+def test_resolve_data_and_target_output_when_date_format_and_ambiguous_dates(
+    tmp_path, date_format, expected_first_dates
+):
+    """
+    Test that the format recorded by a profile of the data decides the order
+    of the dates of a CSV that read in both, as `dayfirst` does.
+    """
+    csv_path = tmp_path / "monthly.csv"
+    df_dialect_monthly.to_csv(csv_path, index=False)
+
+    data, _ = _resolve_data_and_target(
+                  data        = csv_path,
+                  target      = "y",
+                  date_format = date_format,
+              )
+
+    assert data["date"].iloc[:2].tolist() == [
+        pd.Timestamp(date) for date in expected_first_dates
+    ]
+    assert utils_module._READ_CSV_DIALECT.get()[4] == date_format
+
+
+def test_resolve_data_and_target_output_when_day_first_dates_tell_order(
+    tmp_path,
+):
+    """
+    Test that dates with a day after the 12th are read day first without
+    `dayfirst` (only that order reads every date) and the file records the
+    format '%d/%m/%Y', also when `dayfirst` says so; ISO 8601 dates record no
+    format, whatever `dayfirst` says.
+    """
+    day_first_path = tmp_path / "day_first.csv"
+    iso_path = tmp_path / "iso.csv"
+    df_day_first.to_csv(day_first_path, index=False)
+    df_single.to_csv(iso_path, index=False)
+
+    data, _ = _resolve_data_and_target(day_first_path, target="y")
+    recorded = utils_module._READ_CSV_DIALECT.get()[4]
+    _resolve_data_and_target(day_first_path, target="y", dayfirst=True)
+    recorded_given = utils_module._READ_CSV_DIALECT.get()[4]
+    _resolve_data_and_target(iso_path, target="sales")
+    recorded_iso = utils_module._READ_CSV_DIALECT.get()[4]
+    _resolve_data_and_target(iso_path, target="sales", dayfirst=True)
+    recorded_iso_given = utils_module._READ_CSV_DIALECT.get()[4]
+
+    assert data["date"].iloc[[0, 1, -1]].tolist() == [
+        pd.Timestamp("2020-12-03"),
+        pd.Timestamp("2020-12-04"),
+        pd.Timestamp("2021-01-31"),
+    ]
+    assert recorded == "%d/%m/%Y"
+    assert recorded_given == "%d/%m/%Y"
+    assert recorded_iso is None
+    assert recorded_iso_given is None
+
+
+def test_resolve_data_and_target_InvalidInputError_when_dayfirst_contradicts(
+    tmp_path,
+):
+    """
+    Test that `dayfirst=False` on dates that only read day first (a day
+    after the 12th) raises with the field 'dayfirst', quoting a date that
+    does not read month first.
+    """
+    csv_path = tmp_path / "day_first.csv"
+    df_day_first.to_csv(csv_path, index=False)
+
+    err_msg = re.escape(
+        "`dayfirst` is False, but the dates of column 'date' do not read month "
+        "first: '13/12/2020' only reads day first. Leave `dayfirst` out to "
+        "tell the order from the dates."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg + "$") as exc_info:
+        _resolve_data_and_target(
+            data        = csv_path,
+            target      = "y",
+            date_column = "date",
+            dayfirst    = False,
+        )
+
+    assert exc_info.value.field == "dayfirst"
+    assert exc_info.value.hint == (
+        "Leave `dayfirst` out, so the order is told from the dates."
+    )
+
+
+def test_resolve_data_and_target_keeps_date_notes_when_order_told_from_regularity(
+    tmp_path,
+):
+    """
+    Test that the dates of a CSV that read in both orders and are regular in
+    only one (four years of monthly dates written day first) are read in it,
+    and the note that says so is kept with the dialect of the file, for the
+    profile.
+    """
+    csv_path = tmp_path / "monthly.csv"
+    df_dialect_monthly.to_csv(csv_path, index=False)
+
+    data, _ = _resolve_data_and_target(data=csv_path, target="y")
+
+    assert data["date"].iloc[:2].tolist() == [
+        pd.Timestamp("2018-01-01"), pd.Timestamp("2018-02-01")
+    ]
+    read = _dialect_read(str(csv_path))
+    assert read.date_format == "%d/%m/%Y"
+    assert len(read.date_notes) == 1
+    assert read.date_notes[0].startswith(
+        "The dates of column 'date' read both day first and month first (no "
+        "day is after the 12th): they were read day first"
+    )
+
+
+def test_resolve_data_and_target_ignores_dayfirst_when_data_in_memory():
+    """
+    Test that `dayfirst` is ignored for data passed in memory, which is
+    returned as it is (its text dates are not read here).
+    """
+    data, target = _resolve_data_and_target(
+                       data     = df_dialect_monthly,
+                       target   = "y",
+                       dayfirst = True,
+                   )
+
+    assert data is df_dialect_monthly
+    assert target == "y"
+
+
+def test_dialect_read_output_when_file_was_read(tmp_path):
+    """
+    Test that the dialect of the last CSV read is its separator, decimal
+    mark, thousands separator, the format of its dates and the notes on how
+    they were read (none when `dayfirst` gives the order), for the path it
+    was recorded with, and four None and no notes for another path or for
+    the placeholder of data passed in memory.
+    """
+    csv_path = tmp_path / "monthly.csv"
+    df_dialect_monthly.to_csv(csv_path, index=False)
+
+    _resolve_data_and_target(data=csv_path, target="y", dayfirst=True)
+
+    assert _dialect_read(str(csv_path)) == (",", ".", None, "%d/%m/%Y", ())
+    assert _dialect_read(str(tmp_path / "other.csv")) == (
+        None, None, None, None, ()
+    )
+    assert _dialect_read("data.csv") == (None, None, None, None, ())
 
 
 # =============================================================================
@@ -1080,6 +1302,66 @@ def test_resolve_inputs_with_profile_DataNotFoundError_before_date_column_confli
         )
 
 
+@pytest.mark.parametrize(
+    "dayfirst, expected_dates, expected_format",
+    [
+        (True, ["2018-01-01", "2018-02-01", "2018-03-01"], "%d/%m/%Y"),
+        (False, ["2018-01-01", "2018-01-02", "2018-01-03"], "%m/%d/%Y"),
+    ],
+    ids=["day_first", "month_first"],
+)
+def test_resolve_inputs_with_profile_output_when_profile_built_with_dayfirst(
+    tmp_path, dayfirst, expected_dates, expected_format
+):
+    """
+    Test that a CSV whose dates all read in both orders (the first of every
+    month) is read with the format of a profile built with `dayfirst`, which
+    raised without a profile, and the format is kept with the dialect.
+    """
+    csv_path = tmp_path / "monthly.csv"
+    df_dialect_monthly.to_csv(csv_path, index=False)
+    profile = ForecastingAssistant().profile(
+        data=csv_path, target="y", dayfirst=dayfirst
+    )
+
+    data, target, date_column, series_id_column = _resolve_inputs_with_profile(
+        csv_path, None, None, None, profile=profile
+    )
+
+    assert profile.data_profile.date_format == expected_format
+    assert (target, date_column, series_id_column) == ("y", "date", None)
+    assert data["date"].iloc[:3].tolist() == [
+        pd.Timestamp(date) for date in expected_dates
+    ]
+    assert utils_module._READ_CSV_DIALECT.get()[4] == expected_format
+
+
+def test_resolve_inputs_with_profile_output_when_dates_tell_their_order(tmp_path):
+    """
+    Test that the format of the profile decides the order only for dates that
+    read in both: a file whose dates have a day after the 12th is read day
+    first, although the profile was built month first.
+    """
+    monthly_path = tmp_path / "monthly.csv"
+    day_first_path = tmp_path / "day_first.csv"
+    df_dialect_monthly.to_csv(monthly_path, index=False)
+    df_day_first.to_csv(day_first_path, index=False)
+    profile = ForecastingAssistant().profile(
+        data=monthly_path, target="y", dayfirst=False
+    )
+
+    data, _, _, _ = _resolve_inputs_with_profile(
+        day_first_path, None, None, None, profile=profile
+    )
+
+    assert profile.data_profile.date_format == "%m/%d/%Y"
+    assert data["date"].iloc[[0, -1]].tolist() == [
+        pd.Timestamp("2020-12-03"),
+        pd.Timestamp("2021-01-31"),
+    ]
+    assert utils_module._READ_CSV_DIALECT.get()[4] == "%d/%m/%Y"
+
+
 # =============================================================================
 # Tests: _with_data_path
 # =============================================================================
@@ -1136,6 +1418,101 @@ def test_with_data_path_output_when_dataframe_and_profile_of_file(tmp_path):
     assert in_run.data_profile.data_path == "run.csv"
     assert _with_data_path(profile, None) is profile
     assert profile.data_profile.data_path == str(csv_path)
+
+
+def _with_date_format(profile, date_format):
+    """Return `profile` recording `date_format`, as a saved profile may."""
+    data_profile = profile.data_profile.model_copy(
+        update={"date_format": date_format}
+    )
+    return profile.model_copy(update={"data_profile": data_profile})
+
+
+@pytest.mark.parametrize(
+    "dayfirst, expected_format",
+    [(True, "%d/%m/%Y"), (False, "%m/%d/%Y")],
+    ids=["day_first", "month_first"],
+)
+def test_with_data_path_output_date_format_of_csv_read(
+    tmp_path, dayfirst, expected_format
+):
+    """
+    Test that the profile records the format the CSV file was read with
+    (`dayfirst` decides the order of dates that read in both), whatever it
+    recorded before, without changing the profile passed.
+    """
+    csv_path = tmp_path / "monthly.csv"
+    df_dialect_monthly.to_csv(csv_path, index=False)
+    assistant = ForecastingAssistant()
+    profile = _with_date_format(
+        assistant.profile(data=csv_path, target="y", dayfirst=True), None
+    )
+    _resolve_data_and_target(data=csv_path, target="y", dayfirst=dayfirst)
+
+    result = _with_data_path(profile, str(csv_path))
+
+    assert result.data_profile.date_format == expected_format
+    assert result.data_profile.data_path == str(csv_path)
+    assert profile.data_profile.date_format is None
+
+
+def test_with_data_path_output_date_notes_of_csv_read(tmp_path):
+    """
+    Test that the notes on how the dates of the CSV file were read (an order
+    told from their regularity) go into the warnings of the profile, first,
+    when the profile was built from the DataFrame read and lacks them, and
+    are not repeated when it has them.
+    """
+    csv_path = tmp_path / "monthly.csv"
+    df_dialect_monthly.to_csv(csv_path, index=False)
+    data, _ = _resolve_data_and_target(data=csv_path, target="y")
+    profile = ForecastingAssistant().profile(data=data, target="y")
+    note = _dialect_read(str(csv_path)).date_notes[0]
+
+    result = _with_data_path(profile, str(csv_path))
+    again = _with_data_path(result, str(csv_path))
+
+    assert note not in profile.data_profile.warnings
+    assert result.data_profile.warnings == [note, *profile.data_profile.warnings]
+    assert again.data_profile.warnings == result.data_profile.warnings
+
+
+@pytest.mark.parametrize(
+    "data, profile_format, expected_format",
+    [
+        (df_day_first, None, "%d/%m/%Y"),
+        (df_day_first, "%m/%d/%Y", "%d/%m/%Y"),
+        (df_dialect_monthly, "%d/%m/%Y", "%d/%m/%Y"),
+        (df_dialect_monthly, "%m/%d/%Y", "%m/%d/%Y"),
+        (
+            df_day_first.assign(
+                date=pd.to_datetime(df_day_first["date"], format="%d/%m/%Y")
+            ),
+            "%d/%m/%Y",
+            None,
+        ),
+        (df_single, "%d/%m/%Y", None),
+    ],
+    ids=["text_day_first", "text_day_first_profile_month_first",
+         "text_ambiguous_profile_day_first", "text_ambiguous_profile_month_first",
+         "datetime_dates_profile_day_first", "datetime_dates_of_df_single"],
+)
+def test_with_data_path_output_date_format_of_dataframe(
+    data, profile_format, expected_format
+):
+    """
+    Test that, for a DataFrame passed in memory, the profile records the
+    format of its own dates, on which the script runs: the format of its text
+    (the profile decides only dates that read in both orders) and none for
+    dates already parsed, whatever the profile passed says.
+    """
+    profile = _with_date_format(profile_single, profile_format)
+
+    result = _with_data_path(profile, data)
+
+    assert result.data_profile.date_format == expected_format
+    assert result.data_profile.data_path == "data.csv"
+    assert profile.data_profile.date_format == profile_format
 
 
 def test_apply_interval_to_plan_does_not_share_lists():
@@ -2001,10 +2378,13 @@ def test_resolve_data_and_target_reads_url_with_thousands_detected(monkeypatch):
 
     assert calls == [
         ((url,), {}),
-        ((url,), {"sep": ";", "decimal": ",", "thousands": "."}),
+        (
+            (url,),
+            {"sep": ";", "decimal": ",", "thousands": ".", "dtype": {"date": str}},
+        ),
     ]
     assert data["y"].tolist() == [870, 1020]
-    assert utils_module._READ_CSV_DIALECT.get() == (url, ";", ",", ".")
+    assert utils_module._READ_CSV_DIALECT.get() == (url, ";", ",", ".", None, ())
 
 
 def test_resolve_data_and_target_reads_url_with_thousands_given(monkeypatch):
@@ -2023,7 +2403,12 @@ def test_resolve_data_and_target_reads_url_with_thousands_given(monkeypatch):
 
     data, _ = _resolve_data_and_target(url, "y", thousands=".")
 
-    assert calls == [((url,), {"sep": ";", "decimal": ",", "thousands": "."})]
+    assert calls == [
+        (
+            (url,),
+            {"sep": ";", "decimal": ",", "thousands": ".", "dtype": {"date": str}},
+        )
+    ]
     assert data["y"].tolist() == [1870, 1020]
 
 
@@ -2044,7 +2429,10 @@ def test_resolve_data_and_target_reads_url_again_when_text_column_has_thousands(
 
     assert calls == [
         ((url,), {"sep": ";", "decimal": ","}),
-        ((url,), {"sep": ";", "decimal": ",", "thousands": "."}),
+        (
+            (url,),
+            {"sep": ";", "decimal": ",", "thousands": ".", "dtype": {"date": str}},
+        ),
     ]
     assert data["y"].tolist() == [1705, 1870]
 
