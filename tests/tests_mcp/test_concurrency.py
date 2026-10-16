@@ -9,6 +9,7 @@ from skforecast_ai import ForecastingAssistant
 from skforecast_ai.mcp import create_server
 
 from .fixtures_mcp import (
+    DATA_MISSING_EXOG_WARNING,
     DATA_WARNING,
     content_of,
     cv_of,
@@ -71,7 +72,9 @@ def test_concurrent_calls_never_overlap_and_keep_their_own_notices(
     assert sys.stdout is stdout
     for i, result in results.items():
         messages = [notice["message"] for notice in result["notices"]]
-        assert messages == ([DATA_WARNING] if i % 2 else [])
+        assert messages == (
+            [DATA_MISSING_EXOG_WARNING, DATA_WARNING] if i % 2 else []
+        )
     assert len({result["id"] for result in results.values()}) == 8
 
 

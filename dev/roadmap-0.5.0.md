@@ -398,6 +398,19 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
   - Nota de release en **Changed** (scripts) y **Fixed**, con una línea en
     "Before upgrading" por el cambio de los scripts; sin destacado, que se
     decide al consolidar la fase 1.
+- **D6. 1g: avisos de exógenas sucias en el perfil** (2026-10-16). V12: una
+  columna `object` avisa cuando al menos el 90 % de sus valores (sin contar
+  faltantes) son números una vez quitados los espacios y un `%` final, o
+  celdas solo de `-` o en blanco, y hay al menos un número. No cuentan como
+  números los que tienen cero inicial (`007`, un código) ni los separadores
+  de miles; se respeta la coma decimal del fichero; las columnas de dtype
+  `category` no se miran (se eligieron a propósito). El aviso **no cita
+  valores** de la columna, describe el patrón (`%` final, celdas de `-`,
+  celdas en blanco, números con espacios): los avisos del perfil llegan al
+  contexto del LLM (principio 4). V11: un aviso desde el primer NaN en una
+  exógena, con la columna y el recuento (hasta 5 columnas); dice que un
+  estimador que no acepta faltantes falla, sin recomendar ninguno (eso es
+  3a).
 
 ## Decisiones abiertas
 
