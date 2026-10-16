@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 from mcp import Client
 
+from ..fixtures_assistant import df_multi_long_numeric_ids
 from ..fixtures_datasets import df_h2o
 
 # h2o (monthly, 204 observations) with the dates in the column 'fecha'.
@@ -67,6 +68,24 @@ df_single_future_exog = pd.DataFrame(
     {
         "date": pd.date_range("2023-04-11", periods=10, freq="D").strftime("%Y-%m-%d"),
         "promo": np.tile([0.0, 1.0], 5),
+    }
+)
+
+# Long data whose series ids are numbers ('001', '1', '10'), with an
+# exogenous variable, and its future values for the 7 days after its last
+# date, with the same ids (finding G02 of the MCP audit: every run failed
+# with `KeyError: 1` and the profile named the series '1' and '10').
+df_numeric_ids_exog = df_multi_long_numeric_ids.assign(
+    promo=(np.arange(len(df_multi_long_numeric_ids)) % 5 == 0).astype(float)
+)
+df_numeric_ids_future_exog = pd.DataFrame(
+    {
+        "series_id": np.repeat(["001", "1", "10"], 7),
+        "date": np.tile(
+            pd.date_range("2023-04-11", periods=7, freq="D").strftime("%Y-%m-%d"),
+            3,
+        ),
+        "promo": np.tile([1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0], 3),
     }
 )
 

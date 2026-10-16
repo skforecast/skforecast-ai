@@ -42,6 +42,7 @@ from ._validation import (
 )
 from ._dates import is_text, parse_text_dates, row_dates, training_end
 from .profiling.data_profile import (
+    _normalize_multiindex,
     _read_date_column,
     _try_parse_first_date_column,
     check_csv_fields,
@@ -49,7 +50,9 @@ from .profiling.data_profile import (
     date_issue_hint,
     decimal_after_sample,
     read_csv_with_dialect,
+    series_ids_as_text,
     thousands_after_sample,
+    without_series_ids,
 )
 from .profiling.csv_dialect import (
     CSV_SEPARATORS,
@@ -833,6 +836,7 @@ def _read_csv_url(
     sep: str | None = None,
     decimal: str | None = None,
     thousands: str | None = None,
+    series_id_column: str | None = None,
 ) -> tuple[pd.DataFrame, str, str, str | None]:
     """
     Read the CSV file of a URL and return how it is written.
@@ -855,6 +859,9 @@ def _read_csv_url(
     thousands : str, default None
         Thousands separator. If None, it is detected, except when `decimal`
         is `'.'`.
+    series_id_column : str, default None
+        Column of the series ids of long-format data, read as text (see
+        `read_csv_with_dialect`).
 
     Returns
     -------
@@ -869,11 +876,17 @@ def _read_csv_url(
     """
     decimal_given = decimal is not None
     unchecked = False
+
+    def read(sep: str, decimal: str, thousands: str | None = None) -> pd.DataFrame:
+        return pd.read_csv(
+                   url, **csv_read_kwargs(sep, decimal, thousands, series_id_column)
+               )
+
     if sep is None or decimal is None or thousands is not None:
         data, unread = None, None
         if sep is None and decimal is None and thousands is None:
             try:
-                data = pd.read_csv(url)
+                data = read(DEFAULT_CSV_SEP, DEFAULT_CSV_DECIMAL)
             except pd.errors.ParserError as exc:
                 # Raised again below unless the file has another dialect.
                 unread = exc
@@ -893,37 +906,44 @@ def _read_csv_url(
             decimal = "," if thousands is not None else decimal
         else:
             sep, decimal, thousands = detect_csv_dialect(
-                                          sample    = sample,
-                                          source    = url,
-                                          sep       = sep,
-                                          decimal   = decimal,
-                                          thousands = thousands,
+                                          sample           = sample,
+                                          source           = url,
+                                          sep              = sep,
+                                          decimal          = decimal,
+                                          thousands        = thousands,
+                                          series_id_column = series_id_column,
                                       )
             check_csv_dialect(sep, decimal, thousands)
+        # Without `series_id_column`: the question is whether the dialect is
+        # the default one, which the `dtype` of the ids would hide.
         if not csv_read_kwargs(sep, decimal, thousands):
             if unread is not None:
                 raise unread
             if data is not None:
                 return data, sep, decimal, thousands
 
-    data = pd.read_csv(url, **csv_read_kwargs(sep, decimal, thousands))
+    data = read(sep, decimal, thousands)
     if unchecked:
         check_csv_dialect(sep, decimal, thousands)
     if (
         not decimal_given
         and sep != DEFAULT_CSV_SEP
         and decimal == DEFAULT_CSV_DECIMAL
-        and decimal_after_sample(data, url, "data", sep) != decimal
+        and decimal_after_sample(
+                without_series_ids(data, series_id_column), url, "data", sep
+            ) != decimal
     ):
         decimal = ","
-        data = pd.read_csv(url, **csv_read_kwargs(sep, decimal))
+        data = read(sep, decimal)
     if (
         thousands is None
         and decimal == ","
-        and thousands_after_sample(data, url, "data") is not None
+        and thousands_after_sample(
+                without_series_ids(data, series_id_column), url, "data"
+            ) is not None
     ):
         thousands = "."
-        data = pd.read_csv(url, **csv_read_kwargs(sep, decimal, thousands))
+        data = read(sep, decimal, thousands)
 
     return data, sep, decimal, thousands
 
@@ -935,6 +955,7 @@ def _resolve_data_and_target(
     sep: str | None = None,
     decimal: str | None = None,
     thousands: str | None = None,
+    series_id_column: str | None = None,
 ) -> tuple[pd.DataFrame, str | list[str]]:
     """
     Coerce the input to a DataFrame and resolve the target column name.
@@ -948,7 +969,10 @@ def _resolve_data_and_target(
     callers can reference a `date_column` by name. The separator, the
     decimal mark and the thousands separator of the file are detected
     unless given (see `read_csv_with_dialect`), and kept for
-    `_with_data_path` to record them in the profile.
+    `_with_data_path` to record them in the profile. The series ids of
+    long-format data are text, as the generated script reads them: the
+    column of a CSV file is read as text and the ids of a DataFrame are
+    turned into text (see `series_ids_as_text`).
 
     Parameters
     ----------
@@ -972,6 +996,9 @@ def _resolve_data_and_target(
     thousands : str, default None
         Thousands separator of a CSV file: `'.'`, with `','` as decimal
         mark. If None, it is detected. Ignored for data passed in memory.
+    series_id_column : str, default None
+        Column of the series ids of long-format data, whose ids become
+        text.
 
     Returns
     -------
@@ -1033,7 +1060,11 @@ def _resolve_data_and_target(
         if data_str.startswith(("http://", "https://")):
             try:
                 df, sep, decimal, thousands = _read_csv_url(
-                                                  data_str, sep, decimal, thousands
+                                                  url              = data_str,
+                                                  sep              = sep,
+                                                  decimal          = decimal,
+                                                  thousands        = thousands,
+                                                  series_id_column = series_id_column,
                                               )
             except InvalidInputError:
                 # The dialect of the file cannot be told.
@@ -1050,7 +1081,10 @@ def _resolve_data_and_target(
             _READ_CSV_DIALECT.set(
                 (recorded_data_path(data), sep, decimal, thousands)
             )
-            return _try_parse_first_date_column(df, date_column), target
+            return (
+                _try_parse_first_date_column(df, date_column, series_id_column),
+                target,
+            )
         path = Path(data_str)
         if not path.is_file():
             raise DataNotFoundError(
@@ -1058,15 +1092,19 @@ def _resolve_data_and_target(
                 field = "data",
             )
         df, sep, decimal, thousands = read_csv_with_dialect(
-                                          path      = path,
-                                          sep       = sep,
-                                          decimal   = decimal,
-                                          thousands = thousands,
+                                          path             = path,
+                                          sep              = sep,
+                                          decimal          = decimal,
+                                          thousands        = thousands,
+                                          series_id_column = series_id_column,
                                       )
         _READ_CSV_DIALECT.set((recorded_data_path(data), sep, decimal, thousands))
-        return _try_parse_first_date_column(df, date_column), target
+        return (
+            _try_parse_first_date_column(df, date_column, series_id_column),
+            target,
+        )
 
-    return data, target
+    return series_ids_as_text(data, series_id_column), target
 
 
 def _match_profile_column(
@@ -1141,7 +1179,8 @@ def load_exog(
     date_column : str, default None
         Name of the column holding the dates.
     series_id_column : str, default None
-        Name of the series id column of long-format data.
+        Name of the series id column of long-format data, read as text
+        (`'001'`), as the series ids of the data.
 
     Returns
     -------
@@ -1161,9 +1200,10 @@ def load_exog(
     # Rows longer than the header raise, except a header one field short
     # (see `check_csv_fields`).
     exog, sep, decimal, thousands = read_csv_with_dialect(
-                                        path        = path,
-                                        field       = "exog",
-                                        index_first = True,
+                                        path             = path,
+                                        field            = "exog",
+                                        index_first      = True,
+                                        series_id_column = series_id_column,
                                     )
     if not isinstance(exog.index, pd.RangeIndex):
         # A header one field short: pandas reads the first field as the
@@ -1222,7 +1262,10 @@ def load_exog(
                 found = first
         if found is None:
             try:
-                exog = _try_parse_first_date_column(exog)
+                exog = _try_parse_first_date_column(
+                           data             = exog,
+                           series_id_column = series_id_column,
+                       )
             except InvalidInputError as exc:
                 raise DataContentError(
                     f"Exog CSV '{path}': {exc}",
@@ -1303,6 +1346,14 @@ def _resolve_inputs_with_profile(
     a mismatched dataset fails here with a readable message instead of
     inside the executed script.
 
+    Long-format data indexed by a `(series_id, date)` MultiIndex is
+    flattened as profiling flattens it (`_normalize_multiindex`): its
+    levels become columns of the same name, which is also how the
+    generated script reads the frame saved with `to_csv()`, and the series
+    ids of its first level become text (`series_ids_as_text`). Without a
+    profile, a None `date_column` or `series_id_column` is taken from the
+    levels, as `profile()` does.
+
     Parameters
     ----------
     data : pandas Series, pandas DataFrame, str, Path
@@ -1319,7 +1370,7 @@ def _resolve_inputs_with_profile(
     Returns
     -------
     data : pandas DataFrame
-        Coerced DataFrame.
+        Coerced DataFrame, without a MultiIndex.
     target : str, list
         Resolved target column name(s).
     date_column : str, None
@@ -1329,7 +1380,17 @@ def _resolve_inputs_with_profile(
     """
 
     if profile is None:
-        data_df, target = _resolve_data_and_target(data, target, date_column)
+        data_df, target = _resolve_data_and_target(
+                              data             = data,
+                              target           = target,
+                              date_column      = date_column,
+                              series_id_column = series_id_column,
+                          )
+        data_df, date_column, series_id_column = _normalize_multiindex(
+            data_df, date_column, series_id_column
+        )
+        # The ids of a MultiIndex were a level, not a column turned into text.
+        data_df = series_ids_as_text(data_df, series_id_column)
         return data_df, target, date_column, series_id_column
 
     dp = profile.data_profile
@@ -1360,18 +1421,20 @@ def _resolve_inputs_with_profile(
     )
     try:
         data_df, target = _resolve_data_and_target(
-                              data        = data,
-                              target      = target,
-                              date_column = dp.date_column,
+                              data             = data,
+                              target           = target,
+                              date_column      = dp.date_column,
+                              series_id_column = dp.series_id_column,
                               **(dialect if same_file else {}),
                           )
     except CsvDialectError:
         if dp.data_path == PLACEHOLDER_DATA_PATH or same_file:
             raise
         data_df, target = _resolve_data_and_target(
-                              data        = data,
-                              target      = target,
-                              date_column = dp.date_column,
+                              data             = data,
+                              target           = target,
+                              date_column      = dp.date_column,
+                              series_id_column = dp.series_id_column,
                               **dialect,
                           )
     if target != dp.target:
@@ -1387,14 +1450,16 @@ def _resolve_inputs_with_profile(
         "series_id_column", series_id_column, dp.series_id_column
     )
 
+    # The script reads the date and series identifier as columns: the levels
+    # of a MultiIndex are reset into columns of the same name, as profiling
+    # does, and the ids of the level become text. The columns of the profile
+    # are already resolved, so the names the levels would give are not taken.
+    data_df, *_ = _normalize_multiindex(data_df, date_column, series_id_column)
+    data_df = series_ids_as_text(data_df, series_id_column)
+
     required = list(target) if isinstance(target, list) else [target]
     required += [col for col in (date_column, series_id_column) if col is not None]
-    # A MultiIndex input keeps the date and series identifier as index
-    # levels; the profiler flattens them into columns of the same name.
-    available = set(data_df.columns) | {
-        name for name in data_df.index.names if name is not None
-    }
-    missing = [col for col in required if col not in available]
+    missing = [col for col in required if col not in data_df.columns]
     if missing:
         raise InvalidInputError(
             f"`data` does not contain the column(s) {missing} recorded in "

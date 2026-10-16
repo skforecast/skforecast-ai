@@ -187,14 +187,15 @@ def test_load_exog_output_when_first_column_holds_values(tmp_path, text, expecte
 
 def test_load_exog_output_when_integer_series_ids(tmp_path):
     """
-    Test that, for long-format data, integer series ids in the first column
-    are not read as dates (pandas reads 2001 as a year).
+    Test that, for long-format data, series ids written as integers in the
+    first column are read as text, as the ids of the data, and not as dates
+    (pandas reads '2001' as a year).
     """
     path = tmp_path / "exog.csv"
     path.write_text("store,date,price\n2001,2023-04-11,1\n2002,2023-04-11,2\n")
 
     expected = pd.DataFrame(
-        {"store": [2001, 2002], "price": [1, 2]},
+        {"store": ["2001", "2002"], "price": [1, 2]},
         index=pd.DatetimeIndex(["2023-04-11", "2023-04-11"], name="date"),
     )
     pd.testing.assert_frame_equal(

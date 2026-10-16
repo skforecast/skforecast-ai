@@ -856,6 +856,41 @@ def test_backtest_runs_when_long_series_starts_late(n_values):
     assert result.plan.forecaster == "ForecasterRecursiveMultiSeries"
 
 
+@pytest.mark.parametrize("with_profile", [True, False], ids=["profile", "no_profile"])
+def test_backtest_output_when_long_format_multiindex(with_profile):
+    """
+    Test that backtest() runs long-format data indexed by a (series, date)
+    MultiIndex as the same data with the levels as columns, which is how the
+    script reads the frame saved with `to_csv()`: same script, predictions
+    and metrics. Before, the executed script did not find the date column
+    (KeyError: 'date').
+    """
+    expected = assistant.backtest(
+        data             = _ITEMS_LONG,
+        target           = "value",
+        date_column      = "date",
+        series_id_column = "series",
+        cv               = _long_cv(),
+        estimator        = "Ridge",
+        show_progress    = False,
+    )
+    data = _ITEMS_LONG.set_index(["series", "date"])
+    if with_profile:
+        profile = assistant.profile(data=data, target="value")
+        plan = assistant.plan(profile, steps=5, estimator="Ridge")
+        kwargs = {"profile": profile, "plan": plan}
+    else:
+        kwargs = {"target": "value", "estimator": "Ridge"}
+
+    result = assistant.backtest(
+        data=data, cv=_long_cv(), show_progress=False, **kwargs
+    )
+
+    assert result.code == expected.code
+    pd.testing.assert_frame_equal(result.predictions, expected.predictions)
+    pd.testing.assert_frame_equal(result.metrics, expected.metrics)
+
+
 def test_backtest_InvalidInputError_when_received_plan_clashes_with_exog_names():
     """
     Test that backtest() checks a plan built on clean data against the

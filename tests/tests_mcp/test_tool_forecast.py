@@ -1,5 +1,6 @@
 # Unit test tool forecast
 
+import pandas as pd
 import pytest
 
 from skforecast_ai import ForecastingAssistant
@@ -12,6 +13,8 @@ from ..fixtures_datasets import df_items_sales_long
 from .fixtures_mcp import (
     DATA_VALUES_HINT,
     call,
+    df_numeric_ids_exog,
+    df_numeric_ids_future_exog,
     df_single_future_exog,
     content_of,
     csv_of,
@@ -545,3 +548,42 @@ def test_tool_forecast_data_changed_when_gzip_file_was_modified(tmp_path):
         f"The file {path!r} changed since it was profiled, so its profile and "
         f"the objects built from it no longer describe it. Nothing was run."
     )
+
+
+def test_tool_forecast_output_when_series_ids_are_numbers(tmp_path):
+    """
+    Test that `forecast` runs on long-format data whose series ids are
+    numbers ('001', '1', '10'), with the future exogenous variables of
+    `exog_path` read with the same ids as text, as the Python API does.
+    Before, it failed as `execution_failed` with `KeyError: 1` inside
+    skforecast (skforecast issue #1357).
+    """
+    path = write_csv(tmp_path, "stores.csv", df_numeric_ids_exog)
+    exog_path = write_csv(tmp_path, "future.csv", df_numeric_ids_future_exog)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    arguments = {"target": "value", "series_id_column": "series_id"}
+    profile = content_of(call(server, "profile", {"data_path": path, **arguments}))
+    plan = content_of(
+        call(server, "plan", {"profile_id": profile["id"], "steps": 7})
+    )
+
+    result = content_of(
+        call(server, "forecast", {"plan_id": plan["id"], "exog_path": exog_path})
+    )
+
+    assistant = ForecastingAssistant()
+    expected_profile = assistant.profile(path, **arguments)
+    expected = assistant.forecast(
+        data=path,
+        profile=expected_profile,
+        plan=assistant.plan(profile=expected_profile, steps=7),
+        exog=load_exog(exog_path, date_column="date", series_id_column="series_id"),
+    )
+    predictions = pd.read_csv(
+        result["files"]["predictions"], index_col=0, dtype={"level": str}
+    )
+
+    assert expected.plan.use_exog is True
+    assert result["summary"] == expected.describe()
+    assert text_of(result["files"]["predictions"]) == csv_of(expected.predictions)
+    assert sorted(predictions["level"].unique()) == ["001", "1", "10"]

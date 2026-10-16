@@ -11,6 +11,10 @@ from skforecast_ai.exceptions import InvalidInputError
 from skforecast_ai.profiling import create_data_profile
 from skforecast_ai.schemas import DataProfile
 
+from ..fixtures_assistant import (
+    df_multi_long_integer_ids,
+    df_multi_long_numeric_ids,
+)
 from ..fixtures_datasets import df_h2o, df_items_sales_long, df_items_sales_wide
 from .fixtures_profiling import (
     df_long_duplicate_values_series_b,
@@ -1376,3 +1380,210 @@ def test_create_data_profile_emits_no_warning_for_long_data_with_gaps(freq, tz):
 
     assert profile.frequency == freq
     assert profile.n_series == 2
+
+
+# =============================================================================
+# Tests: series ids and series names as text
+# =============================================================================
+_TEXT_COLUMNS_HINT = (
+    "Rename the columns of the DataFrame to text, for example with "
+    "`data.columns = data.columns.astype(str)`, and pass their names as text "
+    "in `target`."
+)
+_LONG_IDS_KWARGS = {
+    "target": "value", "date_column": "date", "series_id_column": "series_id",
+}
+
+# Two daily series named with numbers, as a DataFrame read by other means
+# may hold them.
+df_wide_integer_columns = pd.DataFrame(
+    {1: np.arange(60, dtype=float), 2: np.arange(60, dtype=float) * 2},
+    index=pd.date_range("2023-01-01", periods=60, freq="D"),
+)
+
+
+@pytest.mark.parametrize("date_column", ["date", None], ids=lambda dt: f"date: {dt}")
+def test_create_data_profile_series_ids_are_text_when_csv_path_input(
+    tmp_path, date_column
+):
+    """
+    Test that the ids of a CSV file ('001', '1' and '10') are read as text, so
+    they stay three series with their zeros, in the order of their text, and
+    the profile describes them as the generated script reads them.
+    """
+    csv_file = tmp_path / "ids.csv"
+    df_multi_long_numeric_ids.to_csv(csv_file, index=False)
+
+    profile = create_data_profile(
+        data             = csv_file,
+        target           = "value",
+        date_column      = date_column,
+        series_id_column = "series_id",
+    )
+
+    assert list(profile.series_lengths) == ["001", "1", "10"]
+    assert {k: v.length for k, v in profile.series_lengths.items()} == {
+        "001": 100, "1": 100, "10": 100
+    }
+    assert profile.n_series == 3
+    assert profile.data_format == "long"
+    assert profile.date_column == "date"
+    assert profile.frequency == "D"
+    assert profile.warnings == []
+
+
+def test_create_data_profile_series_ids_are_not_the_date_column_when_csv_path_input(
+    tmp_path,
+):
+    """
+    Test that a first column of ids that read as years ('2001', '2002') is
+    kept as the series ids and is not taken for the date column: the dates are
+    in the column 'date'.
+    """
+    csv_file = tmp_path / "years.csv"
+    df_multi_long_numeric_ids.assign(
+        series_id=df_multi_long_numeric_ids["series_id"].map(
+            {"001": "2001", "1": "2002", "10": "2003"}
+        )
+    )[["series_id", "date", "value"]].to_csv(csv_file, index=False)
+
+    profile = create_data_profile(
+        data=csv_file, target="value", series_id_column="series_id"
+    )
+
+    assert list(profile.series_lengths) == ["2001", "2002", "2003"]
+    assert profile.date_column == "date"
+    assert profile.frequency == "D"
+    assert profile.warnings == []
+
+
+@pytest.mark.parametrize(
+    "multiindex", [False, True], ids=lambda dt: f"multiindex: {dt}"
+)
+def test_create_data_profile_series_ids_are_text_when_integer_ids(multiindex):
+    """
+    Test that integer ids of a DataFrame (1, 2 and 10), in a column or in the
+    first level of a MultiIndex, are turned into text, so the series are named
+    '1', '10' and '2' (the order of their text) as the generated script
+    names them.
+    """
+    data = df_multi_long_integer_ids
+    kwargs = dict(_LONG_IDS_KWARGS)
+    if multiindex:
+        data = data.set_index(["series_id", "date"])
+        kwargs["date_column"] = None
+
+    profile = create_data_profile(data=data, **kwargs)
+
+    assert list(profile.series_lengths) == ["1", "10", "2"]
+    assert {k: v.length for k, v in profile.series_lengths.items()} == {
+        "1": 100, "10": 100, "2": 100
+    }
+    assert profile.n_series == 3
+    assert profile.series_id_column == "series_id"
+    assert profile.frequency == "D"
+    assert profile.warnings == []
+
+
+def test_create_data_profile_series_ids_do_not_modify_input():
+    """
+    Test that the DataFrame given keeps its integer ids: they are turned into
+    text in a copy.
+    """
+    data = df_multi_long_integer_ids.copy()
+
+    create_data_profile(data=data, **_LONG_IDS_KWARGS)
+
+    pd.testing.assert_frame_equal(data, df_multi_long_integer_ids)
+
+
+def test_create_data_profile_series_ids_leave_out_rows_without_id():
+    """
+    Test that a row without series id is left out, with the ids of the other
+    rows turned into text: there is no series named 'nan', and the three
+    series keep their 100 rows.
+    """
+    first = pd.DataFrame(
+        {
+            "date": [pd.Timestamp("2023-01-05")],
+            "series_id": [None],
+            "value": [1.0],
+        }
+    )
+    data = pd.concat(
+        [first, df_multi_long_integer_ids.astype({"series_id": object})],
+        ignore_index=True,
+    )
+
+    profile = create_data_profile(data=data, **_LONG_IDS_KWARGS)
+
+    assert list(profile.series_lengths) == ["1", "10", "2"]
+    assert {k: v.length for k, v in profile.series_lengths.items()} == {
+        "1": 100, "10": 100, "2": 100
+    }
+    assert profile.n_series == 3
+    assert profile.frequency == "D"
+    assert profile.start_date == "2023-01-01"
+    assert profile.warnings == []
+
+
+@pytest.mark.parametrize(
+    "target, listed",
+    [
+        ([1, 2], "[1, 2]"),
+        ([1], "[1]"),
+        ([1, "x"], "[1]"),
+        (1, "[1]"),
+    ],
+    ids=["integers", "one integer", "integer and text", "single integer"],
+)
+def test_create_data_profile_InvalidInputError_when_target_is_not_named_with_text(
+    target, listed
+):
+    """
+    Test that a target given with names that are not text raises an
+    InvalidInputError with the field 'target', the names that are not text and
+    the hint to rename the columns, because skforecast names the series with
+    text.
+    """
+    err_msg = re.escape(
+        f"Target column(s) {listed} are not named with text: the series are "
+        f"named after their columns, and their names must be text."
+    )
+    with pytest.raises(InvalidInputError, match="^" + err_msg + "$") as exc_info:
+        create_data_profile(data=df_wide_integer_columns, target=target)
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "target"
+    assert exc_info.value.hint == _TEXT_COLUMNS_HINT
+
+
+@pytest.mark.parametrize(
+    "target, listed, hint",
+    [
+        (["1", "2"], "['1', '2']", _TEXT_COLUMNS_HINT),
+        ("1", "['1']", _TEXT_COLUMNS_HINT),
+        (["a"], "['a']", None),
+        (["1", "a"], "['1', 'a']", None),
+    ],
+    ids=["text names of the integers", "one text name", "unknown name",
+         "text name and unknown name"],
+)
+def test_create_data_profile_InvalidInputError_when_text_target_not_found_in_integer_columns(
+    target, listed, hint
+):
+    """
+    Test that text names for columns named with integers keep the message
+    that they are not found and add the hint to rename the columns, while a
+    name that matches no column, alone or next to one that does, has no hint.
+    """
+    err_msg = re.escape(
+        f"Target column(s) {listed} not found in the DataFrame. Available "
+        f"columns: [1, 2]"
+    )
+    with pytest.raises(InvalidInputError, match="^" + err_msg + "$") as exc_info:
+        create_data_profile(data=df_wide_integer_columns, target=target)
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "target"
+    assert exc_info.value.hint == hint

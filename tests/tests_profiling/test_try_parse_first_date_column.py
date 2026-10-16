@@ -505,3 +505,65 @@ def test_try_parse_first_date_column_UserWarning_names_every_skipped_column():
         parsed = _try_parse_first_date_column(data)
 
     assert pd.api.types.is_datetime64_any_dtype(parsed["date"])
+
+
+@pytest.mark.parametrize(
+    "date_column", [None, "date"], ids=lambda dt: f"date_column: {dt}"
+)
+def test_try_parse_first_date_column_skips_series_id_column(date_column):
+    """
+    Test that the column of series ids, read as text, is not taken for the
+    date column when its ids ('2001', '2002') read as years: it stays text
+    and the later column of dates is parsed. Without `series_id_column`, the
+    ids are the ones parsed as dates.
+    """
+    data = pd.DataFrame({
+        "store": ["2001", "2001", "2002", "2002"],
+        "date": ["2020-01-01", "2020-01-02", "2020-01-01", "2020-01-02"],
+        "y": [1.0, 2.0, 3.0, 4.0],
+    })
+
+    parsed = _try_parse_first_date_column(
+        data.copy(), date_column=date_column, series_id_column="store"
+    )
+
+    expected = pd.DataFrame({
+        "store": ["2001", "2001", "2002", "2002"],
+        "date": pd.to_datetime(
+            ["2020-01-01", "2020-01-02", "2020-01-01", "2020-01-02"]
+        ),
+        "y": [1.0, 2.0, 3.0, 4.0],
+    })
+    pd.testing.assert_frame_equal(parsed, expected)
+
+    parsed = _try_parse_first_date_column(data.copy(), date_column=date_column)
+
+    assert pd.api.types.is_datetime64_any_dtype(parsed["store"])
+    assert parsed["store"].tolist() == [
+        pd.Timestamp("2001-01-01"),
+        pd.Timestamp("2001-01-01"),
+        pd.Timestamp("2002-01-01"),
+        pd.Timestamp("2002-01-01"),
+    ]
+    assert parsed["date"].tolist() == [
+        "2020-01-01", "2020-01-02", "2020-01-01", "2020-01-02"
+    ]
+
+
+def test_try_parse_first_date_column_ignores_series_id_column_that_is_not_a_column():
+    """
+    Test that a `series_id_column` that the data does not hold changes
+    nothing: the first column of dates is parsed as without the argument.
+    """
+    data = pd.DataFrame({
+        "date": ["2020-01-01", "2020-01-02"],
+        "y": [1.0, 2.0],
+    })
+
+    parsed = _try_parse_first_date_column(data, series_id_column="store")
+
+    expected = pd.DataFrame({
+        "date": pd.to_datetime(["2020-01-01", "2020-01-02"]),
+        "y": [1.0, 2.0],
+    })
+    pd.testing.assert_frame_equal(parsed, expected)

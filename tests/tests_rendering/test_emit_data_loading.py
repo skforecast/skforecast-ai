@@ -5,7 +5,11 @@ import pytest
 from skforecast_ai.rendering import render_forecast_single_series
 from skforecast_ai.rendering._helpers import _emit_data_loading
 
-from .fixtures_rendering import plan_single_predict_exog, profile_single
+from .fixtures_rendering import (
+    plan_single_predict_exog,
+    profile_multi_long,
+    profile_single,
+)
 
 
 def _lines(profile, **kwargs) -> list[str]:
@@ -239,3 +243,50 @@ def test_emit_data_loading_in_a_full_script_with_thousands_and_future_exog():
     )
     assert "exog_future = pd.read_csv('exog_future.csv')\n" in result.data_loading
     assert result.full_script.count("thousands='.'") == 1
+
+
+@pytest.mark.parametrize(
+    "update, kwargs, call",
+    [
+        (
+            {"data_path": "sales.csv"},
+            {},
+            "data = pd.read_csv('sales.csv', dtype={'store': str})",
+        ),
+        (
+            {
+                "data_path": "eu.csv",
+                "csv_sep": ";",
+                "csv_decimal": ",",
+                "csv_thousands": ".",
+            },
+            {},
+            "data = pd.read_csv('eu.csv', sep=';', decimal=',', thousands='.', "
+            "dtype={'store': str})",
+        ),
+        (
+            {"csv_sep": ";", "csv_decimal": ",", "csv_thousands": "."},
+            {},
+            "data = pd.read_csv('data.csv', dtype={'store': str})",
+        ),
+        (
+            {"data_path": "eu.csv", "csv_sep": ";", "csv_decimal": ","},
+            {"var": "exog_future", "path": "exog_future.csv"},
+            "exog_future = pd.read_csv('exog_future.csv', dtype={'store': str})",
+        ),
+    ],
+    ids=["default dialect", "dialect", "placeholder", "future exog"],
+)
+def test_emit_data_loading_output_when_series_id_column(update, kwargs, call):
+    """
+    Test that the series ids of long-format data are read as text, after
+    the dialect of the file when it has one, in the data and in the future
+    exogenous variables, so that '001' keeps its zeros.
+    """
+    profile = profile_multi_long.model_copy(
+        update={"series_id_column": "store", **update}
+    )
+
+    result = _lines(profile, long_format=True, **kwargs)
+
+    assert result[-1] == call

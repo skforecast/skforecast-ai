@@ -81,18 +81,34 @@ df_dialect_thousands = pd.DataFrame(
 )
 
 
+# Long data of three monthly series of amounts between about 600 and 2,300,
+# written by `write_thousands` with '.' between thousands, whose series ids
+# are numbers ('001', '1', '10', which read as integers would lose the
+# zeros and join '001' and '1').
+df_dialect_thousands_long = pd.concat(
+    [
+        df_dialect_thousands.assign(store="001"),
+        df_dialect_thousands.assign(store="1", y=df_dialect_thousands["y"] + 250),
+        df_dialect_thousands.assign(store="10", y=df_dialect_thousands["y"] - 270),
+    ],
+    ignore_index=True,
+)
+
+
 def write_thousands(
     directory,
     frame: pd.DataFrame,
     decimals: bool = True,
     name: str = "thousands.csv",
+    series_id_column: str | None = None,
 ) -> str:
     """
     Write the columns 'date' and 'y' of `frame` to `directory` separated by
     ';', with '.' between thousands and ',' before two decimals
     ('1.020,50'), or as whole numbers ('1.020') when `decimals` is False,
     as a spreadsheet of most of Europe exports them, and return the path.
-    pandas cannot write a thousands separator.
+    pandas cannot write a thousands separator. With `series_id_column`,
+    that column of `frame` is written first, as it is.
     """
 
     def written(value: float) -> str:
@@ -102,6 +118,11 @@ def write_thousands(
     lines = ["date;y"] + [
         f"{date};{written(value)}" for date, value in zip(frame["date"], frame["y"])
     ]
+    if series_id_column is not None:
+        lines = [f"{series_id_column};{lines[0]}"] + [
+            f"{series_id};{line}"
+            for series_id, line in zip(frame[series_id_column], lines[1:])
+        ]
     path = directory / name
     path.write_text("\n".join(lines) + "\n")
 
