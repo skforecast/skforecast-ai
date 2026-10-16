@@ -31,7 +31,7 @@ def test_tool_describe_object_returns_the_response_that_created_it(tmp_path):
 
     created, described = run_session(server, steps)
 
-    assert len(created["notices"]) == 1
+    assert len(created["notices"]) == 2
     assert described == created
 
 

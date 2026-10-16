@@ -219,6 +219,12 @@ cuenta al usuario.
   `fixed_train_size` sin `refit`: el esquema dice que es un error y el
   servidor solo avisa (V21). `FutureExogNotice` nombra también las
   categóricas que un modelo fundacional descartaría (hoy no se alcanza).
+  Un plan con `use_exog=False` arrastra los avisos de las exógenas de su
+  perfil (el 20 % de faltantes y, desde
+  [#95](https://github.com/skforecast/skforecast-ai/pull/95), los números
+  escritos como texto y los faltantes de cada columna), y con ellos al
+  contexto del LLM: un plan que no usa exógenas no debería llevarlos.
+  *[LLM]*
 
 ## Fase 4. Coste
 
@@ -398,7 +404,20 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
   - Nota de release en **Changed** (scripts) y **Fixed**, con una línea en
     "Before upgrading" por el cambio de los scripts; sin destacado, que se
     decide al consolidar la fase 1.
-- **D6. 1d: el orden de día y mes de las fechas** (2026-10-16). Concretado
+- **D6. 1g: avisos de exógenas sucias en el perfil** (2026-10-16). V12: una
+  columna `object` avisa cuando al menos el 90 % de sus valores (sin contar
+  faltantes) son números una vez quitados los espacios y un `%` final, o
+  celdas solo de `-` o en blanco, y hay al menos un número. No cuentan como
+  números los que tienen cero inicial (`007`, un código) ni los separadores
+  de miles; se respeta la coma decimal del fichero; las columnas de dtype
+  `category` no se miran (se eligieron a propósito). El aviso **no cita
+  valores** de la columna, describe el patrón (`%` final, celdas de `-`,
+  celdas en blanco, números con espacios): los avisos del perfil llegan al
+  contexto del LLM (principio 4). V11: un aviso desde el primer NaN en una
+  exógena, con la columna y el recuento (hasta 5 columnas); dice que un
+  estimador que no acepta faltantes falla, sin recomendar ninguno (eso es
+  3a).
+- **D7. 1d: el orden de día y mes de las fechas** (2026-10-16). Concretado
   en la PR de `fix/csv-day-first-dates`:
   - El perfil guarda el formato, `DataProfile.date_format` (`'%d/%m/%Y'`),
     no un `dayfirst`: así cubre también `'%Y%m%d'` y `'%d.%m.%Y'`. Sin
@@ -598,3 +617,15 @@ Hoy `compare()` solo ordena configuraciones fijas. Un paso acotado de
 búsqueda con las funciones de skforecast, con su coste en `CostNotice` como
 los backtests. Después de la fase 4, que deja bien contado el coste de
 `compare`.
+
+### pandas 3, cuando skforecast lo soporte
+
+skforecast 0.26 declara `pandas<3.0`, así que hoy el resolvedor nunca
+instala pandas 3 junto a skforecast-ai (que pide `pandas>=2.2`, sin cota
+superior). Cuando skforecast lo admita, revisar lo que depende del dtype de
+las columnas de texto, que en pandas 3 es `str` y no `object`:
+`detect_categorical_exog` y `detect_numbers_as_text`
+(`profiling/data_profile.py`) solo miran `object`, `category` y `bool`, así
+que una exógena de texto no se trataría como categórica. Visto en
+[#95](https://github.com/skforecast/skforecast-ai/pull/95). Pasar la suite
+con pandas 3 antes de quitar la cota de skforecast.

@@ -113,7 +113,6 @@ df_wide_ending_early = pd.DataFrame(
 )
 
 
-
 # --- Dates written with the day and the month as numbers before the year ---
 # Closed formulas, so no random seed is involved.
 
@@ -213,3 +212,32 @@ def write_german_excel(directory, frame: pd.DataFrame, name: str = "de.csv") -> 
     path.write_text("\n".join(lines) + "\n")
 
     return str(path)
+
+
+# Exogenous columns of text, 30 daily rows: 'pct' holds percentages ('0%'),
+# 'dash' numbers with a '-' every 10 rows, 'mixed' plain numbers, ' 7 %' with
+# spaces, '-' and a blank cell; 'store' and 'code' are true categories
+# ('A', 'B' and product codes 'P-001', '007'), 'few' has 3 numbers in 30
+# values (below the share of 90 %) and 'x_na' is numeric with 2 missing
+# values.
+_dirty_n = 30
+_dash = [f"{i}.5" for i in range(_dirty_n)]
+_dash[::10] = ["-"] * 3
+_mixed = [str(i) for i in range(_dirty_n)]
+_mixed[1:4] = ["7%", " 7 %", "-"]
+_mixed[5] = " "
+_x_na = np.arange(_dirty_n, dtype=float)
+_x_na[[4, 9]] = np.nan
+df_dirty_exog = pd.DataFrame(
+    {
+        "y": np.arange(_dirty_n, dtype=float) % 7,
+        "pct": [f"{i}%" for i in range(_dirty_n)],
+        "dash": _dash,
+        "mixed": _mixed,
+        "store": ["A", "B", "C"] * 10,
+        "code": ["P-001", "P-002", "007"] * 10,
+        "few": ["1", "2", "3"] + ["low", "high", "mid"] * 9,
+        "x_na": _x_na,
+    },
+    index=pd.date_range("2023-01-01", periods=_dirty_n, freq="D"),
+)

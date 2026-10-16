@@ -8,7 +8,8 @@ from skforecast_ai.profiling.data_profile import generate_warnings
 def test_generate_warnings_output_when_missing_rate_is_high():
     """
     Test that a missing value rate above 20% across target and exogenous
-    columns produces the imputation warning with the rate.
+    columns produces the imputation warning with the rate, followed by the
+    missing values of the exogenous column.
     """
     warnings = generate_warnings(
         n_observations = 100,
@@ -19,7 +20,9 @@ def test_generate_warnings_output_when_missing_rate_is_high():
     )
 
     assert warnings == [
-        "High missing value rate (25.0%). Consider imputation before forecasting."
+        "High missing value rate (25.0%). Consider imputation before forecasting.",
+        "Missing values in exogenous columns: 'x': 20. An estimator that does "
+        "not accept missing values fails when it reads them.",
     ]
 
 
@@ -179,4 +182,88 @@ def test_generate_warnings_output_when_wide_series_end_early():
         "(2023-01-31): 'b' (2023-01-29). ForecasterRecursiveMultiSeries does not "
         "predict them, and the other forecasters read their last values as "
         "missing values, which not every estimator or foundation model can use."
+    ]
+
+
+@pytest.mark.parametrize(
+    "missing_exog, expected_shown",
+    [
+        ({"x": 1}, "'x': 1"),
+        (
+            {f"x{i}": i for i in range(1, 8)},
+            "'x1': 1, 'x2': 2, 'x3': 3, 'x4': 4, 'x5': 5 (first 5 of 7)",
+        ),
+    ],
+    ids=["one value", "more than 5 columns"],
+)
+def test_generate_warnings_output_when_exog_has_missing_values(
+    missing_exog, expected_shown
+):
+    """
+    Test that a single missing value in an exogenous column, far below the
+    rate of 20%, produces a warning naming the column and its count, and that
+    more than 5 columns are cut to the first 5.
+    """
+    warnings = generate_warnings(
+        n_observations = 100,
+        frequency      = "D",
+        missing_target = {},
+        missing_exog   = missing_exog,
+        index_type     = "datetime",
+    )
+
+    assert warnings == [
+        f"Missing values in exogenous columns: {expected_shown}. An estimator "
+        f"that does not accept missing values fails when it reads them."
+    ]
+
+
+@pytest.mark.parametrize(
+    "numbers_as_text, expected_share, expected_held",
+    [
+        (
+            {"pct": (30, 30, ["numbers with a final '%'"], 30)},
+            "all of its values",
+            "numbers with a final '%'",
+        ),
+        (
+            {"pct": (29, 30, ["numbers with a final '%'", "cells of '-'"], 30)},
+            "29 of its 30 values",
+            "numbers with a final '%', cells of '-' and 1 value of other text",
+        ),
+        (
+            {"pct": (30, 30, [], 30)},
+            "all of its values",
+            "numbers stored as text",
+        ),
+    ],
+    ids=["all values", "some values", "plain numbers"],
+)
+def test_generate_warnings_output_when_numbers_as_text(
+    numbers_as_text, expected_share, expected_held
+):
+    """
+    Test that an exogenous column of numbers written as text produces a
+    warning naming the column, how many of its values read as numbers, what
+    makes it text (without quoting values of the data), its number of levels
+    and what to do.
+    """
+    warnings = generate_warnings(
+        n_observations  = 100,
+        frequency       = "D",
+        missing_target  = {},
+        missing_exog    = {},
+        index_type      = "datetime",
+        numbers_as_text = numbers_as_text,
+    )
+
+    assert warnings == [
+        f"Numbers written as text in exogenous column 'pct': {expected_share} "
+        f"are numbers, once a final '%' and spaces are removed, or markers of "
+        f"missing values (it holds {expected_held}), so it is "
+        f"used as a categorical variable with 30 levels. If it is a numeric "
+        f"variable, write its values as plain numbers in the data, without "
+        f"'%' and with empty cells instead of '-' for missing values (ask the "
+        f"user before changing their file); if it holds categories, nothing "
+        f"needs to change."
     ]

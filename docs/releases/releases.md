@@ -63,6 +63,8 @@ The main changes in this release are:
 
 + Fixed an issue with long-format data indexed by a `(series_id, date)` MultiIndex, where [<code>ForecastingAssistant.forecast()</code>][assistant], `backtest()` and `compare()` raised `ForecastExecutionError` (`KeyError` on the date column), and `profile()` raised `KeyError` when the levels had no names. A MultiIndex that is not two levels named with text, also in the future `exog`, now raises `InvalidInputError` in every method, with a hint ([#91](https://github.com/skforecast/skforecast-ai/pull/91), [#94](https://github.com/skforecast/skforecast-ai/pull/94)).
 
++ [<code>ForecastingAssistant.profile()</code>][assistant] gave no warning for numbers written as text in an exogenous column (`12%`, `-` for a missing value), used then as a categorical variable, nor for its missing values below a rate of 20 %. Both now add a warning naming the column (a `DataProfileWarning` notice in the MCP server); the data are not changed ([#95](https://github.com/skforecast/skforecast-ai/pull/95)).
+
 
 ## 0.4.2 <small>Oct 12, 2026</small> { id="0.4.2" }
 

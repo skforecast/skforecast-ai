@@ -23,6 +23,7 @@ from .fixtures_profiling import (
     df_dates_iso,
     df_dates_month_first,
     df_dates_monthly_ambiguous,
+    df_dirty_exog,
     df_german_from_15th,
     df_german_from_1st,
     df_german_monthly,
@@ -448,21 +449,27 @@ def test_create_data_profile_ValueError_when_duplicate_timestamps_have_different
 
 
 @pytest.mark.parametrize(
-    "data, kwargs, expected_lengths, expected_warning",
+    "data, kwargs, expected_lengths, expected_warnings",
     [
         (
             df_single_identical_duplicates,
             {"target": "y"},
             {"y": 50},
-            "Duplicate timestamps: identical rows repeat 5 timestamps. The "
-            "generated code keeps the first row of each.",
+            [
+                "Duplicate timestamps: identical rows repeat 5 timestamps. The "
+                "generated code keeps the first row of each.",
+                "Missing values in exogenous columns: 'exog': 1. An estimator "
+                "that does not accept missing values fails when it reads them.",
+            ],
         ),
         (
             df_wide_identical_duplicates,
             {"target": ["a", "b"]},
             {"a": 50, "b": 50},
-            "Duplicate timestamps: identical rows repeat 5 timestamps. The "
-            "generated code keeps the first row of each.",
+            [
+                "Duplicate timestamps: identical rows repeat 5 timestamps. The "
+                "generated code keeps the first row of each."
+            ],
         ),
         (
             df_long_identical_duplicates_series_b,
@@ -472,32 +479,37 @@ def test_create_data_profile_ValueError_when_duplicate_timestamps_have_different
                 "series_id_column": "series_id",
             },
             {"A": 100, "B": 100, "C": 100},
-            "Duplicate timestamps: identical rows repeat 1 timestamp. The "
-            "generated code keeps the first row of each.",
+            [
+                "Duplicate timestamps: identical rows repeat 1 timestamp. The "
+                "generated code keeps the first row of each."
+            ],
         ),
         (
             df_multiindex_identical_duplicates_series_b,
             {"target": "value"},
             {"A": 100, "B": 100, "C": 100},
-            "Duplicate timestamps: identical rows repeat 1 timestamp. The "
-            "generated code keeps the first row of each.",
+            [
+                "Duplicate timestamps: identical rows repeat 1 timestamp. The "
+                "generated code keeps the first row of each."
+            ],
         ),
     ],
     ids=["single", "wide", "long", "long with MultiIndex"],
 )
 def test_create_data_profile_output_when_duplicate_timestamps_are_identical(
-    data, kwargs, expected_lengths, expected_warning
+    data, kwargs, expected_lengths, expected_warnings
 ):
     """
     Test that create_data_profile accepts timestamps repeated in identical
     rows (two missing values count as identical): it flags them, warns
     with their count, and describes the deduplicated data, so the series
-    lengths and the frequency do not count the repeated rows.
+    lengths and the frequency do not count the repeated rows. The single
+    series keeps the missing value of its exogenous column, which is named.
     """
     profile = create_data_profile(data, **kwargs)
 
     assert profile.has_duplicate_timestamps is True
-    assert profile.warnings == [expected_warning]
+    assert profile.warnings == expected_warnings
     assert profile.frequency == "D"
     assert {
         name: info.length for name, info in profile.series_lengths.items()
@@ -1363,6 +1375,69 @@ def test_create_data_profile_output_when_exog_columns_leave_out_missing_values()
     assert default.missing_exog == {"exog": 2}
     assert profile.missing_exog == {}
     assert profile.unused_columns == ["exog"]
+
+
+def test_create_data_profile_output_when_exog_columns_are_dirty():
+    """
+    Test that numbers written as text in exogenous columns ('12%', '-') are
+    profiled as categorical, unchanged, with a warning per column, that true
+    categories get none, and that a single missing value of a numeric
+    exogenous column is named with its count.
+    """
+    profile = create_data_profile(data=df_dirty_exog, target="y")
+
+    assert profile.categorical_exog == [
+        "pct", "dash", "mixed", "store", "code", "few"
+    ]
+    assert profile.missing_exog == {"x_na": 2}
+    assert profile.warnings == [
+        "Short series: only 30 observations. Results may be unreliable with "
+        "fewer than 50 observations.",
+        "Missing values in exogenous columns: 'x_na': 2. An estimator that "
+        "does not accept missing values fails when it reads them.",
+        "Numbers written as text in exogenous column 'pct': all of its values "
+        "are numbers, once a final '%' and spaces are removed, or markers of "
+        "missing values (it holds numbers with a final '%'), so it is used as a categorical "
+        "variable with 30 levels. If it is a numeric variable, write its "
+        "values as plain numbers in the data, without '%' and with empty "
+        "cells instead of '-' for missing values (ask the user before "
+        "changing their file); if it holds categories, nothing needs to "
+        "change.",
+        "Numbers written as text in exogenous column 'dash': all of its values "
+        "are numbers, once a final '%' and spaces are removed, or markers of "
+        "missing values (it holds cells of '-'), so it is used as a categorical "
+        "variable with 28 levels. If it is a numeric variable, write its "
+        "values as plain numbers in the data, without '%' and with empty "
+        "cells instead of '-' for missing values (ask the user before "
+        "changing their file); if it holds categories, nothing needs to "
+        "change.",
+        "Numbers written as text in exogenous column 'mixed': all of its "
+        "values are numbers, once a final '%' and spaces are removed, or "
+        "markers of missing values (it holds numbers with a final '%', cells "
+        "of '-', blank cells and numbers with spaces), so it is used as a "
+        "categorical variable with 30 levels. If it is a numeric variable, "
+        "write its values as plain numbers in the data, without '%' and with "
+        "empty cells instead of '-' for missing values (ask the user before "
+        "changing their file); if it holds categories, nothing needs to "
+        "change.",
+    ]
+
+
+def test_create_data_profile_output_when_csv_exog_columns_are_dirty(tmp_path):
+    """
+    Test that the same warnings are given when the data is read from a CSV
+    file, where '-' and '12%' keep the column as text and an empty cell is a
+    missing value.
+    """
+    path = tmp_path / "dirty.csv"
+    df_dirty_exog.to_csv(path, index_label="date")
+
+    from_file = create_data_profile(data=path, target="y")
+    from_frame = create_data_profile(data=df_dirty_exog, target="y")
+
+    assert from_file.categorical_exog == from_frame.categorical_exog
+    assert from_file.missing_exog == from_frame.missing_exog
+    assert from_file.warnings == from_frame.warnings
 
 
 def test_create_data_profile_InvalidInputError_when_exog_columns_not_in_data():
