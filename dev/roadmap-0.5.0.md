@@ -488,8 +488,8 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     cuya regularidad no dice el orden); sin destacado. Preguntas 2
     (registrar el formato aunque la primera fecha diga día primero) y 5
     (`dtype={'date': str}` con miles): sí, como estaban.
-- **D8. 1f: ficheros en cp1252** (2026-10-16). Concretado en la PR de
-  `fix/csv-cp1252`:
+- **D8. 1f: ficheros en cp1252** (2026-10-16). Concretado en
+  [#97](https://github.com/skforecast/skforecast-ai/pull/97):
   - El perfil guarda `DataProfile.csv_encoding`, `'utf-8'` (con o sin BOM)
     o `'cp1252'`, con `'utf-8'` por defecto como `csv_sep` y `csv_decimal`
     llevan el valor por defecto de pandas. El script emite
