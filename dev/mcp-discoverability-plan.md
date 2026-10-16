@@ -152,7 +152,7 @@ con ella arranca; todo apuntado en el log de `tools/mcp/README.md`.
 La instalación desde la ventana de VS Code no se puede probar: `@mcp
 skforecast` no encuentra nada, porque su galería lee el GitHub MCP Registry
 (394 servidores, una selección del oficial) y la ficha no está en él; queda
-en el paso 3.5. A cambio, el README y la guía tienen un botón "Install in
+en el paso 3.5 (resuelto el 2026-10-16: la ficha ya está en esa galería). A cambio, el README y la guía tienen un botón "Install in
 VS Code" (enlace `vscode:mcp/install`), probado en VS Code 1.141.0: añade el
 servidor, pide el directorio y arranca el comando corto. 2.5 hecho: la guía
 nombra el comando corto en una nota de `Install`; el plugin no cambia (A2).
@@ -254,6 +254,35 @@ documentada. Mirar una semana después de 2.3 si la ficha aparece sola.
 Estado, 2026-10-15: no aparece (`api.mcp.github.com/v0.1/servers?search=skforecast`
 devuelve 0 resultados). Volver a mirar en la revisión de 4.3.
 
+Estado, 2026-10-16: hecho. La premisa era falsa: la ficha no aparece sola.
+El registro de GitHub es una selección curada del oficial y la inclusión se
+pide por correo a `partnerships@github.com`, con la ficha ya publicada en el
+oficial (lo dice el blog de GitHub de la sección Fuentes; la
+autopublicación que anuncia no existe todavía). De 25 fichas actualizadas
+en el oficial el 2026-10-11, solo 1 estaba en el de GitHub. Javier escribió
+tras el 2026-10-12, GitHub aprobó el 2026-10-15 y la ficha salió el 2026-10-16:
+<https://github.com/mcp/skforecast/skforecast-ai>, con su propio botón
+"Install in VS Code". Las versiones nuevas del oficial se copian solas;
+cada release sigue necesitando `mcp-publisher publish` (`packages/README.md`).
+
+- **Lo que muestra VS Code** (`@mcp skforecast` en Extensiones, si
+  `chat.mcp.gallery.enabled` está activo): GitHub añade a la ficha datos
+  del repositorio (README de `main`, licencia, estrellas, topics y el
+  avatar de la organización, que es el logo). El avatar tiene prioridad
+  sobre los `icons` de `server.json`, que se añadieron en #80 para los
+  clientes que leen el oficial y suben al registro con la próxima
+  publicación. El README de la ficha se refresca por su cuenta: el
+  2026-10-16 seguía siendo el del 2026-10-12.
+- **El botón del README y de la guía** (#87 en `0.4.x`, #88 en `0.5.x`):
+  el enlace `vscode:mcp/install` lleva ahora `"gallery": true` y como
+  `name` el de la ficha, así que VS Code abre la ficha de la galería en
+  vez de la instalación local sin logo ni README; donde la galería está
+  desactivada instala como antes. Instalado desde la galería, VS Code
+  escribe `uvx skforecast-ai-mcp@<versión> --allow-dir ${input:allow-dir}`,
+  con la versión fijada y sin aviso de versiones nuevas. Todo esto sale del
+  código de VS Code (`mcpWorkbenchService.ts`, `mcpGalleryService.ts`,
+  `mcpManagementService.ts`), no de una prueba en VS Code.
+
 ## Fase 4: el canal propio
 
 4.1. **Sección del servidor MCP en skforecast**: README y documentación del
@@ -318,9 +347,12 @@ comando roto, reclamarla para corregirlo.
 
 ## Lo que no está verificado
 
-- Qué comando construyen VS Code y otros clientes a partir de la ficha
-  (paso 2.4).
-- Que el GitHub MCP Registry sincronice ya con el registro oficial.
+- Qué comando construyen otros clientes a partir de la ficha (paso 2.4).
+  El de VS Code está leído en su código (paso 3.5), no probado: falta
+  instalar desde la galería, con el botón nuevo, y hacer una llamada a
+  `profile`.
+- Que el README de la ficha del registro de GitHub siga a `main` sin
+  intervención (paso 3.5).
 - Qué directorios leen del registro: las fuentes se contradicen para Glama,
   PulseMCP y Smithery.
 - Que awesome-mcp-servers exija la ficha de Glama.
@@ -333,3 +365,5 @@ comando roto, reclamarla para corregirlo.
 - Esquema:
   `https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json`.
 - Plugins: `https://code.claude.com/docs/en/plugins/publish`.
+- GitHub MCP Registry:
+  `https://github.blog/ai-and-ml/generative-ai/how-to-find-install-and-manage-mcp-servers-with-the-github-mcp-registry/`.
