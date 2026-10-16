@@ -8,11 +8,15 @@ import pytest
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai.mcp import create_server, server as server_module
 from skforecast_ai.mcp.models import ToolNotice
+from skforecast_ai.profiling.csv_dialect import ENCODING_HINT, cp1252_note
 from skforecast_ai.profiling.data_profile import DAYFIRST_HINT
 
 from ..fixtures_csv_dialect import (
     df_dialect,
+    df_dialect_cp1252,
+    df_dialect_cp1252_exog,
     df_dialect_thousands,
+    write_cp1252,
     write_dialect,
     write_thousands,
 )
@@ -1158,3 +1162,84 @@ def test_tool_profile_output_when_series_ids_are_numbers(tmp_path):
         for line in result["summary"].splitlines()
         if line.startswith("- Target statistics (")
     ] == ["001", "1", "10"]
+
+
+def test_tool_profile_end_to_end_when_csv_and_future_exog_are_cp1252(tmp_path):
+    """
+    Test the session of the CSV that Excel saves on Windows in Spanish
+    (cp1252, ';', ',' as decimal mark, 'año' as target and accents in the
+    categories of 'zona'): `profile` reads it as the Python API does, with a
+    `DataProfileWarning` notice that the encoding cannot be checked;
+    `forecast` reads future values saved in cp1252 too, with a notice of
+    their own; and the script of `get_code` reads both files with
+    `encoding='cp1252'`.
+    """
+    path = write_cp1252(tmp_path)
+    exog_path = write_cp1252(
+        tmp_path, df_dialect_cp1252_exog, name="future.csv", sep=",", decimal="."
+    )
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    async def steps(client):
+        profile = content_of(
+            await client.call_tool("profile", {"data_path": path, "target": "año"})
+        )
+        plan = content_of(
+            await client.call_tool("plan", {"profile_id": profile["id"], "steps": 10})
+        )
+        forecast = content_of(
+            await client.call_tool(
+                "forecast", {"plan_id": plan["id"], "exog_path": exog_path}
+            )
+        )
+        code = content_of(
+            await client.call_tool("get_code", {"object_id": forecast["id"]})
+        )
+        return profile, forecast, code
+
+    profile, forecast, code = run_session(server, steps)
+    expected = ForecastingAssistant().profile(path, target="año")
+
+    assert profile["summary"] == expected.describe()
+    assert expected.data_profile.exog_columns == ["zona"]
+    assert ToolNotice(
+        source   = "data",
+        category = "DataProfileWarning",
+        message  = cp1252_note(),
+        count    = 1,
+    ) in [ToolNotice(**notice) for notice in profile["notices"]]
+    assert [
+        notice["message"] for notice in forecast["notices"]
+        if notice["message"].startswith("Exog CSV")
+    ] == [f"Exog CSV '{exog_path}': {cp1252_note('exog')}"]
+    assert (
+        f"data = pd.read_csv({path!r}, sep=';', decimal=',', "
+        f"encoding='cp1252')\n" in code["code"]
+    )
+    assert (
+        "exog_future = pd.read_csv('exog_future.csv', encoding='cp1252')\n"
+        in code["code"]
+    )
+
+
+def test_tool_profile_error_when_csv_is_utf16(tmp_path):
+    """
+    Test that `profile` of a file in UTF-16 fails with `data_unreadable` on
+    `data_path` and the hint that asks for a copy saved as UTF-8, instead of
+    reading it as cp1252.
+    """
+    path = str(tmp_path / "unicode.csv")
+    df_dialect_cp1252.to_csv(path, index=False, sep=";", encoding="utf-16")
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    error = error_of(
+        call(server, "profile", {"data_path": path, "target": "año"}), "profile"
+    )
+
+    assert (error["code"], error["field"]) == ("data_unreadable", "data_path")
+    assert error["message"] == (
+        f"The CSV file '{path}' could not be read: it is written in UTF-16 (its "
+        f"first bytes say so), and only files in UTF-8 or in cp1252 "
+        f"(Windows-1252) are read."
+    )
+    assert error["hint"] == ENCODING_HINT

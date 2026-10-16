@@ -36,6 +36,7 @@ def render_forecast_script(
     profile: DataProfile,
     plan: ForecastPlan,
     exog_date_format: str | None = None,
+    exog_encoding: str = "utf-8",
 ) -> RenderedScript:
     """
     Render structured code from a plan and data profile.
@@ -51,6 +52,10 @@ def render_forecast_script(
         script reads `exog_future.csv` with (see `exog_date_format`). If
         None, pandas guesses it from the first date, as for a file saved
         with `to_csv()`.
+    exog_encoding : str, default 'utf-8'
+        Encoding the script reads `exog_future.csv` with (see
+        `exog_encoding`): `'cp1252'` when the file the future values were
+        read from is not UTF-8.
 
     Returns
     -------
@@ -66,7 +71,12 @@ def render_forecast_script(
             f"Supported types: {supported}",
             field = "task_type",
         )
-    return render_fn(plan, profile, exog_date_format=exog_date_format)
+    return render_fn(
+               plan,
+               profile,
+               exog_date_format = exog_date_format,
+               exog_encoding    = exog_encoding,
+           )
 
 
 def run_forecast(
@@ -75,6 +85,7 @@ def run_forecast(
     plan: ForecastPlan,
     exog: pd.DataFrame | None = None,
     exog_date_format: str | None = None,
+    exog_encoding: str = "utf-8",
 ) -> dict[str, Any]:
     """
     Execute a forecasting workflow by running the generated code.
@@ -108,6 +119,9 @@ def run_forecast(
     exog_date_format : str, default None
         Format of the dates of `exog` (see `exog_date_format`), with which
         the executed code reads them.
+    exog_encoding : str, default 'utf-8'
+        Encoding of the file `exog` was read from (see `exog_encoding`),
+        with which the script of the result reads `exog_future.csv`.
 
     Returns
     -------
@@ -117,7 +131,7 @@ def run_forecast(
         prediction intervals are requested, the interval columns are
         included in `'predictions'`.
     """
-    rendered = render_forecast_script(profile, plan, exog_date_format)
+    rendered = render_forecast_script(profile, plan, exog_date_format, exog_encoding)
     if exog is not None:
         exog = exog_as_injected(exog, profile)
 

@@ -37,6 +37,8 @@ from .csv_dialect import (
     NUMERIC_DATE,
     DECOMPRESSION_ERRORS,
     DEFAULT_CSV_DECIMAL,
+    CP1252,
+    DEFAULT_CSV_ENCODING,
     DEFAULT_CSV_SEP,
     DOT_THOUSANDS,
     DOTTED_NUMBER,
@@ -45,6 +47,7 @@ from .csv_dialect import (
     WHOLE_NUMBER,
     ambiguous_thousands_error,
     check_csv_dialect,
+    cp1252_note,
     decimal_in_both_error,
     detect_csv_dialect,
     dotted_values_error,
@@ -53,6 +56,7 @@ from .csv_dialect import (
     read_sample,
     sample_date_column,
     sample_holds_file,
+    undefined_byte_error,
 )
 
 # TODO: Memory Optimization - Mask Filtering
@@ -198,6 +202,7 @@ def create_data_profile(
     thousands: str | None = None,
     dayfirst: bool | None = None,
     date_format: str | None = None,
+    encoding: str | None = None,
 ) -> DataProfile:
     """
     Generate a deterministic data profile from a dataset.
@@ -254,6 +259,11 @@ def create_data_profile(
         recorded as `date_format`; for text dates still in `data`, the
         format of a profile of the data, which decides the order of dates
         that read in both.
+    encoding : str, default None
+        Encoding of the CSV file `data` was read from, when it is a
+        DataFrame read from one (see `read_csv_with_dialect`): `'utf-8'` or
+        `'cp1252'`, recorded as `csv_encoding`. If None, `'utf-8'`. The
+        encoding of a path is always told from the file.
 
     Returns
     -------
@@ -312,13 +322,18 @@ def create_data_profile(
     `target`. Time zone aware dates are read in local time for a frequency
     of a day or coarser and in UTC for a finer one, as pandas puts them on a
     grid.
+
+    A CSV file that is not UTF-8 is read as cp1252 (Windows-1252, the "CSV"
+    that Excel saves on Windows), recorded as `csv_encoding`, with a note
+    first in `warnings`: that encoding cannot be checked (see
+    `read_csv_with_dialect`).
     """
     check_csv_dialect(sep, decimal, thousands)
     # Notes on how the dates were read, first among the warnings.
     date_notes: list[str] = []
     in_memory = not isinstance(data, (str, Path))
     if not in_memory:
-        data, sep, decimal, thousands = read_csv_with_dialect(
+        data, sep, decimal, thousands, encoding = read_csv_with_dialect(
                                             path             = data,
                                             sep              = sep,
                                             decimal          = decimal,
@@ -526,6 +541,9 @@ def create_data_profile(
         ),
         numbers_as_text        = numbers_as_text,
     )
+    # How the file was read comes first: its encoding, then its dates.
+    if encoding == CP1252:
+        date_notes.insert(0, cp1252_note())
     warnings[:0] = date_notes
     if long_dates is not None and series_dates is None:
         warnings.append(
@@ -593,6 +611,7 @@ def create_data_profile(
         csv_sep=DEFAULT_CSV_SEP if sep is None else sep,
         csv_decimal=DEFAULT_CSV_DECIMAL if decimal is None else decimal,
         csv_thousands=thousands,
+        csv_encoding=DEFAULT_CSV_ENCODING if encoding is None else encoding,
         date_format=date_format,
         # Train/test split
         start_date=start_date,
@@ -4102,16 +4121,18 @@ def csv_read_kwargs(
     thousands: str | None = None,
     series_id_column: str | None = None,
     date_column: str | None = None,
+    encoding: str = DEFAULT_CSV_ENCODING,
 ) -> dict[str, object]:
     """
     Return the arguments `pandas.read_csv` needs to read a CSV file written
     with a separator, a decimal mark and a thousands separator, as the
     generated script passes them: none for `','`, `'.'` and no thousands
     separator, `sep` and `decimal` otherwise, and `thousands` when there is
-    one. The column of series ids is read as text (`dtype`), so `'001'`
-    keeps its zeros and the thousands separator does not touch it, and so
-    is the column of the dates when there is a thousands separator: with
-    `'.'`, pandas would read `'15.01.2020'` as the number 15012020.
+    one; `encoding` only when it is not UTF-8. The column of series ids is
+    read as text (`dtype`), so `'001'` keeps its zeros and the thousands
+    separator does not touch it, and so is the column of the dates when
+    there is a thousands separator: with `'.'`, pandas would read
+    `'15.01.2020'` as the number 15012020.
 
     Parameters
     ----------
@@ -4125,13 +4146,15 @@ def csv_read_kwargs(
         Column of the series ids of long-format data, or None for none.
     date_column : str, default None
         Column of the dates, or None for none.
+    encoding : str, default 'utf-8'
+        Encoding of the file: `'utf-8'` or `'cp1252'`.
 
     Returns
     -------
     kwargs : dict
         Empty, or `sep` and `decimal`, with `thousands` when it is given,
-        and `dtype` when `series_id_column` is given, or `date_column` with
-        `thousands`.
+        `encoding` when it is `'cp1252'`, and `dtype` when
+        `series_id_column` is given, or `date_column` with `thousands`.
     """
     kwargs: dict[str, object] = {}
     if (
@@ -4142,6 +4165,8 @@ def csv_read_kwargs(
         kwargs = {"sep": sep, "decimal": decimal}
         if thousands is not None:
             kwargs["thousands"] = thousands
+    if encoding != DEFAULT_CSV_ENCODING:
+        kwargs["encoding"] = encoding
     text = [series_id_column]
     if thousands is not None:
         text.append(date_column)
@@ -4407,6 +4432,7 @@ def thousands_beyond_sample(
     source: str,
     field: str,
     sep: str,
+    encoding: str = DEFAULT_CSV_ENCODING,
 ) -> str | None:
     """
     Tell whether a CSV file read with `'.'` as decimal mark and no
@@ -4435,6 +4461,8 @@ def thousands_beyond_sample(
         Argument that named the file, reported with the error.
     sep : str
         Separator the file was read with.
+    encoding : str, default 'utf-8'
+        Encoding the file was read with.
 
     Returns
     -------
@@ -4485,7 +4513,7 @@ def thousands_beyond_sample(
         return None
 
     grouped = mixed = None
-    for values in _text_values(_read_text_columns(path, sep, candidates)):
+    for values in _text_values(_read_text_columns(path, sep, candidates, encoding)):
         dotted = values.str.contains(".", regex=False)
         with_point = values[dotted]
         with_groups = with_point.str.fullmatch(DOT_THOUSANDS.pattern)
@@ -4518,7 +4546,7 @@ def thousands_beyond_sample(
         # 8700.
         other = point or _dotted_text(_text_values(data))
         if other is None and others:
-            other_columns = _read_text_columns(path, sep, others)
+            other_columns = _read_text_columns(path, sep, others, encoding)
             other = _dotted_text(_text_values(other_columns))
         if other is not None:
             raise dotted_values_error(source, field, other, mixed)
@@ -4532,6 +4560,7 @@ def _read_text_columns(
     path: str | Path,
     sep: str,
     columns: set[str],
+    encoding: str = DEFAULT_CSV_ENCODING,
 ) -> pd.DataFrame:
     """
     Read some columns of a CSV file as text, to look at how their numbers
@@ -4539,9 +4568,10 @@ def _read_text_columns(
     """
     return pd.read_csv(
                path,
-               sep     = sep,
-               dtype   = str,
-               usecols = lambda name: str(name) in columns,
+               sep      = sep,
+               dtype    = str,
+               usecols  = lambda name: str(name) in columns,
+               encoding = encoding,
            )
 
 
@@ -4696,7 +4726,7 @@ def read_csv_with_dialect(
     index_first: bool = False,
     series_id_column: str | None = None,
     date_column: str | None = None,
-) -> tuple[pd.DataFrame, str, str, str | None]:
+) -> tuple[pd.DataFrame, str, str, str | None, str]:
     """
     Read a CSV file with `pandas.read_csv`, as the generated script reads
     it, and return how it is written.
@@ -4714,6 +4744,12 @@ def read_csv_with_dialect(
     not hold the whole file and its decimal mark `'.'` was detected, its
     columns of numbers are read again as text to tell whether `'.'`
     separates thousands after them (see `thousands_beyond_sample`).
+
+    The encoding is told from the first lines too, always: UTF-8, with or
+    without a byte order mark, or cp1252 (Windows-1252, the "CSV" that
+    Excel saves on Windows) when they are not UTF-8 (see
+    `sample_encoding`). A file whose bytes that are not UTF-8 only come
+    after those lines is read again as cp1252.
 
     Parameters
     ----------
@@ -4753,6 +4789,8 @@ def read_csv_with_dialect(
         Decimal mark the file was read with.
     thousands : str, None
         Thousands separator the file was read with, or None for none.
+    encoding : str
+        Encoding the file was read with: `'utf-8'` or `'cp1252'`.
 
     Notes
     -----
@@ -4760,8 +4798,13 @@ def read_csv_with_dialect(
     as the generated script reads it: pandas would read `'15.01.2020'` as
     the number 15012020.
 
-    A file that pandas cannot read as a CSV (empty, binary, not UTF-8, with
-    rows of more fields than the others, or compressed and damaged) raises
+    A file in UTF-16 or UTF-32, with null bytes, or with a byte that is not
+    UTF-8 and that cp1252 does not define raises `InvalidInputError` with
+    code `'data_unreadable'` and a hint that asks for a copy saved as UTF-8
+    (see `sample_encoding`). Whether a file that is not UTF-8 is cp1252
+    cannot be checked: the caller says so in a warning (see `cp1252_note`).
+    A file that pandas cannot read as a CSV (empty, binary, with rows of
+    more fields than the others, or compressed and damaged) raises
     `InvalidInputError` with code `'data_unreadable'`, still a `ValueError`
     as the errors of pandas were, and so do a file whose separator,
     decimal mark or thousands separator cannot be told, a file whose first
@@ -4773,10 +4816,13 @@ def read_csv_with_dialect(
     unchecked = False
     whole_sample = False
     dates = date_column
+    # Always sampled: the encoding is told from the first lines whatever
+    # the caller gives.
+    sample = read_sample(path, field=field)
+    encoding = DEFAULT_CSV_ENCODING if sample is None else sample.encoding
     # A thousands separator given is checked against the first lines too:
     # pandas drops every '.' of a value such as '0.5'.
     if sep is None or decimal is None or thousands is not None:
-        sample = read_sample(path)
         if sample is None:
             # Left for pandas to report, or read as before. The defaults are
             # checked once pandas reads the file, so a file it cannot read
@@ -4787,7 +4833,7 @@ def read_csv_with_dialect(
             decimal = "," if thousands is not None else decimal
         else:
             sep, decimal, thousands = detect_csv_dialect(
-                                          sample           = sample,
+                                          sample           = sample.text,
                                           source           = str(path),
                                           field            = field,
                                           sep              = sep,
@@ -4798,12 +4844,31 @@ def read_csv_with_dialect(
                                       )
             check_csv_dialect(sep, decimal, thousands)
             whole_sample = sample_holds_file(path)
-            dates = sample_date_column(sample, sep, series_id_column, date_column)
+            dates = sample_date_column(
+                        sample.text, sep, series_id_column, date_column
+                    )
 
     def read(sep: str, decimal: str, thousands: str | None = None) -> pd.DataFrame:
+        nonlocal encoding
+        try:
+            return pd.read_csv(
+                       path,
+                       **csv_read_kwargs(
+                           sep, decimal, thousands, series_id_column, dates, encoding
+                       ),
+                   )
+        except UnicodeDecodeError:
+            # A file whose first lines were not sampled is read as before.
+            if sample is None or encoding != DEFAULT_CSV_ENCODING:
+                raise
+        # Bytes that are not UTF-8 after the first lines: cp1252, whose
+        # undefined bytes pandas reports.
+        encoding = CP1252
         return pd.read_csv(
                    path,
-                   **csv_read_kwargs(sep, decimal, thousands, series_id_column, dates),
+                   **csv_read_kwargs(
+                       sep, decimal, thousands, series_id_column, dates, encoding
+                   ),
                )
 
     try:
@@ -4814,7 +4879,7 @@ def read_csv_with_dialect(
         # be looked up for numbers that are not its own.
         row_lengths = None
         if index_first and not isinstance(data.index, pd.RangeIndex):
-            row_lengths = read_row_lengths(path, sep)
+            row_lengths = read_row_lengths(path, sep, encoding)
         check_csv_fields(
             data        = data,
             source      = str(path),
@@ -4865,29 +4930,46 @@ def read_csv_with_dialect(
             str(path),
             field,
             sep,
+            encoding,
         ):
             # '870' in the sample and '1.020' after it, read as 1.02.
             decimal, thousands = ",", "."
             data = read(sep, decimal, thousands)
+    except UnicodeDecodeError as exc:
+        if encoding == CP1252:
+            byte = exc.object[exc.start:exc.start + 1]
+            raise undefined_byte_error(str(path), field, byte) from exc
+        raise _unreadable_error(path, field, exc) from exc
     except (
         pd.errors.EmptyDataError,
         pd.errors.ParserError,
-        UnicodeDecodeError,
         *DECOMPRESSION_ERRORS,
     ) as exc:
-        reason = (str(exc).strip().splitlines() or [type(exc).__name__])[0]
-        raise InvalidInputError(
-            f"The CSV file '{path}' could not be read: {reason}",
-            code  = "data_unreadable",
-            field = field,
-            hint  = (
-                "Pass a text file in UTF-8 separated by ',', ';' or "
-                "tabulators, with a header row and the same number of "
-                "fields in every row."
-            ),
-        ) from exc
+        raise _unreadable_error(path, field, exc) from exc
 
-    return data, sep, decimal, thousands
+    return data, sep, decimal, thousands, encoding
+
+
+def _unreadable_error(
+    path: str | Path,
+    field: str,
+    exc: Exception,
+) -> InvalidInputError:
+    """
+    Return the error of a CSV file that pandas cannot read, with the first
+    line of the reason pandas gives.
+    """
+    reason = (str(exc).strip().splitlines() or [type(exc).__name__])[0]
+    return InvalidInputError(
+        f"The CSV file '{path}' could not be read: {reason}",
+        code  = "data_unreadable",
+        field = field,
+        hint  = (
+            "Pass a text file in UTF-8 separated by ',', ';' or "
+            "tabulators, with a header row and the same number of "
+            "fields in every row."
+        ),
+    )
 
 
 def read_csv_file(

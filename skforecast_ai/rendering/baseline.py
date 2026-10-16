@@ -45,6 +45,7 @@ def render_forecast_baseline(
     plan: ForecastPlan,
     profile: DataProfile,
     exog_date_format: str | None = None,
+    exog_encoding: str = "utf-8",
 ) -> RenderedScript:
     """
     Render forecasting code for `ForecasterEquivalentDate` (baseline).
@@ -65,6 +66,8 @@ def render_forecast_baseline(
     exog_date_format : str, default None
         Not used: the script reads no future exogenous variables. Taken as
         every forecast renderer takes it.
+    exog_encoding : str, default 'utf-8'
+        Not used, as `exog_date_format`.
 
     Returns
     -------

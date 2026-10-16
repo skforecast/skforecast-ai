@@ -488,6 +488,45 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     cuya regularidad no dice el orden); sin destacado. Preguntas 2
     (registrar el formato aunque la primera fecha diga día primero) y 5
     (`dtype={'date': str}` con miles): sí, como estaban.
+- **D8. 1f: ficheros en cp1252** (2026-10-16). Concretado en
+  [#97](https://github.com/skforecast/skforecast-ai/pull/97):
+  - El perfil guarda `DataProfile.csv_encoding`, `'utf-8'` (con o sin BOM)
+    o `'cp1252'`, con `'utf-8'` por defecto como `csv_sep` y `csv_decimal`
+    llevan el valor por defecto de pandas. El script emite
+    `encoding='cp1252'` en el `read_csv` solo en ese caso, tras el dialecto
+    y antes de `dtype`; ningún golden UTF-8 cambia.
+  - Se detecta siempre, de los primeros 256 KB (la misma muestra del
+    dialecto), también cuando `sep` y `decimal` se dan y al releer el
+    fichero de un perfil: no hay argumento explícito, así que no hay nada
+    dado que conservar, y un fichero guardado de nuevo en UTF-8 (lo que pide
+    el aviso) se lee bien sin perfilar otra vez. Si los bytes que no son
+    UTF-8 llegan después de la muestra, pandas falla al leer en UTF-8 y se
+    relee en cp1252.
+  - Rechazos (`data_unreadable`, hint `ENCODING_HINT`: guardar una copia en
+    UTF-8, con permiso del dueño): BOM de UTF-16 o UTF-32, un byte nulo en
+    la muestra (UTF-16 sin BOM, binarios) y, en un fichero que no es UTF-8,
+    uno de los cinco bytes que cp1252 no define (`0x81`, `0x8d`, `0x8f`,
+    `0x90`, `0x9d`), en la muestra o después (lo dice pandas al leer en
+    cp1252). En UTF-8 esos bytes son legítimos (`Á` es `C3 81`).
+  - El aviso va el primero de `DataProfile.warnings` (antes de las notas de
+    fechas de D7), no cita valores (principio 4) y dice que el script lee
+    igual; `_with_data_path` lo añade al perfil de los flujos que perfilan
+    el DataFrame leído, como las notas de fechas.
+  - Exógenas: `load_exog` detecta su propia codificación, avisa con
+    `UserWarning` (`Exog CSV '...': ...`) y la deja en
+    `exog.attrs['encoding']`; el script la emite en `exog_future.csv`
+    (`exog_encoding` junto a `exog_date_format` en los renderizadores).
+  - `.gz`, `.bz2` y `.xz` se descomprimen para la muestra. Los que pandas
+    descomprime y aquí no se abren (`.zip`, `.zst`, `.tar` y sus variantes)
+    no se muestrean y se leen como antes, solo UTF-8: sus bytes llevarían
+    nulos y se rechazarían. En una URL se reconocen por sus primeros bytes
+    (bzip2, xz, zip, zstd, tar), sea cual sea su nombre.
+  - URL: la primera lectura sigue siendo la de siempre; si pandas falla al
+    decodificar UTF-8, se descarga la muestra (rechaza UTF-16 con BOM) y se
+    lee en cp1252. Un UTF-16 sin BOM por URL no se detecta si la primera
+    lectura no falla (pregunta en la PR).
+  - Nota de release solo en **Fixed**, sin destacado ni "Before upgrading":
+    los scripts solo cambian para ficheros que antes fallaban.
 
 ## Decisiones abiertas
 

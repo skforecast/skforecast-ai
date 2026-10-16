@@ -42,6 +42,19 @@ def test_read_row_lengths_output_when_file_is_gzip(tmp_path):
     assert read_row_lengths(path, ",") == [2, 3]
 
 
+def test_read_row_lengths_output_when_file_is_cp1252(tmp_path):
+    """
+    Test that a file that is not UTF-8 is counted when its encoding is
+    given, cp1252 (the CSV that Excel saves on Windows), and is not without
+    it.
+    """
+    path = tmp_path / "excel.csv"
+    path.write_bytes("año\r\n01/01/2020;Cádiz\r\n02/01/2020;Peñíscola\r\n".encode("cp1252"))
+
+    assert read_row_lengths(path, ";", "cp1252") == [2, 2]
+    assert read_row_lengths(path, ";") is None
+
+
 @pytest.mark.parametrize(
     "name, content",
     [

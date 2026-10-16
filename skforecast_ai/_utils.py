@@ -65,14 +65,18 @@ from .profiling.data_profile import (
     without_series_ids,
 )
 from .profiling.csv_dialect import (
+    CP1252,
     CSV_SEPARATORS,
     CsvDialectError,
     DEFAULT_CSV_DECIMAL,
+    DEFAULT_CSV_ENCODING,
     DEFAULT_CSV_SEP,
     check_csv_dialect,
+    cp1252_note,
     detect_csv_dialect,
     read_url_sample,
     sample_date_column,
+    undefined_byte_error,
 )
 from .schemas import CVResult, DataProfile, ForecastingProfile, ForecastPlan
 from .exceptions import (
@@ -821,28 +825,30 @@ def _validate_forecast_mode(
 
 # How the last CSV file read in this context is written: the path recorded
 # for it, its separator, its decimal mark, its thousands separator, the
-# format of its dates and the notes on how they were read. The workflows
-# read the file first and record its path in the profile later
+# format of its dates, the notes on how it was read and its encoding. The
+# workflows read the file first and record its path in the profile later
 # (`_with_data_path`), which takes the dialect from here instead of reading
 # the file again.
 _READ_CSV_DIALECT: ContextVar[
-    tuple[str, str, str, str | None, str | None, tuple[str, ...]] | None
+    tuple[str, str, str, str | None, str | None, tuple[str, ...], str] | None
 ] = ContextVar("_READ_CSV_DIALECT", default=None)
 
 
 class DialectRead(NamedTuple):
     """
     How a CSV file was read: its separator, its decimal mark, its thousands
-    separator, the format of its dates (`DataProfile.date_format`) and the
-    notes on how they were read (an order of the day and the month told
-    from their regularity), which belong in `DataProfile.warnings`.
+    separator, the format of its dates (`DataProfile.date_format`), the
+    notes on how it was read (an encoding that cannot be checked, an order
+    of the day and the month told from their regularity), which belong in
+    `DataProfile.warnings`, and its encoding (`DataProfile.csv_encoding`).
     """
 
     sep: str | None
     decimal: str | None
     thousands: str | None
     date_format: str | None
-    date_notes: tuple[str, ...] = ()
+    notes: tuple[str, ...] = ()
+    encoding: str | None = None
 
 
 def _dialect_read(data_path: str) -> DialectRead:
@@ -858,14 +864,22 @@ def _dialect_read(data_path: str) -> DialectRead:
     return DialectRead(*read[1:])
 
 
-def with_date_notes(
+def encoding_notes(encoding: str, field: str = "data") -> list[str]:
+    """
+    Return the note on a CSV file read as cp1252, an encoding that cannot
+    be checked (see `cp1252_note`), or none for UTF-8.
+    """
+    return [cp1252_note(field)] if encoding == CP1252 else []
+
+
+def with_read_notes(
     data_profile: DataProfile,
     notes: tuple[str, ...] | list[str],
 ) -> DataProfile:
     """
-    Return the data profile with the notes on how its dates were read first
-    among its warnings, as `create_data_profile` puts them, unless it has
-    them already.
+    Return the data profile with the notes on how its file was read (its
+    encoding, its dates) first among its warnings, as `create_data_profile`
+    puts them, unless it has them already.
     """
     missing = [note for note in notes if note not in data_profile.warnings]
     if not missing:
@@ -890,7 +904,7 @@ def _read_csv_url(
     thousands: str | None = None,
     series_id_column: str | None = None,
     date_column: str | None = None,
-) -> tuple[pd.DataFrame, str, str, str | None]:
+) -> tuple[pd.DataFrame, str, str, str | None, str]:
     """
     Read the CSV file of a URL and return how it is written.
 
@@ -899,7 +913,9 @@ def _read_csv_url(
     rows with `','` (rows with different numbers of decimal commas), is the
     start of the file downloaded again to tell its dialect (see
     `detect_csv_dialect`), and the file read with it, as the generated
-    script reads it.
+    script reads it. So it is when the file is not UTF-8: it is then read
+    as cp1252 (see `sample_encoding`), unless its start says it is in
+    another encoding.
 
     Parameters
     ----------
@@ -929,16 +945,44 @@ def _read_csv_url(
         Decimal mark the file was read with.
     thousands : str, None
         Thousands separator the file was read with, or None for none.
+    encoding : str
+        Encoding the file was read with: `'utf-8'` or `'cp1252'`.
     """
     decimal_given = decimal is not None
     unchecked = False
     dates = date_column
+    encoding = DEFAULT_CSV_ENCODING
+    # Whether the start of the file was read and is not in UTF-16 (see
+    # `sample_encoding`), so that the file may be read as cp1252.
+    checked = False
+
+    def read_as(sep: str, decimal: str, thousands: str | None) -> pd.DataFrame:
+        try:
+            return pd.read_csv(
+                       url,
+                       **csv_read_kwargs(
+                           sep, decimal, thousands, series_id_column, dates, encoding
+                       ),
+                   )
+        except UnicodeDecodeError as exc:
+            if encoding != CP1252:
+                raise
+            byte = exc.object[exc.start:exc.start + 1]
+            raise undefined_byte_error(url, "data", byte) from exc
 
     def read(sep: str, decimal: str, thousands: str | None = None) -> pd.DataFrame:
-        return pd.read_csv(
-                   url,
-                   **csv_read_kwargs(sep, decimal, thousands, series_id_column, dates),
-               )
+        nonlocal encoding, checked
+        try:
+            return read_as(sep, decimal, thousands)
+        except UnicodeDecodeError:
+            if not checked:
+                # Raises for a file in UTF-16 or with a null byte.
+                checked = read_url_sample(url) is not None
+            if encoding != DEFAULT_CSV_ENCODING or not checked:
+                raise
+        # Bytes that are not UTF-8, at the start or after it.
+        encoding = CP1252
+        return read_as(sep, decimal, thousands)
 
     if sep is None or decimal is None or thousands is not None:
         data, unread = None, None
@@ -954,7 +998,9 @@ def _read_csv_url(
                     other in header for other in CSV_SEPARATORS
                     if other != DEFAULT_CSV_SEP
                 ):
-                    return data, DEFAULT_CSV_SEP, DEFAULT_CSV_DECIMAL, None
+                    return (
+                        data, DEFAULT_CSV_SEP, DEFAULT_CSV_DECIMAL, None, encoding
+                    )
         sample = read_url_sample(url)
         if sample is None:
             # Checked once pandas reads the file (see `read_csv_with_dialect`).
@@ -963,8 +1009,12 @@ def _read_csv_url(
             decimal = DEFAULT_CSV_DECIMAL if decimal is None else decimal
             decimal = "," if thousands is not None else decimal
         else:
+            checked = True
+            if sample.encoding != encoding == DEFAULT_CSV_ENCODING:
+                # Not UTF-8 at the start: read below as cp1252.
+                encoding, data = sample.encoding, None
             sep, decimal, thousands = detect_csv_dialect(
-                                          sample           = sample,
+                                          sample           = sample.text,
                                           source           = url,
                                           sep              = sep,
                                           decimal          = decimal,
@@ -973,14 +1023,14 @@ def _read_csv_url(
                                           date_column      = date_column,
                                       )
             check_csv_dialect(sep, decimal, thousands)
-            dates = sample_date_column(sample, sep, series_id_column, date_column)
+            dates = sample_date_column(sample.text, sep, series_id_column, date_column)
         # Without `series_id_column`: the question is whether the dialect is
         # the default one, which the `dtype` of the ids would hide.
         if not csv_read_kwargs(sep, decimal, thousands):
             if unread is not None:
                 raise unread
             if data is not None:
-                return data, sep, decimal, thousands
+                return data, sep, decimal, thousands, encoding
 
     data = read(sep, decimal, thousands)
     if unchecked:
@@ -1009,7 +1059,7 @@ def _read_csv_url(
         thousands = "."
         data = read(sep, decimal, thousands)
 
-    return data, sep, decimal, thousands
+    return data, sep, decimal, thousands, encoding
 
 
 def _resolve_data_and_target(
@@ -1041,7 +1091,8 @@ def _resolve_data_and_target(
     turned into text (see `series_ids_as_text`). The dates of a CSV file
     are read in the order of their day and month (see `_day_month_order`),
     and the format the script reads them with is kept with the dialect, as
-    are the notes on how they were read (see `DialectRead`).
+    are its encoding, UTF-8 or cp1252 (see `sample_encoding`), and the
+    notes on how the file was read (see `DialectRead`).
 
     Parameters
     ----------
@@ -1137,7 +1188,7 @@ def _resolve_data_and_target(
         data_str = str(data)
         if data_str.startswith(("http://", "https://")):
             try:
-                df, sep, decimal, thousands = _read_csv_url(
+                df, sep, decimal, thousands, encoding = _read_csv_url(
                                                   url              = data_str,
                                                   sep              = sep,
                                                   decimal          = decimal,
@@ -1157,7 +1208,7 @@ def _resolve_data_and_target(
                     field = "data",
                 ) from e
             check_csv_fields(df, data_str)
-            notes = []
+            notes = encoding_notes(encoding)
             df, read_format = _try_parse_first_date_column(
                                   data             = df,
                                   date_column      = date_column,
@@ -1169,7 +1220,7 @@ def _resolve_data_and_target(
             _READ_CSV_DIALECT.set(
                 (
                     recorded_data_path(data), sep, decimal, thousands,
-                    read_format, tuple(notes),
+                    read_format, tuple(notes), encoding,
                 )
             )
             return df, target
@@ -1179,7 +1230,7 @@ def _resolve_data_and_target(
                 f"CSV file not found: '{path}'. Please provide a valid file path.",
                 field = "data",
             )
-        df, sep, decimal, thousands = read_csv_with_dialect(
+        df, sep, decimal, thousands, encoding = read_csv_with_dialect(
                                           path             = path,
                                           sep              = sep,
                                           decimal          = decimal,
@@ -1187,7 +1238,7 @@ def _resolve_data_and_target(
                                           series_id_column = series_id_column,
                                           date_column      = date_column,
                                       )
-        notes = []
+        notes = encoding_notes(encoding)
         df, read_format = _try_parse_first_date_column(
                               data             = df,
                               date_column      = date_column,
@@ -1199,7 +1250,7 @@ def _resolve_data_and_target(
         _READ_CSV_DIALECT.set(
             (
                 recorded_data_path(data), sep, decimal, thousands, read_format,
-                tuple(notes),
+                tuple(notes), encoding,
             )
         )
         return df, target
@@ -1281,7 +1332,10 @@ def load_exog(
     have a regular frequency, with a warning that says so, and when both
     orders have one, or neither, they raise. The format is kept in
     `exog.attrs['date_format']`, the one the generated script reads
-    `exog_future.csv` with (see `exog_date_format`).
+    `exog_future.csv` with (see `exog_date_format`). So is the encoding of
+    the file, told as for the data (see `sample_encoding`), in
+    `exog.attrs['encoding']`: a file that is not UTF-8 is read as cp1252,
+    with a warning, as that cannot be checked.
 
     Parameters
     ----------
@@ -1314,7 +1368,7 @@ def load_exog(
 
     # Rows longer than the header raise, except a header one field short
     # (see `check_csv_fields`).
-    exog, sep, decimal, thousands = read_csv_with_dialect(
+    exog, sep, decimal, thousands, encoding = read_csv_with_dialect(
                                         path             = path,
                                         field            = "exog",
                                         index_first      = True,
@@ -1334,9 +1388,9 @@ def load_exog(
     filled = exog.notna().any(axis=1).to_numpy()
     exog = exog[filled].reset_index(drop=True)
     text = {column: exog[column].copy() for column in exog.columns}
-    # The format of the dates of the file, and the notes on how they were
-    # read, given as warnings.
-    exog_format, notes = None, []
+    # The format of the dates of the file, and the notes on how it was read
+    # (its encoding, its dates), given as warnings.
+    exog_format, notes = None, encoding_notes(encoding, "exog")
     if date_column is not None:
         if date_column not in exog.columns:
             raise DataContentError(
@@ -1386,7 +1440,7 @@ def load_exog(
                     path,
                     index_col   = 0,
                     parse_dates = True,
-                    **csv_read_kwargs(sep, decimal, thousands),
+                    **csv_read_kwargs(sep, decimal, thousands, encoding=encoding),
                 ).index
             if isinstance(index, pd.DatetimeIndex) and len(index) == len(filled):
                 exog[first] = index[filled]
@@ -1450,6 +1504,7 @@ def load_exog(
     if str(found).startswith("Unnamed: "):
         exog.index.name = None
     exog.attrs["date_format"] = exog_format
+    exog.attrs["encoding"] = encoding
 
     return exog
 
@@ -1721,9 +1776,11 @@ def _with_data_path(
     the file again; it reaches the script through `repr()`. The separator,
     the decimal mark and the thousands separator the file was read with are
     recorded with it (`','`, `'.'` and none for data passed in memory), so
-    the script reads the file as it was read. So is the format of its dates
-    (`DataProfile.date_format`); for data passed in memory, the format of
-    its own dates, on which the script runs (see `frame_date_format`).
+    the script reads the file as it was read. So are its encoding
+    (`DataProfile.csv_encoding`, with its note in the warnings when it is
+    cp1252) and the format of its dates (`DataProfile.date_format`); for
+    data passed in memory, UTF-8 and the format of its own dates, on which
+    the script runs (see `frame_date_format`).
 
     Parameters
     ----------
@@ -1746,23 +1803,26 @@ def _with_data_path(
         data_path = _RUN_DATA_PATH.get()
     dp = profile.data_profile
     sep, decimal, thousands = dp.csv_sep, dp.csv_decimal, dp.csv_thousands
-    date_format = dp.date_format
+    date_format, encoding = dp.date_format, dp.csv_encoding
     if data_path == PLACEHOLDER_DATA_PATH:
         sep, decimal, thousands = DEFAULT_CSV_SEP, DEFAULT_CSV_DECIMAL, None
+        encoding = DEFAULT_CSV_ENCODING
         date_format = frame_date_format(data, dp.date_column, dp.date_format)
     else:
         # Also for the DataFrame of a comparison, whose path is the one of
-        # the file it was read from. The notes on how its dates were read
-        # go with them: the profile was built from the DataFrame read.
+        # the file it was read from. The notes on how it was read go with
+        # them: the profile was built from the DataFrame read.
         read = _dialect_read(data_path)
         if read.sep is not None:
             sep, decimal, thousands, date_format = read[:4]
-            dp = with_date_notes(dp, read.date_notes)
+            encoding = read.encoding
+            dp = with_read_notes(dp, read.notes)
     update = {
         "data_path": data_path,
         "csv_sep": sep,
         "csv_decimal": decimal,
         "csv_thousands": thousands,
+        "csv_encoding": encoding,
         "date_format": date_format,
     }
     if dp is profile.data_profile and all(

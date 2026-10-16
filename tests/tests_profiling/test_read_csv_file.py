@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 
 from skforecast_ai.exceptions import InvalidInputError
+from skforecast_ai.profiling.csv_dialect import ENCODING_HINT
 from skforecast_ai.profiling.data_profile import read_csv_file
 
 _HINT = (
@@ -28,35 +29,39 @@ def test_read_csv_file_output_when_readable(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "content, reason",
+    "content, reason, hint",
     [
-        (b"", "No columns to parse from file"),
+        (b"", "No columns to parse from file", _HINT),
         (
             bytes(range(256)),
-            "'utf-8' codec can't decode byte 0x80 in position 128: invalid "
-            "start byte",
+            "it holds null bytes, so it is not text in UTF-8 or in cp1252 "
+            "(Windows-1252); it may be UTF-16 without its byte order mark, or "
+            "not a text file.",
+            ENCODING_HINT,
         ),
         (
             b"date,x\n2020-01-01,1\n2020-01-02,2,3,4\n2020-01-03,4\n",
             "Error tokenizing data. C error: Expected 2 fields in line 3, saw 4",
+            _HINT,
         ),
         (
-            "date,x,name\n2020-01-01,1,caf\xe9\n".encode("latin-1"),
-            "'utf-8' codec can't decode byte 0xe9 in position 28: invalid "
-            "continuation byte",
+            b"date,x,name\n2020-01-01,1,caf\xe9\x8d\n",
+            "it is not UTF-8, and its byte 0x8d is not a character of cp1252 "
+            "(Windows-1252), the other encoding read.",
+            ENCODING_HINT,
         ),
     ],
-    ids=["empty", "binary", "more fields than the header", "latin-1"],
+    ids=["empty", "binary", "more fields than the header", "not cp1252"],
 )
 @pytest.mark.parametrize("field", ["data", "exog"])
 def test_read_csv_file_InvalidInputError_when_file_unreadable(
-    tmp_path, content, reason, field
+    tmp_path, content, reason, hint, field
 ):
     """
-    Test that a file that pandas cannot read as a CSV raises an
+    Test that a file that cannot be read as a CSV raises an
     InvalidInputError (still a ValueError) with the code 'data_unreadable',
-    the first line of the pandas reason, the argument that named the file and
-    a hint.
+    the reason (the first line of the pandas one), the argument that named
+    the file and a hint: a copy in UTF-8 for a file in no encoding read.
     """
     path = tmp_path / "data.csv"
     path.write_bytes(content)
@@ -68,7 +73,7 @@ def test_read_csv_file_InvalidInputError_when_file_unreadable(
     assert isinstance(exc_info.value, ValueError)
     assert exc_info.value.code == "data_unreadable"
     assert exc_info.value.field == field
-    assert exc_info.value.hint == _HINT
+    assert exc_info.value.hint == hint
 
 
 def test_read_csv_file_field_is_data_by_default(tmp_path):

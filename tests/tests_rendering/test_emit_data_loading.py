@@ -295,3 +295,79 @@ def test_emit_data_loading_output_when_series_id_column(update, kwargs, call):
     result = _lines(profile, long_format=True, **kwargs)
 
     assert result[-1] == call
+
+
+@pytest.mark.parametrize(
+    "update, call",
+    [
+        (
+            {"data_path": "excel.csv", "csv_encoding": "cp1252"},
+            "pd.read_csv('excel.csv', encoding='cp1252')",
+        ),
+        (
+            {
+                "data_path": "excel.csv",
+                "csv_sep": ";",
+                "csv_decimal": ",",
+                "csv_thousands": ".",
+                "csv_encoding": "cp1252",
+            },
+            "pd.read_csv('excel.csv', sep=';', decimal=',', thousands='.', "
+            "encoding='cp1252', dtype={'date': str})",
+        ),
+        (
+            {"data_path": "excel.csv", "csv_encoding": "utf-8"},
+            "pd.read_csv('excel.csv')",
+        ),
+        ({"csv_encoding": "cp1252"}, "pd.read_csv('data.csv')"),
+    ],
+    ids=["cp1252", "cp1252 with dialect", "utf-8", "data passed in memory"],
+)
+def test_emit_data_loading_output_when_csv_encoding(update, call):
+    """
+    Test that the data file is read with `encoding='cp1252'` when the
+    profile records it, after the dialect and before `dtype`; a UTF-8 file
+    and data passed in memory (the frame saved with `to_csv()`) name no
+    encoding.
+    """
+    profile = profile_single.model_copy(update=update)
+
+    result = _lines(profile)
+
+    assert result == ["# Load data", f"data = {call}"]
+
+
+@pytest.mark.parametrize(
+    "csv_encoding, encoding, expected",
+    [
+        ("cp1252", "utf-8", "exog_future = pd.read_csv('exog_future.csv', "
+         "index_col=0, parse_dates=True)"),
+        ("utf-8", "cp1252", "exog_future = pd.read_csv('exog_future.csv', "
+         "encoding='cp1252', index_col=0, parse_dates=True)"),
+    ],
+    ids=["data in cp1252", "exog in cp1252"],
+)
+def test_emit_data_loading_output_when_exog_file_has_its_own_encoding(
+    csv_encoding, encoding, expected
+):
+    """
+    Test that `exog_future.csv` is read in its own encoding, not in the one
+    of the data file.
+    """
+    profile = profile_single.model_copy(
+        update={
+            "data_path": "excel.csv",
+            "csv_encoding": csv_encoding,
+            "date_column": None,
+        }
+    )
+
+    result = _lines(
+                 profile,
+                 var      = "exog_future",
+                 path     = "exog_future.csv",
+                 comment  = "# Future exog",
+                 encoding = encoding,
+             )
+
+    assert result == ["# Future exog", expected]
