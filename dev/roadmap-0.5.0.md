@@ -365,7 +365,7 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
 - **D5. G02: los ids de serie son texto** (2026-10-16), en la librería y en
   el script, sin esperar a
   [#1357](https://github.com/skforecast/skforecast/issues/1357). Concretado
-  en la PR de 1b:
+  en [#90](https://github.com/skforecast/skforecast-ai/pull/90):
   - El `read_csv` de la librería y el del preámbulo leen la columna de ids
     con `dtype={<id>: str}`, después de los argumentos de dialecto, también
     `exog_future.csv` y el fichero de exógenas futuras de la librería. Se
