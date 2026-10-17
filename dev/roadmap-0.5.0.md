@@ -174,15 +174,34 @@ Resultados incorrectos sin aviso, el peor tipo de fallo después de la fase 1.
   intervalo del 80 %, cubren el 56 % con ForecasterRecursiveMultiSeries y el
   14 % con ForecasterDirectMultiVariate en `items_sales`, porque los scripts
   usan residuos dentro de muestra (`store_in_sample_residuals` en
-  `rendering/multi_series.py`). Primero el aviso de pocos residuos que ya
-  tiene una sola serie (V04: `_RESIDUAL_INTERVAL_FORECASTERS` excluye a los
-  multiserie; contar por serie e incluir DMV); después, residuos fuera de
-  muestra o un aviso con la cobertura que mide el backtest. *[script]* si
-  cambian los residuos.
+  `rendering/multi_series.py`). En dos PR (decisión D11):
+  - **2c-i. Aviso de pocos residuos (V04).** El que ya tiene una sola serie:
+    `_RESIDUAL_INTERVAL_FORECASTERS` (`recommendation/backtesting.py`)
+    excluye a los multiserie. Contar por serie (el `n_train` de
+    `_split_folds` usa `span_index_length`, que sobrestima las series que
+    empiezan tarde) e incluir ForecasterDirectMultiVariate.
+  - **2c-ii. Cobertura y anchura medidas en el backtest.** Todo backtest con
+    intervalo (una serie y multiserie) calcula en el script la cobertura
+    real con `calculate_coverage` de skforecast y la anchura media del
+    intervalo, por serie; el resumen las muestra junto a la nominal, y un
+    aviso salta cuando la cobertura queda claramente por debajo. Los
+    residuos fuera de muestra van a la 0.6.0, y cuando skforecast dé la
+    cobertura en la salida del backtesting (feature request en "Issues a
+    skforecast"), el script la leerá de ahí. *[script]* *[LLM]*
 - **2d. `target` como lista (V22, V23).** Con `series_id_column`, la columna
   de ids se descarta en silencio; con una columna repetida, se acepta como
   dos series. Rechazar con `field` el `series_id_column` que pasó el usuario
   (no el que rellena `_normalize_multiindex`).
+
+### Tandas de la fase 2
+
+| Tanda | PR | Por qué así |
+|:--|:--|:--|
+| A | 2a (estimador de DMV), 2b (serie corta), 2c-i (aviso de residuos), 2d (`target` como lista) | Módulos distintos: la recomendación y la explicación; `_last_window.py` y el resumen del backtest; el aviso de `create_cv`; la validación del perfil |
+| B | 2c-ii (cobertura y anchura) | Cambia los scripts de backtest con intervalo, también los de DMV que cambia 2a: va sobre la tanda A mergeada |
+
+Lo que cada sesión necesita saber es lo mismo que en la fase 1 (ver
+"Tandas" de la fase 1).
 
 ## Fase 3. Avisos y consejos que funcionan
 
@@ -647,6 +666,15 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     `FutureExogFile` público (principio 5); el `attrs` que se arrastra a un
     frame derivado se deja, porque lo resuelve aceptar una ruta en
     `forecast()` (fase 5).
+- **D11. 2c: los intervalos multiserie se miden, no se rehacen**
+  (2026-10-17). En la 0.5.0, el aviso de pocos residuos (2c-i) y la
+  cobertura real y la anchura media de todo backtest con intervalo,
+  calculadas en el script con `calculate_coverage` de skforecast (2c-ii):
+  sin coste añadido, deja de presentar como un 80 % un intervalo que cubre
+  el 14 %. Los residuos fuera de muestra, que piden un tramo de validación
+  y cambian el coste y los scripts, van a la 0.6.0. La cobertura y la
+  anchura se proponen como métricas nativas del backtesting de skforecast;
+  cuando lleguen, el script las leerá de su salida.
 
 ## Decisiones abiertas
 
@@ -678,6 +706,12 @@ Se toman en el PR que las necesita y se pasan a la sección de arriba.
   ni con `suppress_warnings=False`, cuando una serie no se puede pronosticar
   en ningún fold: su fila de métricas sale NaN, no aparece en las
   predicciones y la fila `average` se calcula sin ella.
+- **Cobertura y anchura del intervalo en el backtesting** (feature request,
+  D11; borrador pendiente de publicar): que `backtesting_forecaster` y
+  `backtesting_forecaster_multiseries` con un intervalo de dos límites
+  devuelvan en las métricas la cobertura (`calculate_coverage`) y la anchura
+  media, por serie y en las filas agregadas. Hoy calculan las métricas solo
+  con `pred`.
 
 ## Comprobaciones a mano
 
@@ -795,6 +829,16 @@ Hoy `compare()` solo ordena configuraciones fijas. Un paso acotado de
 búsqueda con las funciones de skforecast, con su coste en `CostNotice` como
 los backtests. Después de la fase 4, que deja bien contado el coste de
 `compare`.
+
+### Intervalos multiserie: residuos fuera de muestra
+
+Lo que D11 dejó fuera de la 0.5.0. Los scripts multiserie usan residuos
+dentro de muestra (`store_in_sample_residuals`), y la cobertura real queda
+muy por debajo de la nominal (2c-ii la mide y avisa). skforecast admite
+residuos fuera de muestra (`set_out_sample_residuals`), pero hace falta un
+tramo de validación: cambia el coste del backtest y los scripts. Cuando
+skforecast dé la cobertura y la anchura en la salida del backtesting, quitar
+el cálculo propio del script de 2c-ii y leerlas de ahí.
 
 ### pandas 3, cuando skforecast lo soporte
 
