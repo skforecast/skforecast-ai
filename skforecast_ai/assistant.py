@@ -415,7 +415,7 @@ def _check_frequency_known(forecaster: str, data_profile: DataProfile) -> None:
             f"dates are not regularly spaced, or there are too few of them, "
             f"and '{forecaster}' needs a regular DatetimeIndex. Missing dates "
             f"are filled in only when the other dates follow a regular "
-            f"frequency.",
+            f"frequency and fill at least half of its periods.",
             field = "profile",
             hint  = (
                 "Give the data a regular frequency: one row per period (day, "

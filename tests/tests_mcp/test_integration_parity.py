@@ -13,8 +13,16 @@ from mcp import Client
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai.mcp import create_server
 
+from ..fixtures_assistant import df_no_sundays
 from ..fixtures_datasets import df_items_sales_long, df_items_sales_wide
-from .fixtures_mcp import content_of, csv_of, df_h2o_csv, text_of, write_csv
+from .fixtures_mcp import (
+    content_of,
+    csv_of,
+    df_h2o_csv,
+    error_of,
+    text_of,
+    write_csv,
+)
 
 CANDIDATES = [
     {"name": "ridge", "config": {"estimator": "Ridge"}},
@@ -156,3 +164,88 @@ def test_server_workflow_matches_python_api_and_scripts(
             expected.predictions["pred"].to_numpy(),
             rtol=1e-6,
         )
+
+
+@pytest.mark.slow
+def test_server_workflow_when_daily_data_closed_on_sundays(tmp_path):
+    """
+    Test the flow of the server on a year of daily sales of a shop closed on
+    Sundays, which had no frequency before (the cause of finding V14 of the
+    MCP audit): `profile` infers 'D' and warns about the 51 Sundays missing,
+    which a forecast predicts too and a business closed on them can fill
+    with 0 after asking the user; `plan` and `forecast` run; `backtest` says
+    that the Sundays asfreq() restores fall in its test folds, with the same
+    advice; and the script of `get_code` run as a file gives the predictions
+    of `forecast`.
+    """
+    path = write_csv(tmp_path, "shop.csv", df_no_sundays)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    async def flow():
+        async with Client(server) as client:
+            profile = content_of(
+                await client.call_tool(
+                    "profile", {"data_path": path, "target": "sales"}
+                )
+            )
+            plan = content_of(
+                await client.call_tool(
+                    "plan", {"profile_id": profile["id"], "steps": 14}
+                )
+            )
+            cv = content_of(
+                await client.call_tool("create_cv", {"plan_id": plan["id"]})
+            )
+            backtest = error_of(
+                await client.call_tool("backtest", {"cv_id": cv["id"]}), "backtest"
+            )
+            forecast = content_of(
+                await client.call_tool("forecast", {"plan_id": plan["id"]})
+            )
+            code = content_of(
+                await client.call_tool("get_code", {"object_id": forecast["id"]})
+            )["code"]
+            return profile, backtest, forecast, code
+
+    profile, backtest, forecast, code = anyio.run(flow)
+
+    missing = (
+        "Missing timestamps: 51 timestamps of frequency 'D' are missing from "
+        "the date range, all of them on Sundays, when the data never has a "
+        "date. asfreq() inserts them as rows with missing values, and a "
+        "forecast predicts Sundays too. If the business is closed on Sundays, "
+        "they can be filled with 0 in the data, after asking the user."
+    )
+    assert "- Frequency: D\n" in profile["summary"]
+    assert "- Index irregularities: gaps in the index\n" in profile["summary"]
+    assert profile["notices"] == [
+        {
+            "source": "data",
+            "category": "DataProfileWarning",
+            "message": missing,
+            "count": 1,
+        }
+    ]
+    assert backtest["code"] == "invalid_argument"
+    assert backtest["message"] == (
+        "The target has 15 missing value(s) in the test folds (2023-09-17 "
+        "00:00:00, 2023-09-24 00:00:00, 2023-10-01 00:00:00, 2023-10-08 "
+        "00:00:00, 2023-10-15 00:00:00 and 10 more), counting the missing "
+        "timestamps that asfreq() restores: all of them on Sundays, when the "
+        "target never has a value. skforecast cannot compute the metrics on "
+        "them, whatever the estimator. If the business is closed on Sundays, "
+        "fill them with 0 in the data, after asking the user; otherwise, "
+        "impute the target, or evaluate on dates without missing values."
+    )
+    assert [notice["category"] for notice in forecast["notices"]] == [
+        "UserWarning", "MissingValuesWarning", "MissingValuesWarning",
+        "MissingValuesWarning",
+    ]
+    predictions = pd.read_csv(forecast["files"]["predictions"], index_col=0)
+    assert list(predictions.index[:2]) == ["2023-12-31", "2024-01-01"]
+    assert "data = data.asfreq('D')\n" in code
+    standalone = _run_as_file(code, tmp_path)
+    assert len(standalone) == len(predictions) == 14
+    np.testing.assert_allclose(
+        standalone["pred"].to_numpy(), predictions["pred"].to_numpy(), rtol=1e-6
+    )

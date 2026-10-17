@@ -937,7 +937,8 @@ def test_plan_ValueError_when_datetime_index_has_no_frequency():
         "The frequency of the datetime index could not be inferred: the dates "
         "are not regularly spaced, or there are too few of them, and "
         "'ForecasterRecursive' needs a regular DatetimeIndex. Missing dates are "
-        "filled in only when the other dates follow a regular frequency."
+        "filled in only when the other dates follow a regular frequency and "
+        "fill at least half of its periods."
     )
     with pytest.raises(ValueError, match="^" + err_msg + "$") as exc_info:
         assistant.plan(profile, steps=5)
@@ -951,17 +952,18 @@ def test_plan_ValueError_when_datetime_index_has_no_frequency():
 
 def test_plan_InvalidInputError_without_day_first_advice_when_iso_dates_are_irregular():
     """
-    Test that daily dates already written in ISO 8601 with days missing at
-    random (no regular frequency) get a message and a hint about their
-    spacing, and neither asks to write them in ISO 8601 nor names day-first
-    dates (finding V14 of the MCP audit).
+    Test that daily dates already written in ISO 8601 with most days missing
+    at random (60 of 150, less than half of the daily grid: no regular
+    frequency) get a message and a hint about their spacing, and neither
+    asks to write them in ISO 8601 nor names day-first dates (finding V14 of
+    the MCP audit).
     """
     dates = pd.date_range("2020-01-01", periods=150, freq="D")
-    kept = np.sort(np.random.default_rng(3).choice(150, size=110, replace=False))
+    kept = np.sort(np.random.default_rng(3).choice(150, size=60, replace=False))
     data = pd.DataFrame(
         {
             "date": dates[kept].strftime("%Y-%m-%d"),
-            "y": np.arange(110, dtype=float),
+            "y": np.arange(60, dtype=float),
         }
     )
     assistant = ForecastingAssistant()
@@ -972,6 +974,7 @@ def test_plan_InvalidInputError_without_day_first_advice_when_iso_dates_are_irre
 
     assert profile.data_profile.frequency is None
     assert "not regularly spaced" in str(exc_info.value)
+    assert "at least half of its periods" in str(exc_info.value)
     assert "ISO 8601" not in exc_info.value.hint
     assert "first" not in str(exc_info.value) + exc_info.value.hint
 
@@ -1159,7 +1162,7 @@ def test_plan_InvalidInputError_when_baseline_on_datetime_index_without_frequenc
         "are not regularly spaced, or there are too few of them, and "
         "'ForecasterEquivalentDate' needs a regular DatetimeIndex. Missing "
         "dates are filled in only when the other dates follow a regular "
-        "frequency."
+        "frequency and fill at least half of its periods."
     )
     with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
         assistant.plan(profile, steps=3, forecaster="ForecasterEquivalentDate")

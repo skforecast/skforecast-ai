@@ -31,6 +31,12 @@ _NEITHER_REGULAR = (
 _MONTHS = pd.date_range("2015-01-01", periods=60, freq="MS")
 _US_MONTHLY = pd.Series(_MONTHS.strftime("%m/%d/%Y"))
 _SPANISH_MONTHLY = pd.Series(_MONTHS.strftime("%d/%m/%Y"))
+# 18 months with three missing, so no ten months are in a row, and one year
+# with a missing month.
+_MONTHS_WITH_GAPS = pd.date_range("2015-01-01", periods=18, freq="MS").delete(
+    [4, 9, 14]
+)
+_YEAR_WITH_GAP = pd.date_range("2015-01-01", periods=12, freq="MS").delete([5])
 
 
 @pytest.mark.parametrize(
@@ -292,6 +298,43 @@ def test_day_month_order_issue_when_both_orders_read_and_both_are_regular(
 
 
 @pytest.mark.parametrize(
+    "written, found",
+    [
+        (
+            "%d/%m/%Y",
+            "'01/02/2015' may be '2015-02-01' or '2015-01-02', and both readings "
+            "have a regular frequency ('MS' day first and 'D' month first)",
+        ),
+        (
+            "%m/%d/%Y",
+            "'02/01/2015' may be '2015-01-02' or '2015-02-01', and both readings "
+            "have a regular frequency ('D' day first and 'MS' month first)",
+        ),
+    ],
+    ids=["spanish", "us"],
+)
+def test_day_month_order_issue_when_year_of_months_with_gap_is_regular_both_ways(
+    written, found
+):
+    """
+    Test that a year of monthly dates with a missing month, written in
+    either order, is an issue: day first and month first it has a regular
+    frequency with gaps ('MS', and 'D' on the first twelve days of
+    January), so its regularity does not tell the order.
+    """
+    values = pd.Series(_YEAR_WITH_GAP.strftime(written))
+
+    chosen, recorded, issue = _day_month_order("date", values, True)
+
+    assert (chosen, recorded) == (None, None)
+    assert "".join(issue) == (
+        _FOUND + found + ", so the order is not guessed. Profile the file "
+        "saying which it is, with `dayfirst`."
+    )
+    assert issue.code == "data_unreadable"
+
+
+@pytest.mark.parametrize(
     "values, quoted, readings",
     [
         (
@@ -391,8 +434,25 @@ def test_day_month_order_issue_when_dayfirst_contradicts_the_dates(
             "'01/02/2015' is '2015-02-01' and not '2015-01-02'",
             "month",
         ),
+        (
+            pd.Series(_MONTHS_WITH_GAPS.strftime("%m/%d/%Y")),
+            "%m/%d/%Y",
+            "month",
+            "'02/01/2015' is '2015-02-01' and not '2015-01-02'",
+            "day",
+        ),
+        (
+            pd.Series(_MONTHS_WITH_GAPS.strftime("%d/%m/%Y")),
+            "%d/%m/%Y",
+            "day",
+            "'01/02/2015' is '2015-02-01' and not '2015-01-02'",
+            "month",
+        ),
     ],
-    ids=["us monthly", "spanish monthly"],
+    ids=[
+        "us monthly", "spanish monthly", "us monthly with gaps",
+        "spanish monthly with gaps",
+    ],
 )
 def test_day_month_order_output_when_only_one_reading_is_regular(
     values, expected, read, quoted, other
@@ -401,9 +461,10 @@ def test_day_month_order_output_when_only_one_reading_is_regular(
     Test that dates that read in both orders, with no order given, are read
     in the only order in which they have a regular frequency: five years of
     monthly dates of a US file are 'MS' month first and have no frequency
-    day first, and those of a Spanish file the other way. The format is
-    recorded, and a note says that the order was told from the regularity
-    and how to give the other one with `dayfirst`.
+    day first, and those of a Spanish file the other way, as are 18 months
+    with three missing, no ten in a row. The format is recorded, and a note
+    says that the order was told from the regularity and how to give the
+    other one with `dayfirst`.
     """
     notes = []
     result = _day_month_order(

@@ -207,6 +207,30 @@ df_day_first_exog = pd.DataFrame(
     }
 )
 
+# --- A year of daily sales of a shop closed on Sundays (312 days) ---
+# No ten days are in a row: the frequency is 'D', inferred on windows of three
+# days, with the 51 Sundays from 2023-01-02 to 2023-12-30 missing.
+_dates_no_sundays = pd.date_range("2023-01-02", periods=364, freq="D")
+_dates_no_sundays = _dates_no_sundays[_dates_no_sundays.dayofweek != 6]
+df_no_sundays = pd.DataFrame(
+    {
+        "date": _dates_no_sundays,
+        "sales": np.round(
+            100 + 8 * _dates_no_sundays.dayofweek + 0.05 * np.arange(312)
+            + 3 * np.sin(np.arange(312) / 5),
+            2,
+        ),
+    }
+)
+# The same sales in long format, for two shops closed on Sundays.
+df_no_sundays_long = pd.concat(
+    [
+        df_no_sundays.assign(shop="north"),
+        df_no_sundays.assign(shop="south", sales=df_no_sundays["sales"] * 2),
+    ],
+    ignore_index=True,
+)
+
 
 def patch_agent(monkeypatch, assistant, *, output=None, error=None, capture=None):
     """

@@ -1,8 +1,11 @@
 # Integration test: same input, same output
 
+import re
+
 import pandas as pd
 import pytest
 
+from skforecast.exceptions import MissingValuesWarning
 from skforecast.model_selection import TimeSeriesFold
 
 from skforecast_ai import ForecastingAssistant
@@ -11,6 +14,7 @@ from tests.fixtures_assistant import (
     df_multi_long,
     df_multi_long_integer_ids,
     df_multi_long_numeric_ids,
+    df_no_sundays,
     df_single,
 )
 
@@ -110,6 +114,45 @@ def test_forecast_workflow_is_deterministic_when_data_is_csv_path(
     assert f"data = pd.read_csv({str(csv_path)!r}{read_ids})" in result_1.code
     pd.testing.assert_frame_equal(result_1.predictions, result_2.predictions)
     pd.testing.assert_frame_equal(result_1.metrics, result_2.metrics)
+
+
+def test_forecast_workflow_is_deterministic_when_daily_data_closed_on_sundays(
+    tmp_path,
+):
+    """
+    Test that a CSV of daily data closed on Sundays, whose frequency is
+    inferred on windows of three days, always yields the same profile
+    ('D' with the Sundays missing), plan, script and predictions, across two
+    independent assistants.
+    """
+    csv_path = tmp_path / "shop.csv"
+    df_no_sundays.to_csv(csv_path, index=False)
+    kwargs = {"target": "sales", "date_column": "date"}
+    assistants = [ForecastingAssistant(), ForecastingAssistant()]
+
+    profiles = [assistant.profile(data=csv_path, **kwargs) for assistant in assistants]
+    plans = [
+        assistant.plan(profile, steps=5)
+        for assistant, profile in zip(assistants, profiles)
+    ]
+    results = []
+    for assistant in assistants:
+        # skforecast warns about the NaN rows of the Sundays when it fits and
+        # predicts.
+        with pytest.warns(MissingValuesWarning):
+            with pytest.warns(
+                UserWarning, match=re.escape("reads missing values of the target")
+            ):
+                results.append(
+                    assistant.forecast(data=csv_path, steps=5, test_size=5, **kwargs)
+                )
+
+    assert profiles[0].data_profile.frequency == "D"
+    assert profiles[0].model_dump() == profiles[1].model_dump()
+    assert plans[0].model_dump() == plans[1].model_dump()
+    assert results[0].code == results[1].code
+    pd.testing.assert_frame_equal(results[0].predictions, results[1].predictions)
+    pd.testing.assert_frame_equal(results[0].metrics, results[1].metrics)
 
 
 def test_code_methods_and_executing_methods_render_the_same_script_when_csv_path(
