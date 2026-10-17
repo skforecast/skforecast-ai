@@ -24,6 +24,8 @@ The main changes in this release are:
 
 **Fixed**
 
++ Fixed an issue in [<code>ForecastingAssistant.profile()</code>][assistant] (and the `profile` command and MCP tool) where `target` as a list was accepted with `series_id_column`, which was ignored on wide data and gave a misleading error about repeated timestamps on long data, or with a repeated column, profiled as two series. Both now raise `InvalidInputError` naming the argument.
+
 
 ## 0.4.2 <small>Oct 12, 2026</small> { id="0.4.2" }
 

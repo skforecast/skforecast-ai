@@ -682,9 +682,9 @@ class ForecastingAssistant:
             pandas Series is passed, the target is derived from its name.
         target : str, list of str, default None
             Name of the column to forecast. For wide-format multi-series,
-            pass a list of column names where each column is a series.
-            Optional only when `data` is a pandas Series, in which case the
-            Series name is used (or `'y'` when the Series has no name).
+            pass a list of column names where each column is a series, each
+            named once and without `series_id_column`. Optional only when
+            `data` is a pandas Series, in which case the Series name is used (or `'y'` when the Series has no name).
         date_column : str, default None
             Name of the column containing timestamps.
         series_id_column : str, default None

@@ -124,6 +124,42 @@ def test_tool_profile_output_long_format(tmp_path):
     assert result["summary"] == expected
 
 
+def test_tool_profile_invalid_argument_when_target_list_with_series_id_column(
+    tmp_path,
+):
+    """
+    Test that a list of targets with `series_id_column` on long data is
+    `invalid_argument` on `series_id_column`, without the hint that blames
+    the file of the user, while the same call with the target as a name
+    profiles the series.
+    """
+    path = write_csv(tmp_path, "items.csv", df_items_sales_long)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    arguments = {"data_path": path, "series_id_column": "series"}
+
+    error = error_of(
+        call(server, "profile", {**arguments, "target": ["value"]}), "profile"
+    )
+    result = content_of(call(server, "profile", {**arguments, "target": "value"}))
+
+    assert error == {
+        "code": "invalid_argument",
+        "message": (
+            "`target` is a list of columns (['value']) and "
+            "series_id_column='series' was also given: a list of columns is "
+            "wide format (one column per series) and `series_id_column` is "
+            "long format (the series stacked in rows, told apart by that "
+            "column). For long format, pass `target` as the name of the "
+            "column of values, not as a list; for wide format, leave out "
+            "`series_id_column`."
+        ),
+        "field": "series_id_column",
+        "hint": None,
+        "details": None,
+    }
+    assert result["id"].startswith("profile-")
+
+
 def test_tool_profile_notices_of_the_data(tmp_path):
     """
     Test that a warning emitted while profiling is a notice with source
@@ -179,6 +215,12 @@ def test_tool_profile_summary_cut_with_full_text_in_a_file(tmp_path, monkeypatch
             "'fe\\u2028cha'.",
         ),
         ({"target": 1}, "target", None),
+        (
+            {"target": ["x", "x"]},
+            "target",
+            "`target` names a column more than once: ['x']. A list of targets "
+            "holds one column per series: name each one once.",
+        ),
         ({"target": "x", "date": "fecha"}, "date", "Extra inputs are not permitted"),
         (
             {"target": "x", "exog_columns": ["nope"]},

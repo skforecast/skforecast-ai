@@ -1247,6 +1247,100 @@ def test_create_data_profile_InvalidInputError_when_target_is_empty_list():
     assert exc_info.value.field == "target"
 
 
+@pytest.mark.parametrize(
+    "data, target, series_id_column",
+    [
+        (df_items_sales_wide, ["item_1", "item_2"], "item_3"),
+        (df_items_sales_long, ["value"], "series"),
+    ],
+    ids=["wide", "long"],
+)
+def test_create_data_profile_InvalidInputError_when_target_list_with_series_id_column(
+    data, target, series_id_column
+):
+    """
+    Test that a list of targets with a `series_id_column` raises with the
+    field 'series_id_column', on wide data (where the id column was dropped)
+    and on long data (where the repeated timestamps blamed the data), and
+    that a list of one column is not read as its name.
+    """
+    err_msg = re.escape(
+        f"`target` is a list of columns ({target}) and series_id_column="
+        f"{series_id_column!r} was also given: a list of columns is wide "
+        f"format (one column per series) and `series_id_column` is long "
+        f"format (the series stacked in rows, told apart by that column). "
+        f"For long format, pass `target` as the name of the column of "
+        f"values, not as a list; for wide format, leave out "
+        f"`series_id_column`."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        create_data_profile(
+            data             = data,
+            target           = target,
+            series_id_column = series_id_column,
+        )
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "series_id_column"
+
+
+def test_create_data_profile_output_when_target_list_and_multiindex():
+    """
+    Test that a list of targets with a MultiIndex is not rejected for the
+    `series_id_column` filled from its first level, which the caller did
+    not pass: one id profiles as wide data.
+    """
+    data = df_items_sales_wide.set_index(
+        pd.MultiIndex.from_product(
+            [["store"], df_items_sales_wide.index], names=["shop", "date"]
+        )
+    )
+
+    profile = create_data_profile(data=data, target=["item_1", "item_2"])
+
+    assert profile.data_format == "wide"
+    assert profile.target == ["item_1", "item_2"]
+    assert profile.n_series == 2
+
+
+def test_create_data_profile_InvalidInputError_when_target_list_repeats_column():
+    """
+    Test that a list of targets naming a column more than once raises with
+    the field 'target' and names the repeated column, instead of profiling
+    one column as two series.
+    """
+    err_msg = re.escape(
+        "`target` names a column more than once: ['item_1']. A list of "
+        "targets holds one column per series: name each one once."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        create_data_profile(
+            data   = df_items_sales_wide,
+            target = ["item_1", "item_2", "item_1"],
+        )
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "target"
+
+
+def test_create_data_profile_output_when_target_list_is_valid():
+    """
+    Test that a list of targets naming each column once, without
+    `series_id_column`, profiles as wide data with the columns in the order
+    given.
+    """
+    profile = create_data_profile(
+        data   = df_items_sales_wide,
+        target = ["item_3", "item_1"],
+    )
+
+    assert profile.data_format == "wide"
+    assert profile.target == ["item_3", "item_1"]
+    assert profile.series_id_column is None
+    assert profile.n_series == 2
+    assert list(profile.series_lengths) == ["item_3", "item_1"]
+
+
 def test_create_data_profile_InvalidInputError_when_target_has_no_values():
     """
     Test that a target column with every value missing raises with the code

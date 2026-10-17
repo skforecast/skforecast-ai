@@ -193,14 +193,16 @@ def create_data_profile(
         and loaded with `pandas.read_csv`.
     target : str, list
         Name of the column to forecast. For wide-format multi-series data,
-        pass a list of column names where each column is a series.
+        pass a list of column names where each column is a series, each
+        named once and without `series_id_column`.
     date_column : str, default None
         Name of the column containing timestamps. If None, the function
         attempts to detect it from the index or columns.
     series_id_column : str, default None
-        Name of the column identifying individual series in long format.
-        If None and target is a string, the dataset is treated as a
-        single series.
+        Name of the column identifying individual series in long format,
+        where `target` is the name of one column. If None and target is a
+        string, the dataset is treated as a single series (or as long
+        format with the ids of the first level of a MultiIndex).
     data_path : str, default 'data.csv'
         Path to the source CSV file used in generated scripts.
     exog_columns : list of str, default None
@@ -264,6 +266,10 @@ def create_data_profile(
         # This handles CSVs exported with df.to_csv() where the date
         # index becomes a regular column.
         data = _try_parse_first_date_column(data, date_column)
+
+    # Before a MultiIndex fills `series_id_column`: only the one the caller
+    # passed contradicts a list of targets.
+    _validate_target_format(target, series_id_column)
 
     # Normalize a MultiIndex (level 0 = series_id, level 1 = datetime) into
     # flat long format so every downstream helper sees named columns.
@@ -1409,6 +1415,40 @@ def _normalize_multiindex(
         date_column = date_name
 
     return data, date_column, series_id_column
+
+
+def _validate_target_format(
+    target: str | list[str],
+    series_id_column: str | None,
+) -> None:
+    """
+    Validate that a list of targets comes without `series_id_column`.
+
+    A list of target columns is wide format and `series_id_column` is long
+    format. Read as wide, long data failed with an error about repeated
+    timestamps that blamed the file, and wide data dropped the id column
+    without a word.
+
+    Parameters
+    ----------
+    target : str, list
+        Name(s) of the target column(s).
+    series_id_column : str, None
+        Series identifier column the caller passed (not the one filled from
+        a MultiIndex).
+    """
+    if not isinstance(target, list) or series_id_column is None:
+        return
+    raise InvalidInputError(
+        f"`target` is a list of columns ({target}) and series_id_column="
+        f"{series_id_column!r} was also given: a list of columns is wide "
+        f"format (one column per series) and `series_id_column` is long "
+        f"format (the series stacked in rows, told apart by that column). "
+        f"For long format, pass `target` as the name of the column of "
+        f"values, not as a list; for wide format, leave out "
+        f"`series_id_column`.",
+        field = "series_id_column",
+    )
 
 
 def _resolve_data_format(
@@ -3412,7 +3452,8 @@ def _quoted_value(value: object) -> object:
 
 def _validate_target_exists(data: pd.DataFrame, target: str | list[str]) -> None:
     """
-    Validate that the target column(s) exist in the DataFrame.
+    Validate that the target column(s) exist in the DataFrame, and that a
+    list of targets is not empty and names each column once.
 
     Parameters
     ----------
@@ -3428,6 +3469,13 @@ def _validate_target_exists(data: pd.DataFrame, target: str | list[str]) -> None
             field = "target",
         )
     targets = target if isinstance(target, list) else [target]
+    repeated = list(dict.fromkeys(c for c in targets if targets.count(c) > 1))
+    if repeated:
+        raise InvalidInputError(
+            f"`target` names a column more than once: {repeated}. A list of "
+            f"targets holds one column per series: name each one once.",
+            field = "target",
+        )
     missing = [col for col in targets if col not in data.columns]
     if missing:
         raise InvalidInputError(

@@ -305,6 +305,14 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
   cabecera dan `data_unreadable` con hint, sin tocar los scripts.
   `index_col=False` leería bien el separador final, pero tendría que ir
   también en el script y rehacer todos los goldens de renderizado.
+- **D?. 2d: `target` como lista se valida en el perfil** (2026-10-17): una
+  lista junto con un `series_id_column` que pasó el usuario da
+  `invalid_argument` con `field: "series_id_column"` antes de leer las
+  columnas, también con una lista de una columna (`["y"]` no se convierte en
+  `"y"`); el mensaje dice qué pasar en formato largo y en ancho, sin `hint`.
+  El `series_id_column` que rellena un MultiIndex no se rechaza. Una columna
+  repetida da `invalid_argument` con `field: "target"` y la nombra, antes de
+  comprobar que las columnas existen. Mismo texto en la API, la CLI y el MCP.
 
 ## Decisiones abiertas
 
