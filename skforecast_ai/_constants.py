@@ -286,9 +286,10 @@ TREE_BASED_ESTIMATORS: set[str] = {
 }
 
 # Bins of the predicted value over which ForecasterRecursive,
-# ForecasterDirect and ForecasterEquivalentDate spread the residuals their
-# bootstrapped and conformal intervals are estimated from (the default
-# `n_bins` of `binner_kwargs` in skforecast).
+# ForecasterDirect, ForecasterEquivalentDate and, per series,
+# ForecasterRecursiveMultiSeries and ForecasterDirectMultiVariate spread the
+# residuals their bootstrapped and conformal intervals are estimated from
+# (the default `n_bins` of `binner_kwargs` in skforecast).
 INTERVAL_RESIDUAL_BINS: int = 10
 
 # Residuals per bin below which those intervals tend to be too narrow: the

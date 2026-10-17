@@ -3,7 +3,7 @@
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai.schemas import DataProfile
 
-from tests.fixtures_datasets import df_h2o
+from tests.fixtures_datasets import df_h2o, df_h2o_long
 
 # --- Single series, daily, 365 observations, no exog ---
 profile_single_daily = DataProfile(
@@ -111,4 +111,35 @@ plan_h2o_interval_stats = _assistant.plan(
 )
 plan_h2o_interval_baseline = _assistant.plan(
     _profile_h2o, steps=1, interval=_interval, forecaster="ForecasterEquivalentDate"
+)
+
+
+# --- h2o as two series with bootstrapped intervals ---
+# The window size of the plans is 36, as above. In wide format both series
+# span the 204 observations; in long format the series 'b' starts 20
+# observations later (1993-03-01), so a training window of 80 observations
+# leaves 44 rows of 'a' and 24 of 'b'.
+_profile_h2o_wide = _assistant.profile(
+    df_h2o_long.pivot(index="date", columns="series", values="x"),
+    target = ["a", "b"],
+)
+profile_h2o_wide = _profile_h2o_wide.data_profile
+plan_h2o_wide_interval_multiseries = _assistant.plan(
+    _profile_h2o_wide, steps=1, interval=_interval
+)
+plan_h2o_wide_interval_multivariate = _assistant.plan(
+    _profile_h2o_wide,
+    steps      = 3,
+    interval   = _interval,
+    forecaster = "ForecasterDirectMultiVariate",
+)
+_profile_h2o_staggered = _assistant.profile(
+    df_h2o_long.drop(index=df_h2o_long.index[204:224]),
+    target           = "x",
+    series_id_column = "series",
+    date_column      = "date",
+)
+profile_h2o_staggered = _profile_h2o_staggered.data_profile
+plan_h2o_staggered_interval = _assistant.plan(
+    _profile_h2o_staggered, steps=1, interval=_interval
 )

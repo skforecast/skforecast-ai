@@ -1507,7 +1507,73 @@ def warn_first_window(
 # Forecasters whose intervals come from binned residuals of the training rows.
 _RESIDUAL_INTERVAL_FORECASTERS = (
     "ForecasterRecursive", "ForecasterDirect", "ForecasterEquivalentDate",
+    "ForecasterRecursiveMultiSeries", "ForecasterDirectMultiVariate",
 )
+
+# Series named in the residuals warning of several series.
+_SHOWN_SERIES = 5
+
+
+def _series_span_positions(
+    data_profile: DataProfile,
+) -> dict[str, tuple[int, int]]:
+    """
+    Locate each series on the span of the data, where the folds are counted.
+
+    skforecast splits the union index of the series, from the earliest first
+    date (`span_start_date`), so a series that starts later has fewer
+    observations in a training window than the window itself. Only long
+    format has series with their own dates; every other series, and long
+    format when its span cannot be rebuilt on the dates of the series (no
+    dates or frequency, dates that mix time zones, a span counted as the
+    longest series), spans the whole of it.
+
+    Parameters
+    ----------
+    data_profile : DataProfile
+        Profile of the data.
+
+    Returns
+    -------
+    positions : dict
+        Mapping of series name to the positions of its first date and of the
+        one after its last date on the span.
+    """
+    n_observations = data_profile.span_index_length
+    whole = {name: (0, n_observations) for name in data_profile.series_lengths}
+    if data_profile.data_format != "long" or data_profile.frequency is None:
+        return whole
+    infos = data_profile.series_lengths
+    if any(info.start is None or info.end is None for info in infos.values()):
+        return whole
+    try:
+        starts = {name: pd.Timestamp(info.start) for name, info in infos.items()}
+        ends = {name: pd.Timestamp(info.end) for name, info in infos.items()}
+        first, last = min(starts.values()), max(ends.values())
+        # As in `span_start_date`: the dates carry the UTC offset of their
+        # day, and the span is rebuilt on the local times of the zone.
+        if data_profile.time_zone is not None and first.tzinfo is not None:
+            starts = {
+                name: date.tz_convert(data_profile.time_zone)
+                for name, date in starts.items()
+            }
+            ends = {
+                name: date.tz_convert(data_profile.time_zone)
+                for name, date in ends.items()
+            }
+            first, last = min(starts.values()), max(ends.values())
+        span = pd.date_range(start=first, end=last, freq=data_profile.frequency)
+        if len(span) != n_observations:
+            return whole
+        return {
+            name: (
+                int(span.searchsorted(starts[name])),
+                int(span.searchsorted(ends[name], side="right")),
+            )
+            for name in infos
+        }
+    except (ValueError, TypeError):
+        return whole
 
 
 def warn_interval_residuals(
@@ -1519,16 +1585,24 @@ def warn_interval_residuals(
     Warn when a strategy is built whose first training window leaves too few
     rows for the prediction intervals of its plan.
 
-    ForecasterRecursive and ForecasterDirect (bootstrapping) and
-    ForecasterEquivalentDate (conformal) estimate the intervals from the
-    residuals of the training rows, which skforecast spreads over up to
-    `INTERVAL_RESIDUAL_BINS` bins of the predicted value. With fewer than
-    `MIN_RESIDUALS_PER_BIN` residuals per bin the intervals tend to be too
-    narrow (a nominal 95% covers 59 to 80% with 2 to 6 per bin, in the
-    simulation skforecast took its rule of thumb from), and with a single
-    residual in a bin the lower bound equals the upper one, with the
-    prediction outside. skforecast warns about it only for out-of-sample
-    residuals, which the generated scripts do not use.
+    ForecasterRecursive, ForecasterDirect, ForecasterRecursiveMultiSeries and
+    ForecasterDirectMultiVariate (bootstrapping) and ForecasterEquivalentDate
+    (conformal) estimate the intervals from the residuals of the training
+    rows, which skforecast spreads over up to `INTERVAL_RESIDUAL_BINS` bins
+    of the predicted value. With fewer than `MIN_RESIDUALS_PER_BIN`
+    residuals per bin the intervals tend to be too narrow (a nominal 95%
+    covers 59 to 80% with 2 to 6 per bin, in the simulation skforecast took
+    its rule of thumb from), and with a single residual in a bin the lower
+    bound equals the upper one, with the prediction outside. skforecast
+    warns about it only for out-of-sample residuals, which the generated
+    scripts do not use.
+
+    With several series the residuals are counted per series, as skforecast
+    bins them: ForecasterRecursiveMultiSeries keeps the residuals and the
+    bins of each series apart (all of them together with `encoding=None`),
+    counted on the observations of the series in the window, and
+    ForecasterDirectMultiVariate those of its level, the only series it
+    predicts. The warning names the series with few residuals.
 
     Parameters
     ----------
@@ -1569,18 +1643,37 @@ def warn_interval_residuals(
     n_train = train_end - train_start
     # A direct forecaster trains the estimator of step h on h - 1 rows fewer.
     extra_steps = plan.steps - 1 if plan.forecaster in DIRECT_FORECASTERS else 0
-    n_rows = n_train - window_size - extra_steps
     needed = MIN_RESIDUALS_PER_BIN * INTERVAL_RESIDUAL_BINS
-    # A window that leaves no rows is reported by `warn_first_window()`.
-    if n_rows < 1 or n_rows >= needed:
-        return
     features = (
         ", or fewer lags or smaller window features"
         if plan.forecaster in AUTOREG_FORECASTERS else ""
     )
+    if plan.forecaster == "ForecasterRecursiveMultiSeries":
+        _warn_series_residuals(
+            plan         = plan,
+            data_profile = data_profile,
+            train_start  = train_start,
+            train_end    = train_end,
+            window_size  = window_size,
+            needed       = needed,
+            features     = features,
+        )
+        return
+    n_rows = n_train - window_size - extra_steps
+    # A window that leaves no rows is reported by `warn_first_window()`.
+    if n_rows < 1 or n_rows >= needed:
+        return
+    level = ""
+    if plan.forecaster == "ForecasterDirectMultiVariate":
+        target = data_profile.target
+        name = target[0] if isinstance(target, list) else target
+        level = (
+            f" for {name!r}, the only series ForecasterDirectMultiVariate "
+            f"predicts"
+        )
     warnings.warn(
         f"The first training window of the strategy leaves {n_rows} row(s) to "
-        f"train on ({n_train} observations for a window size of "
+        f"train on{level} ({n_train} observations for a window size of "
         f"{window_size}), so the prediction intervals are estimated from "
         f"{n_rows} residual(s). skforecast spreads them over up to "
         f"{INTERVAL_RESIDUAL_BINS} bins, and below {MIN_RESIDUALS_PER_BIN} "
@@ -1591,6 +1684,87 @@ def warn_interval_residuals(
         UserWarning,
         stacklevel = 3,
     )
+
+
+def _warn_series_residuals(
+    plan: ForecastPlan,
+    data_profile: DataProfile,
+    train_start: int,
+    train_end: int,
+    window_size: int,
+    needed: int,
+    features: str,
+) -> None:
+    """
+    Warn about the series of a ForecasterRecursiveMultiSeries plan whose
+    first training window leaves few residuals (see
+    `warn_interval_residuals`), each counted on its own observations in the
+    window. A series without rows in the window is left out: it is not
+    trained, so it has no interval in that fold.
+    """
+    rows = {}
+    for name, (start, stop) in _series_span_positions(data_profile).items():
+        observed = max(0, min(stop, train_end) - max(start, train_start))
+        if observed - window_size >= 1:
+            rows[name] = (observed - window_size, observed)
+    if not rows:
+        return
+
+    def _shown(names: list[str]) -> str:
+        found = [
+            f"{name!r}: {rows[name][0]} row(s) of {rows[name][1]} observations"
+            for name in names
+        ]
+        shown = "; ".join(found[:_SHOWN_SERIES])
+        if len(found) > _SHOWN_SERIES:
+            shown += f"; and {len(found) - _SHOWN_SERIES} more series"
+        return shown
+
+    n_series = len(data_profile.series_lengths)
+    tail = (
+        f"spread over up to {INTERVAL_RESIDUAL_BINS} bins, and below "
+        f"{MIN_RESIDUALS_PER_BIN} residuals per bin ({needed} rows) the "
+        f"intervals tend to be too narrow; with a single residual in a bin "
+        f"the lower bound equals the upper one."
+    )
+    # Without encoding skforecast pools the residuals of every series.
+    kwargs = plan.forecaster_kwargs
+    if "encoding" in kwargs and kwargs["encoding"] is None:
+        total = sum(n_rows for n_rows, _ in rows.values())
+        if total >= needed:
+            return
+        scope = (
+            f"its {n_series} series" if len(rows) == n_series
+            else f"{len(rows)} of its {n_series} series"
+        )
+        message = (
+            f"The first training window of the strategy leaves {total} row(s) "
+            f"to train on across {scope} ({_shown(list(rows))}), for a window "
+            f"size of {window_size}. With `encoding=None` skforecast "
+            f"estimates the prediction intervals of every series from the "
+            f"residuals of all of them together, {tail} Read them with "
+            f"caution, or use a later `initial_train_size`{features}."
+        )
+    else:
+        few = sorted(
+            (name for name in rows if rows[name][0] < needed),
+            key = lambda name: rows[name][0],
+        )
+        if not few:
+            return
+        scope = (
+            f"all {n_series} series" if len(few) == n_series
+            else f"{len(few)} of the {n_series} series"
+        )
+        message = (
+            f"The first training window of the strategy leaves fewer than "
+            f"{needed} rows to train on in {scope} ({_shown(few)}), for a "
+            f"window size of {window_size}. skforecast estimates the "
+            f"prediction intervals of each series from the residuals of its "
+            f"own rows, {tail} Read the intervals of those series with "
+            f"caution, or use a later `initial_train_size`{features}."
+        )
+    warnings.warn(message, UserWarning, stacklevel=4)
 
 
 def _compute_min_train_size(plan: ForecastPlan) -> int:
