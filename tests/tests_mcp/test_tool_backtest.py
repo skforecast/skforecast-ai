@@ -8,6 +8,7 @@ from skforecast_ai import ForecastingAssistant
 from skforecast_ai.mcp import _runtime, create_server
 from skforecast_ai.mcp.models import ToolNotice
 
+from ..fixtures_assistant import df_multi_long_numeric_ids
 from .fixtures_mcp import (
     DATA_VALUES_HINT,
     call,
@@ -408,3 +409,42 @@ def test_tool_backtest_invalid_argument_when_lag_reads_missing_month(tmp_path):
     )
     assert error["hint"] == DATA_VALUES_HINT
     assert not forecast.is_error
+
+
+def test_tool_backtest_output_when_series_ids_are_numbers(tmp_path):
+    """
+    Test that `backtest` runs on long-format data whose series ids are
+    numbers ('001', '1', '10') as the Python API does, with the series named
+    as in the file. Before, it failed as `execution_failed` with `KeyError: 1`
+    inside skforecast (skforecast issue #1357).
+    """
+    path = write_csv(tmp_path, "stores.csv", df_multi_long_numeric_ids)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, _, cv_id = cv_of(
+        server,
+        path,
+        target="value",
+        steps=7,
+        profile_arguments={"series_id_column": "series_id"},
+    )
+
+    result = content_of(call(server, "backtest", {"cv_id": cv_id}))
+    code = content_of(call(server, "get_code", {"object_id": result["id"]}))["code"]
+
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(path, target="value", series_id_column="series_id")
+    plan = assistant.plan(profile=profile, steps=7)
+    cv = assistant.create_cv(profile=profile, plan=plan)
+    expected = assistant.backtest(
+        data=path, cv=cv, profile=profile, plan=plan, show_progress=False
+    )
+    predictions = pd.read_csv(
+        result["files"]["predictions"], index_col=0, dtype={"level": str}
+    )
+
+    assert result["summary"] == expected.describe()
+    assert text_of(result["files"]["predictions"]) == csv_of(expected.predictions)
+    assert text_of(result["files"]["metrics"]) == csv_of(expected.metrics)
+    assert sorted(predictions["level"].unique()) == ["001", "1", "10"]
+    assert f"pd.read_csv({path!r}, dtype={{'series_id': str}})" in code
+    assert code == expected.code

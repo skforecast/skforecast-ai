@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from skforecast.exceptions import MissingValuesWarning
+from skforecast.exceptions import IgnoredArgumentWarning, MissingValuesWarning
 
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai.exceptions import (
@@ -16,6 +16,8 @@ from skforecast_ai.exceptions import (
     InvalidInputTypeError,
 )
 from skforecast_ai.schemas import DataProfile, ForecastingProfile
+from skforecast_ai.profiling.csv_dialect import ENCODING_HINT
+from skforecast_ai.profiling.data_profile import DAYFIRST_FRAME_HINT, DAYFIRST_HINT
 
 from tests.fixtures_datasets import (
     df_h2o_text,
@@ -26,8 +28,12 @@ from tests.fixtures_datasets import (
 )
 from tests.fixtures_csv_dialect import (
     df_dialect,
+    df_dialect_cp1252,
     df_dialect_monthly,
+    df_dialect_thousands,
+    write_cp1252,
     write_dialect,
+    write_thousands,
 )
 from tests.fixtures_assistant import (
     df_categorical_exog,
@@ -35,6 +41,7 @@ from tests.fixtures_assistant import (
     df_no_exog,
     df_short,
     df_multi_long,
+    df_multi_long_integer_ids,
     df_multi_wide,
     df_with_missing,
     df_constant_target,
@@ -177,6 +184,47 @@ def test_profile_output_when_multi_series_long_format():
     assert profile.data_profile.n_series == 2
     assert profile.data_profile.data_format == "long"
     assert profile.forecaster == "ForecasterRecursiveMultiSeries"
+
+
+def test_profile_series_pacf_when_long_format_multiindex_with_integer_ids():
+    """
+    Test that profile() computes the PACF of long-format data indexed by a
+    (series_id, date) MultiIndex on the flat frame the profile describes:
+    the integer ids are named and ordered as text ('1', '10', '2'), as those
+    of the same data with the levels as columns. Before, the PACF read the
+    MultiIndex and listed the series in numeric order ('1', '2', '10').
+    """
+    assistant = ForecastingAssistant()
+    expected = assistant.profile(
+        data             = df_multi_long_integer_ids,
+        target           = "value",
+        date_column      = "date",
+        series_id_column = "series_id",
+    )
+    data = df_multi_long_integer_ids.set_index(["series_id", "date"])
+
+    profile = assistant.profile(data=data, target="value")
+
+    assert [
+        (pacf.series_id, pacf.n_observations, pacf.lags)
+        for pacf in profile.series_pacf
+    ] == [
+        ("1", 100, [1, 2, 3]),
+        ("10", 100, [7, 5, 6, 8, 4, 3, 2]),
+        ("2", 100, [1, 2, 3]),
+    ]
+    np.testing.assert_array_almost_equal(
+        np.concatenate([pacf.pacf_abs for pacf in profile.series_pacf]),
+        np.array([
+            0.9497286304844792, 0.6156822781008228, 0.3799783360889658,
+            0.7611519872802129, 0.549834183045989, 0.5300736984603612,
+            0.46977843055323154, 0.4572166474212591, 0.37154322504876336,
+            0.3292776741776512,
+            0.9360758090523229, 0.8483403398362086, 0.42448197624098877,
+        ]),
+    )
+    assert profile.series_pacf == expected.series_pacf
+    assert profile.data_profile == expected.data_profile
 
 
 def test_profile_output_when_multi_series_wide_format():
@@ -499,52 +547,214 @@ def test_profile_InvalidInputError_when_month_names_read_as_full_names():
 
 
 @pytest.mark.parametrize("source", ["csv", "dataframe"])
-def test_profile_InvalidInputError_when_day_first_dates_read_month_first(
+def test_profile_output_when_day_first_dates_after_one_that_reads_month_first(
     tmp_path, source
 ):
     """
     Test that day-first dates whose first date also reads month-first
-    ('01/01/2023', then '13/01/2023') raise with the day-first advice: the
-    script reads them all month-first, and a later date proves that reading
-    wrong. The hint asks for ISO 8601 without the pandas call.
+    ('01/01/2023', then '13/01/2023') are read day first, the only order
+    that reads every date, and that the profile records the format the
+    generated script reads them with.
     """
     data = df_single.assign(date=df_single["date"].dt.strftime("%d/%m/%Y"))
     if source == "csv":
         data.to_csv(tmp_path / "dayfirst.csv", index=False)
         data = tmp_path / "dayfirst.csv"
 
-    err_msg = re.escape(
-        "The dates of column 'date' are written day first, but the first one, "
-        "'01/01/2023', also reads month first ('%m/%d/%Y'), the format the "
-        "generated script reads every date with, and '13/01/2023' does not "
-        "fit it: write the dates in ISO 8601, such as '2023-01-13', or read "
-        "them with pandas.to_datetime(..., dayfirst=True) before passing them."
-    )
-    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
-        ForecastingAssistant().profile(data=data, target="sales", date_column="date")
-
-    assert exc_info.value.field == "data"
-    assert exc_info.value.hint == (
-        "Write the dates of the column in ISO 8601, such as '2023-01-13'."
+    profile = ForecastingAssistant().profile(
+        data=data, target="sales", date_column="date"
     )
 
+    dp = profile.data_profile
+    assert dp.date_format == "%d/%m/%Y"
+    assert dp.frequency == "D"
+    assert dp.start_date == "2023-01-01"
+    assert dp.series_lengths["sales"].end == "2023-04-10"
 
-def test_profile_output_when_day_first_dates_also_read_month_first():
+
+@pytest.mark.parametrize(
+    "source, fix, hint",
+    [
+        (
+            "csv",
+            "Profile the file saying which it is, with `dayfirst`.",
+            DAYFIRST_HINT,
+        ),
+        (
+            "dataframe",
+            "Profile the data saying which it is, with `dayfirst`.",
+            DAYFIRST_FRAME_HINT,
+        ),
+    ],
+)
+def test_profile_InvalidInputError_when_dates_read_day_first_and_month_first(
+    tmp_path, source, fix, hint
+):
     """
-    Test that day-first dates that all read month-first too (no day after
-    the 12th) are profiled as the script reads them, month-first: nothing
-    proves that reading wrong.
+    Test that three monthly dates that all read both day first and month
+    first (no day after the 12th) and are regular in both orders (monthly
+    day first, daily month first) raise instead of being read month first,
+    quoting a date whose two readings differ and both frequencies, with the
+    code 'data_unreadable' and the hint that names `dayfirst`, for a CSV file
+    and for a DataFrame.
     """
-    dates = pd.date_range("2023-01-01", periods=12, freq="MS")
     data = pd.DataFrame({
-        "date": dates.strftime("%d/%m/%Y"),
-        "y": np.arange(12, dtype=float),
+        "date": ["01/01/2023", "01/02/2023", "01/03/2023"],
+        "y": [1.0, 2.0, 4.0],
+    })
+    if source == "csv":
+        data.to_csv(tmp_path / "monthly.csv", index=False)
+        data = tmp_path / "monthly.csv"
+
+    err_msg = re.escape(
+        "The dates of column 'date' read both day first and month first: no "
+        "day is after the 12th, so '01/02/2023' may be '2023-02-01' or "
+        "'2023-01-02', and both readings have a regular frequency ('MS' day "
+        f"first and 'D' month first), so the order is not guessed. {fix}"
+    )
+    with pytest.raises(InvalidInputError, match="^" + err_msg + "$") as exc_info:
+        ForecastingAssistant().profile(
+            data=data, target="y", date_column="date", dayfirst=None
+        )
+
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.field == "data"
+    assert exc_info.value.hint == hint
+
+
+@pytest.mark.parametrize("source", ["csv", "dataframe"])
+@pytest.mark.parametrize(
+    "written, read, quoted",
+    [
+        ("%m/%d/%Y", "month", "'02/01/2019' is '2019-02-01' and not '2019-01-02'"),
+        ("%d/%m/%Y", "day", "'01/02/2019' is '2019-02-01' and not '2019-01-02'"),
+    ],
+    ids=["us monthly", "spanish monthly"],
+)
+def test_profile_output_when_dates_read_both_ways_and_only_one_order_is_regular(
+    tmp_path, source, written, read, quoted
+):
+    """
+    Test that five years of monthly dates on the first of each month, which
+    all read day first and month first, are profiled in the only order in
+    which they have a regular frequency: month first for a US file
+    ('02/01/2019'), which 0.5.x read right and still does, and day first for
+    a Spanish one. Both are monthly from January 2019, the profile records
+    the format, and `DataProfile.warnings` starts with the note that says
+    the order was told from the regularity and how to give the other one.
+    """
+    dates = pd.date_range("2019-01-01", periods=60, freq="MS")
+    data = pd.DataFrame({
+        "date": dates.strftime(written),
+        "y": np.round(10 + np.sin(np.arange(60)), 3),
+    })
+    if source == "csv":
+        data.to_csv(tmp_path / "monthly.csv", index=False)
+        data = tmp_path / "monthly.csv"
+
+    profile = ForecastingAssistant().profile(
+        data=data, target="y", date_column="date"
+    )
+
+    dp = profile.data_profile
+    other = "day" if read == "month" else "month"
+    dayfirst = other == "day"
+    remedy = (
+        f"profile the file again with `dayfirst={dayfirst}` in `profile()`, "
+        f"`--{other}first` in the `profile` command or `dayfirst` "
+        f"{str(dayfirst).lower()} in the `profile` tool of the MCP server"
+        if source == "csv" else
+        f"profile the data again with `dayfirst={dayfirst}`"
+    )
+    assert dp.date_format == written
+    assert dp.frequency == "MS"
+    assert dp.start_date == "2019-01-01"
+    assert dp.series_lengths["y"].end == "2023-12-01"
+    assert dp.warnings[0] == (
+        f"The dates of column 'date' read both day first and month first (no "
+        f"day is after the 12th): they were read {read} first, the only order "
+        f"in which they have a regular frequency ('MS'), so {quoted}. If they "
+        f"are written {other} first, {remedy}."
+    )
+
+
+@pytest.mark.parametrize(
+    "dayfirst, expected_format, expected_frequency",
+    [(True, "%d/%m/%Y", "MS"), (False, "%m/%d/%Y", "D")],
+    ids=["day first", "month first"],
+)
+def test_profile_output_when_dayfirst_given_for_text_dates_of_a_dataframe(
+    dayfirst, expected_format, expected_frequency
+):
+    """
+    Test that `dayfirst` decides the order of the text dates of a DataFrame
+    that read both ways, as for a CSV file: three dates regular in both
+    orders are monthly day first and daily month first.
+    """
+    data = pd.DataFrame({
+        "date": ["01/01/2023", "01/02/2023", "01/03/2023"],
+        "y": [1.0, 2.0, 4.0],
     })
 
-    profile = ForecastingAssistant().profile(data=data, target="y", date_column="date")
+    profile = ForecastingAssistant().profile(
+        data=data, target="y", date_column="date", dayfirst=dayfirst
+    )
 
-    assert profile.data_profile.frequency == "D"
-    assert profile.data_profile.start_date == "2023-01-01"
+    assert profile.data_profile.date_format == expected_format
+    assert profile.data_profile.frequency == expected_frequency
+
+
+def test_profile_IgnoredArgumentWarning_when_dayfirst_and_dataframe_dates_are_datetime():
+    """
+    Test that `dayfirst` with a DataFrame whose dates are already datetime
+    emits an IgnoredArgumentWarning saying that it does not apply, pointing
+    at the call, and the profile is the one without it. A CSV file whose
+    dates `dayfirst` reads emits no such warning.
+    """
+    warn_msg = re.escape(
+        "`dayfirst` does not apply and is ignored: the dates of column 'date' "
+        "are not text, so the order of their day and month is already set. It "
+        "orders the day and the month of dates written as text, such as "
+        "'01/02/2020'."
+    )
+    with pytest.warns(IgnoredArgumentWarning, match="^" + warn_msg) as record:
+        profile = ForecastingAssistant().profile(
+            data=df_single, target="sales", date_column="date", dayfirst=True
+        )
+
+    assert record[0].filename == __file__
+    assert profile == ForecastingAssistant().profile(
+        data=df_single, target="sales", date_column="date"
+    )
+
+
+@pytest.mark.parametrize(
+    "dayfirst, start_date, frequency",
+    [(True, "2023-01-01", "MS"), (False, "2023-01-01", None)],
+    ids=["day first", "month first"],
+)
+def test_profile_output_when_dayfirst_given_for_dates_that_read_both_ways(
+    tmp_path, dayfirst, start_date, frequency
+):
+    """
+    Test that `dayfirst` decides the order of dates that read both ways:
+    day first, the monthly data of the file; month first, the first twelve
+    days of each January, irregular. The profile records the format either
+    way, so the script and the other methods read the file in that order.
+    """
+    dates = pd.date_range("2023-01-01", periods=24, freq="MS")
+    path = tmp_path / "monthly.csv"
+    pd.DataFrame({
+        "date": dates.strftime("%d/%m/%Y"),
+        "y": np.arange(24, dtype=float),
+    }).to_csv(path, index=False)
+
+    profile = ForecastingAssistant().profile(data=path, target="y", dayfirst=dayfirst)
+
+    dp = profile.data_profile
+    assert dp.date_format == ("%d/%m/%Y" if dayfirst else "%m/%d/%Y")
+    assert dp.start_date == start_date
+    assert dp.frequency == frequency
 
 
 def test_profile_output_when_csv_dates_in_utc(tmp_path):
@@ -634,6 +844,83 @@ def test_profile_InvalidInputError_when_series_id_column_invalid(
 
     assert exc_info.value.code == "invalid_argument"
     assert exc_info.value.field == "series_id_column"
+
+
+@pytest.mark.parametrize(
+    "names",
+    [[None, None], ["series_id", None], [None, "date"]],
+    ids=lambda names: f"names: {names}",
+)
+def test_profile_InvalidInputError_when_multiindex_level_unnamed(names):
+    """
+    Test that profile() rejects long-format data indexed by a MultiIndex with
+    a level without a name, with a hint to name the levels: the generated
+    script reads the levels by name from the frame saved with `to_csv()`,
+    which writes an empty header for them. Before, two unnamed levels raised
+    KeyError: 'series_id', and an unnamed date level was profiled as a column
+    'datetime' that the script did not have.
+    """
+    data = df_multi_long.set_index(["series_id", "date"]).rename_axis(names)
+    err_msg = re.escape(
+        f"`data` is indexed by a MultiIndex with levels without a name "
+        f"(names {names})."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        ForecastingAssistant().profile(data=data, target="value")
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "data"
+    assert exc_info.value.hint == (
+        "Name the levels with text, as in "
+        "`data.rename_axis(['series_id', 'date'])`, or turn them into columns "
+        "with `data.reset_index()` and pass their names as `series_id_column` "
+        "and `date_column`."
+    )
+
+
+@pytest.mark.parametrize(
+    "levels, names, err_msg",
+    [
+        (
+            ["series_id", "date", "region"],
+            None,
+            "`data` is indexed by a MultiIndex with 3 levels (names "
+            "['series_id', 'date', 'region']). A MultiIndex is read as the "
+            "series id and the date, `(series_id, date)`, so it must have two "
+            "levels.",
+        ),
+        (
+            ["region", "series_id", "date"],
+            None,
+            "`data` is indexed by a MultiIndex with 3 levels (names "
+            "['region', 'series_id', 'date']).",
+        ),
+        (
+            ["series_id", "date"],
+            [0, "date"],
+            "`data` is indexed by a MultiIndex with levels not named with text "
+            "(names [0, 'date']).",
+        ),
+    ],
+    ids=["three levels", "three levels, dates last", "level named with a number"],
+)
+def test_profile_InvalidInputError_when_multiindex_not_two_levels_named_with_text(
+    levels, names, err_msg
+):
+    """
+    Test that profile() rejects a MultiIndex that is not `(series_id, date)`,
+    with a hint: a third level, which would otherwise be profiled as an
+    exogenous variable when last and would shift the dates to the series ids
+    when first, or a level named with a number, which raised a
+    ValidationError of the profile.
+    """
+    data = df_multi_long.assign(region="north").set_index(levels)
+    if names is not None:
+        data = data.rename_axis(names)
+    with pytest.raises(InvalidInputError, match=re.escape(err_msg)) as exc_info:
+        ForecastingAssistant().profile(data=data, target="value")
+
+    assert exc_info.value.field == "data"
 
 
 def test_profile_InvalidInputError_when_target_is_empty_list():
@@ -738,21 +1025,11 @@ def test_profile_output_when_target_is_numeric_strings():
     [
         (b"", "No columns to parse from file"),
         (
-            bytes(range(256)),
-            "'utf-8' codec can't decode byte 0x80 in position 128: invalid "
-            "start byte",
-        ),
-        (
             b"date,x\n2020-01-01,1\n2020-01-02,2,3,4\n2020-01-03,4\n",
             "Error tokenizing data. C error: Expected 2 fields in line 3, saw 4",
         ),
-        (
-            "date,x,name\n2020-01-01,1,caf\xe9\n".encode("latin-1"),
-            "'utf-8' codec can't decode byte 0xe9 in position 28: invalid "
-            "continuation byte",
-        ),
     ],
-    ids=["empty", "binary", "more fields than the header", "latin-1"],
+    ids=["empty", "more fields than the header"],
 )
 def test_profile_InvalidInputError_when_csv_unreadable(tmp_path, content, reason):
     """
@@ -774,6 +1051,73 @@ def test_profile_InvalidInputError_when_csv_unreadable(tmp_path, content, reason
         "Pass a text file in UTF-8 separated by ',', ';' or tabulators, with a "
         "header row and the same number of fields in every row."
     )
+
+
+@pytest.mark.parametrize("name", ["excel.csv", "excel.csv.gz"], ids=["plain", "gzip"])
+def test_profile_output_when_csv_is_cp1252(tmp_path, name):
+    """
+    Test that profile() of the CSV that Excel saves on Windows in Spanish
+    (cp1252, ';', ',' as decimal mark, 'año' as target and accents in the
+    categories of 'zona') records the encoding with the dialect, reads the
+    names and the categories right and says first among the warnings that
+    the encoding cannot be checked; also compressed with gzip.
+    """
+    csv_path = write_cp1252(tmp_path, name=name)
+
+    profile = ForecastingAssistant().profile(data=csv_path, target="año")
+
+    data_profile = profile.data_profile
+    assert data_profile.csv_encoding == "cp1252"
+    assert (data_profile.csv_sep, data_profile.csv_decimal) == (";", ",")
+    assert data_profile.date_format == "%d/%m/%Y"
+    assert data_profile.exog_columns == ["zona"]
+    assert data_profile.categorical_exog == ["zona"]
+    assert data_profile.warnings[0] == (
+        "The CSV file is not UTF-8: it was read as cp1252 (Windows-1252), the "
+        "encoding of the CSV files that Excel saves on Windows, and the "
+        "generated script reads it so. That encoding cannot be checked: if "
+        "column names or categories show wrong characters, save the file as "
+        "UTF-8 and profile it again."
+    )
+
+
+def test_profile_output_when_csv_is_utf8_with_bom(tmp_path):
+    """
+    Test that profile() of a UTF-8 file with a byte order mark records UTF-8
+    and gives no note on the encoding.
+    """
+    csv_path = tmp_path / "bom.csv"
+    df_dialect_cp1252.to_csv(
+        csv_path, index=False, sep=";", decimal=",", encoding="utf-8-sig"
+    )
+
+    profile = ForecastingAssistant().profile(data=csv_path, target="año")
+
+    assert profile.data_profile.csv_encoding == "utf-8"
+    assert profile.data_profile.exog_columns == ["zona"]
+    assert not any("UTF-8" in warning for warning in profile.data_profile.warnings)
+
+
+def test_profile_InvalidInputError_when_csv_is_utf16(tmp_path):
+    """
+    Test that profile() of a file in UTF-16, which cp1252 would read with
+    null bytes, raises an InvalidInputError with the code 'data_unreadable'
+    and the hint that asks for a copy in UTF-8.
+    """
+    csv_path = tmp_path / "unicode.csv"
+    df_dialect_cp1252.to_csv(
+        csv_path, index=False, sep=";", decimal=",", encoding="utf-16"
+    )
+
+    err_msg = re.escape(
+        f"The CSV file '{csv_path}' could not be read: it is written in UTF-16"
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        ForecastingAssistant().profile(data=csv_path, target="año")
+
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.field == "data"
+    assert exc_info.value.hint == ENCODING_HINT
 
 
 @pytest.mark.parametrize(
@@ -1162,8 +1506,8 @@ def test_profile_reads_csv_with_semicolon_and_decimal_comma(tmp_path):
     writes in Spanish, German or French) is profiled instead of raising,
     records its dialect, and gives the same profile as the same frame written
     with the default `to_csv`, but for the path and the dialect. The day first
-    dates are read month first in both files, so the frequency is None with a
-    warning in the profile in both.
+    dates on the first of each month read both ways, so `dayfirst` gives
+    their order in both files, and the frequency is monthly.
     """
     semicolon_path = tmp_path / "eu.csv"
     comma_path = tmp_path / "us.csv"
@@ -1171,14 +1515,15 @@ def test_profile_reads_csv_with_semicolon_and_decimal_comma(tmp_path):
     df_dialect_monthly.to_csv(comma_path, index=False)
     assistant = ForecastingAssistant()
 
-    result = assistant.profile(semicolon_path, target="y")
-    expected = assistant.profile(comma_path, target="y")
+    result = assistant.profile(semicolon_path, target="y", dayfirst=True)
+    expected = assistant.profile(comma_path, target="y", dayfirst=True)
 
     dp = result.data_profile
     assert dp.csv_sep == ";"
     assert dp.csv_decimal == ","
     assert dp.data_path == str(semicolon_path)
-    assert dp.frequency is None
+    assert dp.date_format == "%d/%m/%Y"
+    assert dp.frequency == "MS"
     assert dp.n_total_observations == 48
     assert expected.data_profile.csv_sep == ","
     assert expected.data_profile.csv_decimal == "."
@@ -1392,3 +1737,145 @@ def test_profile_InvalidInputError_when_sep_not_valid_for_data_in_memory():
         ForecastingAssistant().profile(data, target="y", sep="x")
 
     assert exc_info.value.field == "sep"
+
+
+@pytest.mark.parametrize(
+    "decimals, expected",
+    [
+        (True, {"min": 870.0, "max": 2048.71, "mean": 1458.6779166666665}),
+        (False, {"min": 870.0, "max": 2049.0, "mean": 1458.7083333333333}),
+    ],
+    ids=["thousands and decimal comma", "whole numbers with and without separator"],
+)
+def test_profile_records_the_thousands_separator_of_the_csv_file(
+    tmp_path, decimals, expected
+):
+    """
+    Test that profile() reads a ';' file with '.' between thousands as the
+    amounts it holds and records ';', ',' and '.' as its dialect.
+    """
+    path = write_thousands(tmp_path, df_dialect_thousands, decimals=decimals)
+
+    result = ForecastingAssistant().profile(path, target="y")
+
+    data_profile = result.data_profile
+    assert (data_profile.csv_sep, data_profile.csv_decimal) == (";", ",")
+    assert data_profile.csv_thousands == "."
+    assert data_profile.target_dtype == "numeric"
+    for name, value in expected.items():
+        assert data_profile.target_stats["y"][name] == pytest.approx(value)
+
+
+@pytest.mark.parametrize(
+    "kwargs, expected",
+    [
+        ({"thousands": "."}, (",", ".", [1870.0, 1020.0])),
+        ({"decimal": ","}, (",", ".", [1870.0, 1020.0])),
+        ({"decimal": "."}, (".", None, [1.87, 1.02])),
+    ],
+    ids=["thousands", "decimal comma", "decimal point"],
+)
+def test_profile_output_when_thousands_ambiguous_and_dialect_given(
+    tmp_path, kwargs, expected
+):
+    """
+    Test that a file whose numbers all read both as thousands and as three
+    decimals raises an InvalidInputError with the code 'data_unreadable',
+    and that profile() reads it as the caller says: `thousands` '.' or
+    `decimal` ',' as thousands, `decimal` '.' as three decimals. A decimal
+    mark ',' given that reads '1.870' as text no longer leaves the target as
+    text.
+    """
+    path = tmp_path / "thousands.csv"
+    path.write_text(
+        "date;y\n" + "".join(
+            f"2020-{month:02d}-01;{'1.870' if month % 2 else '1.020'}\n"
+            for month in range(1, 13)
+        )
+    )
+    decimal, thousands, values = expected
+    assistant = ForecastingAssistant()
+
+    err_msg = re.escape(
+        f"The thousands separator of the CSV file '{path}' cannot be told: its "
+        f"numbers with a '.' (such as '1.870') read both as thousands and as "
+        f"numbers with three decimals."
+    )
+    with pytest.raises(InvalidInputError, match="^" + err_msg + "$") as exc_info:
+        assistant.profile(path, target="y")
+    result = assistant.profile(path, target="y", **kwargs)
+
+    assert exc_info.value.code == "data_unreadable"
+    assert result.data_profile.csv_decimal == decimal
+    assert result.data_profile.csv_thousands == thousands
+    assert result.data_profile.target_dtype == "numeric"
+    assert result.data_profile.target_stats["y"]["max"] == pytest.approx(values[0])
+    assert result.data_profile.target_stats["y"]["min"] == pytest.approx(values[1])
+
+
+def test_profile_thousands_is_ignored_for_data_in_memory():
+    """
+    Test that a DataFrame is profiled without thousands separator whatever
+    `thousands` says, because there is no file to read.
+    """
+    result = ForecastingAssistant().profile(
+        df_dialect.assign(date=pd.to_datetime(df_dialect["date"])),
+        target="y",
+        thousands=".",
+    )
+
+    assert result.data_profile.csv_thousands is None
+    assert result.data_profile.csv_decimal == "."
+
+
+@pytest.mark.parametrize(
+    "kwargs, message",
+    [
+        ({"thousands": ","}, "`thousands` must be '.', got ','."),
+        (
+            {"thousands": ".", "decimal": "."},
+            "`thousands` cannot be '.' when `decimal` is '.': the same "
+            "character would separate the thousands and the decimals.",
+        ),
+    ],
+    ids=["comma", "with decimal point"],
+)
+def test_profile_InvalidInputError_when_thousands_not_valid(tmp_path, kwargs, message):
+    """
+    Test that profile() raises InvalidInputError naming `thousands` when it
+    is not '.', or when it is the decimal mark.
+    """
+    path = write_dialect(tmp_path, df_dialect, "semicolon_comma")
+
+    with pytest.raises(InvalidInputError, match=re.escape(message)) as exc_info:
+        ForecastingAssistant().profile(path, target="y", **kwargs)
+
+    assert exc_info.value.field == "thousands"
+
+
+def test_profile_reads_thousands_of_a_series_after_the_sample(tmp_path, monkeypatch):
+    """
+    Test that a long-format ';' file sorted by series, whose first series
+    holds amounts below 1,000 in the lines the dialect is told from and
+    whose second series holds amounts written as '1.020' after them, is
+    profiled with '.' as thousands separator and the amounts of both series.
+    """
+    monkeypatch.setattr("skforecast_ai.profiling.csv_dialect.SAMPLE_BYTES", 400)
+    dates = pd.date_range("2020-01-01", periods=30, freq="D").strftime("%Y-%m-%d")
+    path = tmp_path / "long.csv"
+    path.write_text(
+        "series;date;y\n"
+        + "".join(f"a;{date};{800 + i}\n" for i, date in enumerate(dates))
+        + "".join(f"b;{date};1.{100 + i}\n" for i, date in enumerate(dates))
+    )
+    assert len(path.read_bytes()) > 400
+
+    result = ForecastingAssistant().profile(
+        path, target="y", series_id_column="series"
+    )
+
+    data_profile = result.data_profile
+    assert data_profile.csv_thousands == "."
+    assert data_profile.target_stats["a"]["max"] == 829.0
+    assert data_profile.target_stats["b"]["min"] == 1100.0
+    assert data_profile.target_stats["b"]["max"] == 1129.0

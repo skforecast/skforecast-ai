@@ -856,6 +856,68 @@ def test_backtest_runs_when_long_series_starts_late(n_values):
     assert result.plan.forecaster == "ForecasterRecursiveMultiSeries"
 
 
+@pytest.mark.parametrize("with_profile", [True, False], ids=["profile", "no_profile"])
+def test_backtest_output_when_long_format_multiindex(with_profile):
+    """
+    Test that backtest() runs long-format data indexed by a (series, date)
+    MultiIndex as the same data with the levels as columns, which is how the
+    script reads the frame saved with `to_csv()`: same script, predictions
+    and metrics. Before, the executed script did not find the date column
+    (KeyError: 'date').
+    """
+    expected = assistant.backtest(
+        data             = _ITEMS_LONG,
+        target           = "value",
+        date_column      = "date",
+        series_id_column = "series",
+        cv               = _long_cv(),
+        estimator        = "Ridge",
+        show_progress    = False,
+    )
+    data = _ITEMS_LONG.set_index(["series", "date"])
+    if with_profile:
+        profile = assistant.profile(data=data, target="value")
+        plan = assistant.plan(profile, steps=5, estimator="Ridge")
+        kwargs = {"profile": profile, "plan": plan}
+    else:
+        kwargs = {"target": "value", "estimator": "Ridge"}
+
+    result = assistant.backtest(
+        data=data, cv=_long_cv(), show_progress=False, **kwargs
+    )
+
+    assert result.code == expected.code
+    pd.testing.assert_frame_equal(result.predictions, expected.predictions)
+    pd.testing.assert_frame_equal(result.metrics, expected.metrics)
+
+
+@pytest.mark.parametrize("with_profile", [True, False], ids=["profile", "no_profile"])
+def test_backtest_InvalidInputError_when_multiindex_level_unnamed(with_profile):
+    """
+    Test that backtest() rejects long-format data indexed by a MultiIndex
+    with a level without a name, also with a profile of the same data with
+    named levels: the script reads the levels by name from the frame saved
+    with `to_csv()`, which writes an empty header for them.
+    """
+    data = _ITEMS_LONG.set_index(["series", "date"])
+    kwargs = {"target": "value", "estimator": "Ridge"}
+    if with_profile:
+        kwargs = {"profile": assistant.profile(data=data, target="value")}
+    err_msg = re.escape(
+        "`data` is indexed by a MultiIndex with levels without a name "
+        "(names ['series', None])."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.backtest(
+            data          = data.rename_axis(["series", None]),
+            cv            = _long_cv(),
+            show_progress = False,
+            **kwargs,
+        )
+
+    assert exc_info.value.field == "data"
+
+
 def test_backtest_InvalidInputError_when_received_plan_clashes_with_exog_names():
     """
     Test that backtest() checks a plan built on clean data against the

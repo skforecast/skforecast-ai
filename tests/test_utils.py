@@ -1,8 +1,11 @@
 # Unit test _utils
 
 import re
+import threading
 import urllib.error
 import warnings
+from contextlib import contextmanager
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import numpy as np
@@ -13,6 +16,7 @@ from skforecast.model_selection import TimeSeriesFold
 
 from skforecast_ai._utils import (
     _check_cv_matches_profile,
+    _dialect_read,
     _check_evaluated_target,
     _check_plan_matches_profile,
     _check_feature_name_collisions,
@@ -24,6 +28,7 @@ from skforecast_ai._utils import (
     _validate_task_input,
     _data_path_of_run,
     _with_data_path,
+    encoding_notes,
     profile_structure,
     same_period,
     structure_differences,
@@ -36,13 +41,23 @@ from skforecast_ai.exceptions import (
     InvalidInputError,
 )
 from skforecast_ai.profiling import create_data_profile
+from skforecast_ai.profiling.csv_dialect import (
+    ENCODING_HINT,
+    CsvSample,
+    cp1252_note,
+)
+from skforecast_ai.profiling.data_profile import DAYFIRST_HINT
 from skforecast_ai.schemas import DataProfile
+
+from tests.fixtures_csv_dialect import df_dialect, df_dialect_monthly, write_cp1252
 
 from tests.fixtures_assistant import (
     df_categorical_exog,
+    df_day_first,
     df_multi_long,
     df_multi_wide,
     df_no_exog,
+    df_no_sundays,
     df_range_index,
     df_single,
     series_single,
@@ -284,6 +299,225 @@ def test_resolve_data_and_target_ValueError_when_csv_date_column_has_empty_cell(
         _resolve_data_and_target(csv_path, target="x", date_column="date")
 
 
+@pytest.mark.parametrize(
+    "dayfirst, expected_dates, expected_format",
+    [
+        (True, ["2018-01-01", "2018-02-01", "2018-03-01"], "%d/%m/%Y"),
+        (False, ["2018-01-01", "2018-01-02", "2018-01-03"], "%m/%d/%Y"),
+    ],
+    ids=["day_first", "month_first"],
+)
+def test_resolve_data_and_target_output_when_dayfirst_and_ambiguous_dates(
+    tmp_path, dayfirst, expected_dates, expected_format
+):
+    """
+    Test that `dayfirst` gives the order of the dates of a CSV whose dates
+    all read in both (the first of every month, '01/02/2018'): day first
+    reads the months of the year, month first the days of January. The
+    format the file was read with is kept with its dialect.
+    """
+    csv_path = tmp_path / "monthly.csv"
+    df_dialect_monthly.to_csv(csv_path, index=False)
+
+    data, target = _resolve_data_and_target(
+                       data     = csv_path,
+                       target   = "y",
+                       dayfirst = dayfirst,
+                   )
+
+    assert target == "y"
+    assert data["date"].iloc[:3].tolist() == [
+        pd.Timestamp(date) for date in expected_dates
+    ]
+    assert utils_module._READ_CSV_DIALECT.get() == (
+        str(csv_path), ",", ".", None, expected_format, (), "utf-8"
+    )
+
+
+def test_resolve_data_and_target_InvalidInputError_when_dates_in_both_orders(
+    tmp_path,
+):
+    """
+    Test that dates of a CSV that read both day first and month first and
+    are regular in both orders (three months, daily month first) are never
+    guessed: without `dayfirst` the read raises with the code
+    'data_unreadable', the field 'data' and the hint that names `dayfirst`.
+    """
+    csv_path = tmp_path / "monthly.csv"
+    df_dialect_monthly.head(3).to_csv(csv_path, index=False)
+
+    err_msg = re.escape(
+        "The dates of column 'date' read both day first and month first: no "
+        "day is after the 12th, so '01/02/2018' may be '2018-02-01' or "
+        "'2018-01-02', and both readings have a regular frequency ('MS' day "
+        "first and 'D' month first), so the order is not guessed. Profile the "
+        "file saying which it is, with `dayfirst`."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg + "$") as exc_info:
+        _resolve_data_and_target(data=csv_path, target="y", date_column="date")
+
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.field == "data"
+    assert exc_info.value.hint == DAYFIRST_HINT
+
+
+@pytest.mark.parametrize(
+    "date_format, expected_first_dates",
+    [
+        ("%d/%m/%Y", ["2018-01-01", "2018-02-01"]),
+        ("%m/%d/%Y", ["2018-01-01", "2018-01-02"]),
+    ],
+    ids=["day_first", "month_first"],
+)
+def test_resolve_data_and_target_output_when_date_format_and_ambiguous_dates(
+    tmp_path, date_format, expected_first_dates
+):
+    """
+    Test that the format recorded by a profile of the data decides the order
+    of the dates of a CSV that read in both, as `dayfirst` does.
+    """
+    csv_path = tmp_path / "monthly.csv"
+    df_dialect_monthly.to_csv(csv_path, index=False)
+
+    data, _ = _resolve_data_and_target(
+                  data        = csv_path,
+                  target      = "y",
+                  date_format = date_format,
+              )
+
+    assert data["date"].iloc[:2].tolist() == [
+        pd.Timestamp(date) for date in expected_first_dates
+    ]
+    assert utils_module._READ_CSV_DIALECT.get()[4] == date_format
+
+
+def test_resolve_data_and_target_output_when_day_first_dates_tell_order(
+    tmp_path,
+):
+    """
+    Test that dates with a day after the 12th are read day first without
+    `dayfirst` (only that order reads every date) and the file records the
+    format '%d/%m/%Y', also when `dayfirst` says so; ISO 8601 dates record no
+    format, whatever `dayfirst` says.
+    """
+    day_first_path = tmp_path / "day_first.csv"
+    iso_path = tmp_path / "iso.csv"
+    df_day_first.to_csv(day_first_path, index=False)
+    df_single.to_csv(iso_path, index=False)
+
+    data, _ = _resolve_data_and_target(day_first_path, target="y")
+    recorded = utils_module._READ_CSV_DIALECT.get()[4]
+    _resolve_data_and_target(day_first_path, target="y", dayfirst=True)
+    recorded_given = utils_module._READ_CSV_DIALECT.get()[4]
+    _resolve_data_and_target(iso_path, target="sales")
+    recorded_iso = utils_module._READ_CSV_DIALECT.get()[4]
+    _resolve_data_and_target(iso_path, target="sales", dayfirst=True)
+    recorded_iso_given = utils_module._READ_CSV_DIALECT.get()[4]
+
+    assert data["date"].iloc[[0, 1, -1]].tolist() == [
+        pd.Timestamp("2020-12-03"),
+        pd.Timestamp("2020-12-04"),
+        pd.Timestamp("2021-01-31"),
+    ]
+    assert recorded == "%d/%m/%Y"
+    assert recorded_given == "%d/%m/%Y"
+    assert recorded_iso is None
+    assert recorded_iso_given is None
+
+
+def test_resolve_data_and_target_InvalidInputError_when_dayfirst_contradicts(
+    tmp_path,
+):
+    """
+    Test that `dayfirst=False` on dates that only read day first (a day
+    after the 12th) raises with the field 'dayfirst', quoting a date that
+    does not read month first.
+    """
+    csv_path = tmp_path / "day_first.csv"
+    df_day_first.to_csv(csv_path, index=False)
+
+    err_msg = re.escape(
+        "`dayfirst` is False, but the dates of column 'date' do not read month "
+        "first: '13/12/2020' only reads day first. Leave `dayfirst` out to "
+        "tell the order from the dates."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg + "$") as exc_info:
+        _resolve_data_and_target(
+            data        = csv_path,
+            target      = "y",
+            date_column = "date",
+            dayfirst    = False,
+        )
+
+    assert exc_info.value.field == "dayfirst"
+    assert exc_info.value.hint == (
+        "Leave `dayfirst` out, so the order is told from the dates."
+    )
+
+
+def test_resolve_data_and_target_keeps_date_notes_when_order_told_from_regularity(
+    tmp_path,
+):
+    """
+    Test that the dates of a CSV that read in both orders and are regular in
+    only one (four years of monthly dates written day first) are read in it,
+    and the note that says so is kept with the dialect of the file, for the
+    profile.
+    """
+    csv_path = tmp_path / "monthly.csv"
+    df_dialect_monthly.to_csv(csv_path, index=False)
+
+    data, _ = _resolve_data_and_target(data=csv_path, target="y")
+
+    assert data["date"].iloc[:2].tolist() == [
+        pd.Timestamp("2018-01-01"), pd.Timestamp("2018-02-01")
+    ]
+    read = _dialect_read(str(csv_path))
+    assert read.date_format == "%d/%m/%Y"
+    assert len(read.notes) == 1
+    assert read.notes[0].startswith(
+        "The dates of column 'date' read both day first and month first (no "
+        "day is after the 12th): they were read day first"
+    )
+
+
+def test_resolve_data_and_target_ignores_dayfirst_when_data_in_memory():
+    """
+    Test that `dayfirst` is ignored for data passed in memory, which is
+    returned as it is (its text dates are not read here).
+    """
+    data, target = _resolve_data_and_target(
+                       data     = df_dialect_monthly,
+                       target   = "y",
+                       dayfirst = True,
+                   )
+
+    assert data is df_dialect_monthly
+    assert target == "y"
+
+
+def test_dialect_read_output_when_file_was_read(tmp_path):
+    """
+    Test that the dialect of the last CSV read is its separator, decimal
+    mark, thousands separator, the format of its dates, the notes on how it
+    was read (none for UTF-8 when `dayfirst` gives the order) and its
+    encoding, for the path it was recorded with, and None but for no notes
+    for another path or for the placeholder of data passed in memory.
+    """
+    csv_path = tmp_path / "monthly.csv"
+    df_dialect_monthly.to_csv(csv_path, index=False)
+
+    _resolve_data_and_target(data=csv_path, target="y", dayfirst=True)
+
+    assert _dialect_read(str(csv_path)) == (
+        ",", ".", None, "%d/%m/%Y", (), "utf-8"
+    )
+    assert _dialect_read(str(tmp_path / "other.csv")) == (
+        None, None, None, None, (), None
+    )
+    assert _dialect_read("data.csv") == (None, None, None, None, (), None)
+
+
 # =============================================================================
 # _resolve_inputs_with_profile
 # =============================================================================
@@ -372,6 +606,48 @@ def test_resolve_inputs_with_profile_raises_when_columns_missing_in_data():
             df_single.drop(columns=["sales"]), None, None, None,
             profile=profile_single,
         )
+
+
+@pytest.mark.parametrize(
+    "ids, expected_ids",
+    [
+        (None, None),
+        ({"store_a": 1, "store_b": 10}, {"store_a": "1", "store_b": "10"}),
+    ],
+    ids=["text_ids", "integer_ids"],
+)
+@pytest.mark.parametrize("with_profile", [False, True], ids=["no_profile", "profile"])
+def test_resolve_inputs_with_profile_output_when_multiindex(
+    with_profile, ids, expected_ids
+):
+    """
+    Test that long-format data indexed by a (series_id, date) MultiIndex is
+    returned with its levels as columns of the same name, as profiling reads
+    them and as the script reads the frame saved with `to_csv()`, that
+    integer ids of the level become text as the ids of a column do, and that
+    the date and series id columns come from the levels without a profile
+    and from the profile with one.
+    """
+    data = df_multi_long
+    expected = df_multi_long[["series_id", "date", "value"]]
+    if ids is not None:
+        data = data.assign(series_id=data["series_id"].map(ids))
+        expected = expected.assign(series_id=expected["series_id"].map(expected_ids))
+    data = data.set_index(["series_id", "date"])
+    profile = (
+        ForecastingAssistant().profile(data=data, target="value")
+        if with_profile
+        else None
+    )
+
+    data_df, target, date_column, series_id_column = _resolve_inputs_with_profile(
+        data, "value", None, None, profile=profile
+    )
+
+    pd.testing.assert_frame_equal(data_df, expected)
+    assert target == "value"
+    assert date_column == "date"
+    assert series_id_column == "series_id"
 
 
 def test_resolve_inputs_with_profile_output_when_series_input():
@@ -746,6 +1022,76 @@ def test_check_evaluated_target_ValueError_when_gap_in_test_folds():
     )
 
 
+_CLOSED_SUNDAYS = (
+    "counting the missing timestamps that asfreq() restores: all of them on "
+    "Sundays, when the target never has a value. skforecast cannot compute "
+    "the metrics on them, whatever the estimator. If the business is closed "
+    "on Sundays, fill them with 0 in the data, after asking the user; "
+    "otherwise, impute the target, or evaluate on dates without missing "
+    "values."
+)
+
+
+@pytest.mark.parametrize(
+    "kwargs, found",
+    [
+        (
+            {"cv": TimeSeriesFold(steps=14, initial_train_size=320, verbose=False)},
+            "6 missing value(s) in the test folds (2023-11-19 00:00:00, "
+            "2023-11-26 00:00:00, 2023-12-03 00:00:00, 2023-12-10 00:00:00, "
+            "2023-12-17 00:00:00 and 1 more)",
+        ),
+        (
+            {"end_train": "2023-12-16", "steps": 14},
+            "2 missing value(s) in the test split (2023-12-17 00:00:00, "
+            "2023-12-24 00:00:00)",
+        ),
+    ],
+    ids=["test folds", "test split"],
+)
+def test_check_evaluated_target_ValueError_names_closed_days(kwargs, found):
+    """
+    Test that missing timestamps of the test folds or of the test split that
+    all fall on days of the week without any value (a shop closed on
+    Sundays) are named with those days, with the advice of filling them with
+    0 if the business is closed, after asking the user.
+    """
+    data_profile = create_data_profile(
+        df_no_sundays, target="sales", date_column="date"
+    )
+
+    err_msg = re.escape(f"The target has {found}, {_CLOSED_SUNDAYS}")
+    with pytest.raises(DataContentError, match=f"^{err_msg}$"):
+        _check_evaluated_target(
+            data=df_no_sundays, data_profile=data_profile, **kwargs
+        )
+
+
+def test_check_evaluated_target_ValueError_when_a_gap_falls_on_an_open_day():
+    """
+    Test that a shop closed on Sundays that also misses a Monday of the test
+    split gets the message of missing values without the closed days: not
+    every missing date falls on them.
+    """
+    data = df_no_sundays.drop(index=[300]).reset_index(drop=True)
+    data_profile = create_data_profile(data, target="sales", date_column="date")
+
+    err_msg = re.escape(
+        "The target has 3 missing value(s) in the test split (2023-12-10 "
+        "00:00:00, 2023-12-17 00:00:00, 2023-12-18 00:00:00), counting the "
+        "missing timestamps that asfreq() restores. skforecast cannot compute "
+        "the metrics on them, whatever the estimator. Impute the target, or "
+        "evaluate on dates without missing values."
+    )
+    with pytest.raises(DataContentError, match=f"^{err_msg}$"):
+        _check_evaluated_target(
+            data         = data,
+            data_profile = data_profile,
+            end_train    = "2023-12-09",
+            steps        = 14,
+        )
+
+
 def test_check_evaluated_target_output_when_gap_only_in_training():
     """
     Test that a missing timestamp before the first test fold is accepted:
@@ -1038,6 +1384,66 @@ def test_resolve_inputs_with_profile_DataNotFoundError_before_date_column_confli
         )
 
 
+@pytest.mark.parametrize(
+    "dayfirst, expected_dates, expected_format",
+    [
+        (True, ["2018-01-01", "2018-02-01", "2018-03-01"], "%d/%m/%Y"),
+        (False, ["2018-01-01", "2018-01-02", "2018-01-03"], "%m/%d/%Y"),
+    ],
+    ids=["day_first", "month_first"],
+)
+def test_resolve_inputs_with_profile_output_when_profile_built_with_dayfirst(
+    tmp_path, dayfirst, expected_dates, expected_format
+):
+    """
+    Test that a CSV whose dates all read in both orders (the first of every
+    month) is read with the format of a profile built with `dayfirst`, which
+    raised without a profile, and the format is kept with the dialect.
+    """
+    csv_path = tmp_path / "monthly.csv"
+    df_dialect_monthly.to_csv(csv_path, index=False)
+    profile = ForecastingAssistant().profile(
+        data=csv_path, target="y", dayfirst=dayfirst
+    )
+
+    data, target, date_column, series_id_column = _resolve_inputs_with_profile(
+        csv_path, None, None, None, profile=profile
+    )
+
+    assert profile.data_profile.date_format == expected_format
+    assert (target, date_column, series_id_column) == ("y", "date", None)
+    assert data["date"].iloc[:3].tolist() == [
+        pd.Timestamp(date) for date in expected_dates
+    ]
+    assert utils_module._READ_CSV_DIALECT.get()[4] == expected_format
+
+
+def test_resolve_inputs_with_profile_output_when_dates_tell_their_order(tmp_path):
+    """
+    Test that the format of the profile decides the order only for dates that
+    read in both: a file whose dates have a day after the 12th is read day
+    first, although the profile was built month first.
+    """
+    monthly_path = tmp_path / "monthly.csv"
+    day_first_path = tmp_path / "day_first.csv"
+    df_dialect_monthly.to_csv(monthly_path, index=False)
+    df_day_first.to_csv(day_first_path, index=False)
+    profile = ForecastingAssistant().profile(
+        data=monthly_path, target="y", dayfirst=False
+    )
+
+    data, _, _, _ = _resolve_inputs_with_profile(
+        day_first_path, None, None, None, profile=profile
+    )
+
+    assert profile.data_profile.date_format == "%m/%d/%Y"
+    assert data["date"].iloc[[0, -1]].tolist() == [
+        pd.Timestamp("2020-12-03"),
+        pd.Timestamp("2021-01-31"),
+    ]
+    assert utils_module._READ_CSV_DIALECT.get()[4] == "%d/%m/%Y"
+
+
 # =============================================================================
 # Tests: _with_data_path
 # =============================================================================
@@ -1094,6 +1500,140 @@ def test_with_data_path_output_when_dataframe_and_profile_of_file(tmp_path):
     assert in_run.data_profile.data_path == "run.csv"
     assert _with_data_path(profile, None) is profile
     assert profile.data_profile.data_path == str(csv_path)
+
+
+def _with_date_format(profile, date_format):
+    """Return `profile` recording `date_format`, as a saved profile may."""
+    data_profile = profile.data_profile.model_copy(
+        update={"date_format": date_format}
+    )
+    return profile.model_copy(update={"data_profile": data_profile})
+
+
+@pytest.mark.parametrize(
+    "dayfirst, expected_format",
+    [(True, "%d/%m/%Y"), (False, "%m/%d/%Y")],
+    ids=["day_first", "month_first"],
+)
+def test_with_data_path_output_date_format_of_csv_read(
+    tmp_path, dayfirst, expected_format
+):
+    """
+    Test that the profile records the format the CSV file was read with
+    (`dayfirst` decides the order of dates that read in both), whatever it
+    recorded before, without changing the profile passed.
+    """
+    csv_path = tmp_path / "monthly.csv"
+    df_dialect_monthly.to_csv(csv_path, index=False)
+    assistant = ForecastingAssistant()
+    profile = _with_date_format(
+        assistant.profile(data=csv_path, target="y", dayfirst=True), None
+    )
+    _resolve_data_and_target(data=csv_path, target="y", dayfirst=dayfirst)
+
+    result = _with_data_path(profile, str(csv_path))
+
+    assert result.data_profile.date_format == expected_format
+    assert result.data_profile.data_path == str(csv_path)
+    assert profile.data_profile.date_format is None
+
+
+def test_with_data_path_output_date_notes_of_csv_read(tmp_path):
+    """
+    Test that the notes on how the dates of the CSV file were read (an order
+    told from their regularity) go into the warnings of the profile, first,
+    when the profile was built from the DataFrame read and lacks them, and
+    are not repeated when it has them.
+    """
+    csv_path = tmp_path / "monthly.csv"
+    df_dialect_monthly.to_csv(csv_path, index=False)
+    data, _ = _resolve_data_and_target(data=csv_path, target="y")
+    profile = ForecastingAssistant().profile(data=data, target="y")
+    note = _dialect_read(str(csv_path)).notes[0]
+
+    result = _with_data_path(profile, str(csv_path))
+    again = _with_data_path(result, str(csv_path))
+
+    assert note not in profile.data_profile.warnings
+    assert result.data_profile.warnings == [note, *profile.data_profile.warnings]
+    assert again.data_profile.warnings == result.data_profile.warnings
+
+
+@pytest.mark.parametrize(
+    "encoding, field, expected",
+    [
+        ("utf-8", "data", []),
+        ("cp1252", "data", [cp1252_note()]),
+        ("cp1252", "exog", [cp1252_note("exog")]),
+    ],
+    ids=["utf-8", "cp1252", "cp1252 of exog"],
+)
+def test_encoding_notes_output(encoding, field, expected):
+    """
+    Test that a file read as cp1252 has the note on its encoding, the one of
+    its field, and a UTF-8 file none.
+    """
+    assert encoding_notes(encoding, field) == expected
+
+
+def test_with_data_path_output_encoding_of_csv_read(tmp_path):
+    """
+    Test that the encoding of a CSV file read as cp1252 is recorded with its
+    dialect, with its note first in the warnings, when the profile was built
+    from the DataFrame read, and that data passed in memory record UTF-8.
+    """
+    csv_path = write_cp1252(tmp_path)
+    data, _ = _resolve_data_and_target(data=csv_path, target="año")
+    profile = ForecastingAssistant().profile(data=data, target="año")
+
+    result = _with_data_path(profile, csv_path)
+    in_memory = _with_data_path(result, data)
+
+    assert profile.data_profile.csv_encoding == "utf-8"
+    assert result.data_profile.csv_encoding == "cp1252"
+    assert (result.data_profile.csv_sep, result.data_profile.csv_decimal) == (
+        ";", ","
+    )
+    assert result.data_profile.warnings[0] == cp1252_note()
+    assert in_memory.data_profile.csv_encoding == "utf-8"
+
+
+@pytest.mark.parametrize(
+    "data, profile_format, expected_format",
+    [
+        (df_day_first, None, "%d/%m/%Y"),
+        (df_day_first, "%m/%d/%Y", "%d/%m/%Y"),
+        (df_dialect_monthly, "%d/%m/%Y", "%d/%m/%Y"),
+        (df_dialect_monthly, "%m/%d/%Y", "%m/%d/%Y"),
+        (
+            df_day_first.assign(
+                date=pd.to_datetime(df_day_first["date"], format="%d/%m/%Y")
+            ),
+            "%d/%m/%Y",
+            None,
+        ),
+        (df_single, "%d/%m/%Y", None),
+    ],
+    ids=["text_day_first", "text_day_first_profile_month_first",
+         "text_ambiguous_profile_day_first", "text_ambiguous_profile_month_first",
+         "datetime_dates_profile_day_first", "datetime_dates_of_df_single"],
+)
+def test_with_data_path_output_date_format_of_dataframe(
+    data, profile_format, expected_format
+):
+    """
+    Test that, for a DataFrame passed in memory, the profile records the
+    format of its own dates, on which the script runs: the format of its text
+    (the profile decides only dates that read in both orders) and none for
+    dates already parsed, whatever the profile passed says.
+    """
+    profile = _with_date_format(profile_single, profile_format)
+
+    result = _with_data_path(profile, data)
+
+    assert result.data_profile.date_format == expected_format
+    assert result.data_profile.data_path == "data.csv"
+    assert profile.data_profile.date_format == profile_format
 
 
 def test_apply_interval_to_plan_does_not_share_lists():
@@ -1728,7 +2268,7 @@ def test_resolve_data_and_target_reads_url_with_semicolon_in_two_steps(monkeypat
 
     def read_url_sample(value):
         sampled.append(value)
-        return "date;y\n2020-01-01;1,5\n2020-01-02;2,5\n"
+        return CsvSample("date;y\n2020-01-01;1,5\n2020-01-02;2,5\n", "utf-8")
 
     monkeypatch.setattr(utils_module, "read_url_sample", read_url_sample)
 
@@ -1779,6 +2319,43 @@ def test_resolve_data_and_target_reads_url_once_when_start_cannot_be_downloaded(
     assert list(data.columns) == ["date;y"]
 
 
+@pytest.mark.parametrize(
+    "frame, message",
+    [
+        (
+            pd.DataFrame(
+                {"date": [1.0, 2.0], "y": [None, None]},
+                index=pd.Index(["2020-01-01", "2020-02-01"]),
+            ),
+            "its header has 2 fields and its first row 3",
+        ),
+        (
+            pd.DataFrame(
+                {"date": ["2020-01-01"], "y": [1.0], "Unnamed: 2": [None]}
+            ),
+            "column 'Unnamed: 2' has no name in the header and no values",
+        ),
+    ],
+    ids=["separator at the end of every row", "column without name and values"],
+)
+def test_resolve_data_and_target_InvalidInputError_when_url_rows_longer_than_header(
+    monkeypatch, frame, message
+):
+    """
+    Test that a URL whose first row has more fields than its header, or with
+    a column without name and values, raises with the code 'data_unreadable',
+    as a local file does.
+    """
+    url = "https://example.com/a.csv"
+    _fake_read_csv(monkeypatch, [frame])
+
+    with pytest.raises(InvalidInputError, match=re.escape(message)) as exc_info:
+        _resolve_data_and_target(url, "y")
+
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.field == "data"
+
+
 def test_resolve_data_and_target_reads_url_with_given_sep(monkeypatch):
     """
     Test that a URL read with a `sep` given reads once with the dialect, the
@@ -1788,7 +2365,11 @@ def test_resolve_data_and_target_reads_url_with_given_sep(monkeypatch):
     frame = pd.DataFrame({"date": ["2020-01-01"], "y": [1.5]})
     calls = _fake_read_csv(monkeypatch, [frame])
     monkeypatch.setattr(
-        utils_module, "read_url_sample", lambda value: "date;y\n2020-01-01;1,5\n"
+        utils_module,
+        "read_url_sample",
+        lambda value: CsvSample(
+            "date;y\n2020-01-01;1,5\n", "utf-8"
+        ),
     )
 
     _resolve_data_and_target(url, "y", sep=";")
@@ -1810,7 +2391,9 @@ def test_resolve_data_and_target_InvalidInputError_when_url_dialect_is_ambiguous
     monkeypatch.setattr(
         utils_module,
         "read_url_sample",
-        lambda value: "date;y,x\n2020-01-01;1,5\n2020-01-02;2,5\n",
+        lambda value: CsvSample(
+            "date;y,x\n2020-01-01;1,5\n2020-01-02;2,5\n", "utf-8"
+        ),
     )
 
     err_msg = re.escape(
@@ -1863,7 +2446,9 @@ def test_resolve_data_and_target_reads_url_when_comma_read_cannot_parse(monkeypa
     monkeypatch.setattr(
         utils_module,
         "read_url_sample",
-        lambda value: "date;y;x\n2020-01-01;1,5;2\n2020-01-02;2;2,5\n",
+        lambda value: CsvSample(
+            "date;y;x\n2020-01-01;1,5;2\n2020-01-02;2;2,5\n", "utf-8"
+        ),
     )
 
     data, _ = _resolve_data_and_target(url, "y")
@@ -1889,7 +2474,9 @@ def test_resolve_data_and_target_DataNotFoundError_when_comma_url_cannot_parse(
     monkeypatch.setattr(
         utils_module,
         "read_url_sample",
-        lambda value: "date,y\n2020-01-01,1\n2020-01-02,2,3,4\n",
+        lambda value: CsvSample(
+            "date,y\n2020-01-01,1\n2020-01-02,2,3,4\n", "utf-8"
+        ),
     )
 
     err_msg = re.escape(
@@ -1900,3 +2487,204 @@ def test_resolve_data_and_target_DataNotFoundError_when_comma_url_cannot_parse(
         _resolve_data_and_target(url, "y")
 
     assert exc_info.value.code == "data_unreadable"
+
+
+def test_resolve_data_and_target_reads_url_with_thousands_detected(monkeypatch):
+    """
+    Test that a URL of a ';' file whose start has '870' next to '1.020' is
+    read again with ',' as decimal mark and '.' as thousands separator, and
+    that the dialect recorded for the script names the thousands separator.
+    """
+    url = "https://example.com/eu.csv"
+    one_column = pd.DataFrame({"date;y": ["2020-01-01;870", "2020-02-01;1.020"]})
+    two_columns = pd.DataFrame({"date": ["2020-01-01", "2020-02-01"], "y": [870, 1020]})
+    calls = _fake_read_csv(monkeypatch, [one_column, two_columns])
+    monkeypatch.setattr(
+        utils_module,
+        "read_url_sample",
+        lambda value: CsvSample(
+            "date;y\n2020-01-01;870\n2020-02-01;1.020\n", "utf-8"
+        ),
+    )
+
+    data, _ = _resolve_data_and_target(url, "y")
+
+    assert calls == [
+        ((url,), {}),
+        (
+            (url,),
+            {"sep": ";", "decimal": ",", "thousands": ".", "dtype": {"date": str}},
+        ),
+    ]
+    assert data["y"].tolist() == [870, 1020]
+    assert utils_module._READ_CSV_DIALECT.get() == (
+        url, ";", ",", ".", None, (), "utf-8"
+    )
+
+
+def test_resolve_data_and_target_reads_url_with_thousands_given(monkeypatch):
+    """
+    Test that a `thousands` given for a URL skips the read with ',' and '.'
+    and reads the file once with ',' as decimal mark.
+    """
+    url = "https://example.com/eu.csv"
+    frame = pd.DataFrame({"date": ["2020-01-01", "2020-02-01"], "y": [1870, 1020]})
+    calls = _fake_read_csv(monkeypatch, [frame])
+    monkeypatch.setattr(
+        utils_module,
+        "read_url_sample",
+        lambda value: CsvSample(
+            "date;y\n2020-01-01;1.870\n2020-02-01;1.020\n", "utf-8"
+        ),
+    )
+
+    data, _ = _resolve_data_and_target(url, "y", thousands=".")
+
+    assert calls == [
+        (
+            (url,),
+            {"sep": ";", "decimal": ",", "thousands": ".", "dtype": {"date": str}},
+        )
+    ]
+    assert data["y"].tolist() == [1870, 1020]
+
+
+def test_resolve_data_and_target_reads_url_again_when_text_column_has_thousands(
+    monkeypatch,
+):
+    """
+    Test that a URL read with the `sep` ';' and `decimal` ',' given, whose
+    column is text because it holds '1.705', is read again with '.' as
+    thousands separator.
+    """
+    url = "https://example.com/eu.csv"
+    text = pd.DataFrame({"date": ["2020-01-01", "2020-02-01"], "y": ["1.705", "1.870"]})
+    numbers = pd.DataFrame({"date": ["2020-01-01", "2020-02-01"], "y": [1705, 1870]})
+    calls = _fake_read_csv(monkeypatch, [text, numbers])
+
+    data, _ = _resolve_data_and_target(url, "y", sep=";", decimal=",")
+
+    assert calls == [
+        ((url,), {"sep": ";", "decimal": ","}),
+        (
+            (url,),
+            {"sep": ";", "decimal": ",", "thousands": ".", "dtype": {"date": str}},
+        ),
+    ]
+    assert data["y"].tolist() == [1705, 1870]
+
+
+@pytest.mark.parametrize(
+    "kwargs, field, message",
+    [
+        (
+            {"thousands": "."},
+            "thousands",
+            "`thousands` cannot be '.' when `sep` is ',': '.' separates the "
+            "thousands where ',' is the decimal mark, which cannot also "
+            "separate the fields.",
+        ),
+        (
+            {"decimal": ","},
+            "decimal",
+            "`decimal` cannot be ',' when `sep` is ',': the same character "
+            "would separate the fields and the decimals.",
+        ),
+    ],
+    ids=["thousands", "decimal comma"],
+)
+def test_resolve_data_and_target_InvalidInputError_when_no_url_sample_and_sep_misfit(
+    monkeypatch, kwargs, field, message
+):
+    """
+    Test that a URL read although its start could not be downloaded (the
+    separator is then ',') is rejected when the thousands separator or the
+    decimal mark given does not fit that separator.
+    """
+    url = "https://example.com/eu.csv"
+    frame = pd.DataFrame({"date": ["2020-01-01"], "y": [1.0]})
+    _fake_read_csv(monkeypatch, [frame])
+    monkeypatch.setattr(utils_module, "read_url_sample", lambda value: None)
+
+    err_msg = "^" + re.escape(message) + "$"
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        _resolve_data_and_target(url, "y", **kwargs)
+
+    assert not isinstance(exc_info.value, DataNotFoundError)
+    assert exc_info.value.field == field
+
+
+@contextmanager
+def _served(directory):
+    """
+    Serve the files of `directory` over HTTP on the local machine while the
+    block runs, and give the URL of the directory.
+    """
+
+    class Handler(SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=str(directory), **kwargs)
+
+        def log_message(self, *args):
+            pass
+
+    http = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=http.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{http.server_address[1]}"
+    finally:
+        http.shutdown()
+        http.server_close()
+
+
+@pytest.mark.parametrize(
+    "sep, decimal, kwargs",
+    [
+        (",", ".", {}),
+        (";", ",", {}),
+        (";", ",", {"sep": ";", "decimal": ","}),
+    ],
+    ids=["comma", "semicolon", "dialect given"],
+)
+def test_resolve_data_and_target_reads_url_of_cp1252_file(
+    tmp_path, sep, decimal, kwargs
+):
+    """
+    Test that a URL of a CSV file in cp1252 (the CSV that Excel saves on
+    Windows) is read as cp1252, also with its dialect given (a file read
+    again with the dialect of its profile), and that the encoding and its
+    note are recorded with the dialect for the script.
+    """
+    write_cp1252(tmp_path, name="excel.csv", sep=sep, decimal=decimal)
+
+    with _served(tmp_path) as root:
+        url = f"{root}/excel.csv"
+        data, target = _resolve_data_and_target(url, "año", **kwargs)
+
+    assert target == "año"
+    assert data.columns.tolist() == ["fecha", "año", "zona"]
+    assert data["zona"].tolist()[:2] == ["Cádiz", "Peñíscola"]
+    assert utils_module._READ_CSV_DIALECT.get() == (
+        url, sep, decimal, None, "%d/%m/%Y", (cp1252_note(),), "cp1252"
+    )
+
+
+def test_resolve_data_and_target_InvalidInputError_when_url_is_utf16(tmp_path):
+    """
+    Test that a URL of a CSV file in UTF-16 raises an InvalidInputError with
+    the code 'data_unreadable' and the hint that asks for a copy in UTF-8,
+    instead of being read as cp1252.
+    """
+    df_dialect.to_csv(tmp_path / "unicode.csv", index=False, encoding="utf-16")
+
+    with _served(tmp_path) as root:
+        url = f"{root}/unicode.csv"
+        err_msg = re.escape(
+            f"The CSV file '{url}' could not be read: it is written in UTF-16"
+        )
+        with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+            _resolve_data_and_target(url, "y")
+
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.hint == ENCODING_HINT

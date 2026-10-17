@@ -20,28 +20,34 @@ except ImportError:  # pragma: no cover, pandas < 2.2
 _SKIPPED_TEXT = {"", "NaT", "nat", "NAT", "nan", "NaN", "NAN", "now", "today"}
 
 
-def parse_text_dates(values: pd.Series) -> pd.Series:
+def parse_text_dates(values: pd.Series, date_format: str | None = None) -> pd.Series:
     """
     Parse text dates as the generated script parses them.
 
-    The format is guessed from the first date, as `pandas.to_datetime(values)`
-    does, so day-first dates such as '13/01/2012' are read day-first
-    throughout. The warning pandas emits for that guess is not shown. When
-    no format can be guessed, or a date does not follow it,
-    `pandas.to_datetime(values)` is called, which raises as the script does
-    (dates in more than one format are rejected when the data is profiled,
-    see `_mixed_formats_issue`).
+    With `date_format` (`DataProfile.date_format`, which the script passes
+    as `format=`), every date is read with it. Otherwise the format is
+    guessed from the first date, as `pandas.to_datetime(values)` does, so
+    day-first dates such as '13/01/2012' are read day-first throughout. The
+    warning pandas emits for that guess is not shown. When no format can be
+    guessed, or a date does not follow it, `pandas.to_datetime(values)` is
+    called, which raises as the script does (dates in more than one format
+    are rejected when the data is profiled, see `_mixed_formats_issue`).
 
     Parameters
     ----------
     values : pandas Series
         Text dates.
+    date_format : str, default None
+        Format of the dates, such as `'%d/%m/%Y'`. If None, it is guessed
+        from the first date.
 
     Returns
     -------
     dates : pandas Series
         Parsed dates.
     """
+    if date_format is not None:
+        return pd.to_datetime(values, format=date_format)
     date_format = guessed_date_format(values)
     if date_format is not None:
         try:
@@ -50,6 +56,43 @@ def parse_text_dates(values: pd.Series) -> pd.Series:
             pass
 
     return pd.to_datetime(values)
+
+
+def day_month_formats(date_format: str | None) -> tuple[str, str] | None:
+    """
+    Return the two orders of a format that writes the day and the month as
+    numbers before the year ('%d/%m/%Y'), month first and day first.
+
+    A date such as '01/02/2020' reads in both orders, and pandas reads it
+    month first unless told otherwise. A format whose year comes first
+    ('%Y-%m-%d', ISO 8601) is always year, month, day, and one with the
+    name of the month ('%d %b %Y') has a single reading: both give None.
+    The year may have two digits ('%d/%m/%y').
+
+    Parameters
+    ----------
+    date_format : str, None
+        Format of a date, as `guessed_date_format` returns it.
+
+    Returns
+    -------
+    formats : tuple, None
+        The format with the month first and with the day first, such as
+        `('%m/%d/%Y', '%d/%m/%Y')`, or None.
+    """
+    if date_format is None or "%d" not in date_format or "%m" not in date_format:
+        return None
+    year = max(date_format.find("%Y"), date_format.find("%y"))
+    day, month = date_format.find("%d"), date_format.find("%m")
+    if year == -1 or year < min(day, month):
+        return None
+    swapped = re.sub(
+        r"%[dm]", lambda match: "%m" if match.group() == "%d" else "%d", date_format
+    )
+    if month < day:
+        return date_format, swapped
+
+    return swapped, date_format
 
 
 def guessed_date_format(values: pd.Series) -> str | None:
@@ -98,17 +141,64 @@ def first_date(values: pd.Series | pd.Index) -> object:
     return None
 
 
-def _as_dates(values: pd.Series | pd.Index) -> pd.DatetimeIndex:
+# A date with the day and the month before a year of two digits, which
+# pandas guesses no format for ('01/02/18', '01.02.18 10:00').
+_SHORT_YEAR_DATE = re.compile(
+    r"\d{1,2}([/.-])\d{1,2}\1\d{2}(?:( |T)\d{1,2}:\d{2}(:\d{2})?)?"
+)
+
+
+def short_year_format(value: object) -> str | None:
     """
-    Return the values as dates, parsing text as the generated script does.
+    Return the month-first format of a date written with the day and the
+    month before a year of two digits ('01/02/18' gives '%m/%d/%y'), whose
+    format pandas does not guess; None for any other value.
+
+    Parameters
+    ----------
+    value : object
+        First date of a column.
+
+    Returns
+    -------
+    date_format : str, None
+        Format with the month first, or None.
     """
+    if not isinstance(value, str):
+        return None
+    match = _SHORT_YEAR_DATE.fullmatch(value.strip())
+    if match is None:
+        return None
+    sep, before_time, seconds = match.groups()
+    date_format = f"%m{sep}%d{sep}%y"
+    if before_time is not None:
+        date_format += f"{before_time}%H:%M" + (":%S" if seconds else "")
+
+    return date_format
+
+
+def _as_dates(
+    values: pd.Series | pd.Index,
+    date_format: str | None = None,
+) -> pd.DatetimeIndex:
+    """
+    Return the values as dates, parsing text as the generated script does:
+    with `date_format` when given (also integers such as 20200131, read
+    with `'%Y%m%d'`), otherwise text with the format of its first date.
+    """
+    if date_format is not None and not pd.api.types.is_datetime64_any_dtype(values):
+        return pd.DatetimeIndex(pd.to_datetime(pd.Series(values), format=date_format))
     if pd.api.types.is_object_dtype(values) or pd.api.types.is_string_dtype(values):
         values = parse_text_dates(pd.Series(values))
 
     return pd.DatetimeIndex(pd.to_datetime(values))
 
 
-def row_dates(data: pd.DataFrame, date_column: str | None) -> pd.DatetimeIndex | None:
+def row_dates(
+    data: pd.DataFrame,
+    date_column: str | None,
+    date_format: str | None = None,
+) -> pd.DatetimeIndex | None:
     """
     Return the date of every row.
 
@@ -123,8 +213,11 @@ def row_dates(data: pd.DataFrame, date_column: str | None) -> pd.DatetimeIndex |
         Input dataset.
     date_column : str, None
         Name of the date column, or of the MultiIndex level holding the
-        dates (the second level when it has no name). When None, the
-        DatetimeIndex is used.
+        dates. When None, the DatetimeIndex is used.
+    date_format : str, default None
+        Format the script reads the dates of the column with
+        (`DataProfile.date_format`). If None, text dates are read with the
+        format of their first date.
 
     Returns
     -------
@@ -133,17 +226,13 @@ def row_dates(data: pd.DataFrame, date_column: str | None) -> pd.DatetimeIndex |
         datetime source.
     """
     if date_column is not None and date_column in data.columns:
-        return _as_dates(data[date_column])
-    if date_column is not None and isinstance(data.index, pd.MultiIndex):
-        # An unnamed date level is the second one, as profiling reads it.
-        if date_column in data.index.names:
-            level = date_column
-        elif data.index.nlevels >= 2 and data.index.names[1] is None:
-            level = 1
-        else:
-            level = None
-        if level is not None:
-            return _as_dates(data.index.get_level_values(level))
+        return _as_dates(data[date_column], date_format)
+    if (
+        date_column is not None
+        and isinstance(data.index, pd.MultiIndex)
+        and date_column in data.index.names
+    ):
+        return _as_dates(data.index.get_level_values(date_column), date_format)
     if isinstance(data.index, pd.DatetimeIndex):
         return data.index
 

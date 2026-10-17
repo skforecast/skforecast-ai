@@ -370,20 +370,25 @@ def test_render_profile_summarizes_missing_target_and_exog(sample_profile):
 
 
 @pytest.mark.parametrize(
-    "csv_sep, csv_decimal, expected",
+    "csv_sep, csv_decimal, csv_encoding, expected",
     [
-        (";", ",", "separator ';', decimal ','"),
-        (";", ".", "separator ';', decimal '.'"),
-        ("\t", ",", "separator tabulator, decimal ','"),
+        (";", ",", "utf-8", "separator ';', decimal ','"),
+        (";", ".", "utf-8", "separator ';', decimal '.'"),
+        ("\t", ",", "utf-8", "separator tabulator, decimal ','"),
+        (";", ",", "cp1252", "separator ';', decimal ',', encoding 'cp1252'"),
+        (",", ".", "cp1252", "separator ',', decimal '.', encoding 'cp1252'"),
     ],
-    ids=["semicolon and comma", "semicolon and point", "tabulator"],
+    ids=[
+        "semicolon and comma", "semicolon and point", "tabulator",
+        "semicolon and cp1252", "comma and cp1252",
+    ],
 )
 def test_render_profile_shows_csv_format_when_not_the_default(
-    sample_profile, csv_sep, csv_decimal, expected
+    sample_profile, csv_sep, csv_decimal, csv_encoding, expected
 ):
     """
     Test that render_profile shows how the CSV file is written when its
-    separator or decimal mark is not the default one.
+    separator, its decimal mark or its encoding is not the default one.
     """
     profile = sample_profile.model_copy(
         update={
@@ -392,6 +397,7 @@ def test_render_profile_shows_csv_format_when_not_the_default(
                     "data_path": "eu.csv",
                     "csv_sep": csv_sep,
                     "csv_decimal": csv_decimal,
+                    "csv_encoding": csv_encoding,
                 }
             )
         }
@@ -425,6 +431,42 @@ def test_render_profile_hides_csv_format_when_default_or_in_memory(
     text = _render_to_text(render_profile(profile))
 
     assert "CSV format" not in text
+
+
+@pytest.mark.parametrize(
+    "date_format",
+    ["%d/%m/%Y", "%m/%d/%Y", "%Y%m%d"],
+    ids=lambda date_format: f"date_format: {date_format}",
+)
+def test_render_profile_shows_date_format_when_set(sample_profile, date_format):
+    """
+    Test that render_profile shows the format the script reads the dates
+    with, quoted, in a 'Date format' row when the profile records one (day
+    first, the order given, or whole numbers).
+    """
+    profile = sample_profile.model_copy(
+        update={
+            "data_profile": sample_profile.data_profile.model_copy(
+                update={"date_format": date_format}
+            )
+        }
+    )
+    text = _render_to_text(render_profile(profile))
+
+    assert "Date format" in text
+    assert f"'{date_format}'" in text
+
+
+def test_render_profile_hides_date_format_when_none(sample_profile):
+    """
+    Test that render_profile has no 'Date format' row when the script reads
+    the dates without a format.
+    """
+    assert sample_profile.data_profile.date_format is None
+
+    text = _render_to_text(render_profile(sample_profile))
+
+    assert "Date format" not in text
 
 
 def test_render_profile_marks_categorical_exog(sample_profile):
@@ -921,3 +963,25 @@ def test_render_cv_config_writes_inference_windows_as_a_bound():
 
     assert "up to 114" in text
     assert "up to 6" not in text
+
+
+def test_render_profile_shows_the_thousands_separator_of_the_csv_file(sample_profile):
+    """
+    Test that render_profile shows the thousands separator with the separator
+    and the decimal mark when the CSV file has one.
+    """
+    profile = sample_profile.model_copy(
+        update={
+            "data_profile": sample_profile.data_profile.model_copy(
+                update={
+                    "data_path": "eu.csv",
+                    "csv_sep": ";",
+                    "csv_decimal": ",",
+                    "csv_thousands": ".",
+                }
+            )
+        }
+    )
+    text = _render_to_text(render_profile(profile))
+
+    assert "separator ';', decimal ',', thousands '.'" in text

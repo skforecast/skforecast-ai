@@ -11,7 +11,8 @@ from typing import Any, Callable
 import pandas as pd
 
 from ..rendering._helpers import _metric_info
-from ..schemas import DataProfile, ForecastPlan, RenderedScript
+from ..profiling.data_profile import series_ids_as_text
+from ..schemas import DataProfile, ForecastPlan, FutureExogFile, RenderedScript
 
 from ..rendering.single_series import render_forecast_single_series
 from ..rendering.multi_series import render_forecast_multi_series, render_forecast_multivariate
@@ -21,7 +22,7 @@ from ..rendering.baseline import render_forecast_baseline
 from ..exceptions import InvalidInputError
 from ._exec import exec_rendered
 
-_RENDER_DISPATCH: dict[str, Callable[[ForecastPlan, DataProfile], RenderedScript]] = {
+_RENDER_DISPATCH: dict[str, Callable[..., RenderedScript]] = {
     "single_series": render_forecast_single_series,
     "multi_series": render_forecast_multi_series,
     "multivariate": render_forecast_multivariate,
@@ -34,6 +35,7 @@ _RENDER_DISPATCH: dict[str, Callable[[ForecastPlan, DataProfile], RenderedScript
 def render_forecast_script(
     profile: DataProfile,
     plan: ForecastPlan,
+    exog_file: FutureExogFile | None = None,
 ) -> RenderedScript:
     """
     Render structured code from a plan and data profile.
@@ -44,6 +46,11 @@ def render_forecast_script(
         Profile of the input dataset.
     plan : ForecastPlan
         Validated forecast plan.
+    exog_file : FutureExogFile, default None
+        File the script reads the future exogenous variables from, with its
+        dialect and the format of its dates (see `future_exog_file`). If
+        None, `exog_future.csv` as `to_csv()` writes it, whose dates pandas
+        reads without a format.
 
     Returns
     -------
@@ -59,7 +66,7 @@ def render_forecast_script(
             f"Supported types: {supported}",
             field = "task_type",
         )
-    return render_fn(plan, profile)
+    return render_fn(plan, profile, exog_file=exog_file)
 
 
 def run_forecast(
@@ -67,6 +74,7 @@ def run_forecast(
     profile: DataProfile,
     plan: ForecastPlan,
     exog: pd.DataFrame | None = None,
+    exog_file: FutureExogFile | None = None,
 ) -> dict[str, Any]:
     """
     Execute a forecasting workflow by running the generated code.
@@ -97,6 +105,10 @@ def run_forecast(
         Future exogenous variables covering the forecast horizon. Used
         only in prediction mode; injected into the executed code as the
         `exog_future` variable.
+    exog_file : FutureExogFile, default None
+        File `exog` was read from (see `future_exog_file`): the script of
+        the result reads it with its dialect, and the executed code reads
+        the dates of `exog` with its format.
 
     Returns
     -------
@@ -106,14 +118,17 @@ def run_forecast(
         prediction intervals are requested, the interval columns are
         included in `'predictions'`.
     """
-    rendered = render_forecast_script(profile, plan)
+    rendered = render_forecast_script(profile, plan, exog_file)
     if exog is not None:
         exog = exog_as_injected(exog, profile)
 
     # Execute the rendered code with `data` (and optional future `exog`)
-    # pre-loaded in the namespace. The future exog is injected raw; the
-    # rendered core code prepares it (same steps as `data`), so that
-    # preparation is both shown in `result.code` and actually run.
+    # pre-loaded in the namespace. The future exog is injected as it was
+    # checked (`exog_as_injected`: the date column of the data, the series
+    # ids as text, as the CSV file of the script reads them), not prepared;
+    # the rendered core code prepares it (same steps as `data`, the ids
+    # turned into text again), so that preparation is both shown in
+    # `result.code` and actually run.
     namespace = _exec_rendered_code(rendered, data, exog)
 
     # Extract standard results from the executed namespace
@@ -164,6 +179,10 @@ def exog_as_injected(exog: pd.DataFrame, profile: DataProfile) -> pd.DataFrame:
     injected future exog must expose the same column for the shared
     preparation code to run identically. Users typically pass exog
     pre-indexed by datetime, so that index is moved back to a named column.
+    In long format the series ids become text, as the series ids of the
+    data (see `series_ids_as_text`): the rendered code turns them too, so
+    a CSV file read with them as text and a DataFrame with integer ids
+    name the same series.
 
     Parameters
     ----------
@@ -182,6 +201,8 @@ def exog_as_injected(exog: pd.DataFrame, profile: DataProfile) -> pd.DataFrame:
         exog = exog.copy()
         exog.index.name = profile.date_column
         exog = exog.reset_index()
+    if profile.data_format == "long":
+        exog = series_ids_as_text(exog, profile.series_id_column)
 
     return exog
 

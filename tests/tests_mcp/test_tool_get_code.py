@@ -1,12 +1,31 @@
 # Unit test tool get_code
 
+import subprocess
+import sys
+import textwrap
 from importlib.metadata import version
+
+import numpy as np
+import pandas as pd
 
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai.mcp import create_server, server as server_module
 
-from ..fixtures_csv_dialect import df_dialect, write_dialect
-from .fixtures_mcp import call, content_of, error_of, h2o_server, profile_and_plan
+from ..fixtures_csv_dialect import (
+    df_dialect,
+    df_dialect_excel,
+    df_dialect_excel_exog,
+    write_dialect,
+    write_excel_es,
+)
+from .fixtures_mcp import (
+    call,
+    content_of,
+    error_of,
+    h2o_server,
+    profile_and_plan,
+    run_session,
+)
 
 
 def test_tool_get_code_invalid_argument_when_object_has_no_code(tmp_path):
@@ -106,3 +125,71 @@ def test_tool_get_code_reads_the_file_with_its_dialect(tmp_path):
     assert f"data = pd.read_csv({path!r}, sep=';', decimal=',')\n" in result["code"]
     assert f"data = pd.read_csv({comma_path!r})\n" in comma["code"]
     assert "sep=" not in comma["code"]
+
+
+def test_tool_get_code_end_to_end_when_forecast_with_exog_path_from_excel_es(
+    tmp_path,
+):
+    """
+    Test the session of data and future values saved by the Excel in
+    Spanish (cp1252, ';', ',' as decimal mark, '.' between thousands, dates
+    day first, rows made only of separators at the end of the future
+    values): `profile`, `plan`, `forecast` with `exog_path` and `get_code`.
+    The script reads the file of `exog_path` by its path, with its whole
+    dialect, and not `exog_future.csv`; run as it is in another directory,
+    it gives the predictions of `forecast`.
+    """
+    path = write_excel_es(tmp_path, df_dialect_excel, "ventas.csv")
+    exog_path = write_excel_es(
+        tmp_path, df_dialect_excel_exog, "futuro.csv", blank_rows=2
+    )
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    async def steps(client):
+        profile = content_of(
+            await client.call_tool("profile", {"data_path": path, "target": "año"})
+        )
+        plan = content_of(
+            await client.call_tool("plan", {"profile_id": profile["id"], "steps": 10})
+        )
+        forecast = content_of(
+            await client.call_tool(
+                "forecast", {"plan_id": plan["id"], "exog_path": exog_path}
+            )
+        )
+        code = content_of(
+            await client.call_tool("get_code", {"object_id": forecast["id"]})
+        )
+        return forecast, code
+
+    forecast, code = run_session(server, steps)
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    script = run_dir / "script.py"
+    script.write_text(code["code"])
+    wrapper = run_dir / "run.py"
+    wrapper.write_text(textwrap.dedent(f"""
+        import runpy
+        import pandas as pd
+        namespace = runpy.run_path({str(script)!r})
+        pd.DataFrame(namespace["predictions"]).to_csv("predictions.csv")
+    """))
+    proc = subprocess.run(
+        [sys.executable, str(wrapper)],
+        cwd=run_dir, capture_output=True, text=True, timeout=600,
+    )
+
+    assert not code["code_truncated"]
+    assert (
+        f"exog_future = pd.read_csv({exog_path!r}, sep=';', decimal=',', "
+        f"thousands='.', encoding='cp1252', dtype={{'fecha': str}})\n"
+        "exog_future = exog_future.dropna(how='all')\n" in code["code"]
+    )
+    assert "exog_future.csv" not in code["code"]
+    assert proc.returncode == 0, proc.stderr[-3000:]
+    standalone = pd.read_csv(run_dir / "predictions.csv", index_col=0)
+    expected = pd.read_csv(forecast["files"]["predictions"], index_col=0)
+    assert list(standalone.index) == list(expected.index)
+    np.testing.assert_allclose(
+        standalone["pred"].to_numpy(), expected["pred"].to_numpy(), rtol=1e-6
+    )

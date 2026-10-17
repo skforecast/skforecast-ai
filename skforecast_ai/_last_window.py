@@ -15,7 +15,12 @@ from ._constants import AUTOREG_FORECASTERS, DIRECT_FORECASTERS, NAN_TOLERANT_ES
 from ._dates import row_dates, training_end
 from ._future_exog import _SHOWN, _per_series, _shown
 from .exceptions import DataContentError, InvalidInputError
-from .profiling.data_profile import _caller_stacklevel, _fmt_timestamp
+from .profiling.data_profile import (
+    _caller_stacklevel,
+    _fmt_timestamp,
+    closed_weekdays,
+    weekday_names,
+)
 from .schemas import DataProfile, ForecastPlan
 
 
@@ -188,7 +193,9 @@ def _target_frame(
                 return None
             frame = pd.DataFrame(
                 {target: data[target].to_numpy() for target in targets},
-                index = pd.DatetimeIndex(row_dates(data, date_column)),
+                index = pd.DatetimeIndex(
+                            row_dates(data, date_column, profile.date_format)
+                        ),
             )
             frame = frame.loc[frame.index.notna()]
             frame = frame.sort_index(kind="stable")
@@ -232,7 +239,9 @@ def _check_long(
     ):
         return
     try:
-        dates = pd.DatetimeIndex(row_dates(data, date_column))
+        dates = pd.DatetimeIndex(
+            row_dates(data, date_column, profile.date_format)
+        )
     except (ValueError, TypeError):
         # The generated code fails on these dates with its own error.
         return
@@ -714,7 +723,7 @@ def validate_infinite_target(
             hint  = "Replace the infinite values of the target, for example with NaN.",
         )
 
-    dates = row_dates(data, profile.date_column)
+    dates = row_dates(data, profile.date_column, profile.date_format)
     labels = data.index if dates is None else dates
     raise InvalidInputError(
         f"The target has infinite values ({_where(labels[infinite])}). "
@@ -887,7 +896,9 @@ def _series_spans(
     ):
         return None
     try:
-        dates = pd.DatetimeIndex(row_dates(data, date_column))
+        dates = pd.DatetimeIndex(
+            row_dates(data, date_column, profile.date_format)
+        )
         rows = pd.DataFrame({
             "series": data[series_id].to_numpy(),
             "date": dates,
@@ -964,7 +975,7 @@ def validate_evaluation_partition(
     """
     if plan.end_train is None:
         return
-    dates = row_dates(data, profile.date_column)
+    dates = row_dates(data, profile.date_column, profile.date_format)
     if dates is None:
         return
     end = training_end(plan.end_train, dates.tz)
@@ -1022,7 +1033,10 @@ def _check_multiseries_evaluation(
     Reject an evaluation of several series (ForecasterRecursiveMultiSeries,
     or a ForecasterFoundation model) whose series do not all have a value on
     the test dates and, for ForecasterRecursiveMultiSeries, on the last
-    training date.
+    training date. When the missing test values all fall on days of the
+    week on which their series never has a value (shops closed on Sundays),
+    the message names those days and says that a business closed on them
+    can fill them with 0, after asking the user.
     """
     needs_last_value = plan.forecaster == "ForecasterRecursiveMultiSeries"
     spans = _series_spans(data, profile)
@@ -1036,7 +1050,7 @@ def _check_multiseries_evaluation(
         )[1:]
     except (ValueError, TypeError):
         return
-    ending, missing = [], {}
+    ending, missing, closed = [], {}, {}
     for name, (dates, present) in spans.items():
         if not isinstance(dates, pd.DatetimeIndex):
             return
@@ -1052,6 +1066,9 @@ def _check_multiseries_evaluation(
         ]
         if absent:
             missing[_plain(name)] = pd.DatetimeIndex(absent)
+            closed[_plain(name)] = closed_weekdays(
+                dates[np.asarray(present, dtype=bool)], profile.frequency
+            )
 
     if ending:
         raise DataContentError(
@@ -1080,6 +1097,25 @@ def _check_multiseries_evaluation(
             f"they reach."
             if ended else ""
         )
+        # Missing values all on days of the week without any value in their
+        # series are those of a business closed on them.
+        if all(
+            np.isin(dates.dayofweek, closed[name]).all()
+            for name, dates in missing.items()
+        ):
+            days = weekday_names(
+                sorted({day for dates in missing.values() for day in dates.dayofweek})
+            )
+            raise DataContentError(
+                f"The target has missing values in the test split ({shown}), "
+                f"all of them on {days}, when those series never have a "
+                f"value. skforecast cannot compute the metrics on them, "
+                f"whatever the estimator. If the business is closed on "
+                f"{days}, fill them with 0 in the data, after asking the user; "
+                f"otherwise, impute the target, or evaluate on dates without "
+                f"missing values.",
+                field = "data",
+            )
         raise DataContentError(
             f"The target has missing values in the test split ({shown}). "
             f"skforecast cannot compute the metrics on them, whatever the "

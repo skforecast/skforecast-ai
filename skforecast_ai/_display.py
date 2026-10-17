@@ -523,13 +523,29 @@ def render_profile(profile: ForecastingProfile) -> RenderableType:
     # How the file is written, when it is not the default of
     # `pandas.read_csv`: detected, so shown where the user reads the profile.
     if dp.data_path != PLACEHOLDER_DATA_PATH and (
-        (dp.csv_sep, dp.csv_decimal) != (",", ".")
+        (dp.csv_sep, dp.csv_decimal, dp.csv_encoding) != (",", ".", "utf-8")
     ):
         sep_name = "tabulator" if dp.csv_sep == "\t" else repr(dp.csv_sep)
+        thousands = (
+            "" if dp.csv_thousands is None
+            else f", thousands {dp.csv_thousands!r}"
+        )
+        encoding = (
+            "" if dp.csv_encoding == "utf-8"
+            else f", encoding {dp.csv_encoding!r}"
+        )
         table.add_row(
             "CSV format",
-            escape(f"separator {sep_name}, decimal {dp.csv_decimal!r}"),
+            escape(
+                f"separator {sep_name}, decimal {dp.csv_decimal!r}{thousands}"
+                f"{encoding}"
+            ),
         )
+    # The format the script reads the dates with, when it names one (day
+    # first, or the order given): it is told from the dates, as the CSV
+    # format is, so the user sees what was decided.
+    if dp.date_format is not None:
+        table.add_row("Date format", escape(repr(dp.date_format)))
 
     renderables: list[RenderableType] = [table]
     if dp.warnings:

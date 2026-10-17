@@ -1311,3 +1311,193 @@ def test_data_profile_ValidationError_when_csv_dialect_not_valid(
             csv_decimal    = decimal,
         )
 
+
+def test_data_profile_output_when_json_has_no_csv_thousands():
+    """
+    Test that a profile saved before `csv_thousands` existed loads without
+    thousands separator, that the field defaults to None, and that '.'
+    survives a JSON round trip.
+    """
+    profile = DataProfile(
+        n_series       = 1,
+        series_lengths = {"y": 100},
+        target         = "y",
+        index_type     = "datetime",
+        data_path      = "eu.csv",
+        csv_sep        = ";",
+        csv_decimal    = ",",
+        csv_thousands  = ".",
+    )
+    saved = profile.model_dump(mode="json")
+    del saved["csv_thousands"]
+    default = DataProfile(
+        n_series=1, series_lengths={"y": 100}, target="y", index_type="datetime"
+    )
+
+    old = DataProfile.model_validate_json(json.dumps(saved))
+    restored = DataProfile.model_validate_json(profile.model_dump_json())
+
+    assert old.csv_thousands is None
+    assert (old.csv_sep, old.csv_decimal) == (";", ",")
+    assert default.csv_thousands is None
+    assert restored.csv_thousands == "."
+    assert restored == profile
+
+
+@pytest.mark.parametrize(
+    "sep, decimal, thousands, message",
+    [
+        (";", ".", ".", "`csv_thousands` cannot be '.' when `csv_decimal` is '.'."),
+        (",", ".", ".", "`csv_thousands` cannot be '.' when `csv_decimal` is '.'."),
+        (";", ",", ",", "Input should be '.'"),
+    ],
+    ids=["with decimal point", "with comma file", "invalid thousands"],
+)
+def test_data_profile_ValidationError_when_csv_thousands_not_valid(
+    sep, decimal, thousands, message
+):
+    """
+    Test that a profile whose thousands separator does not go with ',' as
+    decimal mark, or is not '.', raises a ValidationError: the script would
+    drop the decimal mark of every number.
+    """
+    with pytest.raises(ValidationError, match=re.escape(message)):
+        DataProfile(
+            n_series       = 1,
+            series_lengths = {"y": 100},
+            target         = "y",
+            index_type     = "datetime",
+            csv_sep        = sep,
+            csv_decimal    = decimal,
+            csv_thousands  = thousands,
+        )
+
+
+def test_data_profile_output_when_json_has_no_csv_encoding():
+    """
+    Test that a profile saved before `csv_encoding` existed loads as UTF-8,
+    that the field defaults to 'utf-8', and that 'cp1252' survives a JSON
+    round trip.
+    """
+    profile = DataProfile(
+        n_series       = 1,
+        series_lengths = {"y": 100},
+        target         = "y",
+        index_type     = "datetime",
+        data_path      = "excel.csv",
+        csv_sep        = ";",
+        csv_decimal    = ",",
+        csv_encoding   = "cp1252",
+    )
+    saved = profile.model_dump(mode="json")
+    del saved["csv_encoding"]
+    default = DataProfile(
+        n_series=1, series_lengths={"y": 100}, target="y", index_type="datetime"
+    )
+
+    old = DataProfile.model_validate_json(json.dumps(saved))
+    restored = DataProfile.model_validate_json(profile.model_dump_json())
+
+    assert old.csv_encoding == "utf-8"
+    assert default.csv_encoding == "utf-8"
+    assert restored.csv_encoding == "cp1252"
+    assert restored == profile
+
+
+@pytest.mark.parametrize(
+    "csv_encoding", ["latin-1", "utf-16", "UTF-8"], ids=lambda dt: dt
+)
+def test_data_profile_ValidationError_when_csv_encoding_not_valid(csv_encoding):
+    """
+    Test that a profile whose encoding is not one of those read raises a
+    ValidationError: it is written into the generated script, also from a
+    profile loaded from JSON.
+    """
+    with pytest.raises(ValidationError, match=re.escape("Input should be 'utf-8' or 'cp1252'")):
+        DataProfile(
+            n_series       = 1,
+            series_lengths = {"y": 100},
+            target         = "y",
+            index_type     = "datetime",
+            csv_encoding   = csv_encoding,
+        )
+
+
+@pytest.mark.parametrize(
+    "date_format",
+    [None, "%d/%m/%Y", "%m/%d/%Y", "%Y%m%d", "%d.%m.%Y %H:%M"],
+    ids=lambda date_format: f"date_format: {date_format}",
+)
+def test_data_profile_output_when_date_format_given(date_format):
+    """
+    Test that a profile accepts no `date_format` (the default) or a format of
+    dates, stores it, and that it survives a JSON round trip.
+    """
+    profile = DataProfile(
+        n_series       = 1,
+        series_lengths = {"y": 100},
+        target         = "y",
+        index_type     = "datetime",
+        date_format    = date_format,
+    )
+
+    restored = DataProfile.model_validate_json(profile.model_dump_json())
+
+    assert profile.date_format == date_format
+    assert restored.date_format == date_format
+    assert restored == profile
+
+
+def test_data_profile_date_format_defaults_to_none():
+    """
+    Test that a profile has no `date_format` unless given, and that a profile
+    saved before the field existed loads with None and keeps the rest.
+    """
+    profile = DataProfile(
+        n_series       = 1,
+        series_lengths = {"y": 100},
+        target         = "y",
+        index_type     = "datetime",
+        data_path      = "eu.csv",
+        csv_sep        = ";",
+        csv_decimal    = ",",
+    )
+    saved = profile.model_dump(mode="json")
+    del saved["date_format"]
+
+    old = DataProfile.model_validate_json(json.dumps(saved))
+
+    assert profile.date_format is None
+    assert old.date_format is None
+    assert old == profile
+
+
+@pytest.mark.parametrize(
+    "date_format",
+    ["dd/mm/yyyy", "", "2020-01-31"],
+    ids=lambda date_format: f"date_format: {date_format!r}",
+)
+def test_data_profile_ValidationError_when_date_format_is_not_a_format(date_format):
+    """
+    Test that a profile whose `date_format`, which the generated script writes
+    into `pd.to_datetime(..., format=...)`, has no directive (no '%') raises a
+    ValidationError, also when loaded from JSON.
+    """
+    fields = {
+        "n_series": 1,
+        "series_lengths": {"y": 100},
+        "target": "y",
+        "index_type": "datetime",
+        "date_format": date_format,
+    }
+    err_msg = re.escape(
+        f"`date_format` must be a format of dates such as '%d/%m/%Y', got "
+        f"{date_format!r}."
+    )
+
+    with pytest.raises(ValidationError, match=err_msg) as exc_info:
+        DataProfile(**fields)
+    with pytest.raises(ValidationError, match=err_msg):
+        DataProfile.model_validate_json(json.dumps(fields))
+
+    assert exc_info.value.errors()[0]["loc"] == ("date_format",)
