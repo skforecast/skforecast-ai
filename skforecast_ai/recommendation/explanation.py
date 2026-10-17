@@ -9,6 +9,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 from ..schemas import DataProfile
+from .forecaster_selection import estimator_n_observations
 
 if TYPE_CHECKING:
     from skforecast.foundation import FoundationModelInfo
@@ -242,6 +243,111 @@ def build_foundation_explanation(
     return " ".join(parts)
 
 
+def _estimator_size_reasons(
+    task_type: str,
+    forecaster: str,
+    estimator: str,
+    data_profile: DataProfile,
+) -> list[str]:
+    """
+    Sentences giving the dataset size that chose a machine learning
+    estimator, with the count the rule used (`estimator_n_observations`).
+
+    Empty for the statistical and foundation tasks, whose estimator does
+    not depend on the size, and when the count is unknown.
+    """
+
+    n_obs = estimator_n_observations(task_type, data_profile)
+    if task_type in ("statistical", "foundation") or not n_obs:
+        return []
+
+    if estimator == "Ridge":
+        reasons = [
+            f"A linear model is preferred because the dataset is small "
+            f"({n_obs} observations < 250); gradient boosting is offered "
+            f"as an alternative once more data is available."
+        ]
+    else:
+        reasons = [
+            f"A gradient boosting model is preferred for a dataset of "
+            f"this size ({n_obs} observations)."
+        ]
+    # The data line counts the series pooled; say which count sized the
+    # estimator, so the two numbers are not read as a contradiction.
+    if task_type == "multivariate" and data_profile.n_total_observations != n_obs:
+        reasons.append(
+            f"{forecaster} trains on one row per date, so the size is the "
+            f"{n_obs} dates the series share, not the "
+            f"{data_profile.n_total_observations} observations pooled across "
+            f"them."
+        )
+
+    return reasons
+
+
+def build_estimator_explanation(
+    forecaster: str,
+    estimator: str | None,
+    task_type: str,
+    data_profile: DataProfile,
+    profile_forecaster: str,
+    profile_estimator: str | None,
+) -> str | None:
+    """
+    Explain the estimator that the rules choose for a plan whose
+    forecaster belongs to another task type than the one of its profile.
+
+    The profile explanation gives the reason of the estimator of the
+    profile, sized for the forecaster of the profile; a plan of another
+    task type (`ForecasterDirectMultiVariate` on a profile that recommends
+    `ForecasterRecursiveMultiSeries`) has its estimator chosen again, on
+    the count of its own forecaster, and states that reason.
+
+    Parameters
+    ----------
+    forecaster : str
+        Forecaster class name of the plan.
+    estimator : str, None
+        Estimator that the rules chose for the plan. None for the
+        baseline.
+    task_type : str
+        Task type of the plan.
+    data_profile : DataProfile
+        Profiled dataset metadata.
+    profile_forecaster : str
+        Forecaster recommended by the profile.
+    profile_estimator : str, None
+        Estimator recommended by the profile.
+
+    Returns
+    -------
+    explanation : str, None
+        Sentences naming the estimator and the dataset size that chose it.
+        None for the statistical, foundation and baseline tasks, whose
+        estimator does not depend on the size.
+    """
+
+    if task_type == "baseline":
+        return None
+    reasons = _estimator_size_reasons(
+                  task_type    = task_type,
+                  forecaster   = forecaster,
+                  estimator    = estimator,
+                  data_profile = data_profile,
+              )
+    if not reasons:
+        return None
+
+    opening = f"Estimator: {estimator}, chosen by the rules for {forecaster}"
+    if profile_estimator is not None and profile_estimator != estimator:
+        opening += (
+            f" (the profile recommends {profile_estimator} for "
+            f"{profile_forecaster})"
+        )
+
+    return " ".join([f"{opening}.", *reasons])
+
+
 def _build_profile_explanation(
     task_type: str,
     forecaster: str,
@@ -323,19 +429,12 @@ def _build_profile_explanation(
 
     if estimator is not None:
         parts.append(f"Estimator: {estimator}.")
-        # Estimator choice is driven by dataset size for ML tasks.
-        if task_type not in ("statistical", "foundation") and n_obs:
-            if estimator == "Ridge":
-                parts.append(
-                    f"A linear model is preferred because the dataset is small "
-                    f"({n_obs} observations < 250); gradient boosting is offered "
-                    f"as an alternative once more data is available."
-                )
-            else:
-                parts.append(
-                    f"A gradient boosting model is preferred for a dataset of "
-                    f"this size ({n_obs} observations)."
-                )
+        parts += _estimator_size_reasons(
+                     task_type    = task_type,
+                     forecaster   = forecaster,
+                     estimator    = estimator,
+                     data_profile = data_profile,
+                 )
         alt_estimators = [c for c in estimator_candidates if c != estimator]
         if alt_estimators:
             parts.append(f"Alternative estimators: {alt_estimators}.")

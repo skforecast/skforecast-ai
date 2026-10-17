@@ -22,6 +22,7 @@ from tests.fixtures_assistant import (
     df_multi_long_numeric_ids,
     df_multi_long_staggered,
     df_multi_wide,
+    df_multi_wide_pooled,
     df_no_exog,
     df_no_sundays,
     df_single,
@@ -266,6 +267,34 @@ def test_standalone_script_matches_forecast_when_multi_series_wide(tmp_path):
         standalone["pred"].to_numpy(), executed.predictions["pred"].to_numpy(),
         rtol=1e-6,
     )
+
+
+def test_standalone_script_matches_forecast_when_multivariate_estimator_chosen_by_rules(
+    tmp_path,
+):
+    """
+    Test that the ForecasterDirectMultiVariate script with the estimator the
+    rules choose for it (Ridge, for the 150 dates the series share, while
+    the profile chose LGBMRegressor for the 300 observations pooled) yields
+    the same predictions as forecast(), and that they are not a constant.
+    """
+    csv_path = tmp_path / "series.csv"
+    df_multi_wide_pooled.to_csv(csv_path, index=False)
+    assistant = ForecastingAssistant()
+    kwargs = dict(
+        data=csv_path, target=["series_a", "series_b"], date_column="date",
+        steps=7, test_size=7, forecaster="ForecasterDirectMultiVariate",
+    )
+
+    script = assistant.forecast_code(**kwargs)
+    executed = assistant.forecast(**kwargs)
+
+    assert script.profile.estimator == "LGBMRegressor"
+    assert executed.plan.estimator == "Ridge"
+    assert "from sklearn.linear_model import Ridge" in script.code
+    standalone = _run_standalone(script.code, tmp_path)
+    _assert_same_predictions(standalone, executed.predictions)
+    assert executed.predictions["pred"].nunique() > 1
 
 
 def test_standalone_script_matches_forecast_when_statistical(tmp_path):

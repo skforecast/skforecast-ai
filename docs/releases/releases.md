@@ -22,6 +22,7 @@ The main changes in this release are:
     + The scripts of long-format data read the series ids as text and turn them into text before the reshape: one more line (two with future exogenous variables), with the same predictions. See **Changed**.
     + The scripts of a forecast with future exogenous values read from a file (`exog_path` of the MCP server, `--exog` of the CLI) read that file by its path, with its own separator, decimal mark and encoding, instead of `exog_future.csv` in the working directory. See **Fixed**.
     + The scripts of dates that write the day and the month as numbers read them with their format (`format='%d/%m/%Y'`, or `'%m/%d/%Y'` month first), also when the first date already said so, and those of files with `.` between thousands read the date column as text: the same predictions. See **Changed**.
+    + `plan()` and `refine_plan()` with `ForecasterDirectMultiVariate`: the estimator is chosen for the dates the series share, so it can be `Ridge` where it was `LGBMRegressor`. Pass `estimator="LGBMRegressor"` to keep the previous one. See **Fixed**.
 
     + `plan()` of wide-format data whose series start or end with missing values may choose another estimator: `DataProfile.n_total_observations` no longer counts those values. See **Changed**.
     + [<code>ForecastingAssistant.backtest()</code>][assistant] of ForecasterRecursiveMultiSeries raises `insufficient_data` for a series that no fold forecasts, which it left out before. See **Fixed**.
@@ -84,6 +85,8 @@ The main changes in this release are:
 + [<code>ForecastingAssistant.create_cv()</code>][assistant] gave no warning of prediction intervals estimated from too few residuals with ForecasterRecursiveMultiSeries or ForecasterDirectMultiVariate, as it does with a single series. It now counts the rows of each series in the first training window, also when a series starts later (in long or wide format), and names the series with fewer than 100 ([#101](https://github.com/skforecast/skforecast-ai/pull/101), [#103](https://github.com/skforecast/skforecast-ai/pull/103)).
 
 + Fixed an issue in [<code>ForecastingAssistant.backtest()</code>][assistant] with ForecasterRecursiveMultiSeries, where a series that no fold could forecast (too short for the lags and window features, starting after the training window without refit, or ending before the folds) was left out of the predictions and of the average across series without a warning. It now raises `InvalidInputError` (`insufficient_data`) naming those series ([#103](https://github.com/skforecast/skforecast-ai/pull/103)).
+
++ Fixed an issue in [<code>ForecastingAssistant.plan()</code>][assistant] and `refine_plan()` where `ForecasterDirectMultiVariate` got the estimator chosen for the series pooled (`LGBMRegressor` from 250 observations), which on few dates per step predicted a constant. The rule now counts the dates the series share, and the explanation says so ([#102](https://github.com/skforecast/skforecast-ai/pull/102)).
 
 
 ## 0.4.2 <small>Oct 12, 2026</small> { id="0.4.2" }

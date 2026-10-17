@@ -228,7 +228,12 @@ cuenta al usuario.
   falla al invertir la diferenciación. `create_cv` no conoce las fechas de los
   huecos (el perfil solo guarda recuentos): el arreglo de esta fase es
   condicionar el texto; el chequeo por fold necesita los datos y cambia el
-  contrato.
+  contrato. Desde [#103](https://github.com/skforecast/skforecast-ai/pull/103)
+  (D15) se sabe además que una serie cuyas últimas ventanas tienen todas
+  algún faltante (con un estimador que no los acepta, o con diferenciación)
+  desaparece en silencio de todos los folds del backtest multiserie: la
+  comprobación previa de 2b ya replica la regla de skforecast, así que se
+  puede ampliar a este caso con el mensaje de los faltantes.
 - **3b. `refine_plan()` avisa de lo que descarta.** Defecto conocido: al
   cambiar a ForecasterStats, al baseline o a ForecasterFoundation, descarta
   sin avisar la diferenciación, el calendario y el transformador. Con un
@@ -326,6 +331,16 @@ pequeños; se pueden agrupar en dos o tres PR.
   saltó así el error de la columna inexistente y la sustituyó sin decirlo.
 - **`compare` con candidatos** deja fuera el plan refinado de la estrategia
   sin decirlo, y "Strategy plan" no es un nombre reservado (V24). *[SKILL]*
+- **La comprobación de series que ningún fold pronostica (D15) en
+  `compare()`**: hoy solo la hace `backtest()`, y un candidato
+  ForecasterRecursiveMultiSeries de `compare` puede seguir descartando una
+  serie en silencio. Un candidato así queda como fallido, con el motivo en
+  el ranking y en `get_failure`, como cualquier candidato que falla, sin
+  tumbar todo el `compare` (pregunta 1 de
+  [#103](https://github.com/skforecast/skforecast-ai/pull/103)).
+- **El backtest de ForecasterFoundation** solo rechaza las series sin
+  valores: falta mirar si descarta también series sin contexto suficiente
+  antes de un fold (pregunta 2 de #103).
 
 ## Fase 6. Descripciones de las herramientas y SKILL.md
 
@@ -731,7 +746,18 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     independientes; el texto de `encoding=None` se queda. El inicio de cada
     serie en formato ancho lo necesita también 2b (nombrar las series
     cortas): cuando el perfil lo guarde, este aviso lo usará.
-- **D?. 2b: una serie que ningún fold pronostica** (2026-10-17).
+- **D14. 2a: el estimador de DMV se dimensiona con las fechas comunes**
+  (2026-10-17), en [#102](https://github.com/skforecast/skforecast-ai/pull/102):
+  lo decide el `task_type` `"multivariate"`
+  (`estimator_n_observations`: `span_index_length`; las demás tareas siguen
+  con `n_total_observations`). `refine_plan` ya no arrastra hacia o desde
+  DMV un estimador que eligieron las reglas: lo vuelven a elegir. Sí arrastra
+  el que eligió el usuario, o aquel para el que escribió `estimator_kwargs`.
+  La explicación del perfil sigue siendo la del perfil (recomienda
+  ForecasterRecursiveMultiSeries); la del plan añade el estimador, el
+  forecaster para el que lo eligieron las reglas y el número que lo decidió,
+  solo cuando la tarea del plan no es la del perfil y el estimador no se pasó.
+- **D15. 2b: una serie que ningún fold pronostica** (2026-10-17).
   Concretado en [#103](https://github.com/skforecast/skforecast-ai/pull/103):
   - `backtest()` con ForecasterRecursiveMultiSeries da `insufficient_data`
     (field `data`, `data_path` en el MCP) nombrando hasta 5 series que
@@ -771,6 +797,10 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     observaciones, de menos a más, hasta 5; con una serie, el texto de
     antes. El aviso de pocos residuos de D13 usa ya el inicio de las series
     anchas.
+  - Revisión: `compare()` y ForecasterFoundation van a la fase 5; los
+    faltantes intermedios de las últimas ventanas, a 3a; `create_cv` no
+    avisa, porque el error del backtest ya salta antes de ejecutar nada. El
+    caso límite de `window_size` es un bug de skforecast (#1410).
 
 ## Decisiones abiertas
 
@@ -798,7 +828,7 @@ arranque de las sesiones en la nube instala skforecast desde su rama
 |:--|:--|:--|:--|
 | [#1357](https://github.com/skforecast/skforecast/issues/1357) | Nombres de serie enteros (G02) | Nada que quitar: los ids como texto de 1b se quedan, porque conservan los ceros (`001`) | Abierto |
 | [#1406](https://github.com/skforecast/skforecast/issues/1406) | Avisar de una serie que no se pronostica en ningún fold (G03) | 2b se queda en la comprobación previa y el aviso del perfil: los scripts corren con `suppress_warnings=True` y fallar antes de ejecutar es mejor para un agente | Abierto |
-| Por abrir | Una serie con exactamente `window_size` observaciones en la ventana de entrenamiento de un fold multiserie (2b) | Nada: el backtest falla dentro del script con "must be greater than the maximum window size"; con el arreglo, la serie se descarta de ese fold como las más cortas, que es lo que ya supone la comprobación de 2b | Por abrir |
+| [#1410](https://github.com/skforecast/skforecast/issues/1410) | Una serie con exactamente `window_size` observaciones en la ventana de entrenamiento de un fold multiserie (2b) | Nada: el backtest falla dentro del script con "must be greater than the maximum window size"; con el arreglo, la serie se descarta de ese fold como las más cortas, que es lo que ya supone la comprobación de 2b | Abierto |
 | [#1409](https://github.com/skforecast/skforecast/issues/1409) | Cobertura y anchura del intervalo en las métricas del backtesting (D11) | 2c-ii las lee de la salida del backtesting, sin cálculo propio en el script | Abierto |
 
 Detalle de cada uno:

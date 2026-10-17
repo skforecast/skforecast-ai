@@ -14,6 +14,22 @@ profile_single_daily = DataProfile(
     frequency              = "D",
 )
 
+# --- Three monthly series of 96 dates side by side, 288 pooled ---
+profile_wide_monthly = DataProfile(
+    n_series               = 3,
+    series_lengths         = {
+                                 name: {
+                                     "start": "2016-01-01",
+                                     "end": "2023-12-01",
+                                     "length": 96,
+                                 }
+                                 for name in ("a", "b", "c")
+                             },
+    target                 = ["a", "b", "c"],
+    index_type             = "datetime",
+    frequency              = "MS",
+)
+
 # --- Single series, hourly, 720 observations with exog ---
 profile_single_hourly_exog = DataProfile(
     n_series               = 1,

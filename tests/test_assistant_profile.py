@@ -43,6 +43,7 @@ from tests.fixtures_assistant import (
     df_multi_long,
     df_multi_long_integer_ids,
     df_multi_wide,
+    df_multi_wide_pooled,
     df_with_missing,
     df_constant_target,
     series_single,
@@ -1737,6 +1738,33 @@ def test_profile_InvalidInputError_when_sep_not_valid_for_data_in_memory():
         ForecastingAssistant().profile(data, target="y", sep="x")
 
     assert exc_info.value.field == "sep"
+
+
+def test_profile_estimator_when_wide_multi_series_is_sized_on_the_pooled_count():
+    """
+    Test that the profile of two wide series of 150 dates sizes the
+    estimator of ForecasterRecursiveMultiSeries, which trains on the
+    series pooled, on the 300 observations pooled (LGBMRegressor), and
+    that only a ForecasterDirectMultiVariate plan is sized on the dates
+    the series share (see `test_assistant_plan.py`).
+    """
+    assistant = ForecastingAssistant()
+
+    profile = assistant.profile(
+        data=df_multi_wide_pooled, target=["series_a", "series_b"], date_column="date"
+    )
+
+    assert profile.task_type == "multi_series"
+    assert profile.estimator == "LGBMRegressor"
+    assert profile.estimator_candidates == ["LGBMRegressor", "XGBRegressor", "Ridge"]
+    assert (
+        "Data: 300 observations pooled across 2 series, 'D' frequency."
+        in profile.explanation
+    )
+    assert (
+        "A gradient boosting model is preferred for a dataset of this size "
+        "(300 observations)." in profile.explanation
+    )
 
 
 @pytest.mark.parametrize(
