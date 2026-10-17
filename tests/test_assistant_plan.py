@@ -26,6 +26,7 @@ from tests.fixtures_assistant import (
     df_irregular,
     df_multi_long,
     df_multi_wide,
+    df_multi_wide_pooled,
     df_no_exog,
     df_range_index,
     df_single,
@@ -1790,6 +1791,64 @@ def test_plan_explanation_names_the_series_multivariate_predicts():
         "It predicts 'series_a', the first series of the target, from the lags "
         "of all the series."
     )
+
+
+def test_plan_estimator_when_multivariate_is_sized_on_the_dates_the_series_share():
+    """
+    Test that ForecasterDirectMultiVariate gets the estimator of the 150
+    dates it trains on (Ridge), not the LGBMRegressor that the profile
+    chose for the 300 observations pooled across the series, and that the
+    explanation gives that reason. The plan of the profile forecaster
+    keeps LGBMRegressor and its explanation has no such sentence.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_multi_wide_pooled, target=["series_a", "series_b"], date_column="date"
+    )
+
+    multivariate = assistant.plan(
+        profile, steps=7, forecaster="ForecasterDirectMultiVariate"
+    )
+    multi_series = assistant.plan(profile, steps=7)
+
+    assert profile.estimator == "LGBMRegressor"
+    assert multivariate.estimator == "Ridge"
+    assert multivariate.overridden_fields == ["forecaster"]
+    assert (
+        "Estimator: Ridge, chosen by the rules for ForecasterDirectMultiVariate "
+        "(the profile recommends LGBMRegressor for ForecasterRecursiveMultiSeries). "
+        "A linear model is preferred because the dataset is small "
+        "(150 observations < 250); gradient boosting is offered as an "
+        "alternative once more data is available. ForecasterDirectMultiVariate "
+        "trains on one row per date, so the size is the 150 dates the series "
+        "share, not the 300 observations pooled across them."
+    ) in multivariate.explanation
+    assert multi_series.forecaster == "ForecasterRecursiveMultiSeries"
+    assert multi_series.estimator == "LGBMRegressor"
+    assert "chosen by the rules" not in multi_series.explanation
+
+
+def test_plan_estimator_when_multivariate_estimator_is_passed():
+    """
+    Test that an estimator passed with ForecasterDirectMultiVariate is
+    kept, and that the explanation does not present it as a choice of the
+    rules.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_multi_wide_pooled, target=["series_a", "series_b"], date_column="date"
+    )
+
+    plan = assistant.plan(
+        profile,
+        steps      = 7,
+        forecaster = "ForecasterDirectMultiVariate",
+        estimator  = "LGBMRegressor",
+    )
+
+    assert plan.estimator == "LGBMRegressor"
+    assert plan.overridden_fields == ["forecaster", "estimator"]
+    assert "chosen by the rules" not in plan.explanation
 
 
 def test_plan_output_when_use_exog_false_ignores_the_exog_left_out():

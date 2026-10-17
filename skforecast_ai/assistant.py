@@ -93,6 +93,7 @@ from .recommendation import (
     _build_profile_explanation,
     baseline_missing_values_note,
     build_cv,
+    build_estimator_explanation,
     build_foundation_explanation,
     build_metric_override_explanation,
     build_plan_explanation,
@@ -107,6 +108,7 @@ from .recommendation import (
     derive_preprocessing_steps,
     constant_calendar_features,
     drop_colliding_calendar_features,
+    estimator_n_observations,
     finalize_lags,
     resolve_cv_config,
     resolve_cv_provenance,
@@ -278,11 +280,15 @@ def _carried_plan_arguments(
     A value is carried over only when the new forecaster can use it: lags
     and window features only by the autoregressive forecasters, an
     estimator (and its keyword arguments) only within its own family (an
-    ML regressor is not an ARIMA order, and the baseline has none). The
-    metric, `use_exog`, `differentiation`, `calendar_features`,
-    `target_transformer` and `dropna_from_series` are carried over only
-    when they are in `plan.overridden_fields` (the last four only to the
-    autoregressive forecasters).
+    ML regressor is not an ARIMA order, and the baseline has none). Into
+    or out of `ForecasterDirectMultiVariate`, an estimator is carried over
+    only when the user chose it or its keyword arguments: one the rules
+    chose is chosen again, on the count of the new forecaster
+    (`estimator_n_observations`). The metric, `use_exog`,
+    `differentiation`, `calendar_features`, `target_transformer` and
+    `dropna_from_series` are carried over only when they are in
+    `plan.overridden_fields` (the last four only to the autoregressive
+    forecasters).
 
     Parameters
     ----------
@@ -302,6 +308,17 @@ def _carried_plan_arguments(
     inherits_estimator = target_task_type == plan.task_type or (
         inherits_features and plan.forecaster in AUTOREG_FORECASTERS
     )
+    # The rules size the estimator of ForecasterDirectMultiVariate on the
+    # dates the series share and that of ForecasterRecursiveMultiSeries on
+    # the series pooled, so an estimator they chose is chosen again rather
+    # than carried into or out of ForecasterDirectMultiVariate. One the user
+    # chose, or wrote keyword arguments for, is carried over.
+    if (
+        "multivariate" in (target_task_type, plan.task_type)
+        and "estimator" not in plan.overridden_fields
+        and "estimator_kwargs" not in plan.overridden_fields
+    ):
+        inherits_estimator = False
     kwargs = plan.forecaster_kwargs
 
     return {
@@ -766,7 +783,8 @@ class ForecastingAssistant:
                             )
 
         estimator, estimator_candidates = select_estimator_and_candidates(
-            task_type=task_type, n_observations=data_profile.n_total_observations
+            task_type      = task_type,
+            n_observations = estimator_n_observations(task_type, data_profile),
         )
 
         explanation = _build_profile_explanation(
@@ -1085,14 +1103,26 @@ class ForecastingAssistant:
                 warnings.warn(message, UserWarning, stacklevel=2)
                 plan_warnings.append(message)
 
-        n_obs_total = data_profile.n_total_observations
-
-        # Recompute the estimator only when the task type changed.
+        # Recompute the estimator only when the task type changed, on the
+        # count of the new task type: the series pooled for
+        # ForecasterRecursiveMultiSeries, the dates they share for
+        # ForecasterDirectMultiVariate. The profile explanation gives the
+        # reason of its own estimator, so this one is explained here.
+        estimator_explanation = None
         if task_type != profile.task_type:
             est, _ = select_estimator_and_candidates(
                 task_type      = task_type,
-                n_observations = n_obs_total,
+                n_observations = estimator_n_observations(task_type, data_profile),
             )
+            if estimator is None:
+                estimator_explanation = build_estimator_explanation(
+                    forecaster         = fc,
+                    estimator          = est,
+                    task_type          = task_type,
+                    data_profile       = data_profile,
+                    profile_forecaster = profile.forecaster,
+                    profile_estimator  = profile.estimator,
+                )
         else:
             est = profile.estimator
 
@@ -1384,6 +1414,8 @@ class ForecastingAssistant:
             task_type                 = task_type,
             skipped_calendar_features = skipped_calendar_features,
         )
+        if estimator_explanation is not None:
+            explanation = f"{explanation} {estimator_explanation}"
         if foundation_model is not None:
             foundation_explanation = build_foundation_explanation(
                 foundation_model = foundation_model,

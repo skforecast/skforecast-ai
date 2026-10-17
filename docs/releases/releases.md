@@ -15,6 +15,12 @@ All significant changes to this project are documented in this release file.
 
 The main changes in this release are:
 
+!!! warning "Before upgrading"
+
+    Some results change with this version, without any change in your code:
+
+    + `plan()` and `refine_plan()` with `ForecasterDirectMultiVariate`: the estimator is chosen for the dates the series share, so it can be `Ridge` where it was `LGBMRegressor`. Pass `estimator="LGBMRegressor"` to keep the previous one.
+
 
 **Added**
 
@@ -23,6 +29,8 @@ The main changes in this release are:
 
 
 **Fixed**
+
++ Fixed an issue in [<code>ForecastingAssistant.plan()</code>][assistant] and `refine_plan()` where `ForecasterDirectMultiVariate` got the estimator chosen for the series pooled (`LGBMRegressor` from 250 observations), which on few dates per step predicted a constant. The rule now counts the dates the series share, and the explanation says so.
 
 
 ## 0.4.2 <small>Oct 12, 2026</small> { id="0.4.2" }

@@ -1753,7 +1753,7 @@ def test_forecast_evaluation_mode_with_direct_multivariate_checks_the_level():
         )
     np.testing.assert_array_almost_equal(
         result.predictions["pred"].to_numpy()[:3],
-        np.array([19.11669360058141, 19.389706633268087, 23.034484246415076]),
+        np.array([18.47304654365721, 20.96043690461582, 23.442394072172423]),
     )
 
 

@@ -16,7 +16,12 @@ from skforecast_ai.exceptions import (
 )
 from skforecast_ai.schemas import ForecastPlan
 
-from tests.fixtures_assistant import df_hourly, df_single, df_with_missing
+from tests.fixtures_assistant import (
+    df_hourly,
+    df_multi_wide_pooled,
+    df_single,
+    df_with_missing,
+)
 
 
 # =============================================================================
@@ -389,6 +394,74 @@ def test_refine_plan_output_keeps_estimator_within_ml_forecasters():
     assert direct.estimator == "Ridge"
     assert direct.estimator_kwargs == {"alpha": 2.0}
     assert direct.forecaster_kwargs["lags"] == [1, 2, 7]
+
+
+def test_refine_plan_estimator_when_switching_into_and_out_of_multivariate():
+    """
+    Test that an estimator chosen by the rules is chosen again when the plan
+    switches to ForecasterDirectMultiVariate (Ridge, for the 150 dates the
+    series share) and back to ForecasterRecursiveMultiSeries
+    (LGBMRegressor, for the 300 observations pooled), rather than carried
+    over, and that a refined multivariate plan keeps its reason.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_multi_wide_pooled, target=["series_a", "series_b"], date_column="date"
+    )
+    plan = assistant.plan(profile, steps=7)
+
+    multivariate = assistant.refine_plan(
+        profile, plan, forecaster="ForecasterDirectMultiVariate"
+    )
+    fewer_steps = assistant.refine_plan(profile, multivariate, steps=5)
+    multi_series = assistant.refine_plan(
+        profile, multivariate, forecaster="ForecasterRecursiveMultiSeries"
+    )
+
+    reason = (
+        "Estimator: Ridge, chosen by the rules for ForecasterDirectMultiVariate "
+        "(the profile recommends LGBMRegressor for ForecasterRecursiveMultiSeries)."
+    )
+    assert plan.estimator == "LGBMRegressor"
+    assert multivariate.estimator == "Ridge"
+    assert multivariate.overridden_fields == ["forecaster"]
+    assert reason in multivariate.explanation
+    assert fewer_steps.estimator == "Ridge"
+    assert reason in fewer_steps.explanation
+    assert multi_series.estimator == "LGBMRegressor"
+    assert multi_series.overridden_fields == ["forecaster"]
+    assert "chosen by the rules" not in multi_series.explanation
+
+
+@pytest.mark.parametrize(
+    "plan_kwargs, expected_kwargs",
+    [
+        ({"estimator": "LGBMRegressor"}, {}),
+        ({"estimator_kwargs": {"n_estimators": 50}}, {"n_estimators": 50}),
+    ],
+    ids=["estimator", "estimator_kwargs"],
+)
+def test_refine_plan_estimator_carried_into_multivariate_when_chosen_by_the_user(
+    plan_kwargs, expected_kwargs
+):
+    """
+    Test that switching to ForecasterDirectMultiVariate carries over an
+    estimator that the user chose, or wrote keyword arguments for, instead
+    of choosing it again.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_multi_wide_pooled, target=["series_a", "series_b"], date_column="date"
+    )
+    plan = assistant.plan(profile, steps=7, **plan_kwargs)
+
+    multivariate = assistant.refine_plan(
+        profile, plan, forecaster="ForecasterDirectMultiVariate"
+    )
+
+    assert multivariate.estimator == "LGBMRegressor"
+    assert multivariate.estimator_kwargs == expected_kwargs
+    assert "chosen by the rules" not in multivariate.explanation
 
 
 @pytest.mark.parametrize(
