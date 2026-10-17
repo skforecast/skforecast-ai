@@ -731,8 +731,9 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     independientes; el texto de `encoding=None` se queda. El inicio de cada
     serie en formato ancho lo necesita también 2b (nombrar las series
     cortas): cuando el perfil lo guarde, este aviso lo usará.
-- **D?. 2a: el estimador de DMV se dimensiona con las fechas comunes**
-  (2026-10-17): lo decide el `task_type` `"multivariate"`
+- **D14. 2a: el estimador de DMV se dimensiona con las fechas comunes**
+  (2026-10-17), en [#102](https://github.com/skforecast/skforecast-ai/pull/102):
+  lo decide el `task_type` `"multivariate"`
   (`estimator_n_observations`: `span_index_length`; las demás tareas siguen
   con `n_total_observations`). `refine_plan` ya no arrastra hacia o desde
   DMV un estimador que eligieron las reglas: lo vuelven a elegir. Sí arrastra
