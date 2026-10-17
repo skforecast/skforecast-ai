@@ -114,6 +114,26 @@ plan_long_foundation = _assistant.plan(
 plan_long_multivariate = plan_wide_multivariate
 
 
+def cv_items_sales(
+    initial_train_size: int = 84,
+    refit: bool | int = False,
+    **kwargs,
+) -> TimeSeriesFold:
+    """
+    Return a strategy of 3 steps for the 120 days of the items_sales data
+    (wide and long): 12 test folds that start at the positions 84, 87, ...,
+    117 (counting from 0). Without refit, the forecaster is trained once, on
+    the first `initial_train_size` days.
+    """
+    return TimeSeriesFold(
+        steps              = 3,
+        initial_train_size = initial_train_size,
+        refit              = refit,
+        verbose            = False,
+        **kwargs,
+    )
+
+
 def with_missing_long(data: pd.DataFrame, series: str, positions: list[int]):
     """
     Return a copy of long-format `data` with the target of `series` missing at

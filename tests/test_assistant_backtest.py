@@ -575,7 +575,9 @@ def test_backtest_output_when_long_series_start_on_different_dates_and_date_spli
     Test that a date `initial_train_size` on long data whose series start on
     different dates is placed from the earliest first date, as skforecast
     splits them: '2020-01-13' leaves 13 observations, more than the 5 of
-    the window of the plan, so the backtest runs without a warning.
+    the window of the plan, so the backtest runs without a warning. With
+    refit, the series 'b', with 3 observations in the first training window,
+    is forecast from the second fold on.
     """
     dates = pd.date_range("2020-01-01", periods=80, freq="D")
     values = np.arange(80, dtype=float) % 7
@@ -595,7 +597,9 @@ def test_backtest_output_when_long_series_start_on_different_dates_and_date_spli
         lags            = 5,
         window_features = [{"stats": ["mean"], "window_size": 2}],
     )
-    cv = assistant.create_cv(profile, plan, initial_train_size="2020-01-13")
+    cv = assistant.create_cv(
+        profile, plan, initial_train_size="2020-01-13", refit=True
+    )
 
     result = assistant.backtest(
         data          = data,
@@ -606,6 +610,10 @@ def test_backtest_output_when_long_series_start_on_different_dates_and_date_spli
     )
 
     assert result.predictions.index.min() == pd.Timestamp("2020-01-14")
+    first_dates = result.predictions.reset_index().groupby("level")["index"].min()
+    assert first_dates.to_dict() == {
+        "a": pd.Timestamp("2020-01-14"), "b": pd.Timestamp("2020-01-17")
+    }
 
 
 def test_backtest_output_when_dates_have_a_time_zone():
@@ -831,14 +839,9 @@ def test_backtest_InvalidInputError_when_long_series_has_no_values():
     assert exc_info.value.hint == "Remove the series without values from the data."
 
 
-@pytest.mark.parametrize("n_values", [1, 21, 60], ids=lambda n: f"values: {n}")
-def test_backtest_runs_when_long_series_starts_late(n_values):
-    """
-    Test that backtest() runs when a long-format series only has its last
-    values (short, even one, but not empty): skforecast leaves it out of the
-    first folds, so only series without any value are rejected.
-    """
-    data = _ITEMS_LONG[
+def _items_starting_late(n_values: int) -> pd.DataFrame:
+    """Return the long items_sales data with only the last `n_values` of item_2."""
+    return _ITEMS_LONG[
         ~(
             (_ITEMS_LONG["series"] == "item_2")
             & (_ITEMS_LONG["date"] <= pd.Timestamp("2012-04-29") - pd.Timedelta(
@@ -847,13 +850,59 @@ def test_backtest_runs_when_long_series_starts_late(n_values):
         )
     ]
 
+
+@pytest.mark.parametrize(
+    "n_values, refit",
+    [(100, False), (60, True)],
+    ids=["first_window_holds_40", "refit"],
+)
+def test_backtest_runs_when_long_series_starts_late(n_values, refit):
+    """
+    Test that backtest() runs when a long-format series starts late but some
+    fold forecasts it: with 100 values, the first training window (80 days)
+    holds 40 of them, more than the window of the plan (21); with 60 and
+    refit, the later folds train on more than 21 of them. Every series is
+    in the predictions.
+    """
+    cv = _long_cv()
+    cv.set_params({"refit": refit})
+
     result = assistant.backtest(
-        data=data, target="value", date_column="date",
-        series_id_column="series", cv=_long_cv(), show_progress=False,
+        data=_items_starting_late(n_values), target="value", date_column="date",
+        series_id_column="series", cv=cv, show_progress=False,
     )
 
     assert isinstance(result, BacktestResult)
     assert result.plan.forecaster == "ForecasterRecursiveMultiSeries"
+    assert sorted(result.predictions["level"].unique()) == [
+        "item_1", "item_2", "item_3"
+    ]
+
+
+@pytest.mark.parametrize("n_values", [1, 21, 60], ids=lambda n: f"values: {n}")
+def test_backtest_InvalidInputError_when_long_series_is_never_forecast(n_values):
+    """
+    Test that backtest() rejects, before running, a long-format series that
+    no fold forecasts: with 1 or 21 values, no more than the window of the
+    plan (21); with 60, only 20 in the first training window (80 days) and
+    no refit. skforecast left it out of the predictions and of the average
+    across series without a warning.
+    """
+    with pytest.raises(InvalidInputError) as exc_info:
+        assistant.backtest(
+            data=_items_starting_late(n_values), target="value",
+            date_column="date", series_id_column="series", cv=_long_cv(),
+            show_progress=False,
+        )
+
+    assert exc_info.value.code == "insufficient_data"
+    assert exc_info.value.field == "data"
+    assert str(exc_info.value).startswith(
+        f"Some series cannot be forecast in any fold of the backtest ('item_2': "
+        f"{n_values} observations, from their first to their last value). "
+        f"ForecasterRecursiveMultiSeries forecasts a series in a fold only when "
+        f"the training window of the fold has more than the 21 observations"
+    )
 
 
 @pytest.mark.parametrize("with_profile", [True, False], ids=["profile", "no_profile"])

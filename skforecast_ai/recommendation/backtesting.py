@@ -1522,9 +1522,10 @@ def _series_span_positions(
 
     skforecast splits the union index of the series, from the earliest first
     date (`span_start_date`), so a series that starts later has fewer
-    observations in a training window than the window itself. Only long
-    format has series with their own dates; every other series, and long
-    format when its span cannot be rebuilt on the dates of the series (no
+    observations in a training window than the window itself. A series of
+    long format spans its own dates, and one of wide format the dates from
+    its first to its last value, on the dates of the frame. Every other
+    series, and the series whose span cannot be rebuilt on their dates (no
     dates or frequency, dates that mix time zones, a span counted as the
     longest series), spans the whole of it.
 
@@ -1541,7 +1542,10 @@ def _series_span_positions(
     """
     n_observations = data_profile.span_index_length
     whole = {name: (0, n_observations) for name in data_profile.series_lengths}
-    if data_profile.data_format != "long" or data_profile.frequency is None:
+    if (
+        data_profile.data_format not in ("long", "wide")
+        or data_profile.frequency is None
+    ):
         return whole
     infos = data_profile.series_lengths
     if any(info.start is None or info.end is None for info in infos.values()):
@@ -1552,7 +1556,8 @@ def _series_span_positions(
         first, last = min(starts.values()), max(ends.values())
         # As in `span_start_date`: the dates carry the UTC offset of their
         # day, and the span is rebuilt on the local times of the zone.
-        if data_profile.time_zone is not None and first.tzinfo is not None:
+        aware = data_profile.time_zone is not None and first.tzinfo is not None
+        if aware:
             starts = {
                 name: date.tz_convert(data_profile.time_zone)
                 for name, date in starts.items()
@@ -1562,8 +1567,25 @@ def _series_span_positions(
                 for name, date in ends.items()
             }
             first, last = min(starts.values()), max(ends.values())
-        span = pd.date_range(start=first, end=last, freq=data_profile.frequency)
-        if len(span) != n_observations:
+        if data_profile.data_format == "wide":
+            # The series of wide data are on the dates of the frame, which
+            # can start before the first value of every series.
+            span = (
+                _aware_index(
+                    data_profile.span_start_date, n_observations,
+                    data_profile.frequency, data_profile.time_zone,
+                )
+                if aware else None
+            )
+            if span is None:
+                span = pd.date_range(
+                    start   = data_profile.span_start_date,
+                    periods = n_observations,
+                    freq    = data_profile.frequency,
+                )
+        else:
+            span = pd.date_range(start=first, end=last, freq=data_profile.frequency)
+        if len(span) != n_observations or first < span[0] or last > span[-1]:
             return whole
         return {
             name: (

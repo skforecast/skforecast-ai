@@ -30,7 +30,8 @@ from .._dates import (
     time_zones,
     training_end,
 )
-from ..schemas import DataProfile
+from ..schemas import DataProfile, SeriesLengthInfo
+from ..schemas.profiles import _resolve_observation_counts
 from ..exceptions import DataContentError, InvalidInputError, InvalidInputTypeError
 from .csv_dialect import (
     DECIMAL_NUMBERS,
@@ -616,8 +617,14 @@ def create_data_profile(
     )
 
     # Representative per-series length (shortest series) for data-quality
-    # warnings such as the short-series check.
-    representative_n = min(info["length"] for info in series_lengths.values())
+    # warnings such as the short-series check. Wide series share the rows of
+    # the frame, on which their missing values are counted (the rate of the
+    # note on missing values); the short series are named from their own
+    # lengths.
+    representative_n = (
+        len(data) if data_format == "wide"
+        else min(info["length"] for info in series_lengths.values())
+    )
 
     # Target dtype (use first target column for multi)
     first_target = target[0] if isinstance(target, list) else target
@@ -672,6 +679,10 @@ def create_data_profile(
             )
             if has_gaps else None
         ),
+        series_observations    = (
+            {name: info["length"] for name, info in series_lengths.items()}
+            if n_series > 1 else None
+        ),
     )
     # How the file was read comes first: its encoding, then its dates.
     if encoding == CP1252:
@@ -719,6 +730,9 @@ def create_data_profile(
         data_format=data_format,
         n_series=n_series,
         series_lengths=series_lengths,
+        span_index_length=_wide_span_index_length(
+            data, date_col, data_format, index_type, frequency
+        ),
         # Target
         target=target,
         target_dtype=target_dtype,
@@ -2512,7 +2526,8 @@ def _compute_series_metrics(
         Number of individual time series.
     series_lengths : dict
         Mapping of series name to a dict with keys `'start'`, `'end'`,
-        and `'length'`. Always populated, including single series.
+        and `'length'`. Always populated, including single series. In wide
+        format each series spans the rows from its first to its last value.
     
     """
 
@@ -2528,8 +2543,19 @@ def _compute_series_metrics(
 
     if data_format == "wide":
         target_cols = target if isinstance(target, list) else [target]
-        # All series share the same index, so each spans the full frame.
-        series_lengths = {col: _range(data, len(data)) for col in target_cols}
+        # Each series spans the rows from its first to its last value, as
+        # a series of long data spans its own rows: the missing values at
+        # both ends of a column are dates the series has not started or
+        # has ended on, which skforecast trims.
+        series_lengths = {}
+        for col in target_cols:
+            rows = np.flatnonzero(data[col].notna().to_numpy())
+            if len(rows) == 0:
+                # Nothing to trim: the column spans the frame.
+                series_lengths[col] = _range(data, len(data))
+                continue
+            span = data.iloc[rows[0]:rows[-1] + 1]
+            series_lengths[col] = _range(span, len(span))
         return len(target_cols), series_lengths
 
     if (
@@ -2547,6 +2573,32 @@ def _compute_series_metrics(
     target_name = target[0] if isinstance(target, list) else target
     series_lengths = {str(target_name): _range(data, len(data))}
     return 1, series_lengths
+
+
+def _wide_span_index_length(
+    data: pd.DataFrame,
+    date_col: str | None,
+    data_format: str,
+    index_type: str,
+    frequency: str | None,
+) -> int:
+    """
+    Return the span of wide-format data: the dates of its frame, from the
+    first row to the last one at `frequency`, which skforecast splits into
+    folds whatever the first and last value of each series. 0 for the other
+    formats, whose span `DataProfile` computes from `series_lengths`.
+    """
+    if data_format != "wide":
+        return 0
+    start, end = _frame_index_bounds(data, date_col, index_type == "datetime")
+    frame = SeriesLengthInfo(
+        start  = _fmt_timestamp(start) if start is not None else None,
+        end    = _fmt_timestamp(end) if end is not None else None,
+        length = len(data),
+    )
+    span, _ = _resolve_observation_counts({"frame": frame}, frequency)
+
+    return span
 
 
 def _long_series_dates(
@@ -4110,6 +4162,12 @@ def _array_stats(values: np.ndarray) -> dict[str, float] | None:
     }
 
 
+# Observations below which the profile notes a short series, and the series
+# the note names.
+_MIN_OBSERVATIONS = 50
+_SHOWN_SHORT_SERIES = 5
+
+
 def generate_warnings(
     n_observations: int,
     frequency: str | None,
@@ -4123,6 +4181,7 @@ def generate_warnings(
     series_ending_early: tuple[str, dict[str, str]] | None = None,
     numbers_as_text: dict[str, tuple[int, int, list, int]] | None = None,
     gap_weekdays: list[int] | None = None,
+    series_observations: dict[str, int] | None = None,
 ) -> list[str]:
     """
     Generate human-readable warnings about potential data issues.
@@ -4130,7 +4189,7 @@ def generate_warnings(
     Parameters
     ----------
     n_observations : int
-        Total number of observations.
+        Number of observations of the shortest series.
     frequency : str, None
         Inferred frequency string.
     missing_target : dict
@@ -4166,6 +4225,10 @@ def generate_warnings(
         then names them, says that a forecast predicts them too, and that
         a business closed on them can fill them with 0, after asking the
         user: nothing is filled in.
+    series_observations : dict, default None
+        Number of observations of each series of multi-series data (see
+        `SeriesLengthInfo.length`). The note on short series then names the
+        series with fewer than 50, from the fewest observations to the most.
 
     Returns
     -------
@@ -4180,10 +4243,36 @@ def generate_warnings(
     """
     warnings: list[str] = []
 
-    if n_observations < 50:
+    short = sorted(
+        (
+            (name, length)
+            for name, length in (series_observations or {}).items()
+            if length < _MIN_OBSERVATIONS
+        ),
+        key = lambda item: item[1],
+    )
+    if short:
+        # With several series, the note names them: "only 20 observations"
+        # alone did not say which series a forecast would fail on.
+        lowest, highest = short[0][1], short[-1][1]
+        if len(short) == 1:
+            where = f"in series {short[0][0]!r}"
+        else:
+            found = [f"{name!r}: {length}" for name, length in short]
+            shown = ", ".join(found[:_SHOWN_SHORT_SERIES])
+            if len(found) > _SHOWN_SHORT_SERIES:
+                shown += f" and {len(found) - _SHOWN_SHORT_SERIES} more series"
+            where = f"in {len(short)} series ({shown})"
+        counts = str(lowest) if lowest == highest else f"{lowest} to {highest}"
+        warnings.append(
+            f"Short series: only {counts} observations {where}. Results may "
+            f"be unreliable with fewer than {_MIN_OBSERVATIONS} observations."
+        )
+    elif not series_observations and n_observations < _MIN_OBSERVATIONS:
         warnings.append(
             f"Short series: only {n_observations} observations. "
-            "Results may be unreliable with fewer than 50 observations."
+            f"Results may be unreliable with fewer than {_MIN_OBSERVATIONS} "
+            f"observations."
         )
 
     if index_type != "datetime":

@@ -159,3 +159,14 @@ profile_h2o_staggered = _profile_h2o_staggered.data_profile
 plan_h2o_staggered_interval = _assistant.plan(
     _profile_h2o_staggered, steps=1, interval=_interval
 )
+# The same series in wide format: 'b' starts with 20 missing values.
+_profile_h2o_wide_staggered = _assistant.profile(
+    df_h2o_long.drop(index=df_h2o_long.index[204:224]).pivot(
+        index="date", columns="series", values="x"
+    ),
+    target = ["a", "b"],
+)
+profile_h2o_wide_staggered = _profile_h2o_wide_staggered.data_profile
+plan_h2o_wide_staggered_interval = _assistant.plan(
+    _profile_h2o_wide_staggered, steps=1, interval=_interval
+)

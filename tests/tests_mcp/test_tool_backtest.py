@@ -9,6 +9,7 @@ from skforecast_ai.mcp import _runtime, create_server
 from skforecast_ai.mcp.models import ToolNotice
 
 from ..fixtures_assistant import df_multi_long_numeric_ids
+from ..fixtures_datasets import df_items_sales_long
 from .fixtures_mcp import (
     DATA_VALUES_HINT,
     call,
@@ -448,3 +449,58 @@ def test_tool_backtest_output_when_series_ids_are_numbers(tmp_path):
     assert sorted(predictions["level"].unique()) == ["001", "1", "10"]
     assert f"pd.read_csv({path!r}, dtype={{'series_id': str}})" in code
     assert code == expected.code
+
+
+def test_tool_backtest_insufficient_data_when_a_series_is_never_forecast(tmp_path):
+    """
+    Test that a long-format CSV with a series of 20 days ('item_2', its last
+    ones), fewer than the 21 its plan reads, is named from the profile to the
+    backtest: the profile notice names it, and `backtest` is
+    `insufficient_data` on `data_path` naming it, before running, as
+    `forecast` of the plan is. Before, skforecast forecast it in no fold and
+    left it out of the predictions and of the average across series without
+    a warning (skforecast issue #1406).
+    """
+    data = df_items_sales_long.drop(
+        index=df_items_sales_long.index[df_items_sales_long["series"] == "item_2"][:-20]
+    )
+    path = write_csv(tmp_path, "items.csv", data)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    async def steps(client):
+        profile = content_of(await client.call_tool(
+            "profile",
+            {"data_path": path, "target": "value", "series_id_column": "series"},
+        ))
+        plan = content_of(
+            await client.call_tool("plan", {"profile_id": profile["id"], "steps": 7})
+        )
+        cv = content_of(await client.call_tool("create_cv", {"plan_id": plan["id"]}))
+        backtest = await client.call_tool("backtest", {"cv_id": cv["id"]})
+        forecast = await client.call_tool("forecast", {"plan_id": plan["id"]})
+        return profile, backtest, forecast
+
+    profile, backtest, forecast = run_session(server, steps)
+    error = error_of(backtest, "backtest")
+
+    assert [n["message"] for n in profile["notices"]] == [
+        "Short series: only 20 observations in series 'item_2'. Results may be "
+        "unreliable with fewer than 50 observations."
+    ]
+    assert (error["code"], error["field"]) == ("insufficient_data", "data_path")
+    assert error["message"] == (
+        "Some series cannot be forecast in any fold of the backtest ('item_2': "
+        "20 observations, from their first to their last value). "
+        "ForecasterRecursiveMultiSeries forecasts a series in a fold only when "
+        "the training window of the fold has more than the 21 observations of "
+        "it that it reads to build its predictors, and the series has the 21 "
+        "dates before the fold; skforecast leaves the other series out without "
+        "a warning, so they would get no predictions and no metrics, and the "
+        "average across series would leave them out. `forecast()` of this plan "
+        "rejects them too. Remove those series, or use shorter lags and window "
+        "features."
+    )
+    assert error["hint"] == (
+        "Remove those series, or use shorter lags and window features."
+    )
+    assert error_of(forecast, "forecast")["code"] == "insufficient_data"

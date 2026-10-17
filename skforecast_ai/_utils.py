@@ -307,7 +307,10 @@ def _validate_task_input(data_profile: DataProfile, task_type: str) -> None:
             field = "date_column",
         )
 
-    if task_type == "multivariate":
+    # Wide series share the rows of the frame: their lengths, from the first
+    # to the last value, differ by the missing values at the ends of a
+    # column, which the forecaster reads as missing values.
+    if task_type == "multivariate" and data_profile.data_format != "wide":
         lengths = {info.length for info in series_lengths.values()}
         if len(lengths) > 1:
             detail = {

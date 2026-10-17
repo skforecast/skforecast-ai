@@ -1,7 +1,7 @@
 <forecast_context>
 <dataset>
 - Observations: 120
-- Observations pooled across series: 60000
+- Observations pooled across series: 59970
 - Series: 500
 - Frequency: D
 - Date range: 2023-01-01 to 2023-04-30
@@ -17,7 +17,7 @@
 - Index irregularities: none detected
 </dataset>
 <profile_decision>
-The dataset contains 500 series, so a multi-series forecaster (ForecasterRecursiveMultiSeries) is recommended. Data: 60000 observations pooled across 500 series, 'D' frequency. Alternative forecasters: ['ForecasterDirectMultiVariate', 'ForecasterFoundation']. Estimator: LGBMRegressor. A gradient boosting model is preferred for a dataset of this size (60000 observations). Alternative estimators: ['XGBRegressor', 'Ridge']. 20 exogenous variables available as predictors.
+The dataset contains 500 series, so a multi-series forecaster (ForecasterRecursiveMultiSeries) is recommended. Data: 59970 observations pooled across 500 series, 'D' frequency. Alternative forecasters: ['ForecasterDirectMultiVariate', 'ForecasterFoundation']. Estimator: LGBMRegressor. A gradient boosting model is preferred for a dataset of this size (59970 observations). Alternative estimators: ['XGBRegressor', 'Ridge']. 20 exogenous variables available as predictors.
 - Significant lags shown (first 5 of 500 series; a series without significant lags has no line)
 - Suggested window features: mean(window=3), std(window=3), mean(window=7), mean(window=21)
 - Suggested calendar features: day_of_week, weekend, month

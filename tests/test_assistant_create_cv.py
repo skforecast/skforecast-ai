@@ -1617,7 +1617,9 @@ def test_create_cv_output_when_long_series_start_on_different_dates():
     Test that the default strategy of long data whose series start on
     different dates counts from the first date of the span, not from the
     latest first date of the series: the first training set ends inside the
-    data, and backtest() runs the folds that `cv_config` states.
+    data, and backtest() runs the folds that `cv_config` states, on both
+    series. The plan reads 7 lags: the 10 observations of the later series
+    in the first training window are more than its window.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(
@@ -1626,7 +1628,7 @@ def test_create_cv_output_when_long_series_start_on_different_dates():
         date_column      = "date",
         series_id_column = "series_id",
     )
-    plan = assistant.plan(profile, steps=5)
+    plan = assistant.plan(profile, steps=5, lags=7, window_features=[])
 
     result = assistant.create_cv(profile, plan)
     backtest = assistant.backtest(
@@ -1642,6 +1644,9 @@ def test_create_cv_output_when_long_series_start_on_different_dates():
     assert result.cv_config["initial_train_size"] == "2023-03-11"
     assert result.cv_config["n_folds"] == 6
     assert backtest.predictions["fold"].nunique() == 6
+    assert backtest.predictions.groupby("level").size().to_dict() == {
+        "store_a": 30, "store_b": 30
+    }
 
 
 def test_create_cv_output_when_dates_cross_a_daylight_saving_change():

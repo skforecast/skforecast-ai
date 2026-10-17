@@ -22,13 +22,16 @@ class SeriesLengthInfo(BaseModel):
     Attributes
     ----------
     start : str, default None
-        First timestamp of the series as a string (e.g. `'2020-01-01'`).
-        None when the index is not datetime.
+        First timestamp of the series as a string (e.g. `'2020-01-01'`):
+        its first row in long format, its first value in wide format. None
+        when the index is not datetime.
     end : str, default None
-        Last timestamp of the series as a string. None when the index is
-        not datetime.
+        Last timestamp of the series as a string: its last row in long
+        format, its last value in wide format. None when the index is not
+        datetime.
     length : int
-        Number of observations in the series.
+        Number of observations in the series: its rows in long format, the
+        rows from its first to its last value in wide format.
     """
 
     start: str | None = None
@@ -98,7 +101,10 @@ class DataProfile(PickleDefaultsMixin, BaseModel):
     series_lengths : dict
         Mapping of series name to its `SeriesLengthInfo` (start, end,
         and length). Always populated, including single series (keyed by
-        the target name). The task-aware effective number of
+        the target name). A series of long format spans its own rows, and
+        one of wide format the rows from its first to its last value (the
+        missing values at both ends are dates it has not started or has
+        ended on). The task-aware effective number of
         observations is derived from this mapping (span for
         `multi_series`, common length for `multivariate`, single length
         otherwise).
@@ -107,7 +113,9 @@ class DataProfile(PickleDefaultsMixin, BaseModel):
         the earliest start to the latest end at `frequency`. Falls back
         to the longest individual series when datetime bounds or
         frequency are unavailable. Computed automatically from
-        `series_lengths`.
+        `series_lengths`, except for wide format when given: there it is
+        the dates of the frame, from its first row to its last one, which
+        every series shares.
     n_total_observations : int
         Pooled total number of observations across all series (the sum of
         every series length). Computed automatically from
@@ -318,12 +326,17 @@ class DataProfile(PickleDefaultsMixin, BaseModel):
 
     @model_validator(mode="after")
     def _populate_observation_counts(self) -> "DataProfile":
-        """Derive `span_index_length` and `n_total_observations`."""
+        """
+        Derive `span_index_length` and `n_total_observations`. The span of
+        wide-format data is kept when given: its series, which can start
+        and end on other rows, share the dates of the frame.
+        """
         if self.series_lengths:
             span, total = _resolve_observation_counts(
                 self.series_lengths, self.frequency
             )
-            self.span_index_length = span
+            if not (self.data_format == "wide" and self.span_index_length):
+                self.span_index_length = span
             self.n_total_observations = total
         return self
 

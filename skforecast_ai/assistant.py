@@ -3390,14 +3390,16 @@ class ForecastingAssistant:
             plan       = plan,
             prediction = False,
         )
-        validate_series_lengths(
-            data       = data_df,
-            profile    = profile.data_profile,
-            plan       = plan,
-            whole_data = True,
-        )
         _check_direct_gap(plan, cv)
         check_first_window(plan, cv, profile.data_profile)
+        # After the first training window: a window too short for every
+        # series is reported by that check, with its own remedies.
+        validate_series_lengths(
+            data    = data_df,
+            profile = profile.data_profile,
+            plan    = plan,
+            cv      = _cv_in_time_zone(cv, data_df, profile.data_profile),
+        )
         validate_backtest_windows(
             data    = data_df,
             profile = profile.data_profile,

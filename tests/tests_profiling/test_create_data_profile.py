@@ -13,7 +13,7 @@ from skforecast_ai.exceptions import InvalidInputError
 from skforecast_ai.profiling import create_data_profile
 from skforecast_ai.profiling.csv_dialect import cp1252_note
 from skforecast_ai.profiling.data_profile import DAYFIRST_FRAME_HINT, DAYFIRST_HINT
-from skforecast_ai.schemas import DataProfile
+from skforecast_ai.schemas import DataProfile, SeriesLengthInfo
 
 from ..fixtures_assistant import (
     df_multi_long_integer_ids,
@@ -1153,6 +1153,78 @@ def test_create_data_profile_no_note_when_wide_series_end_together():
     assert profile.warnings == []
 
 
+@pytest.mark.parametrize("dates_in", ["index", "column"])
+def test_create_data_profile_output_when_wide_series_start_late(dates_in):
+    """
+    Test that each wide-format series (column) spans the rows from its first
+    to its last value, as a long-format series spans its own rows: item_2
+    starts 30 days late and item_3 ends 2 days early. The span of the data
+    and its first date stay those of the frame, which skforecast splits.
+    """
+    data = df_items_sales_wide.copy()
+    data.iloc[:30, 1] = np.nan
+    data.iloc[-2:, 2] = np.nan
+    kwargs = {"target": ["item_1", "item_2", "item_3"]}
+    if dates_in == "column":
+        data = data.reset_index()
+        kwargs["date_column"] = "date"
+
+    profile = create_data_profile(data=data, **kwargs)
+
+    assert profile.series_lengths == {
+        "item_1": SeriesLengthInfo(
+            start="2012-01-01", end="2012-04-29", length=120
+        ),
+        "item_2": SeriesLengthInfo(
+            start="2012-01-31", end="2012-04-29", length=90
+        ),
+        "item_3": SeriesLengthInfo(
+            start="2012-01-01", end="2012-04-27", length=118
+        ),
+    }
+    assert profile.span_index_length == 120
+    assert profile.span_start_date == "2012-01-01"
+    assert profile.n_total_observations == 328
+
+
+def test_create_data_profile_span_of_frame_when_every_wide_series_starts_late():
+    """
+    Test that the span of wide-format data is that of its frame when every
+    series starts after its first row: skforecast splits the dates of the
+    frame, whatever the first value of each series.
+    """
+    data = df_items_sales_wide.copy()
+    data.iloc[:10, :] = np.nan
+
+    profile = create_data_profile(data=data, target=["item_1", "item_2", "item_3"])
+
+    assert {name: info.start for name, info in profile.series_lengths.items()} == {
+        "item_1": "2012-01-11", "item_2": "2012-01-11", "item_3": "2012-01-11"
+    }
+    assert profile.span_index_length == 120
+    assert profile.start_date == "2012-01-01"
+
+
+def test_create_data_profile_note_names_short_wide_series():
+    """
+    Test that the note on short series names the wide-format series with
+    fewer than 50 observations, from their first to their last value
+    (item_2 with its last 20 values), instead of the bare count. The rate
+    of missing values is still counted on the rows of the frame.
+    """
+    data = df_items_sales_wide.copy()
+    data.iloc[:-20, 1] = np.nan
+
+    profile = create_data_profile(data=data, target=["item_1", "item_2", "item_3"])
+
+    assert profile.warnings == [
+        "Short series: only 20 observations in series 'item_2'. Results may be "
+        "unreliable with fewer than 50 observations.",
+        "High missing value rate (83.3%). Consider imputation before "
+        "forecasting.",
+    ]
+
+
 def test_create_data_profile_output_when_long_series_share_frequency():
     """
     Test that long-format series that share one frequency and end on the
@@ -1276,8 +1348,8 @@ def test_create_data_profile_note_when_long_dates_beyond_nanoseconds():
 
     assert profile.frequency == "YS-JAN"
     assert profile.warnings == [
-        "Short series: only 40 observations. Results may be unreliable with "
-        "fewer than 50 observations.",
+        "Short series: only 40 observations in 2 series ('a': 40, 'b': 40). "
+        "Results may be unreliable with fewer than 50 observations.",
         "Long-format dates outside the years 1677 to 2262: the frequency and "
         "the missing timestamps were read from the first series only, so the "
         "other series were not checked."
