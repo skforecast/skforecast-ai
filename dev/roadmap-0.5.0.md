@@ -731,6 +731,16 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     independientes; el texto de `encoding=None` se queda. El inicio de cada
     serie en formato ancho lo necesita también 2b (nombrar las series
     cortas): cuando el perfil lo guarde, este aviso lo usará.
+- **D?. 2a: el estimador de DMV se dimensiona con las fechas comunes**
+  (2026-10-17): lo decide el `task_type` `"multivariate"`
+  (`estimator_n_observations`: `span_index_length`; las demás tareas siguen
+  con `n_total_observations`). `refine_plan` ya no arrastra hacia o desde
+  DMV un estimador que eligieron las reglas: lo vuelven a elegir. Sí arrastra
+  el que eligió el usuario, o aquel para el que escribió `estimator_kwargs`.
+  La explicación del perfil sigue siendo la del perfil (recomienda
+  ForecasterRecursiveMultiSeries); la del plan añade el estimador, el
+  forecaster para el que lo eligieron las reglas y el número que lo decidió,
+  solo cuando la tarea del plan no es la del perfil y el estimador no se pasó.
 
 ## Decisiones abiertas
 

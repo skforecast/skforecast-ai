@@ -136,6 +136,19 @@ df_multi_wide = pd.DataFrame(
     }
 )
 
+# --- Multi-series wide format, 300 observations pooled over 150 dates ---
+# The pooled count reaches the threshold of the estimator rule (250), the
+# 150 dates that ForecasterDirectMultiVariate trains on do not.
+_n_obs_pooled = 150
+_t_pooled = np.arange(_n_obs_pooled, dtype=float)
+df_multi_wide_pooled = pd.DataFrame(
+    {
+        "date": pd.date_range("2023-01-01", periods=_n_obs_pooled, freq="D"),
+        "series_a": 50.0 + 0.2 * _t_pooled + 5.0 * np.sin(2 * np.pi * _t_pooled / 7),
+        "series_b": 80.0 + 0.1 * _t_pooled + 3.0 * np.cos(2 * np.pi * _t_pooled / 7),
+    }
+)
+
 # --- Data with missing values in target and exog ---
 _target_with_nan = np.arange(_n_obs, dtype=float)
 _target_with_nan[10] = np.nan

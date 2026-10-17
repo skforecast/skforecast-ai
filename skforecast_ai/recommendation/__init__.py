@@ -32,9 +32,11 @@ from .explanation import (
     _build_profile_explanation,
     build_foundation_explanation,
     build_metric_override_explanation,
+    build_estimator_explanation,
     build_plan_explanation,
 )
 from .forecaster_selection import (
+    estimator_n_observations,
     select_estimator_and_candidates,
     select_forecaster_and_candidates,
     select_task_type_from_forecaster,
@@ -54,6 +56,7 @@ __all__ = [
     "baseline_missing_values_note",
     "build_cv",
     "build_cv_explanation",
+    "build_estimator_explanation",
     "build_foundation_explanation",
     "build_metric_override_explanation",
     "build_plan_explanation",
@@ -68,6 +71,7 @@ __all__ = [
     "cv_as_executed",
     "derive_cv_defaults",
     "derive_preprocessing_steps",
+    "estimator_n_observations",
     "constant_calendar_features",
     "drop_colliding_calendar_features",
     "finalize_lags",
