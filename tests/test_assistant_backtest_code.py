@@ -55,6 +55,34 @@ def test_backtest_code_ValueError_when_cv_steps_differs_from_plan_steps():
         )
 
 
+@pytest.mark.parametrize("with_profile", [True, False], ids=["profile", "no_profile"])
+def test_backtest_code_InvalidInputError_when_multiindex_level_unnamed(with_profile):
+    """
+    Test that backtest_code() rejects long-format data indexed by a
+    MultiIndex with a level without a name, also with a profile of the same
+    data with named levels, as backtest() does: the script it returns reads
+    the levels by name from the frame saved with `to_csv()`, which writes an
+    empty header for them.
+    """
+    data = df_multi_long.set_index(["series_id", "date"])
+    kwargs = {"target": "value"}
+    if with_profile:
+        kwargs = {"profile": assistant.profile(data=data, target="value")}
+    cv = TimeSeriesFold(steps=5, initial_train_size=70, verbose=False)
+    err_msg = re.escape(
+        "`data` is indexed by a MultiIndex with levels without a name "
+        "(names [None, None])."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.backtest_code(
+            data = data.rename_axis([None, None]),
+            cv   = cv,
+            **kwargs,
+        )
+
+    assert exc_info.value.field == "data"
+
+
 # =============================================================================
 # Tests: basic output
 # =============================================================================

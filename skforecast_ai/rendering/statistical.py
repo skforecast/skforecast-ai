@@ -5,7 +5,7 @@
 # This work by skforecast team is licensed under the Apache License 2.0        #
 ################################################################################
 
-from ..schemas import DataProfile, ForecastPlan, RenderedScript
+from ..schemas import DataProfile, ForecastPlan, FutureExogFile, RenderedScript
 from .._validation import validate_kwarg_names
 from ._helpers import (
     _comment_text,
@@ -83,8 +83,26 @@ def _emit_forecaster_creation_statistical(
 def render_forecast_statistical(
     plan: ForecastPlan,
     profile: DataProfile,
+    exog_file: FutureExogFile | None = None,
 ) -> RenderedScript:
-    """Render code for ForecasterStats (Auto-ARIMA)."""
+    """Render code for ForecasterStats (Auto-ARIMA).
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Validated forecast plan.
+    profile : DataProfile
+        Profile of the data.
+    exog_file : FutureExogFile, default None
+        File the script reads the future exogenous variables from, with its
+        dialect and the format of its dates (see `future_exog_file`). If
+        None, `exog_future.csv` as `to_csv()` writes it.
+
+    Returns
+    -------
+    script : RenderedScript
+        Imports, data loading and core sections of the forecasting script.
+    """
 
     target = _get_target_str(profile)
     exog_columns = _get_numeric_exog(profile)
@@ -102,8 +120,10 @@ def render_forecast_statistical(
     # --- Load data and index setup ---
     _emit_loading_and_index(loading_lines, core_lines, profile)
     if not evaluate and use_exog:
-        _emit_future_exog_loading(loading_lines, profile)
-        _emit_future_exog_index_setup(core_lines, profile)
+        _emit_future_exog_loading(loading_lines, profile, exog_file)
+        _emit_future_exog_index_setup(
+            core_lines, profile, exog_file=exog_file
+        )
 
     # --- Preprocessing steps ---
     _emit_preprocessing_steps(core_lines, plan, profile)

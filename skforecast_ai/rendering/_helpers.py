@@ -9,7 +9,7 @@
 
 import numbers
 import unicodedata
-from ..schemas import DataProfile, ForecastPlan
+from ..schemas import DataProfile, ForecastPlan, FutureExogFile
 from .._constants import (
     BLOCKING_PREPROCESSING_TEMPLATES,
     COMMENT_ESCAPED_CATEGORIES,
@@ -466,7 +466,7 @@ def _emit_data_loading(
     long_format: bool = False,
     *,
     var: str = "data",
-    path: str | None = None,
+    exog_file: FutureExogFile | None = None,
     comment: str = "# Load data",
 ) -> None:
     """
@@ -474,15 +474,25 @@ def _emit_data_loading(
 
     The CSV is read with `index_col=0, parse_dates=True` only when there is
     no `date_column` in wide format and the index is stored in the file:
-    for the future exogenous variables (`path` given), for a datetime
+    for the future exogenous variables (`exog_file` given), for a datetime
     index, and for data passed in memory (the placeholder `data_path`,
     the frame saved with `to_csv()`). Without dates, the integer index
     read is then turned into a RangeIndex, which skforecast requires. A
     CSV read by path without dates holds no index, so it is read as is.
 
     A file written with another separator than `','` or with `','` as
-    decimal mark is read with the `sep` and `decimal` of the profile
-    (`csv_sep`, `csv_decimal`); otherwise the call does not name them.
+    decimal mark is read with its `sep` and `decimal`, and with its
+    `thousands` when it has one; otherwise the call does not name them. A
+    file that is not UTF-8 is read with `encoding='cp1252'`. The data file
+    is read with the dialect of the profile (`csv_sep`, `csv_decimal`,
+    `csv_thousands`, `csv_encoding`), the future exogenous variables with
+    their own (`exog_file`): that of the file they were read from, or the
+    defaults for the frame saved with `to_csv()`. The column of series ids
+    of long-format data is read as text (`dtype`), in the data and in the
+    future exogenous variables, as the library reads it: `'001'` keeps its
+    zeros and the thousands separator does not touch it. With a thousands
+    separator, so is the date column: pandas would read `'15.01.2020'` as
+    the number 15012020.
 
     Parameters
     ----------
@@ -497,8 +507,10 @@ def _emit_data_loading(
         Name of the variable to assign the loaded frame to. Allows the
         same loader to be reused for the future exogenous frame
         (`var='exog_future'`).
-    path : str, default None
-        CSV path to read from. Defaults to `profile.data_path`.
+    exog_file : FutureExogFile, default None
+        File of the future exogenous variables to read, with its path and
+        dialect. If None, the data file, `profile.data_path`, is read with
+        the dialect of the profile.
     comment : str, default '# Load data'
         Comment header emitted above the read_csv call.
 
@@ -508,7 +520,7 @@ def _emit_data_loading(
     
     """
 
-    data_path = profile.data_path if path is None else path
+    data_path = profile.data_path if exog_file is None else exog_file.path
     date_col = profile.date_column
 
     # Without a date column the index is saved as the first column of the
@@ -519,21 +531,39 @@ def _emit_data_loading(
     # which must carry the positions that follow the data; without dates,
     # that index is turned back into the RangeIndex skforecast needs.
     index_read = not date_col and (
-        path is not None
+        exog_file is not None
         or profile.index_type == "datetime"
         or profile.data_path == PLACEHOLDER_DATA_PATH
     )
 
-    # A file written with another separator or decimal mark is read with
-    # the ones recorded when it was profiled. Data passed in memory and the
-    # future exogenous variables are the frames saved with `to_csv()`.
+    # A file is read with the separator, decimal mark, thousands separator
+    # and encoding it was read with: the data file with those recorded when
+    # it was profiled, the future exogenous variables with those of their
+    # own file. Data passed in memory are saved with `to_csv()`.
+    if exog_file is not None:
+        sep, decimal = exog_file.sep, exog_file.decimal
+        thousands, encoding = exog_file.thousands, exog_file.encoding
+    elif profile.data_path == PLACEHOLDER_DATA_PATH:
+        sep, decimal, thousands, encoding = ",", ".", None, "utf-8"
+    else:
+        sep, decimal = profile.csv_sep, profile.csv_decimal
+        thousands, encoding = profile.csv_thousands, profile.csv_encoding
     dialect = ""
-    if (
-        path is None
-        and profile.data_path != PLACEHOLDER_DATA_PATH
-        and (profile.csv_sep, profile.csv_decimal) != (",", ".")
-    ):
-        dialect = f", sep={profile.csv_sep!r}, decimal={profile.csv_decimal!r}"
+    text_columns = [profile.series_id_column]
+    if (sep, decimal) != (",", "."):
+        dialect = f", sep={sep!r}, decimal={decimal!r}"
+        if thousands is not None:
+            dialect += f", thousands={thousands!r}"
+            text_columns.append(date_col)
+    if encoding != "utf-8":
+        dialect += f", encoding={encoding!r}"
+
+    text_columns = [
+        column for column in dict.fromkeys(text_columns) if column is not None
+    ]
+    if text_columns:
+        dtypes = ", ".join(f"{column!r}: str" for column in text_columns)
+        dialect += f", dtype={{{dtypes}}}"
 
     lines.append(comment)
     if long_format or not index_read:
@@ -560,6 +590,7 @@ def _emit_index_setup(
     long_format: bool = False,
     *,
     var: str = "data",
+    date_format: str | None = None,
 ) -> None:
     """
     Append index-setup code (to_datetime, set_index, asfreq, sort).
@@ -568,18 +599,31 @@ def _emit_index_setup(
     in standalone scripts (after CSV loading) and in exec mode (when
     data is injected as a raw DataFrame).
 
+    The dates are read with `format=` when `date_format` is given (the
+    format of the date column the profile records: dates that write the day
+    and the month as numbers, or whole numbers such as 20200131), and as
+    pandas guesses it from the first date otherwise. The future exogenous
+    variables are read with their own format, which may not be the one of
+    the data (see `future_exog_file`).
+
     Parameters
     ----------
     lines : list
         Output list of code lines to append to.
     profile : DataProfile
-        Data profile with `date_column` and `frequency`.
+        Data profile with `date_column`, `date_format` and `frequency`.
     long_format : bool, default False
         If `False` (wide format), emits set_index + asfreq + sort_index.
-        If `True` (long format), emits to_datetime + sort_values only.
+        If `True` (long format), emits to_datetime + sort_values only,
+        after turning the series ids into text: a DataFrame passed in
+        memory, which is not read from the CSV file, may hold integer ids,
+        which skforecast cannot look up (skforecast issue #1357).
     var : str, default 'data'
         Name of the variable to prepare. Allows the same preparation to
         be reused for the future exogenous frame (`var='exog_future'`).
+    date_format : str, default None
+        Format of the dates of `var`: `DataProfile.date_format` for the
+        data. If None, pandas guesses it.
 
     Returns
     -------
@@ -589,18 +633,27 @@ def _emit_index_setup(
 
     date_col = profile.date_column
     frequency = profile.frequency
+    date_format = f", format={date_format!r}" if date_format is not None else ""
 
     if long_format:
+        series_id = profile.series_id_column
+        if series_id is not None:
+            lines.append(
+                f"{var}[{series_id!r}] = {var}[{series_id!r}]"
+                f".map(str, na_action='ignore')"
+            )
         if date_col:
             lines.append(
-                f"{var}[{repr(date_col)}] = pd.to_datetime({var}[{repr(date_col)}])"
+                f"{var}[{repr(date_col)}] = "
+                f"pd.to_datetime({var}[{repr(date_col)}]{date_format})"
             )
             lines.append(f"{var} = {var}.sort_values({repr(date_col)})")
         lines.append("")
     else:
         if date_col:
             lines.append(
-                f"{var}[{repr(date_col)}] = pd.to_datetime({var}[{repr(date_col)}])"
+                f"{var}[{repr(date_col)}] = "
+                f"pd.to_datetime({var}[{repr(date_col)}]{date_format})"
             )
             lines.append(f"{var} = {var}.set_index({repr(date_col)})")
         if frequency and not profile.has_duplicate_timestamps:
@@ -751,27 +804,52 @@ def _emit_split_dates(lines: list[str]) -> None:
 def _emit_future_exog_loading(
     lines: list[str],
     profile: DataProfile,
+    exog_file: FutureExogFile | None = None,
 ) -> None:
     """Emit code loading future exogenous variables (prediction mode).
 
     Delegates to `_emit_data_loading` so `exog_future` is loaded exactly
     like `data` (same `date_column`-driven read). Only used by the
     standalone script (`full_script`); in exec mode the `exog_future`
-    variable is injected directly into the namespace.
+    variable is injected directly into the namespace. The file is the one
+    the future values were read from, with its own dialect, or
+    `exog_future.csv` for a frame passed in memory (see
+    `future_exog_file`). The script then drops the rows of the file made
+    only of separators and names its date column as the one of the data,
+    when it has to, as the file was read (see `load_exog`).
     """
+    exog_file = FutureExogFile() if exog_file is None else exog_file
     _emit_data_loading(
         lines,
         profile,
-        var="exog_future",
-        path="exog_future.csv",
-        comment="# Load future exogenous variables covering the forecast horizon",
+        var       = "exog_future",
+        exog_file = exog_file,
+        comment   = "# Load future exogenous variables covering the forecast horizon",
     )
+    date_col = profile.date_column
+    rename = (
+        date_col is not None
+        and exog_file.date_column is not None
+        and exog_file.date_column != date_col
+    )
+    if exog_file.blank_rows or rename:
+        # Before the blank line that closes the loading section.
+        lines.pop()
+        if exog_file.blank_rows:
+            lines.append("exog_future = exog_future.dropna(how='all')")
+        if rename:
+            lines.append(
+                f"exog_future = exog_future.rename(columns="
+                f"{{{exog_file.date_column!r}: {date_col!r}}})"
+            )
+        lines.append("")
 
 
 def _emit_future_exog_index_setup(
     lines: list[str],
     profile: DataProfile,
     long_format: bool = False,
+    exog_file: FutureExogFile | None = None,
 ) -> None:
     """Append index-setup code for the future exogenous variables.
 
@@ -783,9 +861,18 @@ def _emit_future_exog_index_setup(
     variables on the same regular, sorted grid as the training data, as
     required by skforecast. In long format the dates read from
     `exog_future.csv` are text until parsed, and the reshape to a dict
-    would not match them with the dates to predict.
+    would not match them with the dates to predict. The dates are read with
+    the format of the dates of `exog_file`, that of the future values (see
+    `future_exog_file`), not the one of the data: a file saved with
+    `to_csv()` has them in ISO 8601.
     """
-    _emit_index_setup(lines, profile, long_format=long_format, var="exog_future")
+    _emit_index_setup(
+        lines,
+        profile,
+        long_format = long_format,
+        var         = "exog_future",
+        date_format = None if exog_file is None else exog_file.date_format,
+    )
 
 
 def _get_metric_imports(metrics_to_compute: list[str]) -> list[str]:
@@ -1306,7 +1393,12 @@ def _emit_loading_and_index(
     """
 
     _emit_data_loading(loading_lines, profile, long_format=long_format)
-    _emit_index_setup(core_lines, profile, long_format=long_format)
+    _emit_index_setup(
+        core_lines,
+        profile,
+        long_format = long_format,
+        date_format = profile.date_format,
+    )
 
 
 def _emit_feature_setup(

@@ -185,16 +185,6 @@ def test_infer_long_frequency_InvalidInputError_when_frequencies_differ(
             "for example 2020-01-05.",
         ),
         (
-            {"shop": _MON_SAT, "office": _MON_SAT[_MON_SAT.dayofweek < 5]},
-            "Series 'shop' has timestamps off the 'B' grid, "
-            "for example 2023-01-07.",
-        ),
-        (
-            {"office": _MON_SAT[_MON_SAT.dayofweek < 5], "shop": _MON_SAT},
-            "Series 'shop' has timestamps off the 'B' grid, "
-            "for example 2023-01-07.",
-        ),
-        (
             {
                 **{
                     f"b{i}": pd.bdate_range("2020-01-01", periods=250)
@@ -211,8 +201,7 @@ def test_infer_long_frequency_InvalidInputError_when_frequencies_differ(
     ids=[
         "extra_timestamp", "shifted_series", "short_series", "mid_month_start",
         "longest_series_shifted", "every_second_week_on_other_weeks",
-        "monday_to_saturday_and_business_days",
-        "business_days_and_monday_to_saturday", "saturday_in_business_days",
+        "saturday_in_business_days",
     ],
 )
 def test_infer_long_frequency_InvalidInputError_when_timestamps_off_grid(
@@ -223,10 +212,8 @@ def test_infer_long_frequency_InvalidInputError_when_timestamps_off_grid(
     of most dates, raise and name the series off it: an extra timestamp, a
     series shifted by half a day, short series, a series starting in the
     middle of a month, a shifted series longer than the others, a short
-    series every second week on the other weeks, a shop open on Saturdays
-    next to an office open on business days (in either order), and one
-    Saturday in a series of business days, which is not taken for daily
-    data.
+    series every second week on the other weeks, and one Saturday in a
+    series of business days, which is not taken for daily data.
     """
     with pytest.raises(InvalidInputError, match=re.escape(err_msg)):
         _infer_long_frequency(_as_nanoseconds(series_dates))
@@ -296,6 +283,9 @@ def test_infer_long_frequency_InvalidInputError_when_timestamps_off_grid(
             },
             ("h", 42),
         ),
+        ({"shop": _MON_SAT, "shop_2": _MON_SAT}, ("D", 24)),
+        ({"shop": _MON_SAT, "office": _MON_SAT[_MON_SAT.dayofweek < 5]}, ("D", 36)),
+        ({"office": _MON_SAT[_MON_SAT.dayofweek < 5], "shop": _MON_SAT}, ("D", 36)),
     ],
     ids=[
         "same", "gaps_summed", "same_gap_in_every_series", "short_series_on_grid",
@@ -308,7 +298,9 @@ def test_infer_long_frequency_InvalidInputError_when_timestamps_off_grid(
         "daily_with_gaps_and_business_days_with_holidays",
         "daily_with_gaps_and_lone_business_series", "sparse_longest_series",
         "many_sparse_series", "business_days_then_daily", "daily_then_weekly",
-        "every_two_hours_then_hourly",
+        "every_two_hours_then_hourly", "monday_to_saturday",
+        "monday_to_saturday_and_business_days",
+        "business_days_and_monday_to_saturday",
     ],
 )
 def test_infer_long_frequency_output(series_dates, expected):
@@ -327,7 +319,9 @@ def test_infer_long_frequency_output(series_dates, expected):
     series of business days then daily dates, or of dates every two hours
     then hourly, is of the finer frequency with gaps, and a series of daily
     then weekly dates has no frequency (its first dates do not hold for the
-    rest, as for a single series).
+    rest, as for a single series). Shops open from Monday to Saturday are
+    daily with their Sundays missing, also next to an office open on
+    business days (in either order), whose weekends are then missing too.
     """
     assert _infer_long_frequency(_as_nanoseconds(series_dates)) == expected
 

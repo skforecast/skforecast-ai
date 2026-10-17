@@ -33,6 +33,8 @@ from tests.fixtures_last_window import (
 )
 from skforecast_ai import ForecastingAssistant
 
+from tests.fixtures_assistant import df_no_sundays_long
+
 _END_MESSAGE = (
     "ForecasterRecursiveMultiSeries does not predict a series that ends before "
     "the others, and when no series has a value there it starts the forecast "
@@ -346,6 +348,54 @@ def test_validate_evaluation_partition_InvalidInputError_when_test_split_missing
 
     assert exc_info.value.field == "data"
     assert exc_info.value.code == "invalid_argument"
+
+
+def test_validate_evaluation_partition_DataContentError_names_closed_days():
+    """
+    Test that missing values of the test split of several series that all
+    fall on days of the week without any value in their series (two shops
+    closed on Sundays) are named with those days, with the advice of filling
+    them with 0 if the business is closed, after asking the user; a shop
+    that also misses a Monday gets the message of missing values.
+    """
+    assistant = ForecastingAssistant()
+    kwargs = {"target": "sales", "date_column": "date", "series_id_column": "shop"}
+    profile = assistant.profile(df_no_sundays_long, **kwargs)
+    plan = in_evaluation(
+        assistant.plan(
+            profile,
+            steps      = 14,
+            forecaster = "ForecasterRecursiveMultiSeries",
+            estimator  = "Ridge",
+            lags       = [1, 7],
+        ),
+        "2023-12-16",
+    )
+    with_monday = df_no_sundays_long.drop(index=[300 + 312])
+    profile_monday = assistant.profile(with_monday, **kwargs)
+
+    err_msg = re.escape(
+        "The target has missing values in the test split ('north': 2 value(s), "
+        "such as '2023-12-17', '2023-12-24'; 'south': 2 value(s), such as "
+        "'2023-12-17', '2023-12-24'), all of them on Sundays, when those "
+        "series never have a value. skforecast cannot compute the metrics on "
+        "them, whatever the estimator. If the business is closed on Sundays, "
+        "fill them with 0 in the data, after asking the user; otherwise, "
+        "impute the target, or evaluate on dates without missing values."
+    )
+    with pytest.raises(DataContentError, match=f"^{err_msg}$"):
+        validate_evaluation_partition(
+            data=df_no_sundays_long, profile=profile.data_profile, plan=plan
+        )
+    err_msg = re.escape(
+        "The target has missing values in the test split ('north': 2 value(s), "
+        "such as '2023-12-17', '2023-12-24'; 'south': 3 value(s), such as "
+        f"'2023-12-17', '2023-12-18', '2023-12-24'). {_TEST_MESSAGE}"
+    )
+    with pytest.raises(DataContentError, match=f"^{err_msg}$"):
+        validate_evaluation_partition(
+            data=with_monday, profile=profile_monday.data_profile, plan=plan
+        )
 
 
 def test_validate_evaluation_partition_InvalidInputError_lists_dates_of_test_split():

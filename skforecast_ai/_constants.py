@@ -286,9 +286,10 @@ TREE_BASED_ESTIMATORS: set[str] = {
 }
 
 # Bins of the predicted value over which ForecasterRecursive,
-# ForecasterDirect and ForecasterEquivalentDate spread the residuals their
-# bootstrapped and conformal intervals are estimated from (the default
-# `n_bins` of `binner_kwargs` in skforecast).
+# ForecasterDirect, ForecasterEquivalentDate and, per series,
+# ForecasterRecursiveMultiSeries and ForecasterDirectMultiVariate spread the
+# residuals their bootstrapped and conformal intervals are estimated from
+# (the default `n_bins` of `binner_kwargs` in skforecast).
 INTERVAL_RESIDUAL_BINS: int = 10
 
 # Residuals per bin below which those intervals tend to be too narrow: the
@@ -327,3 +328,8 @@ ALLOWED_WINDOW_STATS: set[str] = set(get_args(WindowStat))
 # script has a file to load. A profile recording it describes a DataFrame,
 # not a file that was read.
 PLACEHOLDER_DATA_PATH = "data.csv"
+
+# Key of `DataFrame.attrs` under which `load_exog` keeps the file the future
+# exogenous variables were read from and how it is written (a
+# `FutureExogFile`), so the generated script reads that same file with it.
+EXOG_FILE_ATTR = "exog_file"

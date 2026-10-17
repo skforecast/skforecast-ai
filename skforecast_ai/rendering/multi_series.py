@@ -5,7 +5,7 @@
 # This work by skforecast team is licensed under the Apache License 2.0        #
 ################################################################################
 
-from ..schemas import DataProfile, ForecastPlan, RenderedScript
+from ..schemas import DataProfile, ForecastPlan, FutureExogFile, RenderedScript
 from ._helpers import (
     _emit_aligned_kwargs,
     _emit_end_train,
@@ -99,8 +99,26 @@ def _emit_forecaster_creation_multi(
 def render_forecast_multi_series(
     plan: ForecastPlan,
     profile: DataProfile,
+    exog_file: FutureExogFile | None = None,
 ) -> RenderedScript:
-    """Render code for ForecasterRecursiveMultiSeries."""
+    """Render code for ForecasterRecursiveMultiSeries.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Validated forecast plan.
+    profile : DataProfile
+        Profile of the data.
+    exog_file : FutureExogFile, default None
+        File the script reads the future exogenous variables from, with its
+        dialect and the format of its dates (see `future_exog_file`). If
+        None, `exog_future.csv` as `to_csv()` writes it.
+
+    Returns
+    -------
+    script : RenderedScript
+        Imports, data loading and core sections of the forecasting script.
+    """
 
     is_wide = profile.data_format == "wide"
 
@@ -124,9 +142,12 @@ def render_forecast_multi_series(
         loading_lines, core_lines, profile, long_format=not is_wide
     )
     if not evaluate and use_exog_load:
-        _emit_future_exog_loading(loading_lines, profile)
+        _emit_future_exog_loading(loading_lines, profile, exog_file)
         _emit_future_exog_index_setup(
-            core_lines, profile, long_format=not is_wide
+            core_lines,
+            profile,
+            long_format = not is_wide,
+            exog_file   = exog_file,
         )
 
     # --- Preprocessing steps ---
@@ -270,8 +291,26 @@ def render_forecast_multi_series(
 def render_forecast_multivariate(
     plan: ForecastPlan,
     profile: DataProfile,
+    exog_file: FutureExogFile | None = None,
 ) -> RenderedScript:
-    """Render code for ForecasterDirectMultiVariate."""
+    """Render code for ForecasterDirectMultiVariate.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Validated forecast plan.
+    profile : DataProfile
+        Profile of the data.
+    exog_file : FutureExogFile, default None
+        File the script reads the future exogenous variables from, with its
+        dialect and the format of its dates (see `future_exog_file`). If
+        None, `exog_future.csv` as `to_csv()` writes it.
+
+    Returns
+    -------
+    script : RenderedScript
+        Imports, data loading and core sections of the forecasting script.
+    """
 
     is_wide = profile.data_format == "wide"
     target = _get_target_str(profile)
@@ -296,9 +335,12 @@ def render_forecast_multivariate(
         loading_lines, core_lines, profile, long_format=not is_wide
     )
     if not evaluate and use_exog_load:
-        _emit_future_exog_loading(loading_lines, profile)
+        _emit_future_exog_loading(loading_lines, profile, exog_file)
         _emit_future_exog_index_setup(
-            core_lines, profile, long_format=not is_wide
+            core_lines,
+            profile,
+            long_format = not is_wide,
+            exog_file   = exog_file,
         )
 
     # --- Preprocessing / pivot ---

@@ -143,11 +143,14 @@ def test_mcp_registry_vscode_install_link_starts_the_launcher():
     """
     Test that the install link of VS Code in the README and in the guide,
     unreadable as it is written (encoded twice), decodes to the handler
-    `vscode:mcp/install` with the command of the launcher and an input that
-    asks for the directory of `--allow-dir`.
+    `vscode:mcp/install` with the name of the registry entry and `gallery`,
+    so VS Code opens that entry of its gallery, and with the command of the
+    launcher and an input that asks for the directory of `--allow-dir`,
+    which it writes where the gallery is turned off.
     """
     expected = {
-        "name"   : "skforecast-ai",
+        "name"   : SERVER_NAME,
+        "gallery": True,
         "command": "uvx",
         "args"   : ["skforecast-ai-mcp", "--allow-dir", "${input:allow_dir}"],
         "inputs" : [

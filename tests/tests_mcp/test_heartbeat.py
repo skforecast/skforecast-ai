@@ -121,7 +121,9 @@ def test_heartbeat_not_sent_above_the_total(monkeypatch):
     """
     Test that after the last event of a work (progress equal to the total),
     while the work writes its files, no heartbeat is sent, so the client
-    never reads more than 100 %.
+    never reads more than 100 %. A heartbeat before that event is allowed:
+    a busy runner can take longer than the interval to start the thread of
+    the work.
     """
     def work(control):
         control.progress(2, 2, "only: succeeded")
@@ -130,4 +132,7 @@ def test_heartbeat_not_sent_above_the_total(monkeypatch):
 
     _, sent = _run(work, "compare", monkeypatch)
 
-    assert sent == [(2, 2, "only: succeeded")]
+    assert sent[-1] == (2, 2, "only: succeeded")
+    assert all(
+        0 < progress < 1 and total is None for progress, total, _ in sent[:-1]
+    )

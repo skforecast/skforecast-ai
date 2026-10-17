@@ -39,6 +39,6 @@ The dataset contains 3 series, so a multi-series forecaster (ForecasterRecursive
 - Files read: data.csv, exog_future.csv
 - Variables defined: predictions (no metrics: there is no ground truth yet)
 - Packages imported: lightgbm, pandas, skforecast
-- Length: 69 lines
+- Length: 71 lines
 </script>
 </forecast_context>

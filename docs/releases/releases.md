@@ -19,16 +19,64 @@ The main changes in this release are:
 
     Some results change with this version, without any change in your code:
 
-    + `plan()` and `refine_plan()` with `ForecasterDirectMultiVariate`: the estimator is chosen for the dates the series share, so it can be `Ridge` where it was `LGBMRegressor`. Pass `estimator="LGBMRegressor"` to keep the previous one.
+    + The scripts of long-format data read the series ids as text and turn them into text before the reshape: one more line (two with future exogenous variables), with the same predictions. See **Changed**.
+    + The scripts of a forecast with future exogenous values read from a file (`exog_path` of the MCP server, `--exog` of the CLI) read that file by its path, with its own separator, decimal mark and encoding, instead of `exog_future.csv` in the working directory. See **Fixed**.
+    + The scripts of dates that write the day and the month as numbers read them with their format (`format='%d/%m/%Y'`, or `'%m/%d/%Y'` month first), also when the first date already said so, and those of files with `.` between thousands read the date column as text: the same predictions. See **Changed**.
+    + `plan()` and `refine_plan()` with `ForecasterDirectMultiVariate`: the estimator is chosen for the dates the series share, so it can be `Ridge` where it was `LGBMRegressor`. Pass `estimator="LGBMRegressor"` to keep the previous one. See **Fixed**.
+
+    And some code needs to be updated:
+
+    + [<code>ForecastingAssistant.profile()</code>][assistant] of a file separated by `;` or tabulators raises `data_unreadable` instead of reading `.` as decimal mark when its only numbers with a `.` have three decimals (`1.870`), or when a column mixes them with whole numbers (`3`, `1.375`) next to other decimals (`0.75`). Pass `decimal='.'` to read them as before. See **Fixed**.
+    + `profile()` of a DataFrame indexed by a MultiIndex with a level without a name raises `InvalidInputError` instead of naming it (`'datetime'`), a column the generated script did not have. Name the levels: `data.rename_axis(['series_id', 'date'])`. See **Fixed**.
+    + `profile()` of dates that read both day first and month first and whose regularity does not tell the order either (a year or less of monthly data on the first of each month, or dates without a regular frequency) raises `data_unreadable` instead of reading them month first. Pass `dayfirst=False` to read them as before. See **Fixed**.
 
 
 **Added**
 
++ New argument `thousands` of [<code>ForecastingAssistant.profile()</code>][assistant] (`--thousands` in the CLI, `thousands` in the `profile` tool of the MCP server), recorded as `DataProfile.csv_thousands` and passed to `pd.read_csv` by the generated script. See the [CLI guide][cli-guide] ([#86](https://github.com/skforecast/skforecast-ai/pull/86)).
+
++ New argument `dayfirst` of [<code>ForecastingAssistant.profile()</code>][assistant] (`--dayfirst` or `--monthfirst` in the CLI, `dayfirst` in the `profile` tool of the MCP server) for text dates that read both day first and month first, in a CSV file or the `date_column` of a DataFrame; with dates already parsed, an `IgnoredArgumentWarning` says it does not apply. The profile records the format of the dates as `DataProfile.date_format`. See the [CLI guide][cli-guide] ([#96](https://github.com/skforecast/skforecast-ai/pull/96)).
+
++ New option `--exog` of the `forecast-code` command of the [CLI][cli], so the script reads the future exogenous values from that file, as `forecast --exog` does, instead of `exog_future.csv`. See the [CLI guide][cli-guide] ([#99](https://github.com/skforecast/skforecast-ai/pull/99)).
+
 
 **Changed**
 
++ A target whose values are numbers written with a thousands separator or with `%` (`10,025.1`, `12.5%`) raises a `DataContentError` that names that format, as an error of the data and not of `target`, instead of the hint about missing value markers ([#86](https://github.com/skforecast/skforecast-ai/pull/86)).
+
++ The scripts of long-format data read the column of series ids as text (`dtype={'store': str}` in `pd.read_csv`) and turn the ids into text before the reshape, also those of the future exogenous variables. The predictions are the same; future exogenous variables with integer ids now match the same ids of the data written as text ([#90](https://github.com/skforecast/skforecast-ai/pull/90)).
+
++ The methods that take a saved profile read the file it was built from with its separator, decimal mark and thousands separator, so what was given to [<code>ForecastingAssistant.profile()</code>][assistant] holds for them; another file is still read as it is written ([#86](https://github.com/skforecast/skforecast-ai/pull/86)).
+
++ The generated scripts read the dates with their format when they write the day and the month as numbers or are whole numbers such as `20200131` (`format='%d/%m/%Y'`), and the future values with their own, none for ISO 8601 as `to_csv()` writes it; future values whose dates read both ways take the order of the data, or warn or raise as the data do. With `.` between thousands, the date column is read as text. The predictions are the same ([#96](https://github.com/skforecast/skforecast-ai/pull/96)).
+
++ The error of [<code>ForecastingAssistant.plan()</code>][assistant] for dates without a regular frequency describes their spacing instead of asking for ISO 8601 dates that may already be, and the description of the profile that the LLM and the MCP server read lists the irregular spacing instead of "none detected" ([#96](https://github.com/skforecast/skforecast-ai/pull/96)).
+
 
 **Fixed**
+
++ Fixed an issue in [<code>ForecastingAssistant.profile()</code>][assistant] and the MCP server where a CSV file whose first row has more fields than its header (a separator at the end of every row, a field too many in the first row) gave a target without values or a profile with the dates as an exogenous variable. It now raises `data_unreadable`, as does a column without name and values, also in the file of future exogenous variables ([#85](https://github.com/skforecast/skforecast-ai/pull/85)).
+
++ In CSV files separated by `;` or tabulators, `.` between thousands was read as a decimal mark without a warning (`1.020` as 1.02), and `1.705,11` failed as a target that is not numeric. It is now read as thousands separator when the file says so; otherwise `profile()` raises `data_unreadable` and asks for `thousands` or `decimal`. A file whose other values also hold a `.` (`0.5`) raises `data_unreadable` too ([#86](https://github.com/skforecast/skforecast-ai/pull/86)).
+
++ Dates written day first (`31/01/2024`, the Excel of most of Europe) were read month first or rejected, so monthly data on the first of each month had no frequency. [<code>ForecastingAssistant.profile()</code>][assistant] now reads them day first when a day after the 12th says so (also `15.01.2020` and years of two digits) or, when no date tells, in the only order with a regular frequency, with a note in `DataProfile.warnings`; otherwise it asks for `dayfirst` ([#96](https://github.com/skforecast/skforecast-ai/pull/96)).
+
++ CSV files that are not UTF-8, as Excel saves them on Windows, raised `data_unreadable` when a header or a category held an `ñ` or an accent. [<code>ForecastingAssistant.profile()</code>][assistant] now reads them as cp1252, recorded as `DataProfile.csv_encoding` with a note in `DataProfile.warnings`, and the generated script passes `encoding='cp1252'`, also for the future exogenous values. UTF-16 files still raise `data_unreadable`, asking for UTF-8 ([#97](https://github.com/skforecast/skforecast-ai/pull/97)).
+
++ [<code>ForecastingAssistant.profile()</code>][assistant] found no frequency in daily data with regular or frequent gaps (a shop closed on Sundays, a day in four missing at random), so `plan()` rejected them. It now infers `'D'` (`'B'` for business days), also in long-format data, and warns about the missing dates. When they always fall on the same weekdays, the warning and the errors of `backtest()` and `forecast(test_size=...)` name them and suggest filling them with 0 if the business is closed ([#98](https://github.com/skforecast/skforecast-ai/pull/98)).
+
++ Fixed an issue in [<code>ForecastingAssistant.profile()</code>][assistant] where a CSV column of dates written as whole numbers (`20200131`) was taken for an exogenous variable, and rejected as `date_column`. It is now the date column, as is the `date_column` of a DataFrame with such numbers ([#96](https://github.com/skforecast/skforecast-ai/pull/96)).
+
++ Fixed an issue with long-format data whose series ids are numbers (`001`, `1`, `10`), where every backtest, forecast and comparison failed with `KeyError: 1` and [<code>ForecastingAssistant.profile()</code>][assistant] dropped the leading zeros. The ids are now kept as written; integer ids of a DataFrame become text, so its series are ordered as text (`1`, `10`, `2`). A DataFrame whose series columns are named with integers raises `InvalidInputError` with a hint instead of a validation error ([#90](https://github.com/skforecast/skforecast-ai/pull/90)).
+
++ Fixed an issue with long-format data indexed by a `(series_id, date)` MultiIndex, where [<code>ForecastingAssistant.forecast()</code>][assistant], `backtest()` and `compare()` raised `ForecastExecutionError` (`KeyError` on the date column), and `profile()` raised `KeyError` when the levels had no names. A MultiIndex that is not two levels named with text, also in the future `exog`, now raises `InvalidInputError` in every method, with a hint ([#91](https://github.com/skforecast/skforecast-ai/pull/91), [#94](https://github.com/skforecast/skforecast-ai/pull/94)).
+
++ [<code>ForecastingAssistant.profile()</code>][assistant] gave no warning for numbers written as text in an exogenous column (`12%`, `-` for a missing value), used then as a categorical variable, nor for its missing values below a rate of 20 %. Both now add a warning naming the column (a `DataProfileWarning` notice in the MCP server); the data are not changed ([#95](https://github.com/skforecast/skforecast-ai/pull/95)).
+
++ The script of a forecast with future exogenous values read from a file (`exog_path` of the MCP server, `--exog` of the CLI) read `exog_future.csv` from its working directory as `to_csv()` writes it, so it failed, also when copied there from a file of the Excel in Spanish (`;`, `,` as decimal mark). It now reads that file by its path with its separator, decimal mark, thousands separator, encoding and date format. See the [MCP server guide][mcp-guide] ([#99](https://github.com/skforecast/skforecast-ai/pull/99)).
+
++ Fixed an issue in [<code>ForecastingAssistant.profile()</code>][assistant] (and the `profile` command and MCP tool) where `target` as a list was accepted with `series_id_column`, which was ignored on wide data and gave a misleading error about repeated timestamps on long data (also with a `(series_id, date)` MultiIndex), or with a repeated column, profiled as two series. Both now raise `InvalidInputError` naming the argument ([#100](https://github.com/skforecast/skforecast-ai/pull/100)).
++ [<code>ForecastingAssistant.create_cv()</code>][assistant] gave no warning of prediction intervals estimated from too few residuals with ForecasterRecursiveMultiSeries or ForecasterDirectMultiVariate, as it does with a single series. It now counts the rows of each series in the first training window, also when a series starts later, and names the series with fewer than 100 ([#101](https://github.com/skforecast/skforecast-ai/pull/101)).
 
 + Fixed an issue in [<code>ForecastingAssistant.plan()</code>][assistant] and `refine_plan()` where `ForecasterDirectMultiVariate` got the estimator chosen for the series pooled (`LGBMRegressor` from 250 observations), which on few dates per step predicted a constant. The rule now counts the dates the series share, and the explanation says so.
 
@@ -55,6 +103,8 @@ The main changes in this release are:
 **Changed**
 
 + The first start of the MCP server fits in the 30 seconds Claude Code waits: the server connects before loading pandas, scikit-learn and skforecast, which it loads in the background (7 seconds instead of 39 on macOS with an empty `uvx` cache; the first tool waits for that loading, about 30 seconds the first time). `import skforecast_ai` no longer loads them either. See [MCP server for coding agents][mcp-guide] ([#72](https://github.com/skforecast/skforecast-ai/pull/72)).
+
++ The MCP server is listed in the MCP gallery of VS Code, and its install button opens that entry, with logo and README, and installs the latest version pinned in `args`. Where the gallery is turned off, it installs the server as before. See [MCP server for coding agents][mcp-guide] ([#87](https://github.com/skforecast/skforecast-ai/pull/87), [#88](https://github.com/skforecast/skforecast-ai/pull/88)).
 
 + Dependencies: statsmodels 0.15 is allowed (`statsmodels>=0.13.2,<0.16`, as in skforecast), the minimum pandas is 2.2, the one skforecast 0.26 already required, and numpy, scikit-learn and scipy are declared as direct dependencies, with the minimum versions of skforecast.
 

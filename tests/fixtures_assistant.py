@@ -106,6 +106,27 @@ df_multi_long_staggered = pd.concat([
     df_multi_long[df_multi_long["series_id"] == "store_b"].iloc[60:],
 ])
 
+# Long data whose series ids are numbers written as text, as store or SKU
+# codes are: '001' and '1' are two series (one series 1 if read as integers),
+# and '10' sorts before '2' as text. Three series of 100 days.
+df_multi_long_numeric_ids = pd.DataFrame(
+    {
+        "date": np.tile(_dates_multi, 3),
+        "series_id": np.repeat(["001", "1", "10"], _n_obs_per_series),
+        "value": np.concatenate([
+            10 + np.sin(np.arange(_n_obs_per_series) / 3),
+            20 + 2 * np.cos(np.arange(_n_obs_per_series) / 4),
+            30 + np.arange(_n_obs_per_series) % 7,
+        ]),
+    }
+)
+
+# The same data with the series ids as integers (1, 2 and 10), as a
+# DataFrame may hold them.
+df_multi_long_integer_ids = df_multi_long_numeric_ids.assign(
+    series_id=df_multi_long_numeric_ids["series_id"].map({"001": 2, "1": 1, "10": 10})
+)
+
 # --- Multi-series wide format (2 series as columns) ---
 df_multi_wide = pd.DataFrame(
     {
@@ -174,6 +195,53 @@ _irregular_minutes = pd.Timestamp("2023-01-01") + pd.to_timedelta(
 )
 df_irregular = pd.DataFrame(
     {"date": _irregular_minutes, "sales": np.arange(100, dtype=float)}
+)
+
+# --- Daily series written day first as text, 60 days ending 2021-01-31 ---
+# The dates after the 12th ('13/12/2020') settle that they are day first. The
+# 7 days to forecast (`df_day_first_exog`, '01/02/2021' to '07/02/2021') read
+# both day first and month first, and pandas reads them month first.
+df_day_first = pd.DataFrame(
+    {
+        "date": pd.date_range(end="2021-01-31", periods=60, freq="D").strftime(
+            "%d/%m/%Y"
+        ),
+        "y": np.round(10 + 0.1 * np.arange(60) + 2 * np.sin(np.arange(60) / 3), 3),
+        "promo": np.tile([0.0, 1.0], 30),
+    }
+)
+df_day_first_exog = pd.DataFrame(
+    {
+        "date": [
+            "01/02/2021", "02/02/2021", "03/02/2021", "04/02/2021", "05/02/2021",
+            "06/02/2021", "07/02/2021",
+        ],
+        "promo": [0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0],
+    }
+)
+
+# --- A year of daily sales of a shop closed on Sundays (312 days) ---
+# No ten days are in a row: the frequency is 'D', inferred on windows of three
+# days, with the 51 Sundays from 2023-01-02 to 2023-12-30 missing.
+_dates_no_sundays = pd.date_range("2023-01-02", periods=364, freq="D")
+_dates_no_sundays = _dates_no_sundays[_dates_no_sundays.dayofweek != 6]
+df_no_sundays = pd.DataFrame(
+    {
+        "date": _dates_no_sundays,
+        "sales": np.round(
+            100 + 8 * _dates_no_sundays.dayofweek + 0.05 * np.arange(312)
+            + 3 * np.sin(np.arange(312) / 5),
+            2,
+        ),
+    }
+)
+# The same sales in long format, for two shops closed on Sundays.
+df_no_sundays_long = pd.concat(
+    [
+        df_no_sundays.assign(shop="north"),
+        df_no_sundays.assign(shop="south", sales=df_no_sundays["sales"] * 2),
+    ],
+    ignore_index=True,
 )
 
 

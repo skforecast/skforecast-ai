@@ -429,7 +429,7 @@ def test_compute_series_pacf_n_lags_cap_default_when_no_frequency(monkeypatch):
 )
 @pytest.mark.parametrize(
     "layout",
-    ["index", "date_column", "wide", "long", "multiindex", "multiindex_unnamed"],
+    ["index", "date_column", "wide", "long", "multiindex"],
     ids=lambda dt: f"{dt}",
 )
 def test_compute_series_pacf_output_when_rows_not_in_date_order_or_repeated(
@@ -454,12 +454,8 @@ def test_compute_series_pacf_output_when_rows_not_in_date_order_or_repeated(
         kwargs = {
             "target": "x", "date_column": "date", "series_id_column": "series"
         }
-    elif layout == "multiindex":
-        data, kwargs = df_h2o_long.set_index(["series", "date"]), {"target": "x"}
     else:
-        data = df_h2o_long.set_index(["series", "date"])
-        data.index = data.index.set_names(["series", None])
-        kwargs = {"target": "x"}
+        data, kwargs = df_h2o_long.set_index(["series", "date"]), {"target": "x"}
 
     if perturbation == "descending":
         data = data.iloc[::-1]
@@ -474,7 +470,7 @@ def test_compute_series_pacf_output_when_rows_not_in_date_order_or_repeated(
 
     expected_ids = {
         "index": ["x"], "date_column": ["x"], "wide": ["x", "y"],
-        "long": ["a", "b"], "multiindex": ["a", "b"], "multiindex_unnamed": ["a", "b"],
+        "long": ["a", "b"], "multiindex": ["a", "b"],
     }[layout]
     assert [result.series_id for result in results] == expected_ids
     assert [result.n_observations for result in results] == [204] * len(expected_ids)

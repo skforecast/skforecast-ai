@@ -106,6 +106,31 @@
           ],
           "default": null,
           "description": "Decimal mark of the file: '.' or ',' (only when the separator is not ','). When null, it is detected from the file."
+        },
+        "thousands": {
+          "anyOf": [
+            {
+              "const": ".",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Thousands separator of the file: '.', with ',' as decimal mark (as in '1.705,11'). When null, it is detected from the file; pass it only when an error says it cannot be told."
+        },
+        "dayfirst": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Order of the day and the month of the dates of the file: true for day first ('31/01/2024'), false for month first ('01/31/2024'). When null, it is told from the dates, or from their regularity with a notice when they read both ways; pass it only when an error says they read both ways, or the user gives another order than a notice, with the order the user confirms."
         }
       },
       "required": [
@@ -1864,7 +1889,7 @@
             }
           ],
           "default": null,
-          "description": "Absolute path of a CSV file with the future values of the exogenous variables, one row per date (and series) of the horizon. Required to forecast the future when the plan uses exogenous variables. The script of `get_code` reads them from 'exog_future.csv' in its working directory."
+          "description": "Absolute path of a CSV file with the future values of the exogenous variables, one row per date (and series) of the horizon. Required to forecast the future when the plan uses exogenous variables. The script of `get_code` reads them from this file, by its path, as it reads the data."
         }
       },
       "required": [

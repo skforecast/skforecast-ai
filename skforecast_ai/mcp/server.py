@@ -1637,6 +1637,19 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             "Decimal mark of the file: '.' or ',' (only when the separator "
             "is not ','). When null, it is detected from the file."
         ))] = None,
+        thousands: Annotated[Literal["."] | None, Field(description=(
+            "Thousands separator of the file: '.', with ',' as decimal mark "
+            "(as in '1.705,11'). When null, it is detected from the file; "
+            "pass it only when an error says it cannot be told."
+        ))] = None,
+        dayfirst: Annotated[bool | None, Field(description=(
+            "Order of the day and the month of the dates of the file: true "
+            "for day first ('31/01/2024'), false for month first "
+            "('01/31/2024'). When null, it is told from the dates, or from "
+            "their regularity with a notice when they read both ways; pass it "
+            "only when an error says they read both ways, or the user gives "
+            "another order than a notice, with the order the user confirms."
+        ))] = None,
         ctx: Context = None,
     ) -> ToolResult:
         _inputs.check_text_argument(target, "target")
@@ -1652,7 +1665,12 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             if target is None:
                 # Agents called `profile` with a made up target to read the
                 # columns in its error: the same answer, without guessing.
-                frame = read_csv_file(path, sep=sep, decimal=decimal)
+                frame = read_csv_file(
+                            path      = path,
+                            sep       = sep,
+                            decimal   = decimal,
+                            thousands = thousands,
+                        )
                 columns = [str(column) for column in frame.columns]
                 raise ServerError(
                     f"`target` was not given. Columns of the file: "
@@ -1674,6 +1692,8 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                     exog_columns     = exog_columns,
                     sep              = sep,
                     decimal          = decimal,
+                    thousands        = thousands,
+                    dayfirst         = dayfirst,
                 )
             except SkforecastAIError as exc:
                 # Every error of a profile on `data` is about the file:
@@ -2485,7 +2505,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             "exogenous variables, one row per date (and series) of the "
             "horizon. Required to forecast the future when the plan uses "
             "exogenous variables. The script of `get_code` reads them from "
-            "'exog_future.csv' in its working directory."
+            "this file, by its path, as it reads the data."
         ))] = None,
         ctx: Context = None,
     ) -> ToolResult:
@@ -2511,6 +2531,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                         exog_file,
                         date_column      = data_profile.date_column,
                         series_id_column = data_profile.series_id_column,
+                        date_format      = data_profile.date_format,
                     )
                 except SkforecastAIError as exc:
                     # A file that cannot be read as future values is as

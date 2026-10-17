@@ -12,7 +12,13 @@ from .plans import (
     PreprocessingStep,
     RefinePlanOverrides,
 )
-from .profiles import DataProfile, ForecastingProfile, SeriesLengthInfo, SeriesPacf
+from .profiles import (
+    DataProfile,
+    ForecastingProfile,
+    FutureExogFile,
+    SeriesLengthInfo,
+    SeriesPacf,
+)
 from .results import (
     CV_OVERRIDE_NAMES,
     AskResult,
@@ -50,6 +56,7 @@ __all__ = [
     "ForecastingProfile",
     "ForecastPlan",
     "ForecastResult",
+    "FutureExogFile",
     "LLMCheckResult",
     "LLMContext",
     "PlanOverrides",

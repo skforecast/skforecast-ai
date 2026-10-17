@@ -8,10 +8,23 @@ import pytest
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai.mcp import create_server, server as server_module
 from skforecast_ai.mcp.models import ToolNotice
+from skforecast_ai.profiling.csv_dialect import ENCODING_HINT, cp1252_note
+from skforecast_ai.profiling.data_profile import DAYFIRST_HINT
 
-from ..fixtures_csv_dialect import df_dialect, write_dialect
+from ..fixtures_csv_dialect import (
+    df_dialect,
+    df_dialect_cp1252,
+    df_dialect_cp1252_exog,
+    df_dialect_thousands,
+    write_cp1252,
+    write_dialect,
+    write_thousands,
+)
+from ..fixtures_assistant import df_multi_long_numeric_ids
 from ..fixtures_datasets import df_items_sales_long, df_mixed_date_formats
+from ..tests_profiling.fixtures_profiling import df_dirty_exog
 from .fixtures_mcp import (
+    DATA_MISSING_EXOG_WARNING,
     DATA_WARNING,
     GAPS_WARNING,
     ID_PATTERN,
@@ -22,6 +35,7 @@ from .fixtures_mcp import (
     df_h2o_gaps_csv,
     error_of,
     h2o_server,
+    run_session,
     write_csv,
 )
 
@@ -124,10 +138,47 @@ def test_tool_profile_output_long_format(tmp_path):
     assert result["summary"] == expected
 
 
+def test_tool_profile_invalid_argument_when_target_list_with_series_id_column(
+    tmp_path,
+):
+    """
+    Test that a list of targets with `series_id_column` on long data is
+    `invalid_argument` on `series_id_column`, without the hint that blames
+    the file of the user, while the same call with the target as a name
+    profiles the series.
+    """
+    path = write_csv(tmp_path, "items.csv", df_items_sales_long)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    arguments = {"data_path": path, "series_id_column": "series"}
+
+    error = error_of(
+        call(server, "profile", {**arguments, "target": ["value"]}), "profile"
+    )
+    result = content_of(call(server, "profile", {**arguments, "target": "value"}))
+
+    assert error == {
+        "code": "invalid_argument",
+        "message": (
+            "`target` is a list of columns (['value']) and "
+            "series_id_column='series' was also given: a list of columns is "
+            "wide format (one column per series) and `series_id_column` is "
+            "long format (the series stacked in rows, told apart by that "
+            "column). For long format, pass `target` as the name of the "
+            "column of values, not as a list; for wide format, leave out "
+            "`series_id_column`."
+        ),
+        "field": "series_id_column",
+        "hint": None,
+        "details": None,
+    }
+    assert result["id"].startswith("profile-")
+
+
 def test_tool_profile_notices_of_the_data(tmp_path):
     """
     Test that a warning emitted while profiling is a notice with source
-    'data'.
+    'data', as is a warning the profile records (the column of those dates
+    is an exogenous column with missing values).
     """
     path = write_csv(tmp_path, "warning.csv", df_data_warning)
     server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
@@ -135,8 +186,46 @@ def test_tool_profile_notices_of_the_data(tmp_path):
     result = content_of(call(server, "profile", {"data_path": path, "target": "y"}))
 
     assert [ToolNotice(**n) for n in result["notices"]] == [
-        ToolNotice(source="data", category="UserWarning", message=DATA_WARNING, count=1)
+        ToolNotice(
+            source   = "data",
+            category = "DataProfileWarning",
+            message  = DATA_MISSING_EXOG_WARNING,
+            count    = 1,
+        ),
+        ToolNotice(source="data", category="UserWarning", message=DATA_WARNING, count=1),
     ]
+
+
+def test_tool_profile_notices_of_dirty_exog_columns(tmp_path):
+    """
+    Test that `profile` of a CSV file whose exogenous columns hold numbers
+    written as text ('12%', '-') and missing values gives a
+    `DataProfileWarning` notice per problem, naming the column, the same
+    warnings as the Python API, and none for the columns of true categories.
+    """
+    path = write_csv(
+        tmp_path, "dirty.csv", df_dirty_exog.rename_axis("date").reset_index()
+    )
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    result = content_of(call(server, "profile", {"data_path": path, "target": "y"}))
+    expected = (
+        ForecastingAssistant().profile(path, target="y").data_profile.warnings
+    )
+    messages = [
+        notice["message"] for notice in result["notices"]
+        if notice["category"] == "DataProfileWarning"
+    ]
+
+    assert messages == expected
+    assert [message.split(":")[0] for message in messages] == [
+        "Short series",
+        "Missing values in exogenous columns",
+        "Numbers written as text in exogenous column 'pct'",
+        "Numbers written as text in exogenous column 'dash'",
+        "Numbers written as text in exogenous column 'mixed'",
+    ]
+    assert "'x_na': 2" in messages[1]
 
 
 def test_tool_profile_summary_cut_with_full_text_in_a_file(tmp_path, monkeypatch):
@@ -179,6 +268,12 @@ def test_tool_profile_summary_cut_with_full_text_in_a_file(tmp_path, monkeypatch
             "'fe\\u2028cha'.",
         ),
         ({"target": 1}, "target", None),
+        (
+            {"target": ["x", "x"]},
+            "target",
+            "`target` names a column more than once: ['x']. A list of targets "
+            "holds one column per series: name each one once.",
+        ),
         ({"target": "x", "date": "fecha"}, "date", "Extra inputs are not permitted"),
         (
             {"target": "x", "exog_columns": ["nope"]},
@@ -273,11 +368,11 @@ def test_tool_profile_rejects_column_names_with_line_breaks(tmp_path):
     assert content_of(call(server, "list_objects", {}))["objects"] == []
 
 
-def test_tool_profile_invalid_argument_when_dates_day_first(tmp_path):
+def test_tool_profile_output_when_dates_day_first(tmp_path):
     """
-    Test that day-first dates whose first date also reads month-first are
-    `invalid_argument` on `data_path`, with a hint that asks for ISO 8601
-    and needs no Python.
+    Test that day-first dates whose first date also reads month-first
+    ('01/01/2023', then '13/01/2023') are profiled day first, daily, as the
+    Python API profiles them.
     """
     frame = df_h2o_csv.assign(
         fecha=pd.date_range("2023-01-01", periods=len(df_h2o_csv), freq="D")
@@ -286,18 +381,117 @@ def test_tool_profile_invalid_argument_when_dates_day_first(tmp_path):
     path = write_csv(tmp_path, "dayfirst.csv", frame)
     server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
 
-    error = error_of(
-        call(server, "profile", {"data_path": path, "target": "x"}), "profile"
+    result = content_of(call(server, "profile", {"data_path": path, "target": "x"}))
+    expected = ForecastingAssistant().profile(path, target="x")
+
+    assert expected.data_profile.date_format == "%d/%m/%Y"
+    assert result["summary"] == expected.describe()
+    assert "- Frequency: D\n" in result["summary"]
+    assert "- Date range: 2023-01-01 to 2023-07-23\n" in result["summary"]
+
+
+def test_tool_profile_end_to_end_when_dates_read_day_first_and_month_first(tmp_path):
+    """
+    Test the session of a long-format file whose dates all read both day
+    first and month first (monthly, on the first day): `profile` reads them
+    day first, the only order in which they are regular, with a
+    `DataProfileWarning` notice that says so and names `dayfirst`;
+    `forecast` reads the future values, whose three dates read in both
+    orders too, in the order of the data, and the script of `get_code`
+    reads the dates of both files with the day-first format.
+    """
+    dates = pd.date_range("2018-01-01", periods=36, freq="MS")
+    frame = pd.DataFrame({
+        "store": ["a"] * 36 + ["b"] * 36,
+        "date": list(dates.strftime("%d/%m/%Y")) * 2,
+        "promo": [float(i % 2) for i in range(72)],
+        "y": [100.0 + i % 12 + 3 * (i >= 36) for i in range(72)],
+    })
+    path = write_csv(tmp_path, "monthly.csv", frame)
+    future = pd.DataFrame({
+        "store": ["a"] * 3 + ["b"] * 3,
+        "date": ["01/01/2021", "01/02/2021", "01/03/2021"] * 2,
+        "promo": [1.0, 0.0, 1.0, 1.0, 0.0, 1.0],
+    })
+    exog_path = write_csv(tmp_path, "future.csv", future)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    arguments = {"data_path": path, "target": "y", "series_id_column": "store"}
+
+    async def steps(client):
+        profile = content_of(await client.call_tool("profile", arguments))
+        plan = content_of(
+            await client.call_tool("plan", {"profile_id": profile["id"], "steps": 3})
+        )
+        forecast = content_of(
+            await client.call_tool(
+                "forecast", {"plan_id": plan["id"], "exog_path": exog_path}
+            )
+        )
+        code = content_of(
+            await client.call_tool("get_code", {"object_id": forecast["id"]})
+        )
+        return profile, forecast, code
+
+    profile, forecast, code = run_session(server, steps)
+
+    assert "- Frequency: MS\n" in profile["summary"]
+    notes = [
+        notice["message"] for notice in profile["notices"]
+        if notice["category"] == "DataProfileWarning"
+        and notice["message"].startswith("The dates of column 'date' read both")
+    ]
+    assert notes == [
+        "The dates of column 'date' read both day first and month first (no "
+        "day is after the 12th): they were read day first, the only order in "
+        "which they have a regular frequency ('MS'), so '01/02/2018' is "
+        "'2018-02-01' and not '2018-01-02'. If they are written month first, "
+        "profile the file again with `dayfirst=False` in `profile()`, "
+        "`--monthfirst` in the `profile` command or `dayfirst` false in the "
+        "`profile` tool of the MCP server."
+    ]
+    predictions = pd.read_csv(forecast["files"]["predictions"])
+    assert sorted(set(predictions.iloc[:, 0])) == [
+        "2021-01-01", "2021-02-01", "2021-03-01"
+    ]
+    assert (
+        "data['date'] = pd.to_datetime(data['date'], format='%d/%m/%Y')\n"
+        in code["code"]
+    )
+    assert (
+        "exog_future['date'] = pd.to_datetime(exog_future['date'], "
+        "format='%d/%m/%Y')\n" in code["code"]
     )
 
-    assert (error["code"], error["field"]) == ("invalid_argument", "data_path")
+
+def test_tool_profile_error_when_dates_read_both_ways_and_both_are_regular(
+    tmp_path,
+):
+    """
+    Test that `profile` of a file of three monthly dates that read both day
+    first and month first and are regular in both orders fails with
+    `data_unreadable` on `data_path` and the hint that names `dayfirst`, and
+    that with `dayfirst` true the data are monthly.
+    """
+    frame = pd.DataFrame({
+        "date": ["01/01/2021", "01/02/2021", "01/03/2021"],
+        "y": [1.0, 2.0, 4.0],
+    })
+    path = write_csv(tmp_path, "three.csv", frame)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    arguments = {"data_path": path, "target": "y"}
+
+    error = error_of(call(server, "profile", arguments), "profile")
+    profile = content_of(call(server, "profile", {**arguments, "dayfirst": True}))
+
+    assert (error["code"], error["field"]) == ("data_unreadable", "data_path")
     assert error["message"].startswith(
-        "The dates of column 'fecha' are written day first, but the first "
-        "one, '01/01/2023', also reads month first ('%m/%d/%Y')"
+        "The dates of column 'date' read both day first and month first: no "
+        "day is after the 12th, so '01/02/2021' may be '2021-02-01' or "
+        "'2021-01-02', and both readings have a regular frequency ('MS' day "
+        "first and 'D' month first)"
     )
-    assert error["hint"] == (
-        "Write the dates of the column in ISO 8601, such as '2023-01-13'."
-    )
+    assert error["hint"] == DAYFIRST_HINT
+    assert "- Frequency: MS\n" in profile["summary"]
 
 
 def test_tool_profile_output_when_exog_columns(tmp_path):
@@ -753,3 +947,341 @@ def test_tool_profile_without_target_lists_the_columns_of_a_semicolon_file(tmp_p
     assert "'date'" in error["message"]
     assert "'y'" in error["message"]
     assert "date;y" not in error["message"]
+
+
+def _monthly_lines(n: int = 36) -> list[str]:
+    """
+    Lines of a monthly CSV file with a date and a target column.
+    """
+    dates = pd.date_range("2015-01-01", periods=n, freq="MS").strftime("%Y-%m-%d")
+    return ["date,y"] + [f"{date},{100 + i * 0.5}" for i, date in enumerate(dates)]
+
+
+_LINES = _monthly_lines()
+
+
+@pytest.mark.parametrize(
+    "lines, message",
+    [
+        (
+            [_LINES[0]] + [line + "," for line in _LINES[1:]],
+            "its header has 2 fields and its first row 3, so the first column "
+            "would be read as the row labels and every other column would move "
+            "one place (the rows end with separators that the header does not "
+            "have).",
+        ),
+        (
+            _LINES[:1] + [_LINES[1] + ",9"] + _LINES[2:],
+            "its header has 2 fields and its first row 3, so the first column "
+            "would be read as the row labels and every other column would move "
+            "one place (a field too many in the first row, or a header without "
+            "a name for the first column).",
+        ),
+        (
+            _LINES[:20] + [_LINES[20] + ",9"] + _LINES[21:],
+            "Error tokenizing data. C error: Expected 2 fields in line 21, saw 3",
+        ),
+        (
+            [line + "," for line in _LINES],
+            "column 'Unnamed: 2' has no name in the header and no values (often "
+            "a separator at the end of every line, the header included).",
+        ),
+    ],
+    ids=["separator at the end of every row", "field too many in the first row",
+         "field too many in a middle row", "separator at the end of every line"],
+)
+def test_tool_profile_data_unreadable_when_rows_longer_than_header(
+    tmp_path, lines, message
+):
+    """
+    Test that a file whose rows have more fields than its header is
+    `data_unreadable` naming `data_path`, with or without `target`, instead
+    of a target without values or a profile with the dates as an exogenous
+    variable, and that the same file without the extra fields is profiled.
+    """
+    path = tmp_path / "data.csv"
+    path.write_text("\n".join(lines) + "\n")
+    fixed = tmp_path / "fixed.csv"
+    fixed.write_text("\n".join(_LINES) + "\n")
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    errors = [
+        error_of(call(server, "profile", {"data_path": str(path), **target}), "profile")
+        for target in ({"target": "y"}, {})
+    ]
+    result = content_of(
+        call(server, "profile", {"data_path": str(fixed), "target": "y"})
+    )
+
+    for error in errors:
+        assert error["code"] == "data_unreadable"
+        assert error["field"] == "data_path"
+        assert error["message"] == (
+            f"The CSV file '{path.resolve()}' could not be read: {message}"
+        )
+        assert error["hint"]
+    assert result["kind"] == "profile"
+    assert "- Frequency: MS" in result["summary"]
+    assert "- Exogenous columns: none" in result["summary"]
+
+
+@pytest.mark.parametrize(
+    "decimals",
+    [True, False],
+    ids=["thousands and decimal comma", "whole numbers with and without separator"],
+)
+def test_tool_profile_plan_and_forecast_when_point_separates_thousands(
+    tmp_path, decimals
+):
+    """
+    Test that `profile` reads a ';' file with '.' between thousands
+    ('1.020,50', or '870' next to '1.020') as the same amounts written with
+    ',' and '.': the same summary and notices, and a plan and a forecast with
+    the same predictions.
+    """
+    path = write_thousands(tmp_path, df_dialect_thousands, decimals=decimals)
+    amounts = df_dialect_thousands.assign(
+        y=df_dialect_thousands["y"] if decimals else df_dialect_thousands["y"].round()
+    )
+    comma_path = write_csv(tmp_path, "us.csv", amounts)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    results = {}
+    for data_path in (path, comma_path):
+        profile = content_of(
+            call(server, "profile", {"data_path": data_path, "target": "y"})
+        )
+        plan = content_of(
+            call(server, "plan", {"profile_id": profile["id"], "steps": 6})
+        )
+        forecast = content_of(call(server, "forecast", {"plan_id": plan["id"]}))
+        results[data_path] = (profile, forecast)
+
+    profile, forecast = results[path]
+    expected_profile, expected_forecast = results[comma_path]
+    assert profile["summary"] == expected_profile["summary"]
+    assert profile["notices"] == expected_profile["notices"]
+    assert forecast["notices"] == expected_forecast["notices"]
+    pd.testing.assert_frame_equal(
+        pd.read_csv(forecast["files"]["predictions"]),
+        pd.read_csv(expected_forecast["files"]["predictions"]),
+    )
+
+
+def test_tool_profile_error_when_thousands_are_ambiguous(tmp_path):
+    """
+    Test that a ';' file whose only numbers with a '.' read both as
+    thousands and as numbers with three decimals is `data_unreadable`,
+    naming `data_path`, with the hint that asks for `thousands` or
+    `decimal`; giving `thousands` reads the amounts as thousands and giving
+    `decimal` '.' as numbers with three decimals.
+    """
+    path = tmp_path / "thousands.csv"
+    path.write_text(
+        "date;y\n" + "".join(
+            f"2020-{month:02d}-01;{1 + month % 3}.{month:03d}\n"
+            for month in range(1, 13)
+        )
+    )
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    error = error_of(
+        call(server, "profile", {"data_path": str(path), "target": "y"}), "profile"
+    )
+    with_thousands = content_of(
+        call(
+            server, "profile",
+            {"data_path": str(path), "target": "y", "thousands": "."},
+        )
+    )
+    with_decimals = content_of(
+        call(server, "profile", {"data_path": str(path), "target": "y", "decimal": "."})
+    )
+
+    assert error == {
+        "code": "data_unreadable",
+        "message": (
+            f"The thousands separator of the CSV file '{path.resolve()}' cannot "
+            f"be told: its numbers with a '.' (such as '2.001') read both as "
+            f"thousands and as numbers with three decimals."
+        ),
+        "field": "data_path",
+        "hint": (
+            "Profile the file saying what its '.' is: `thousands` '.' when it "
+            "separates the thousands, or `decimal` '.' when it is the decimal "
+            "mark, in `profile()`, `--thousands` or `--decimal` in the "
+            "`profile` command, or `thousands` or `decimal` in the `profile` "
+            "tool of the MCP server, and use that profile."
+        ),
+        "details": None,
+    }
+    assert "Target statistics: min 1003, max 3011," in with_thousands["summary"]
+    assert "Target statistics: min 1.003, max 3.011," in with_decimals["summary"]
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"thousands": ","},
+        {"thousands": ".", "sep": ","},
+        {"thousands": ".", "decimal": "."},
+    ],
+    ids=["comma", "with sep comma", "with decimal point"],
+)
+def test_tool_profile_error_when_thousands_not_valid(tmp_path, arguments):
+    """
+    Test that a `thousands` that is not accepted, or '.' with `sep` ',' or
+    `decimal` '.', is `invalid_argument` naming `thousands`.
+    """
+    path = write_dialect(tmp_path, df_dialect, "semicolon_comma")
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    error = error_of(
+        call(server, "profile", {"data_path": path, "target": "y", **arguments}),
+        "profile",
+    )
+
+    assert error["code"] == "invalid_argument"
+    assert error["field"] == "thousands"
+
+
+@pytest.mark.parametrize(
+    "values, written",
+    [
+        (["10,025.1", "11,023.6"], "with a thousands separator"),
+        (["10.0%", "11.0%"], "with '%'"),
+    ],
+    ids=["thousands separator", "percent"],
+)
+def test_tool_profile_error_when_target_numbers_are_written_in_another_format(
+    tmp_path, values, written
+):
+    """
+    Test that a target whose numbers are written with a thousands separator
+    or with '%' is an error of the file: it names `data_path`, says the
+    format, and carries the hint that leaves the file to the user.
+    """
+    path = tmp_path / "formatted.csv"
+    pd.DataFrame(
+        {"date": ["2020-01-01", "2020-02-01"], "y": values}
+    ).to_csv(path, index=False)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    error = error_of(
+        call(server, "profile", {"data_path": str(path), "target": "y"}), "profile"
+    )
+
+    assert error == {
+        "code": "invalid_argument",
+        "message": (
+            f"Target column 'y' is not numeric: values such as {values} are "
+            f"numbers written {written}, a format that is not read. Write them "
+            f"as plain numbers."
+        ),
+        "field": "data_path",
+        "hint": server_module.DATA_PROBLEM_HINT,
+        "details": None,
+    }
+
+
+def test_tool_profile_output_when_series_ids_are_numbers(tmp_path):
+    """
+    Test that the series ids of long-format data written as numbers ('001',
+    '1', '10') name the series as written in the file, as by the Python API:
+    '001' keeps its zeros and is not the series '1'.
+    """
+    path = write_csv(tmp_path, "stores.csv", df_multi_long_numeric_ids)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    arguments = {"target": "value", "series_id_column": "series_id"}
+
+    result = content_of(call(server, "profile", {"data_path": path, **arguments}))
+    expected = ForecastingAssistant().profile(path, **arguments)
+
+    assert result["summary"] == expected.describe()
+    assert list(expected.data_profile.series_lengths) == ["001", "1", "10"]
+    assert [
+        line.split("(")[1].split(")")[0]
+        for line in result["summary"].splitlines()
+        if line.startswith("- Target statistics (")
+    ] == ["001", "1", "10"]
+
+
+def test_tool_profile_end_to_end_when_csv_and_future_exog_are_cp1252(tmp_path):
+    """
+    Test the session of the CSV that Excel saves on Windows in Spanish
+    (cp1252, ';', ',' as decimal mark, 'año' as target and accents in the
+    categories of 'zona'): `profile` reads it as the Python API does, with a
+    `DataProfileWarning` notice that the encoding cannot be checked;
+    `forecast` reads future values saved in cp1252 too, with a notice of
+    their own; and the script of `get_code` reads both files, each by its
+    path, with `encoding='cp1252'`.
+    """
+    path = write_cp1252(tmp_path)
+    exog_path = write_cp1252(
+        tmp_path, df_dialect_cp1252_exog, name="future.csv", sep=",", decimal="."
+    )
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    async def steps(client):
+        profile = content_of(
+            await client.call_tool("profile", {"data_path": path, "target": "año"})
+        )
+        plan = content_of(
+            await client.call_tool("plan", {"profile_id": profile["id"], "steps": 10})
+        )
+        forecast = content_of(
+            await client.call_tool(
+                "forecast", {"plan_id": plan["id"], "exog_path": exog_path}
+            )
+        )
+        code = content_of(
+            await client.call_tool("get_code", {"object_id": forecast["id"]})
+        )
+        return profile, forecast, code
+
+    profile, forecast, code = run_session(server, steps)
+    expected = ForecastingAssistant().profile(path, target="año")
+
+    assert profile["summary"] == expected.describe()
+    assert expected.data_profile.exog_columns == ["zona"]
+    assert ToolNotice(
+        source   = "data",
+        category = "DataProfileWarning",
+        message  = cp1252_note(),
+        count    = 1,
+    ) in [ToolNotice(**notice) for notice in profile["notices"]]
+    assert [
+        notice["message"] for notice in forecast["notices"]
+        if notice["message"].startswith("Exog CSV")
+    ] == [f"Exog CSV '{exog_path}': {cp1252_note('exog')}"]
+    assert (
+        f"data = pd.read_csv({path!r}, sep=';', decimal=',', "
+        f"encoding='cp1252')\n" in code["code"]
+    )
+    assert (
+        f"exog_future = pd.read_csv({exog_path!r}, encoding='cp1252')\n"
+        in code["code"]
+    )
+
+
+def test_tool_profile_error_when_csv_is_utf16(tmp_path):
+    """
+    Test that `profile` of a file in UTF-16 fails with `data_unreadable` on
+    `data_path` and the hint that asks for a copy saved as UTF-8, instead of
+    reading it as cp1252.
+    """
+    path = str(tmp_path / "unicode.csv")
+    df_dialect_cp1252.to_csv(path, index=False, sep=";", encoding="utf-16")
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    error = error_of(
+        call(server, "profile", {"data_path": path, "target": "año"}), "profile"
+    )
+
+    assert (error["code"], error["field"]) == ("data_unreadable", "data_path")
+    assert error["message"] == (
+        f"The CSV file '{path}' could not be read: it is written in UTF-16 (its "
+        f"first bytes say so), and only files in UTF-8 or in cp1252 "
+        f"(Windows-1252) are read."
+    )
+    assert error["hint"] == ENCODING_HINT
