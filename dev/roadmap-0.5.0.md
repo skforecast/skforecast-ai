@@ -732,7 +732,7 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     serie en formato ancho lo necesita también 2b (nombrar las series
     cortas): cuando el perfil lo guarde, este aviso lo usará.
 - **D?. 2b: una serie que ningún fold pronostica** (2026-10-17).
-  Concretado en la PR de `fix/short-series-backtest`:
+  Concretado en [#103](https://github.com/skforecast/skforecast-ai/pull/103):
   - `backtest()` con ForecasterRecursiveMultiSeries da `insufficient_data`
     (field `data`, `data_path` en el MCP) nombrando hasta 5 series que
     ningún fold pronostica, antes de ejecutar, en
