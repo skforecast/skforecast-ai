@@ -681,11 +681,11 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
   (2026-10-17). En la 0.5.0, el aviso de pocos residuos (2c-i) y la
   cobertura real y la anchura media de todo backtest con intervalo (2c-ii):
   sin coste añadido, deja de presentar como un 80 % un intervalo que cubre
-<<<<<<< HEAD
-  el 14 %. Los residuos fuera de muestra, que piden un tramo de validación
-  y cambian el coste y los scripts, van a la 0.6.0. La cobertura y la
-  anchura se proponen como métricas nativas del backtesting de skforecast;
-  cuando lleguen, el script las leerá de su salida.
+  el 14 %. La cobertura y la anchura las calcula el backtesting de
+  skforecast 0.27 (#1409), no el script: como la 0.5.0 espera a la 0.27.0,
+  no hace falta un cálculo propio que luego habría que quitar. Los residuos
+  fuera de muestra, que piden un tramo de validación y cambian el coste y
+  los scripts, van a la 0.6.0.
 - **D?. 2c-i: aviso de pocos residuos con varias series** (2026-10-17).
   Solo el aviso de `create_cv` (también notice del MCP); ningún script ni
   plan cambia, y no llega al contexto del LLM:
@@ -706,13 +706,6 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     como ForecasterDirect (`steps - 1` filas menos) y el aviso nombra el
     level.
   - Con una sola serie el texto no cambia.
-=======
-  el 14 %. La cobertura y la anchura las calcula el backtesting de
-  skforecast 0.27 (#1409), no el script: como la 0.5.0 espera a la 0.27.0,
-  no hace falta un cálculo propio que luego habría que quitar. Los residuos
-  fuera de muestra, que piden un tramo de validación y cambian el coste y
-  los scripts, van a la 0.6.0.
->>>>>>> origin/0.5.x
 
 ## Decisiones abiertas
 
