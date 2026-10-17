@@ -75,6 +75,7 @@ The main changes in this release are:
 + The script of a forecast with future exogenous values read from a file (`exog_path` of the MCP server, `--exog` of the CLI) read `exog_future.csv` from its working directory as `to_csv()` writes it, so it failed, also when copied there from a file of the Excel in Spanish (`;`, `,` as decimal mark). It now reads that file by its path with its separator, decimal mark, thousands separator, encoding and date format. See the [MCP server guide][mcp-guide] ([#99](https://github.com/skforecast/skforecast-ai/pull/99)).
 
 + Fixed an issue in [<code>ForecastingAssistant.profile()</code>][assistant] (and the `profile` command and MCP tool) where `target` as a list was accepted with `series_id_column`, which was ignored on wide data and gave a misleading error about repeated timestamps on long data (also with a `(series_id, date)` MultiIndex), or with a repeated column, profiled as two series. Both now raise `InvalidInputError` naming the argument ([#100](https://github.com/skforecast/skforecast-ai/pull/100)).
++ [<code>ForecastingAssistant.create_cv()</code>][assistant] gave no warning of prediction intervals estimated from too few residuals with ForecasterRecursiveMultiSeries or ForecasterDirectMultiVariate, as it does with a single series. It now counts the rows of each series in the first training window, also when a series starts later, and names the series with fewer than 100 ([#101](https://github.com/skforecast/skforecast-ai/pull/101)).
 
 
 ## 0.4.2 <small>Oct 12, 2026</small> { id="0.4.2" }

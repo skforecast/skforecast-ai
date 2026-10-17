@@ -837,3 +837,70 @@ def test_tool_create_cv_counts_the_strategy_plan_over_the_budget_of_compare(
         "plan: 84), more than the 84 of this plan. Pass `candidates` to "
         "choose what runs, or use `refit=false` or fewer folds."
     )
+
+
+def test_tool_create_cv_notice_of_few_residuals_of_a_series_that_starts_later(
+    tmp_path,
+):
+    """
+    Test that a strategy for a multi-series plan with an interval, on long
+    data whose series 'b' starts 20 months later, is created with a notice
+    (source 'runtime') that names 'b', the only series whose first training
+    window leaves fewer than 100 rows for its residuals, counted on its own
+    observations.
+    """
+    from ..fixtures_datasets import df_h2o_long
+
+    path = write_csv(
+        tmp_path, "staggered.csv", df_h2o_long.drop(index=df_h2o_long.index[204:224])
+    )
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    profile = content_of(
+        call(
+            server,
+            "profile",
+            {
+                "data_path": path,
+                "target": "x",
+                "series_id_column": "series",
+                "date_column": "date",
+            },
+        )
+    )
+    plan = content_of(
+        call(
+            server,
+            "plan",
+            {"profile_id": profile["id"], "steps": 1, "interval": [0.025, 0.975]},
+        )
+    )
+
+    result = content_of(
+        call(
+            server,
+            "create_cv",
+            {"plan_id": plan["id"], "initial_train_size": 140, "fold_stride": 1},
+        )
+    )
+
+    assert [
+        ToolNotice(**n) for n in result["notices"] if n["category"] == "UserWarning"
+    ] == [
+        ToolNotice(
+            source   = "runtime",
+            category = "UserWarning",
+            message  = (
+                "The first training window of the strategy leaves fewer than "
+                "100 rows to train on in 1 of the 2 series ('b': 84 row(s) of "
+                "120 observations), for a window size of 36. skforecast "
+                "estimates the prediction intervals of each series from the "
+                "residuals of its own rows, spread over up to 10 bins, and "
+                "below 10 residuals per bin (100 rows) the intervals tend to "
+                "be too narrow; with a single residual in a bin the lower bound "
+                "equals the upper one. Read the intervals of those series with "
+                "caution, or use a later `initial_train_size`, or fewer lags or "
+                "smaller window features."
+            ),
+            count    = 1,
+        )
+    ]

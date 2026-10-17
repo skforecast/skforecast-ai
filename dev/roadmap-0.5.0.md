@@ -175,7 +175,9 @@ Resultados incorrectos sin aviso, el peor tipo de fallo después de la fase 1.
   `forecast`), y el perfil debe nombrar la serie corta. skforecast también la
   descarta sin avisar:
   [#1406](https://github.com/skforecast/skforecast/issues/1406). *[LLM]* si
-  cambia el texto del backtest.
+  cambia el texto del backtest. En formato ancho el perfil no guarda dónde
+  empieza cada serie (sus NaN iniciales): hace falta para nombrar las series
+  cortas, y el aviso de residuos de 2c-i (D13) lo usará cuando exista.
 - **2c. Intervalos de los backtests multiserie.** Defecto conocido: con un
   intervalo del 80 %, cubren el 56 % con ForecasterRecursiveMultiSeries y el
   14 % con ForecasterDirectMultiVariate en `items_sales`, porque los scripts
@@ -703,6 +705,32 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
   usuario no pasó. Una columna
   repetida da `invalid_argument` con `field: "target"` y la nombra, antes de
   comprobar que las columnas existen. Mismo texto en la API, la CLI y el MCP.
+- **D13. 2c-i: aviso de pocos residuos con varias series** (2026-10-17).
+  Concretado en [#101](https://github.com/skforecast/skforecast-ai/pull/101).
+  Solo el aviso de `create_cv` (también notice del MCP); ningún script ni
+  plan cambia, y no llega al contexto del LLM:
+  - ForecasterRecursiveMultiSeries cuenta por serie lo que skforecast 0.26
+    guarda por serie (residuos y binner de cada una): las observaciones de
+    la serie en la primera ventana de entrenamiento menos `window_size`. En
+    formato largo, cada serie se sitúa en el índice que reparte los folds
+    (desde la primera fecha de todas) con sus fechas de inicio y fin, en la
+    zona horaria del perfil; si ese índice no se puede rehacer, cuenta la
+    ventana entera, como antes. En formato ancho el perfil no sabe dónde
+    empieza cada serie (sus NaN iniciales): cuenta la ventana entera.
+  - El aviso nombra hasta 5 series con menos de 100 filas, de menos a más
+    filas, con "and N more series"; una serie sin filas en la ventana no
+    se nombra (no se entrena en ese fold).
+  - Con `encoding=None` skforecast junta los residuos de todas las series
+    (`_unknown_level`): se suman las filas de todas y el aviso lo dice.
+  - ForecasterDirectMultiVariate solo guarda residuos de su `level`: cuenta
+    como ForecasterDirect (`steps - 1` filas menos) y el aviso nombra el
+    level.
+  - Con una sola serie el texto no cambia.
+  - Revisión: los forecasters directos cuentan filas, no `steps` por filas,
+    porque los residuos de los pasos de una misma fila no son
+    independientes; el texto de `encoding=None` se queda. El inicio de cada
+    serie en formato ancho lo necesita también 2b (nombrar las series
+    cortas): cuando el perfil lo guarde, este aviso lo usará.
 
 ## Decisiones abiertas
 

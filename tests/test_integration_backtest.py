@@ -172,7 +172,9 @@ def test_forecaster_multiseries_backtest_uses_interval_method_of_plan(forecaster
     Test that a multi-series or multivariate backtest with an interval
     writes and runs the interval method of the plan (bootstrapping) instead
     of the conformal default of backtesting_forecaster_multiseries, and
-    that its predictions carry the bounds.
+    that its predictions carry the bounds. The default strategy on 100
+    observations leaves fewer than 100 rows for the residuals of the
+    intervals, which `create_cv()` warns about.
     """
     data = df_multi_wide
     target = ["series_a", "series_b"]
@@ -180,7 +182,8 @@ def test_forecaster_multiseries_backtest_uses_interval_method_of_plan(forecaster
     plan = assistant.plan(
         profile, steps=5, forecaster=forecaster, interval=[0.1, 0.9]
     )
-    cv = assistant.create_cv(profile, plan).cv
+    with pytest.warns(UserWarning, match="the intervals tend to be too narrow"):
+        cv = assistant.create_cv(profile, plan).cv
 
     result = assistant.backtest(
         data          = data,
