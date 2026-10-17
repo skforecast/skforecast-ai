@@ -14,10 +14,16 @@ Entra lo que la auditoría encontró, lo que quedaba pendiente del CSV de una
 hoja de cálculo y los defectos conocidos. La lectura de Parquet y Excel y el
 ajuste de hiperparámetros pasan a la 0.6.0 (al final de este fichero).
 
-No hay 0.4.3 salvo que la 0.5.0 se alargue: entonces, una 0.4.3 solo con el
-rechazo de V08 (el `.` de miles leído como decimal, introducido por la
-lectura de `;` de la 0.4.2) y como mucho G04, que no tocan scripts ni
-contexto del LLM.
+**La 0.5.0 sale después de skforecast 0.27.0** (decidido el 2026-10-17). Lo
+que se resuelve mejor en skforecast se arregla allí, con un issue, en vez de
+rodearlo aquí; la sección "Dependencia de skforecast 0.27.0" lista lo que
+tiene que estar resuelto y publicado antes de la release, y cada hallazgo
+nuevo que sea de skforecast se añade a esa lista.
+
+Con eso la 0.5.0 se alarga, y la regla de antes aplica: una 0.4.3 solo con el
+rechazo de V08 (el `.` de miles leído como decimal sin aviso, introducido
+por la lectura de `;` de la 0.4.2) y como mucho G04, que no tocan scripts ni
+contexto del LLM. Pendiente de decidir.
 
 Las referencias `Vnn` y `Gnn` son las de la auditoría; las `Hn`, las del check
 con agentes de la 0.4.0 (su tabla está en `git show
@@ -181,14 +187,14 @@ Resultados incorrectos sin aviso, el peor tipo de fallo después de la fase 1.
     `_split_folds` usa `span_index_length`, que sobrestima las series que
     empiezan tarde) e incluir ForecasterDirectMultiVariate.
   - **2c-ii. Cobertura y anchura medidas en el backtest.** Todo backtest con
-    intervalo (una serie y multiserie) calcula en el script la cobertura
-    real con `calculate_coverage` de skforecast y la anchura media del
-    intervalo, por serie; el resumen las muestra junto a la nominal, y un
-    aviso salta cuando la cobertura queda claramente por debajo. Los
-    residuos fuera de muestra van a la 0.6.0, y cuando skforecast dé la
-    cobertura en la salida del backtesting
-    ([#1409](https://github.com/skforecast/skforecast/issues/1409)), el
-    script la leerá de ahí. *[script]* *[LLM]*
+    intervalo (una serie y multiserie) muestra, por serie, la cobertura real
+    y la anchura media del intervalo junto a la nominal, y un aviso salta
+    cuando la cobertura queda claramente por debajo. Las da el propio
+    backtesting de skforecast 0.27
+    ([#1409](https://github.com/skforecast/skforecast/issues/1409)): el
+    script no calcula nada propio, las lee de la salida. Espera a que #1409
+    esté en la rama `0.27.x` de skforecast. Los residuos fuera de muestra van
+    a la 0.6.0. *[script]* *[LLM]*
 - **2d. `target` como lista (V22, V23).** Con `series_id_column`, la columna
   de ids se descarta en silencio; con una columna repetida, se acepta como
   dos series. Rechazar con `field` el `series_id_column` que pasó el usuario
@@ -199,7 +205,7 @@ Resultados incorrectos sin aviso, el peor tipo de fallo después de la fase 1.
 | Tanda | PR | Por qué así |
 |:--|:--|:--|
 | A | 2a (estimador de DMV), 2b (serie corta), 2c-i (aviso de residuos), 2d (`target` como lista) | Módulos distintos: la recomendación y la explicación; `_last_window.py` y el resumen del backtest; el aviso de `create_cv`; la validación del perfil |
-| B | 2c-ii (cobertura y anchura) | Cambia los scripts de backtest con intervalo, también los de DMV que cambia 2a: va sobre la tanda A mergeada |
+| B | 2c-ii (cobertura y anchura) | Cambia los scripts de backtest con intervalo, también los de DMV que cambia 2a: va sobre la tanda A mergeada, y sobre skforecast#1409 en la rama `0.27.x` |
 
 Lo que cada sesión necesita saber es lo mismo que en la fase 1 (ver
 "Tandas" de la fase 1).
@@ -340,9 +346,13 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
    con ids numéricos, y uno que vea si un agente lee el aviso de intervalos
    con cotas iguales y lo cuenta (pendiente desde `96f4cdc`).
 3. Comprobaciones a mano (abajo).
-4. `/release-note consolidate`, bump de versión (`/release-bump`) y
+4. skforecast 0.27.0 publicado con todo lo de "Dependencia de skforecast
+   0.27.0" resuelto: `skforecast>=0.27.0` en `pyproject.toml`,
+   `/sync-skforecast-assets` (lo lanzas tú) y la suite contra la 0.27.0 de
+   PyPI.
+5. `/release-note consolidate`, bump de versión (`/release-bump`) y
    publicación.
-5. Tras publicar: Deploy y Make Release en Glama y apuntar el TDQS nuevo
+6. Tras publicar: Deploy y Make Release en Glama y apuntar el TDQS nuevo
    (paso 8 del plan de descripciones).
 
 ## Decisiones tomadas
@@ -669,13 +679,13 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     `forecast()` (fase 5).
 - **D11. 2c: los intervalos multiserie se miden, no se rehacen**
   (2026-10-17). En la 0.5.0, el aviso de pocos residuos (2c-i) y la
-  cobertura real y la anchura media de todo backtest con intervalo,
-  calculadas en el script con `calculate_coverage` de skforecast (2c-ii):
+  cobertura real y la anchura media de todo backtest con intervalo (2c-ii):
   sin coste añadido, deja de presentar como un 80 % un intervalo que cubre
-  el 14 %. Los residuos fuera de muestra, que piden un tramo de validación
-  y cambian el coste y los scripts, van a la 0.6.0. La cobertura y la
-  anchura se proponen como métricas nativas del backtesting de skforecast;
-  cuando lleguen, el script las leerá de su salida.
+  el 14 %. La cobertura y la anchura las calcula el backtesting de
+  skforecast 0.27 (#1409), no el script: como la 0.5.0 espera a la 0.27.0,
+  no hace falta un cálculo propio que luego habría que quitar. Los residuos
+  fuera de muestra, que piden un tramo de validación y cambian el coste y
+  los scripts, van a la 0.6.0.
 
 ## Decisiones abiertas
 
@@ -690,7 +700,22 @@ Se toman en el PR que las necesita y se pasan a la sección de arriba.
   la diferencia. Propuesta: renombrar, con nota de release; la API puede
   romperse en una minor temprana.
 
-## Issues a skforecast
+## Dependencia de skforecast 0.27.0
+
+La 0.5.0 no sale hasta que skforecast 0.27.0 esté publicado con estos issues
+resueltos. Cada hallazgo que sea mejor resolver en skforecast se añade aquí
+con su issue, y el lado de skforecast-ai se diseña para usar el arreglo de
+skforecast, no para rodearlo. Mientras la 0.27.0 no esté en PyPI, el hook de
+arranque de las sesiones en la nube instala skforecast desde su rama
+`0.27.x`, así que se puede desarrollar contra ella.
+
+| Issue | Qué pide | Qué hace skforecast-ai cuando llegue | Estado |
+|:--|:--|:--|:--|
+| [#1357](https://github.com/skforecast/skforecast/issues/1357) | Nombres de serie enteros (G02) | Nada que quitar: los ids como texto de 1b se quedan, porque conservan los ceros (`001`) | Abierto |
+| [#1406](https://github.com/skforecast/skforecast/issues/1406) | Avisar de una serie que no se pronostica en ningún fold (G03) | 2b se queda en la comprobación previa y el aviso del perfil: los scripts corren con `suppress_warnings=True` y fallar antes de ejecutar es mejor para un agente | Abierto |
+| [#1409](https://github.com/skforecast/skforecast/issues/1409) | Cobertura y anchura del intervalo en las métricas del backtesting (D11) | 2c-ii las lee de la salida del backtesting, sin cálculo propio en el script | Abierto |
+
+Detalle de cada uno:
 
 - **G02**: ya abierto,
   [#1357](https://github.com/skforecast/skforecast/issues/1357). Se le
@@ -838,9 +863,7 @@ Lo que D11 dejó fuera de la 0.5.0. Los scripts multiserie usan residuos
 dentro de muestra (`store_in_sample_residuals`), y la cobertura real queda
 muy por debajo de la nominal (2c-ii la mide y avisa). skforecast admite
 residuos fuera de muestra (`set_out_sample_residuals`), pero hace falta un
-tramo de validación: cambia el coste del backtest y los scripts. Cuando
-skforecast dé la cobertura y la anchura en la salida del backtesting, quitar
-el cálculo propio del script de 2c-ii y leerlas de ahí.
+tramo de validación: cambia el coste del backtest y los scripts.
 
 ### pandas 3, cuando skforecast lo soporte
 
