@@ -23,6 +23,9 @@ The main changes in this release are:
     + The scripts of a forecast with future exogenous values read from a file (`exog_path` of the MCP server, `--exog` of the CLI) read that file by its path, with its own separator, decimal mark and encoding, instead of `exog_future.csv` in the working directory. See **Fixed**.
     + The scripts of dates that write the day and the month as numbers read them with their format (`format='%d/%m/%Y'`, or `'%m/%d/%Y'` month first), also when the first date already said so, and those of files with `.` between thousands read the date column as text: the same predictions. See **Changed**.
 
+    + `plan()` of wide-format data whose series start or end with missing values may choose another estimator: `DataProfile.n_total_observations` no longer counts those values. See **Changed**.
+    + [<code>ForecastingAssistant.backtest()</code>][assistant] of ForecasterRecursiveMultiSeries raises `insufficient_data` for a series that no fold forecasts, which it left out before. See **Fixed**.
+
     And some code needs to be updated:
 
     + [<code>ForecastingAssistant.profile()</code>][assistant] of a file separated by `;` or tabulators raises `data_unreadable` instead of reading `.` as decimal mark when its only numbers with a `.` have three decimals (`1.870`), or when a column mixes them with whole numbers (`3`, `1.375`) next to other decimals (`0.75`). Pass `decimal='.'` to read them as before. See **Fixed**.
@@ -51,6 +54,8 @@ The main changes in this release are:
 
 + The error of [<code>ForecastingAssistant.plan()</code>][assistant] for dates without a regular frequency describes their spacing instead of asking for ISO 8601 dates that may already be, and the description of the profile that the LLM and the MCP server read lists the irregular spacing instead of "none detected" ([#96](https://github.com/skforecast/skforecast-ai/pull/96)).
 
++ In wide-format data, each series of `DataProfile.series_lengths` spans the dates from its first to its last value, as in long format, instead of the whole frame, so its `start`, `end` and `length` say where it starts. `n_total_observations`, which sizes the estimator, follows them, and the note on short series names the series in wide and long data.
+
 
 **Fixed**
 
@@ -75,7 +80,10 @@ The main changes in this release are:
 + The script of a forecast with future exogenous values read from a file (`exog_path` of the MCP server, `--exog` of the CLI) read `exog_future.csv` from its working directory as `to_csv()` writes it, so it failed, also when copied there from a file of the Excel in Spanish (`;`, `,` as decimal mark). It now reads that file by its path with its separator, decimal mark, thousands separator, encoding and date format. See the [MCP server guide][mcp-guide] ([#99](https://github.com/skforecast/skforecast-ai/pull/99)).
 
 + Fixed an issue in [<code>ForecastingAssistant.profile()</code>][assistant] (and the `profile` command and MCP tool) where `target` as a list was accepted with `series_id_column`, which was ignored on wide data and gave a misleading error about repeated timestamps on long data (also with a `(series_id, date)` MultiIndex), or with a repeated column, profiled as two series. Both now raise `InvalidInputError` naming the argument ([#100](https://github.com/skforecast/skforecast-ai/pull/100)).
-+ [<code>ForecastingAssistant.create_cv()</code>][assistant] gave no warning of prediction intervals estimated from too few residuals with ForecasterRecursiveMultiSeries or ForecasterDirectMultiVariate, as it does with a single series. It now counts the rows of each series in the first training window, also when a series starts later, and names the series with fewer than 100 ([#101](https://github.com/skforecast/skforecast-ai/pull/101)).
+
++ [<code>ForecastingAssistant.create_cv()</code>][assistant] gave no warning of prediction intervals estimated from too few residuals with ForecasterRecursiveMultiSeries or ForecasterDirectMultiVariate, as it does with a single series. It now counts the rows of each series in the first training window, also when a series starts later (in long or wide format), and names the series with fewer than 100 ([#101](https://github.com/skforecast/skforecast-ai/pull/101)).
+
++ Fixed an issue in [<code>ForecastingAssistant.backtest()</code>][assistant] with ForecasterRecursiveMultiSeries, where a series that no fold could forecast (too short for the lags and window features, starting after the training window without refit, or ending before the folds) was left out of the predictions and of the average across series without a warning. It now raises `InvalidInputError` (`insufficient_data`) naming those series.
 
 
 ## 0.4.2 <small>Oct 12, 2026</small> { id="0.4.2" }

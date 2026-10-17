@@ -714,6 +714,20 @@ def test_validate_task_input_raises_when_multivariate_unequal_lengths():
         _validate_task_input(profile, "multivariate")
 
 
+def test_validate_task_input_passes_when_multivariate_wide_series_start_late():
+    """
+    Test _validate_task_input accepts a multivariate task on wide data whose
+    series have different lengths: they share the rows of the frame, and a
+    series that starts late only has missing values at its start, as before
+    the profile counted each wide series from its first value.
+    """
+    profile = _make_profile(
+        {"A": {"length": 100}, "B": {"length": 80}}, data_format="wide"
+    )
+
+    assert _validate_task_input(profile, "multivariate") is None
+
+
 def test_validate_task_input_passes_when_valid():
     """
     Test _validate_task_input accepts compatible inputs (single-series

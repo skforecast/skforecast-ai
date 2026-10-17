@@ -18,9 +18,11 @@ from .fixtures_recommendation import (
     plan_h2o_staggered_interval,
     plan_h2o_wide_interval_multiseries,
     plan_h2o_wide_interval_multivariate,
+    plan_h2o_wide_staggered_interval,
     profile_h2o_complete,
     profile_h2o_staggered,
     profile_h2o_wide,
+    profile_h2o_wide_staggered,
 )
 
 
@@ -209,20 +211,27 @@ def test_warn_interval_residuals_UserWarning_when_several_series_have_few_rows(
     ],
     ids=["both_fewest_first", "later_series", "later_series_without_rows"],
 )
+@pytest.mark.parametrize(
+    "plan, profile",
+    [
+        (plan_h2o_staggered_interval, profile_h2o_staggered),
+        (plan_h2o_wide_staggered_interval, profile_h2o_wide_staggered),
+    ],
+    ids=["long", "wide"],
+)
 def test_warn_interval_residuals_UserWarning_when_series_starts_later(
-    n_train, scope, shown
+    n_train, scope, shown, plan, profile
 ):
     """
-    Test that in long format the rows of each series are counted on its own
-    observations in the first training window: the series 'b', which starts
-    20 observations after the span, has 20 fewer. The series with fewest rows
-    come first, those with 100 or more are not named, and a series without
-    rows in the window (not trained in it) is left out.
+    Test that the rows of each series are counted on its own observations in
+    the first training window: the series 'b', which starts 20 observations
+    after the span (its first rows in long format, its first values in wide
+    format), has 20 fewer. The series with fewest rows come first, those
+    with 100 or more are not named, and a series without rows in the window
+    (not trained in it) is left out.
     """
     with pytest.warns(UserWarning, match=_series_message(scope, shown)):
-        _create_strategy(
-            plan_h2o_staggered_interval, _cv(1, n_train), profile_h2o_staggered
-        )
+        _create_strategy(plan, _cv(1, n_train), profile)
 
 
 @pytest.mark.parametrize(
@@ -307,6 +316,7 @@ def test_warn_interval_residuals_UserWarning_names_five_series_and_counts_the_re
         (plan_h2o_wide_interval_multiseries, profile_h2o_wide, 1, 136),
         (plan_h2o_wide_interval_multiseries, profile_h2o_wide, 1, 36),
         (plan_h2o_staggered_interval, profile_h2o_staggered, 1, 156),
+        (plan_h2o_wide_staggered_interval, profile_h2o_wide_staggered, 1, 156),
         (
             _without_encoding(plan_h2o_wide_interval_multiseries),
             profile_h2o_wide,
@@ -320,6 +330,7 @@ def test_warn_interval_residuals_UserWarning_names_five_series_and_counts_the_re
         "multiseries_100_rows",
         "multiseries_no_rows",
         "later_series_100_rows",
+        "later_wide_series_100_rows",
         "pooled_100_rows",
         "multivariate_100_rows",
         "multivariate_no_rows",

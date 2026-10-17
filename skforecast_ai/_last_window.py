@@ -6,6 +6,7 @@
 ################################################################################
 
 from __future__ import annotations
+import copy
 import warnings
 import numpy as np
 import pandas as pd
@@ -765,11 +766,12 @@ def validate_series_lengths(
     profile: DataProfile,
     plan: ForecastPlan,
     end_train: str | None = None,
-    whole_data: bool = False,
+    cv: TimeSeriesFold | None = None,
 ) -> None:
     """
-    Reject series that ForecasterRecursiveMultiSeries cannot be trained on,
-    and series without values given to a ForecasterFoundation model.
+    Reject series that ForecasterRecursiveMultiSeries cannot be trained on
+    (in a backtest, series it cannot forecast in any fold), and series
+    without values given to a ForecasterFoundation model.
 
     skforecast trains each series from its first to its last value, and
     fails inside the script on a series without values ("All values of
@@ -782,8 +784,13 @@ def validate_series_lengths(
 
     - in prediction mode, on the whole data;
     - in evaluation mode, on the training partition (up to `end_train`);
-    - in backtesting (`whole_data=True`), only series without any value: a
-      series that starts late is left out of the first folds by skforecast.
+    - in backtesting (`cv` given), series without any value, and series of
+      ForecasterRecursiveMultiSeries that no fold forecasts (see
+      `_series_never_forecast`). skforecast leaves a series out of a fold
+      without a warning, even with `suppress_warnings=False`
+      (skforecast#1406): a series that starts late is forecast in the
+      later folds, but one that no fold forecasts had missing metrics, no
+      predictions, and an average across series computed without it.
 
     Parameters
     ----------
@@ -795,8 +802,9 @@ def validate_series_lengths(
         Plan to run.
     end_train : str, default None
         Last date of the training partition, in evaluation mode.
-    whole_data : bool, default False
-        Whether only series without any value are checked (backtesting).
+    cv : TimeSeriesFold, default None
+        Strategy of a backtest, as the script runs it: the series are
+        checked on its folds instead of on the whole data.
 
     Returns
     -------
@@ -822,7 +830,7 @@ def validate_series_lengths(
         last = len(present) - 1 - int(np.argmax(present[::-1]))
         length = last - first + 1
         # A foundation model reads no window: any series with a value does.
-        if not whole_data and not foundation and length <= window:
+        if cv is None and not foundation and length <= window:
             short[_plain(name)] = length
 
     where = f" up to the end of training ({end_train})" if end_train is not None else ""
@@ -856,6 +864,176 @@ def validate_series_lengths(
                 f"observations, or remove the short series."
             ),
         )
+    if cv is not None and not foundation:
+        order = int(plan.forecaster_kwargs.get("differentiation") or 0)
+        # skforecast drops from a fold a last window with missing values
+        # unless the estimator accepts them, and always with differentiation.
+        dropna = bool(order) or plan.estimator not in NAN_TOLERANT_ESTIMATORS
+        never = _series_never_forecast(
+            spans  = spans,
+            cv     = cv,
+            window = window,
+            order  = order,
+            long   = profile.data_format == "long",
+            dropna = dropna,
+        )
+        if never:
+            _report_never_forecast(never, plan, window)
+
+
+def _series_never_forecast(
+    spans: dict,
+    cv: TimeSeriesFold,
+    window: int,
+    order: int,
+    long: bool,
+    dropna: bool,
+) -> dict:
+    """
+    Return the series that ForecasterRecursiveMultiSeries forecasts in no
+    fold of a backtest, mapped to their number of observations from the
+    first to the last value, and whether they end before the window of the
+    last fold.
+
+    skforecast forecasts a series in a fold when it was trained on it and
+    it has a last window before the fold:
+
+    - Trained: the training window of the fold (that of the last refit, the
+      initial one without refit) holds more values of the series than the
+      window of the forecaster, counted from its first to its last value
+      there. skforecast keeps a series with exactly the window and then
+      fails on it ("must be greater than the maximum window size"), which
+      is not a silent drop.
+    - Last window: in long format each series is its own dates, and the
+      window before the fold must be inside them; in wide format every
+      series has the dates of the frame. When skforecast drops a last
+      window with missing values (`dropna`), the window must also be
+      inside the dates from the first to the last value of the series: a
+      series that starts late, or ends before the fold, is left out.
+
+    Missing values between the first and the last value of a series, which
+    can also drop a last window, are not checked here. It returns an empty
+    dict when the strategy cannot be split on the dates of the data (the
+    check of the first training window reports it).
+    """
+    # The folds are split on the dates of every series, from the earliest
+    # first date to the latest last one, as skforecast splits a dict.
+    grids = [dates for dates, _ in spans.values()]
+    if long:
+        try:
+            first = min(grid[0] for grid in grids if len(grid))
+            last = max(grid[-1] for grid in grids if len(grid))
+            span = pd.date_range(first, last, freq=grids[0].freq)
+        except (ValueError, TypeError, AttributeError):
+            return {}
+    else:
+        span = grids[0]
+    n_observations = len(span)
+
+    splitter = copy.deepcopy(cv)
+    splitter.set_params({
+        "window_size": window,
+        "differentiation": order or None,
+        "verbose": False,
+    })
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            folds = splitter.split(
+                X=pd.Series(np.zeros(n_observations), index=span), as_pandas=False
+            )
+    except (ValueError, TypeError):
+        return {}
+    if not folds:
+        return {}
+    train = np.array([fold[1] for fold in folds], dtype=int)
+    last_window = np.array([fold[2] for fold in folds], dtype=int)
+
+    never = {}
+    for name, (dates, present) in spans.items():
+        present = np.asarray(present, dtype=bool)
+        if not present.any():
+            continue
+        start = 0
+        if long:
+            start = int(span.get_indexer([dates[0]])[0])
+            if start < 0:
+                # Dates off the grid of the span, which skforecast cannot
+                # put on one index either: not checked here.
+                continue
+        stop = start + len(present)
+        values = np.flatnonzero(present) + start
+        # Values of the series from its first to its last one inside the
+        # training window of each fold.
+        first_in = np.searchsorted(values, train[:, 0])
+        last_in = np.searchsorted(values, train[:, 1]) - 1
+        has_values = last_in >= first_in
+        lengths = np.where(
+            has_values,
+            values[np.minimum(last_in, len(values) - 1)]
+            - values[np.minimum(first_in, len(values) - 1)] + 1,
+            0,
+        )
+        forecast = lengths > window
+        if dropna:
+            start, stop = max(start, values[0]), min(stop, values[-1] + 1)
+        if long or dropna:
+            # Dates of the series (or with values) in the last window.
+            inside = (
+                np.minimum(last_window[:, 1], stop)
+                - np.maximum(last_window[:, 0], start)
+            )
+            forecast &= inside >= window
+        if not forecast.any():
+            never[_plain(name)] = (
+                int(values[-1] - values[0] + 1), bool(stop < last_window[-1, 1])
+            )
+
+    return never
+
+
+def _report_never_forecast(never: dict, plan: ForecastPlan, window: int) -> None:
+    """
+    Raise for the series that a backtest of ForecasterRecursiveMultiSeries
+    forecasts in no fold (see `_series_never_forecast`).
+    """
+    found = [f"{name!r}: {length}" for name, (length, _) in never.items()]
+    shown = ", ".join(found[:_SHOWN])
+    if len(found) > _SHOWN:
+        shown += f" and {len(found) - _SHOWN} more"
+    n_short = sum(length <= window for length, _ in never.values())
+    if n_short == len(never):
+        rejected = " `forecast()` of this plan rejects them too."
+    elif n_short:
+        rejected = (
+            f" `forecast()` of this plan rejects those with no more than "
+            f"{window} too."
+        )
+    else:
+        rejected = ""
+    remedies = "Remove those series, or use shorter lags and window features"
+    if any(length > window and not ended for length, ended in never.values()):
+        # A series longer than the window that does not end before the
+        # folds is left out because the training windows of the folds hold
+        # too few of its observations.
+        remedies += (
+            ", or a later `initial_train_size`, so that the training windows "
+            "hold more of their observations"
+        )
+    raise InvalidInputError(
+        f"Some series cannot be forecast in any fold of the backtest ({shown} "
+        f"observations, from their first to their last value). "
+        f"{plan.forecaster} forecasts a series in a fold only when the "
+        f"training window of the fold has more than the {window} observations "
+        f"of it that it reads to build its predictors, and the series has the "
+        f"{window} dates before the fold; skforecast leaves the other series "
+        f"out without a warning, so they would get no predictions and no "
+        f"metrics, and the average across series would leave them out."
+        f"{rejected} {remedies}.",
+        code  = "insufficient_data",
+        field = "data",
+        hint  = f"{remedies}.",
+    )
 
 
 def _foundation_on_several_series(plan: ForecastPlan, profile: DataProfile) -> bool:

@@ -306,3 +306,95 @@ def test_generate_warnings_output_when_numbers_as_text(
         f"user before changing their file); if it holds categories, nothing "
         f"needs to change."
     ]
+
+
+@pytest.mark.parametrize(
+    "series_observations, expected",
+    [
+        (
+            {"a": 120, "b": 20, "c": 90},
+            "Short series: only 20 observations in series 'b'. Results may be "
+            "unreliable with fewer than 50 observations.",
+        ),
+        (
+            {"a": 45, "b": 20, "c": 90},
+            "Short series: only 20 to 45 observations in 2 series ('b': 20, "
+            "'a': 45). Results may be unreliable with fewer than 50 "
+            "observations.",
+        ),
+        (
+            {"a": 40, "b": 40},
+            "Short series: only 40 observations in 2 series ('a': 40, 'b': 40). "
+            "Results may be unreliable with fewer than 50 observations.",
+        ),
+        (
+            {f"s{number}": 40 - number for number in range(1, 8)},
+            "Short series: only 33 to 39 observations in 7 series ('s7': 33, "
+            "'s6': 34, 's5': 35, 's4': 36, 's3': 37 and 2 more series). Results "
+            "may be unreliable with fewer than 50 observations.",
+        ),
+    ],
+    ids=["one", "fewest_first", "same_length", "five_and_more"],
+)
+def test_generate_warnings_output_when_several_series_are_short(
+    series_observations, expected
+):
+    """
+    Test that, with several series, the note on short series names the
+    series with fewer than 50 observations, from the fewest to the most, up
+    to 5 and how many more.
+    """
+    warnings = generate_warnings(
+        n_observations      = min(series_observations.values()),
+        frequency           = "D",
+        missing_target      = {},
+        missing_exog        = {},
+        index_type          = "datetime",
+        series_observations = series_observations,
+    )
+
+    assert warnings == [expected]
+
+
+@pytest.mark.parametrize(
+    "n_observations, series_observations",
+    [(120, {"a": 120, "b": 50}), (20, {"a": 120, "b": 50})],
+    ids=["frame_of_wide_data", "frame_shorter_than_series"],
+)
+def test_generate_warnings_no_short_note_when_no_series_is_short(
+    n_observations, series_observations
+):
+    """
+    Test that, with several series, the note on short series follows their
+    own lengths, not `n_observations`: no note when every series has 50
+    observations or more.
+    """
+    warnings = generate_warnings(
+        n_observations      = n_observations,
+        frequency           = "D",
+        missing_target      = {},
+        missing_exog        = {},
+        index_type          = "datetime",
+        series_observations = series_observations,
+    )
+
+    assert warnings == []
+
+
+def test_generate_warnings_output_when_single_series_is_short():
+    """
+    Test that the note on a short single series keeps its count without a
+    name (no `series_observations`).
+    """
+    warnings = generate_warnings(
+        n_observations = 30,
+        frequency      = "D",
+        missing_target = {},
+        missing_exog   = {},
+        index_type     = "datetime",
+    )
+
+    assert warnings == [
+        "Short series: only 30 observations. Results may be unreliable with "
+        "fewer than 50 observations."
+    ]
