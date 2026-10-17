@@ -186,8 +186,9 @@ Resultados incorrectos sin aviso, el peor tipo de fallo después de la fase 1.
     intervalo, por serie; el resumen las muestra junto a la nominal, y un
     aviso salta cuando la cobertura queda claramente por debajo. Los
     residuos fuera de muestra van a la 0.6.0, y cuando skforecast dé la
-    cobertura en la salida del backtesting (feature request en "Issues a
-    skforecast"), el script la leerá de ahí. *[script]* *[LLM]*
+    cobertura en la salida del backtesting
+    ([#1409](https://github.com/skforecast/skforecast/issues/1409)), el
+    script la leerá de ahí. *[script]* *[LLM]*
 - **2d. `target` como lista (V22, V23).** Con `series_id_column`, la columna
   de ids se descarta en silencio; con una columna repetida, se acepta como
   dos series. Rechazar con `field` el `series_id_column` que pasó el usuario
@@ -706,8 +707,9 @@ Se toman en el PR que las necesita y se pasan a la sección de arriba.
   ni con `suppress_warnings=False`, cuando una serie no se puede pronosticar
   en ningún fold: su fila de métricas sale NaN, no aparece en las
   predicciones y la fila `average` se calcula sin ella.
-- **Cobertura y anchura del intervalo en el backtesting** (feature request,
-  D11; borrador pendiente de publicar): que `backtesting_forecaster` y
+- **Cobertura y anchura del intervalo en el backtesting** (D11):
+  [#1409](https://github.com/skforecast/skforecast/issues/1409), feature
+  request. Que `backtesting_forecaster` y
   `backtesting_forecaster_multiseries` con un intervalo de dos límites
   devuelvan en las métricas la cobertura (`calculate_coverage`) y la anchura
   media, por serie y en las filas agregadas. Hoy calculan las métricas solo
