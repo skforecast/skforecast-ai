@@ -691,7 +691,14 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
   `invalid_argument` con `field: "series_id_column"` antes de comprobar las
   columnas, también con una lista de una columna (`["y"]` no se convierte en
   `"y"`); el mensaje dice qué pasar en formato largo y en ancho, sin `hint`.
-  El `series_id_column` que rellena un MultiIndex no se rechaza. Una columna
+  Una lista con datos indexados por un MultiIndex `(series_id, date)`, que
+  es formato largo, da `invalid_argument` con `field: "target"` y un texto
+  propio (pasar el nombre de la columna de valores), con una serie o con
+  varias, antes de que el MultiIndex rellene `series_id_column`: en
+  `create_data_profile`, en `profile()` y en `forecast()` sin perfil, que
+  aplanan el MultiIndex antes. Antes, con varias series salía el error de
+  timestamps repetidos (field `data`), o el de `series_id_column`, que el
+  usuario no pasó. Una columna
   repetida da `invalid_argument` con `field: "target"` y la nombra, antes de
   comprobar que las columnas existen. Mismo texto en la API, la CLI y el MCP.
 

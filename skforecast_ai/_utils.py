@@ -54,6 +54,7 @@ from .profiling.data_profile import (
     _normalize_multiindex,
     _read_date_column,
     _try_parse_first_date_column,
+    _validate_target_format,
     check_csv_fields,
     csv_read_kwargs,
     closed_weekdays,
@@ -1646,6 +1647,8 @@ def _resolve_inputs_with_profile(
                               date_column      = date_column,
                               series_id_column = series_id_column,
                           )
+        # Before the levels fill `series_id_column` (see `profile()`).
+        _validate_target_format(data_df, target, series_id_column)
         data_df, date_column, series_id_column = _flatten_multiindex(
             data_df, date_column, series_id_column
         )

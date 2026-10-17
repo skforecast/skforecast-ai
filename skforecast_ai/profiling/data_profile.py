@@ -332,7 +332,7 @@ def create_data_profile(
     target : str, list
         Name of the column to forecast. For wide-format multi-series data,
         pass a list of column names where each column is a series, each
-        named once and without `series_id_column`.
+        named once, without `series_id_column` and without a MultiIndex.
     date_column : str, default None
         Name of the column containing timestamps. If None, the function
         attempts to detect it from the index or columns.
@@ -473,9 +473,10 @@ def create_data_profile(
                                 notes            = date_notes,
                             )
 
-    # Before a MultiIndex fills `series_id_column`: only the one the caller
-    # passed contradicts a list of targets.
-    _validate_target_format(target, series_id_column)
+    # Before a MultiIndex fills `series_id_column`: the MultiIndex and the
+    # `series_id_column` the caller passed contradict a list of targets
+    # each with its own message.
+    _validate_target_format(data, target, series_id_column)
 
     # Normalize a MultiIndex (level 0 = series_id, level 1 = datetime) into
     # flat long format so every downstream helper sees named columns. Other
@@ -2343,26 +2344,44 @@ def _normalize_multiindex(
 
 
 def _validate_target_format(
+    data: pd.DataFrame | pd.Series | None,
     target: str | list[str],
     series_id_column: str | None,
 ) -> None:
     """
-    Validate that a list of targets comes without `series_id_column`.
+    Validate that a list of targets comes without `series_id_column` and
+    without a MultiIndex.
 
-    A list of target columns is wide format and `series_id_column` is long
-    format. Read as wide, long data failed with an error about repeated
-    timestamps that blamed the file, and wide data dropped the id column
-    without a word.
+    A list of target columns is wide format, and `series_id_column` and a
+    `(series_id, date)` MultiIndex are long format. Read as wide, long data
+    failed with an error about repeated timestamps that blamed the file,
+    and wide data dropped the id column without a word. It runs before the
+    levels of a MultiIndex become columns and fill `series_id_column`, so
+    each contradiction gets its own message.
 
     Parameters
     ----------
+    data : pandas DataFrame, pandas Series, None
+        Data as the caller passed them, with their MultiIndex if any.
     target : str, list
         Name(s) of the target column(s).
     series_id_column : str, None
         Series identifier column the caller passed (not the one filled from
         a MultiIndex).
     """
-    if not isinstance(target, list) or series_id_column is None:
+    if not isinstance(target, list):
+        return
+    index = getattr(data, "index", None)
+    if isinstance(index, pd.MultiIndex):
+        raise InvalidInputError(
+            f"`target` is a list of columns ({target}), but `data` is indexed "
+            f"by a MultiIndex (levels {list(index.names)}), which is long "
+            f"format: the series are stacked in rows, told apart by the first "
+            f"level. Pass `target` as the name of the column of values, not "
+            f"as a list.",
+            field = "target",
+        )
+    if series_id_column is None:
         return
     raise InvalidInputError(
         f"`target` is a list of columns ({target}) and series_id_column="

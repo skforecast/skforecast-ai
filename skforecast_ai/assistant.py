@@ -89,6 +89,7 @@ from .profiling import (
     resolve_end_train,
 )
 from .profiling.data_profile import (
+    _validate_target_format,
     check_multiindex_levels,
     unused_columns_note,
     validate_target_numeric,
@@ -701,7 +702,8 @@ class ForecastingAssistant:
         target : str, list of str, default None
             Name of the column to forecast. For wide-format multi-series,
             pass a list of column names where each column is a series, each
-            named once and without `series_id_column`. Optional only when
+            named once, without `series_id_column` and without a
+            MultiIndex. Optional only when
             `data` is a pandas Series, in which case the Series name is used (or `'y'` when the Series has no name).
         date_column : str, default None
             Name of the column containing timestamps.
@@ -828,6 +830,9 @@ class ForecastingAssistant:
         # `create_data_profile`: the check of the target and the PACF then
         # read the flat frame the profile describes, whose series ids are
         # text (ordered '1', '10', '2', as in the profile).
+        # Before the levels fill `series_id_column`, so a list of targets
+        # with a MultiIndex is not reported as one with `series_id_column`.
+        _validate_target_format(data, target, series_id_column)
         data, date_column, series_id_column = _flatten_multiindex(
             data, date_column, series_id_column
         )

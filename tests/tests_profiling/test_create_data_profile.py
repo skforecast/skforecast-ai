@@ -1381,23 +1381,51 @@ def test_create_data_profile_InvalidInputError_when_target_list_with_series_id_c
     assert exc_info.value.field == "series_id_column"
 
 
-def test_create_data_profile_output_when_target_list_and_multiindex():
+@pytest.mark.parametrize(
+    "series",
+    [["item_1"], ["item_1", "item_2"]],
+    ids=["one series", "two series"],
+)
+def test_create_data_profile_InvalidInputError_when_target_list_and_multiindex(
+    series,
+):
     """
-    Test that a list of targets with a MultiIndex is not rejected for the
-    `series_id_column` filled from its first level, which the caller did
-    not pass: one id profiles as wide data.
+    Test that a list of targets with a `(series_id, date)` MultiIndex raises
+    with the field 'target', since a MultiIndex is long format: with two
+    series instead of the error about repeated timestamps that blamed the
+    data, with one instead of profiling it as wide data, and in both cases
+    without naming the `series_id_column` that the first level fills and the
+    caller did not pass.
     """
-    data = df_items_sales_wide.set_index(
-        pd.MultiIndex.from_product(
-            [["store"], df_items_sales_wide.index], names=["shop", "date"]
-        )
+    data = df_items_sales_long[df_items_sales_long["series"].isin(series)]
+    data = data.set_index(["series", "date"])
+    err_msg = re.escape(
+        "`target` is a list of columns (['value']), but `data` is indexed by "
+        "a MultiIndex (levels ['series', 'date']), which is long format: the "
+        "series are stacked in rows, told apart by the first level. Pass "
+        "`target` as the name of the column of values, not as a list."
     )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        create_data_profile(data=data, target=["value"])
 
-    profile = create_data_profile(data=data, target=["item_1", "item_2"])
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "target"
 
-    assert profile.data_format == "wide"
-    assert profile.target == ["item_1", "item_2"]
-    assert profile.n_series == 2
+
+def test_create_data_profile_output_when_target_text_and_multiindex():
+    """
+    Test that the name of the column of values with a `(series_id, date)`
+    MultiIndex still profiles long data, with the first level as the
+    `series_id_column`.
+    """
+    data = df_items_sales_long.set_index(["series", "date"])
+
+    profile = create_data_profile(data=data, target="value")
+
+    assert profile.data_format == "long"
+    assert profile.target == "value"
+    assert profile.series_id_column == "series"
+    assert profile.n_series == 3
 
 
 def test_create_data_profile_InvalidInputError_when_target_list_repeats_column():
