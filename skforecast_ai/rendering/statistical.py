@@ -5,7 +5,7 @@
 # This work by skforecast team is licensed under the Apache License 2.0        #
 ################################################################################
 
-from ..schemas import DataProfile, ForecastPlan, RenderedScript
+from ..schemas import DataProfile, ForecastPlan, FutureExogFile, RenderedScript
 from .._validation import validate_kwarg_names
 from ._helpers import (
     _comment_text,
@@ -83,8 +83,7 @@ def _emit_forecaster_creation_statistical(
 def render_forecast_statistical(
     plan: ForecastPlan,
     profile: DataProfile,
-    exog_date_format: str | None = None,
-    exog_encoding: str = "utf-8",
+    exog_file: FutureExogFile | None = None,
 ) -> RenderedScript:
     """Render code for ForecasterStats (Auto-ARIMA).
 
@@ -94,12 +93,10 @@ def render_forecast_statistical(
         Validated forecast plan.
     profile : DataProfile
         Profile of the data.
-    exog_date_format : str, default None
-        Format of the dates of the future exogenous variables, which the
-        script reads `exog_future.csv` with (see `exog_date_format`).
-    exog_encoding : str, default 'utf-8'
-        Encoding the script reads `exog_future.csv` with, `'cp1252'` when
-        the file of the future values is not UTF-8 (see `exog_encoding`).
+    exog_file : FutureExogFile, default None
+        File the script reads the future exogenous variables from, with its
+        dialect and the format of its dates (see `future_exog_file`). If
+        None, `exog_future.csv` as `to_csv()` writes it.
 
     Returns
     -------
@@ -123,9 +120,9 @@ def render_forecast_statistical(
     # --- Load data and index setup ---
     _emit_loading_and_index(loading_lines, core_lines, profile)
     if not evaluate and use_exog:
-        _emit_future_exog_loading(loading_lines, profile, exog_encoding)
+        _emit_future_exog_loading(loading_lines, profile, exog_file)
         _emit_future_exog_index_setup(
-            core_lines, profile, date_format=exog_date_format
+            core_lines, profile, exog_file=exog_file
         )
 
     # --- Preprocessing steps ---

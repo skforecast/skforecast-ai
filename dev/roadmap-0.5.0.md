@@ -270,7 +270,17 @@ pequeños; se pueden agrupar en dos o tres PR.
   `InvalidInputError` se reporta como `ValueError`, así que
   `mcp/_errors.py:304-307` omite el mensaje propio (V32, descartado en la
   auditoría por otra razón pero real), y `get_failure(comparison_id)` sin
-  candidato responde "named None".
+  candidato responde "named None". Unos datos sin fechas (`index_type`
+  range) con exógenas futuras desde fichero fallan en la librería:
+  `load_exog` toma la primera columna como índice (pregunta 6 de
+  [#99](https://github.com/skforecast/skforecast-ai/pull/99), anterior a
+  ella).
+- **`forecast()` y `forecast_code()` con una ruta en `exog`**, leída con
+  `load_exog` (el perfil da la columna de fechas, los ids y el orden de las
+  fechas). Hoy solo aceptan un DataFrame o una Series, y el fichero llega al
+  script por `exog.attrs['exog_file']`, que pandas arrastra a los frames
+  derivados; una ruta sería el canal explícito (preguntas 1 y 5 de #99).
+  *[API]*
 - **Dependencias opcionales**: `missing_dependency` de XGBoost o CatBoost
   llega sin `hint` ni `details` (V02: el mismo contrato que los modelos
   fundacionales, con `pip install` y el `--with` de `uvx`); un `compare` por
@@ -595,6 +605,48 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     revisión: necesitarían un campo nuevo del perfil.
   - Nota de release en **Fixed**, sin destacado ni "Before upgrading", que
     nombra también los textos de los días de cierre.
+- **D10. 1h: el script lee el fichero de exógenas futuras que corrió**
+  (2026-10-16). Concretado en
+  [#99](https://github.com/skforecast/skforecast-ai/pull/99):
+  - `load_exog` deja en `exog.attrs['exog_file']` un `FutureExogFile`
+    (`schemas/profiles.py`, exportado en `skforecast_ai.schemas`): la ruta
+    tal como se leyó (la resuelta dentro de `--allow-dir` en el MCP), `sep`,
+    `decimal`, `thousands`, `encoding` y `date_format`, detectados con las
+    reglas de los datos. Sustituye a `attrs['date_format']` y
+    `attrs['encoding']` sueltos. `future_exog_file` lo da (o
+    `exog_future.csv` con los valores por defecto y el formato de sus
+    fechas para un DataFrame en memoria) y llega igual a los
+    renderizadores, a `validate_future_exog`, a `run_forecast` y a
+    `forecast_code()`. Solo cuenta una instancia de `FutureExogFile`: otro
+    valor bajo esa clave se ignora.
+  - El `read_csv` del fichero emite cada argumento como el de los datos:
+    `sep` y `decimal` juntos si no son `','` y `'.'`, `thousands` (con la
+    columna de fechas como texto), `encoding` y `dtype`. Con un UTF-8
+    separado por `','` solo cambia la ruta.
+  - Dos líneas más en el preámbulo de carga (no corre en `exec`), solo
+    cuando el fichero las necesita, para que el script lea lo que leyó
+    `load_exog`: `dropna(how='all')` si tenía filas solo de separadores
+    (con dos o más, el script fallaba por fechas `NaT` repetidas), y
+    `rename(columns={...})` si su columna de fechas no se llama como la de
+    los datos (la CLI sin `--date-column`). Ningún golden existente cambia.
+  - CLI: `forecast-code --exog` nuevo, con la lógica de `forecast --exog`;
+    con `--from-plan` sin DATA, el orden de las fechas ambiguas lo decide el
+    `date_format` del perfil del bundle.
+  - MCP: la descripción de `exog_path` (y el golden de esquemas, solo esa
+    frase), `docs/api/mcp.md`, la guía del servidor y la de la CLI. Las
+    instrucciones no nombraban `exog_future.csv`; la frase de privacidad del
+    SKILL.md (y su copia en `plugin/`) dice ahora que el script de un
+    `forecast` nombra también la ruta de `exog_path`.
+  - Fuera: `forecast()` no acepta una ruta en `exog` (pregunta en la PR), y
+    unos datos sin fechas con exógenas desde fichero siguen fallando en la
+    librería, como antes.
+  - Nota de release en **Added** (`forecast-code --exog`) y **Fixed**, con
+    una línea en "Before upgrading" (el script lee otra ruta).
+  - Respuestas de la revisión: se mantienen el `dropna(how='all')` de las
+    filas solo de separadores, el `rename` de la columna de fechas y
+    `FutureExogFile` público (principio 5); el `attrs` que se arrastra a un
+    frame derivado se deja, porque lo resuelve aceptar una ruta en
+    `forecast()` (fase 5).
 
 ## Decisiones abiertas
 

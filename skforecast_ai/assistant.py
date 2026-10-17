@@ -151,8 +151,7 @@ from .schemas import (
 from ._foundation import foundation_exog_columns, validate_foundation_plan
 from ._future_exog import (
     as_exog_frame,
-    exog_date_format,
-    exog_encoding,
+    future_exog_file,
     used_exog_columns,
     validate_future_exog,
 )
@@ -2081,9 +2080,12 @@ class ForecastingAssistant:
             Mirrors `forecast()` for signature consistency. Because this
             method only generates code (the rendered prediction-mode
             script loads the future values from `'exog_future.csv'` at run
-            time), `exog` is optional here and is used only to validate
-            the inputs: it must not be combined with `test_size`, and it
-            must not be supplied when the data has no exogenous columns.
+            time, or from the CSV file they were read from by `--exog` of
+            the CLI or `exog_path` of the MCP server, by its path and with
+            its dialect), `exog` is optional here and is used only to
+            validate the inputs and to tell which file the script reads: it
+            must not be combined with `test_size`, and it must not be
+            supplied when the data has no exogenous columns.
             Unlike `forecast()`, its dates and values are not checked, nor
             are the last values of the target: the script reads them when
             it runs.
@@ -2232,18 +2234,16 @@ class ForecastingAssistant:
         )
         profile = _with_data_path(profile, data)
 
-        # The script reads `exog_future.csv` in the format and the encoding
-        # of the future values given, which need not be those of the data.
-        exog_format, exog_file_encoding = None, "utf-8"
+        # The script reads the file the future values given were read from,
+        # with its dialect, or `exog_future.csv` in the format of their
+        # dates, which need not be those of the data.
+        exog_file = None
         if plan.end_train is None and used_exog_columns(plan, profile.data_profile):
-            exog_frame = as_exog_frame(exog)
-            exog_format = exog_date_format(exog_frame, profile.data_profile)
-            exog_file_encoding = exog_encoding(exog_frame)
+            exog_file = future_exog_file(as_exog_frame(exog), profile.data_profile)
         code = render_forecast_script(
-                   profile          = profile.data_profile,
-                   plan             = plan,
-                   exog_date_format = exog_format,
-                   exog_encoding    = exog_file_encoding,
+                   profile   = profile.data_profile,
+                   plan      = plan,
+                   exog_file = exog_file,
                ).full_script
 
         return CodeGenerationResult(
@@ -2513,7 +2513,7 @@ class ForecastingAssistant:
         )
         profile = _with_data_path(profile, data)
 
-        exog_format, exog_file_encoding = None, "utf-8"
+        exog_file = None
         if plan.end_train is not None:
             _check_evaluated_target(
                 data         = data_df,
@@ -2530,17 +2530,17 @@ class ForecastingAssistant:
                 ),
             )
         elif exog is not None:
-            # The future values are read in their own format, not in the one
-            # of the data: a file saved with `to_csv()` has ISO 8601 dates.
+            # The future values are read from their own file, with its
+            # dialect and the format of its dates, not those of the data: a
+            # file saved with `to_csv()` has ISO 8601 dates.
             if used_exog_columns(plan, profile.data_profile):
-                exog_format = exog_date_format(exog, profile.data_profile)
-                exog_file_encoding = exog_encoding(exog)
+                exog_file = future_exog_file(exog, profile.data_profile)
             validate_future_exog(
-                exog        = exog,
-                data        = data_df,
-                profile     = profile.data_profile,
-                plan        = plan,
-                date_format = exog_format,
+                exog      = exog,
+                data      = data_df,
+                profile   = profile.data_profile,
+                plan      = plan,
+                exog_file = exog_file,
             )
         validate_infinite_target(
             data       = data_df,
@@ -2569,8 +2569,7 @@ class ForecastingAssistant:
             profile          = profile.data_profile,
             plan             = plan,
             exog             = exog,
-            exog_date_format = exog_format,
-            exog_encoding    = exog_file_encoding,
+            exog_file        = exog_file,
         )
 
         return ForecastResult(

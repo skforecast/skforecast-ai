@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from skforecast_ai._utils import load_exog
+from skforecast_ai.schemas import FutureExogFile
 from skforecast_ai.profiling.csv_dialect import ENCODING_HINT, EXOG_DIALECT_HINT
 from skforecast_ai.exceptions import (
     DataContentError,
@@ -689,7 +690,7 @@ def test_load_exog_output_when_date_format_day_first(
     first to the seventh of February, without a warning, whether the date
     column is named, found, unnamed (an index written by `to_csv()`) or the
     index of a header one field short, and that the format is kept in
-    `attrs`.
+    `attrs['exog_file']`.
     """
     path = tmp_path / "exog.csv"
     path.write_text(f"{header}\n{_DAY_FIRST_BODY}")
@@ -701,7 +702,8 @@ def test_load_exog_output_when_date_format_day_first(
         index=pd.DatetimeIndex(_DAY_FIRST_DATES, name=index_name),
     )
     pd.testing.assert_frame_equal(result, expected)
-    assert result.attrs == {"date_format": "%d/%m/%Y", "encoding": "utf-8"}
+    exog_file = result.attrs["exog_file"]
+    assert (exog_file.date_format, exog_file.encoding) == ("%d/%m/%Y", "utf-8")
 
 
 @pytest.mark.parametrize("date_column", [None, "date"], ids=["found", "named"])
@@ -733,7 +735,8 @@ def test_load_exog_output_when_no_date_format_and_only_one_reading_is_regular(
         index=pd.DatetimeIndex(_DAY_FIRST_DATES, name="date"),
     )
     pd.testing.assert_frame_equal(result, expected)
-    assert result.attrs == {"date_format": "%d/%m/%Y", "encoding": "utf-8"}
+    exog_file = result.attrs["exog_file"]
+    assert (exog_file.date_format, exog_file.encoding) == ("%d/%m/%Y", "utf-8")
 
 
 @pytest.mark.parametrize(
@@ -810,7 +813,8 @@ def test_load_exog_output_when_integer_dates(tmp_path, date_column, date_format)
         index=pd.DatetimeIndex(["2021-02-01", "2021-02-02"], name="date"),
     )
     pd.testing.assert_frame_equal(result, expected)
-    assert result.attrs == {"date_format": "%Y%m%d", "encoding": "utf-8"}
+    exog_file = result.attrs["exog_file"]
+    assert (exog_file.date_format, exog_file.encoding) == ("%Y%m%d", "utf-8")
 
 
 def test_load_exog_output_when_date_format_and_semicolon_dialect(tmp_path):
@@ -880,7 +884,8 @@ def test_load_exog_output_when_iso_dates_and_data_in_another_format(
         index=pd.DatetimeIndex(["2021-02-01", "2021-02-02"], name="date"),
     )
     pd.testing.assert_frame_equal(result, expected)
-    assert result.attrs == {"date_format": None, "encoding": "utf-8"}
+    exog_file = result.attrs["exog_file"]
+    assert (exog_file.date_format, exog_file.encoding) == (None, "utf-8")
 
 
 @pytest.mark.parametrize("date_column", [None, "date"], ids=["found", "named"])
@@ -902,7 +907,8 @@ def test_load_exog_output_when_day_first_dates_and_data_in_iso(
         index=pd.DatetimeIndex(["2021-02-12", "2021-02-13"], name="date"),
     )
     pd.testing.assert_frame_equal(result, expected)
-    assert result.attrs == {"date_format": "%d/%m/%Y", "encoding": "utf-8"}
+    exog_file = result.attrs["exog_file"]
+    assert (exog_file.date_format, exog_file.encoding) == ("%d/%m/%Y", "utf-8")
 
 
 def test_load_exog_DataContentError_when_dates_in_more_than_one_format(tmp_path):
@@ -957,7 +963,8 @@ def test_load_exog_output_when_file_is_cp1252(tmp_path, date_column):
         ),
     )
     pd.testing.assert_frame_equal(result, expected, check_freq=False)
-    assert result.attrs == {"date_format": "%d/%m/%Y", "encoding": "cp1252"}
+    exog_file = result.attrs["exog_file"]
+    assert (exog_file.date_format, exog_file.encoding) == ("%d/%m/%Y", "cp1252")
 
 
 def test_load_exog_InvalidInputError_when_file_is_utf16(tmp_path):
@@ -978,3 +985,115 @@ def test_load_exog_InvalidInputError_when_file_is_utf16(tmp_path):
     assert exc_info.value.code == "data_unreadable"
     assert exc_info.value.field == "exog"
     assert exc_info.value.hint == ENCODING_HINT
+
+
+@pytest.mark.parametrize(
+    "text, encoding, dialect",
+    [
+        ("date,temp\n2021-02-01,1.5\n2021-02-02,2.5\n", "utf-8", {}),
+        ("date;temp\n2021-02-01;1.5\n2021-02-02;2.5\n", "utf-8", {"sep": ";"}),
+        ("date\ttemp\n2021-02-01\t1.5\n2021-02-02\t2.5\n", "utf-8", {"sep": "\t"}),
+        (
+            "date;temp\n2021-02-01;1,5\n2021-02-02;2,5\n",
+            "utf-8",
+            {"sep": ";", "decimal": ","},
+        ),
+        (
+            "date;temp\n2021-02-01;870\n2021-02-02;1.020\n",
+            "utf-8",
+            {"sep": ";", "decimal": ",", "thousands": "."},
+        ),
+        ("date,año\n2021-02-01,1.5\n2021-02-02,2.5\n", "cp1252", {}),
+        (
+            "date,temp\n01/02/2021,1.5\n13/02/2021,2.5\n",
+            "utf-8",
+            {"date_format": "%d/%m/%Y"},
+        ),
+        (
+            "fecha;año\n01/02/2021;1.705,5\n13/02/2021;870,25\n",
+            "cp1252",
+            {
+                "sep": ";", "decimal": ",", "thousands": ".",
+                "encoding": "cp1252", "date_format": "%d/%m/%Y",
+            },
+        ),
+    ],
+    ids=[
+        "defaults", "sep", "tab", "decimal", "thousands", "encoding",
+        "date_format", "all",
+    ],
+)
+def test_load_exog_output_when_file_dialect_kept_in_attrs(
+    tmp_path, text, encoding, dialect
+):
+    """
+    Test that the path of the file and how it is written (separator,
+    decimal mark, thousands separator, encoding and format of the dates),
+    each one on its own and all together as the Excel in Spanish saves
+    them, are kept in `attrs['exog_file']`, the file the generated script
+    reads with them. A file in cp1252 is read so, with its warning.
+    """
+    path = tmp_path / "exog.csv"
+    path.write_bytes(text.encode(encoding))
+    if encoding == "cp1252":
+        with pytest.warns(UserWarning, match="it was read as cp1252"):
+            result = load_exog(path)
+        dialect = {"encoding": "cp1252", **dialect}
+    else:
+        result = load_exog(path)
+
+    expected = FutureExogFile(
+        path        = str(path),
+        date_column = "fecha" if "fecha" in text else "date",
+        **dialect,
+    )
+    assert result.attrs == {"exog_file": expected}
+
+
+@pytest.mark.parametrize(
+    "date_column, text, expected_column",
+    [
+        (None, "fecha,temp\n2021-02-01,1\n2021-02-02,2\n", "fecha"),
+        ("fecha", "fecha,temp\n2021-02-01,1\n2021-02-02,2\n", "fecha"),
+        (None, ",temp\n2021-02-01,1\n2021-02-02,2\n", "Unnamed: 0"),
+        (None, ",date,temp\n0,2021-02-01,1\n1,2021-02-02,2\n", "date"),
+    ],
+    ids=["found", "named", "unnamed", "after_row_numbers"],
+)
+def test_load_exog_output_when_date_column_kept_in_attrs(
+    tmp_path, date_column, text, expected_column
+):
+    """
+    Test that the column of the file that holds the dates, found or named,
+    is kept in `attrs['exog_file']`, so the script names it as the date
+    column of the data when it is another one.
+    """
+    path = tmp_path / "exog.csv"
+    path.write_text(text)
+
+    result = load_exog(path, date_column=date_column)
+
+    assert result.attrs["exog_file"].date_column == expected_column
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        ("date,temp\n2023-01-01,1\n2023-01-02,2\n", False),
+        ("date,temp\n2023-01-01,1\n2023-01-02,2\n,\n,\n", True),
+        ("date;temp\n;\n2023-01-01;1\n2023-01-02;2\n", True),
+    ],
+    ids=["none", "trailing", "first"],
+)
+def test_load_exog_output_when_blank_rows_kept_in_attrs(tmp_path, text, expected):
+    """
+    Test that whether the file has rows made only of separators (a
+    spreadsheet saved as CSV), which are dropped, is kept in
+    `attrs['exog_file']`, so the script drops them too.
+    """
+    path = tmp_path / "exog.csv"
+    path.write_text(text)
+
+    result = load_exog(path)
+
+    assert result.attrs["exog_file"].blank_rows is expected

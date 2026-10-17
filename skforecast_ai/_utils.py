@@ -24,6 +24,7 @@ from skforecast.model_selection import TimeSeriesFold
 from ._constants import (
     AUTOREG_FORECASTERS,
     DIRECT_FORECASTERS,
+    EXOG_FILE_ATTR,
     LONG_INFERENCE_WINDOWS,
     LONG_TRAINING_FITS,
     MAX_FEATURE_FRACTION,
@@ -80,7 +81,13 @@ from .profiling.csv_dialect import (
     sample_date_column,
     undefined_byte_error,
 )
-from .schemas import CVResult, DataProfile, ForecastingProfile, ForecastPlan
+from .schemas import (
+    CVResult,
+    DataProfile,
+    ForecastingProfile,
+    ForecastPlan,
+    FutureExogFile,
+)
 from .exceptions import (
     DataContentError,
     DataNotFoundError,
@@ -1332,12 +1339,15 @@ def load_exog(
     are read in the order of `date_format`, the format of the dates of the
     data, when it writes them so; otherwise in the only order in which they
     have a regular frequency, with a warning that says so, and when both
-    orders have one, or neither, they raise. The format is kept in
-    `exog.attrs['date_format']`, the one the generated script reads
-    `exog_future.csv` with (see `exog_date_format`). So is the encoding of
-    the file, told as for the data (see `sample_encoding`), in
-    `exog.attrs['encoding']`: a file that is not UTF-8 is read as cp1252,
-    with a warning, as that cannot be checked.
+    orders have one, or neither, they raise. The encoding of the file is
+    told as for the data (see `sample_encoding`): a file that is not UTF-8
+    is read as cp1252, with a warning, as that cannot be checked.
+
+    The path of the file and how it is written (its separator, decimal
+    mark, thousands separator, encoding and format of the dates) are kept
+    in `exog.attrs['exog_file']`, a `FutureExogFile`: the generated script
+    reads that same file with them (see `future_exog_file`), as it reads
+    the data with the dialect of the profile.
 
     Parameters
     ----------
@@ -1505,8 +1515,16 @@ def load_exog(
     exog = exog.set_index(found).sort_index()
     if str(found).startswith("Unnamed: "):
         exog.index.name = None
-    exog.attrs["date_format"] = exog_format
-    exog.attrs["encoding"] = encoding
+    exog.attrs[EXOG_FILE_ATTR] = FutureExogFile(
+                                     path        = str(path),
+                                     sep         = sep,
+                                     decimal     = decimal,
+                                     thousands   = thousands,
+                                     encoding    = encoding,
+                                     date_format = exog_format,
+                                     date_column = str(found),
+                                     blank_rows  = not filled.all(),
+                                 )
 
     return exog
 

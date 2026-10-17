@@ -12,7 +12,7 @@ import pandas as pd
 
 from ..rendering._helpers import _metric_info
 from ..profiling.data_profile import series_ids_as_text
-from ..schemas import DataProfile, ForecastPlan, RenderedScript
+from ..schemas import DataProfile, ForecastPlan, FutureExogFile, RenderedScript
 
 from ..rendering.single_series import render_forecast_single_series
 from ..rendering.multi_series import render_forecast_multi_series, render_forecast_multivariate
@@ -35,8 +35,7 @@ _RENDER_DISPATCH: dict[str, Callable[..., RenderedScript]] = {
 def render_forecast_script(
     profile: DataProfile,
     plan: ForecastPlan,
-    exog_date_format: str | None = None,
-    exog_encoding: str = "utf-8",
+    exog_file: FutureExogFile | None = None,
 ) -> RenderedScript:
     """
     Render structured code from a plan and data profile.
@@ -47,15 +46,11 @@ def render_forecast_script(
         Profile of the input dataset.
     plan : ForecastPlan
         Validated forecast plan.
-    exog_date_format : str, default None
-        Format of the dates of the future exogenous variables, which the
-        script reads `exog_future.csv` with (see `exog_date_format`). If
-        None, pandas guesses it from the first date, as for a file saved
-        with `to_csv()`.
-    exog_encoding : str, default 'utf-8'
-        Encoding the script reads `exog_future.csv` with (see
-        `exog_encoding`): `'cp1252'` when the file the future values were
-        read from is not UTF-8.
+    exog_file : FutureExogFile, default None
+        File the script reads the future exogenous variables from, with its
+        dialect and the format of its dates (see `future_exog_file`). If
+        None, `exog_future.csv` as `to_csv()` writes it, whose dates pandas
+        reads without a format.
 
     Returns
     -------
@@ -71,12 +66,7 @@ def render_forecast_script(
             f"Supported types: {supported}",
             field = "task_type",
         )
-    return render_fn(
-               plan,
-               profile,
-               exog_date_format = exog_date_format,
-               exog_encoding    = exog_encoding,
-           )
+    return render_fn(plan, profile, exog_file=exog_file)
 
 
 def run_forecast(
@@ -84,8 +74,7 @@ def run_forecast(
     profile: DataProfile,
     plan: ForecastPlan,
     exog: pd.DataFrame | None = None,
-    exog_date_format: str | None = None,
-    exog_encoding: str = "utf-8",
+    exog_file: FutureExogFile | None = None,
 ) -> dict[str, Any]:
     """
     Execute a forecasting workflow by running the generated code.
@@ -116,12 +105,10 @@ def run_forecast(
         Future exogenous variables covering the forecast horizon. Used
         only in prediction mode; injected into the executed code as the
         `exog_future` variable.
-    exog_date_format : str, default None
-        Format of the dates of `exog` (see `exog_date_format`), with which
-        the executed code reads them.
-    exog_encoding : str, default 'utf-8'
-        Encoding of the file `exog` was read from (see `exog_encoding`),
-        with which the script of the result reads `exog_future.csv`.
+    exog_file : FutureExogFile, default None
+        File `exog` was read from (see `future_exog_file`): the script of
+        the result reads it with its dialect, and the executed code reads
+        the dates of `exog` with its format.
 
     Returns
     -------
@@ -131,7 +118,7 @@ def run_forecast(
         prediction intervals are requested, the interval columns are
         included in `'predictions'`.
     """
-    rendered = render_forecast_script(profile, plan, exog_date_format, exog_encoding)
+    rendered = render_forecast_script(profile, plan, exog_file)
     if exog is not None:
         exog = exog_as_injected(exog, profile)
 

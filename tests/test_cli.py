@@ -30,9 +30,12 @@ from skforecast_ai.assistant import ForecastingAssistant
 
 from .fixtures_csv_dialect import (
     df_dialect,
+    df_dialect_excel,
+    df_dialect_excel_exog,
     df_dialect_monthly,
     df_dialect_thousands,
     write_dialect,
+    write_excel_es,
     write_thousands,
 )
 from .fixtures_assistant import (
@@ -520,6 +523,77 @@ class TestGenerateCode:
         assert "first.csv" not in code
 
 
+    def test_forecast_code_exog_reads_the_file_with_its_dialect(self, tmp_path):
+        """
+        forecast-code --exog renders the script that forecast --exog runs:
+        the file given is read by its path with its whole dialect (the Excel
+        in Spanish: cp1252, ';', ',' as decimal mark, '.' between thousands,
+        dates day first), not `exog_future.csv`.
+        """
+        csv_path = write_excel_es(tmp_path, df_dialect_excel, "ventas.csv")
+        exog_path = write_excel_es(tmp_path, df_dialect_excel_exog, "futuro.csv")
+        arguments = [csv_path, "--target", "año", "--steps", "10",
+                     "--estimator", "Ridge", "--exog", exog_path,
+                     "--format", "json", "--quiet"]
+        # The note on cp1252 of the future values (see load_exog).
+        with pytest.warns(UserWarning, match="it was read as cp1252"):
+            code = runner.invoke(app, ["forecast-code", *arguments])
+        with pytest.warns(UserWarning, match="it was read as cp1252"):
+            forecast = runner.invoke(app, ["forecast", *arguments])
+        assert code.exit_code == 0, code.output
+        assert forecast.exit_code == 0, forecast.output
+        script = json.loads(code.stdout)["code"]
+        assert script == json.loads(forecast.stdout)["code"]
+        assert (
+            f"exog_future = pd.read_csv({exog_path!r}, sep=';', decimal=',', "
+            f"thousands='.', encoding='cp1252', dtype={{'fecha': str}})\n"
+            in script
+        )
+        assert "exog_future.csv" not in script
+
+    def test_forecast_code_exog_from_plan(self, tmp_path):
+        """
+        forecast-code --from-plan --exog, without DATA, reads the file given
+        by its path with its dialect, in the order of the dates of the data
+        of the plan bundle; without --exog the script reads
+        `exog_future.csv`, as before.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        exog_path = str(tmp_path / "futuro.csv")
+        pd.DataFrame(
+            {"date": pd.date_range("2023-04-11", periods=5, freq="D"),
+             "promo": [0.0, 1.0, 0.0, 1.0, 0.0]}
+        ).to_csv(exog_path, index=False, sep=";")
+        plan_result = runner.invoke(
+            app,
+            ["plan", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--format", "json", "--quiet"],
+        )
+        assert plan_result.exit_code == 0, plan_result.output
+        plan_file = tmp_path / "plan.json"
+        plan_file.write_text(plan_result.stdout)
+        with_exog = runner.invoke(
+            app,
+            ["forecast-code", "--from-plan", str(plan_file), "--exog", exog_path,
+             "--output", str(tmp_path / "with_exog.py"), "--quiet"],
+        )
+        without_exog = runner.invoke(
+            app,
+            ["forecast-code", "--from-plan", str(plan_file),
+             "--output", str(tmp_path / "without_exog.py"), "--quiet"],
+        )
+        assert with_exog.exit_code == 0, with_exog.output
+        assert without_exog.exit_code == 0, without_exog.output
+        assert (
+            f"exog_future = pd.read_csv({exog_path!r}, sep=';', decimal='.')\n"
+            in (tmp_path / "with_exog.py").read_text()
+        )
+        assert (
+            "exog_future = pd.read_csv('exog_future.csv')\n"
+            in (tmp_path / "without_exog.py").read_text()
+        )
+
+
 # ---------------------------------------------------------------------------
 # forecast command
 # ---------------------------------------------------------------------------
@@ -820,6 +894,56 @@ class TestForecast:
         assert (
             "The data has no target value after 2023-04-10: drop its last 5 "
             "row(s) (2023-04-11 to 2023-04-15)" in " ".join(result.output.split())
+        )
+
+
+    def test_forecast_exog_script_reads_the_file_with_another_date_column(
+        self, tmp_path
+    ):
+        """
+        forecast --exog without --date-column reads a file whose dates are
+        in a column named otherwise than in the data ('fecha'): the script
+        reads that file by its path, names the column as the data do, and
+        run as a file in another directory gives the predictions of
+        forecast.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        exog_path = _write_csv(
+            tmp_path,
+            pd.DataFrame(
+                {"fecha": pd.date_range("2023-04-11", periods=5, freq="D"),
+                 "promo": [0.0, 1.0, 0.0, 1.0, 0.0]}
+            ),
+            name="futuro.csv",
+        )
+        result = runner.invoke(
+            app,
+            ["forecast", csv_path, "--target", "sales", "--steps", "5",
+             "--exog", exog_path, "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.stdout)
+        assert (
+            f"exog_future = pd.read_csv({exog_path!r})\n"
+            "exog_future = exog_future.rename(columns={'fecha': 'date'})\n"
+            in data["code"]
+        )
+        run_dir = tmp_path / "run"
+        run_dir.mkdir()
+        script = run_dir / "script.py"
+        script.write_text(
+            data["code"] + "\npredictions.to_frame().to_csv('predictions.csv')\n"
+        )
+        proc = subprocess.run(
+            [sys.executable, str(script)],
+            cwd=run_dir, capture_output=True, text=True, timeout=600,
+        )
+        assert proc.returncode == 0, proc.stderr[-3000:]
+        standalone = pd.read_csv(run_dir / "predictions.csv", index_col=0)
+        np.testing.assert_allclose(
+            standalone["pred"].to_numpy(),
+            [row["pred"] for row in data["predictions"]],
+            rtol=1e-6,
         )
 
 
@@ -2849,8 +2973,8 @@ class TestDayFirstDates:
         `forecast --exog` with an exog file written in ISO 8601, as `to_csv()`
         writes dates, on day-first data reads it with its own format: the
         predictions are those of the same values written day first, and the
-        script reads `exog_future.csv` without a format, the dates of the
-        data with theirs.
+        script reads that file without a format, the dates of the data with
+        theirs.
         """
         csv_path = _write_csv(tmp_path, df_day_first)
         exog_iso = df_day_first_exog.assign(

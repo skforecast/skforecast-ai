@@ -2505,7 +2505,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             "exogenous variables, one row per date (and series) of the "
             "horizon. Required to forecast the future when the plan uses "
             "exogenous variables. The script of `get_code` reads them from "
-            "'exog_future.csv' in its working directory."
+            "this file, by its path, as it reads the data."
         ))] = None,
         ctx: Context = None,
     ) -> ToolResult:

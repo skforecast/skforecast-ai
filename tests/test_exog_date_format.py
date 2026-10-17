@@ -22,23 +22,6 @@ def test_exog_date_format_output_when_exog_is_None():
 
 
 @pytest.mark.parametrize(
-    "date_format",
-    [None, "%d/%m/%Y", "%Y%m%d"],
-    ids=lambda dt: f"date_format: {dt}",
-)
-def test_exog_date_format_output_when_format_kept_in_attrs(date_format):
-    """
-    Test that the format kept in `attrs` by `load_exog`, the one of the file
-    the future values were read from, is the format, None included, whatever
-    the dates of the frame are now.
-    """
-    exog = exog_day_first.copy()
-    exog.attrs["date_format"] = date_format
-
-    assert exog_date_format(exog, profile_day_first) == date_format
-
-
-@pytest.mark.parametrize(
     "dates, expected",
     [
         (["2021-02-01", "2021-02-02"], None),

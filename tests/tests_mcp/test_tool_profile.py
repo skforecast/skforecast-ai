@@ -1171,8 +1171,8 @@ def test_tool_profile_end_to_end_when_csv_and_future_exog_are_cp1252(tmp_path):
     categories of 'zona'): `profile` reads it as the Python API does, with a
     `DataProfileWarning` notice that the encoding cannot be checked;
     `forecast` reads future values saved in cp1252 too, with a notice of
-    their own; and the script of `get_code` reads both files with
-    `encoding='cp1252'`.
+    their own; and the script of `get_code` reads both files, each by its
+    path, with `encoding='cp1252'`.
     """
     path = write_cp1252(tmp_path)
     exog_path = write_cp1252(
@@ -1217,7 +1217,7 @@ def test_tool_profile_end_to_end_when_csv_and_future_exog_are_cp1252(tmp_path):
         f"encoding='cp1252')\n" in code["code"]
     )
     assert (
-        "exog_future = pd.read_csv('exog_future.csv', encoding='cp1252')\n"
+        f"exog_future = pd.read_csv({exog_path!r}, encoding='cp1252')\n"
         in code["code"]
     )
 
