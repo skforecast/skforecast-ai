@@ -57,6 +57,7 @@ from tests.fixtures_assistant import (
     df_multi_long,
     df_multi_wide,
     df_no_exog,
+    df_no_sundays,
     df_range_index,
     df_single,
     series_single,
@@ -1019,6 +1020,76 @@ def test_check_evaluated_target_ValueError_when_gap_in_test_folds():
     assert (exc_info.value.code, exc_info.value.field) == (
         "invalid_argument", "data"
     )
+
+
+_CLOSED_SUNDAYS = (
+    "counting the missing timestamps that asfreq() restores: all of them on "
+    "Sundays, when the target never has a value. skforecast cannot compute "
+    "the metrics on them, whatever the estimator. If the business is closed "
+    "on Sundays, fill them with 0 in the data, after asking the user; "
+    "otherwise, impute the target, or evaluate on dates without missing "
+    "values."
+)
+
+
+@pytest.mark.parametrize(
+    "kwargs, found",
+    [
+        (
+            {"cv": TimeSeriesFold(steps=14, initial_train_size=320, verbose=False)},
+            "6 missing value(s) in the test folds (2023-11-19 00:00:00, "
+            "2023-11-26 00:00:00, 2023-12-03 00:00:00, 2023-12-10 00:00:00, "
+            "2023-12-17 00:00:00 and 1 more)",
+        ),
+        (
+            {"end_train": "2023-12-16", "steps": 14},
+            "2 missing value(s) in the test split (2023-12-17 00:00:00, "
+            "2023-12-24 00:00:00)",
+        ),
+    ],
+    ids=["test folds", "test split"],
+)
+def test_check_evaluated_target_ValueError_names_closed_days(kwargs, found):
+    """
+    Test that missing timestamps of the test folds or of the test split that
+    all fall on days of the week without any value (a shop closed on
+    Sundays) are named with those days, with the advice of filling them with
+    0 if the business is closed, after asking the user.
+    """
+    data_profile = create_data_profile(
+        df_no_sundays, target="sales", date_column="date"
+    )
+
+    err_msg = re.escape(f"The target has {found}, {_CLOSED_SUNDAYS}")
+    with pytest.raises(DataContentError, match=f"^{err_msg}$"):
+        _check_evaluated_target(
+            data=df_no_sundays, data_profile=data_profile, **kwargs
+        )
+
+
+def test_check_evaluated_target_ValueError_when_a_gap_falls_on_an_open_day():
+    """
+    Test that a shop closed on Sundays that also misses a Monday of the test
+    split gets the message of missing values without the closed days: not
+    every missing date falls on them.
+    """
+    data = df_no_sundays.drop(index=[300]).reset_index(drop=True)
+    data_profile = create_data_profile(data, target="sales", date_column="date")
+
+    err_msg = re.escape(
+        "The target has 3 missing value(s) in the test split (2023-12-10 "
+        "00:00:00, 2023-12-17 00:00:00, 2023-12-18 00:00:00), counting the "
+        "missing timestamps that asfreq() restores. skforecast cannot compute "
+        "the metrics on them, whatever the estimator. Impute the target, or "
+        "evaluate on dates without missing values."
+    )
+    with pytest.raises(DataContentError, match=f"^{err_msg}$"):
+        _check_evaluated_target(
+            data         = data,
+            data_profile = data_profile,
+            end_train    = "2023-12-09",
+            steps        = 14,
+        )
 
 
 def test_check_evaluated_target_output_when_gap_only_in_training():

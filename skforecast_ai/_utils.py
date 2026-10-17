@@ -56,6 +56,7 @@ from .profiling.data_profile import (
     _try_parse_first_date_column,
     check_csv_fields,
     csv_read_kwargs,
+    closed_weekdays,
     date_issue_hint,
     decimal_after_sample,
     frame_date_column,
@@ -63,6 +64,7 @@ from .profiling.data_profile import (
     read_csv_with_dialect,
     series_ids_as_text,
     thousands_after_sample,
+    weekday_names,
     without_series_ids,
 )
 from .profiling.csv_dialect import (
@@ -2363,7 +2365,10 @@ def _check_evaluated_target(
     missing value) in a test fold makes every metric fail with "Input
     contains NaN", whatever the estimator. The generated evaluation script
     fails the same way on the test split. This check names the dates up
-    front. Multi-series backtesting drops them per series and is not
+    front. When they all fall on days of the week on which the target never
+    has a value (a shop closed on Sundays), the message names those days and
+    says that a business closed on them can fill them with 0, after asking
+    the user. Multi-series backtesting drops them per series and is not
     checked. `end_train` and a date of the strategy without time zone are
     read in the time zone of the dates; a date of the strategy that
     skforecast cannot place on them (a date with a time zone on an index
@@ -2417,6 +2422,7 @@ def _check_evaluated_target(
     y = pd.Series(data[target].to_numpy(), index=index).sort_index()
     if y.index.has_duplicates:
         return
+    with_value = y.index[y.notna().to_numpy()]
     if data_profile.frequency is not None and isinstance(y.index, pd.DatetimeIndex):
         y = y.asfreq(data_profile.frequency)
 
@@ -2457,6 +2463,22 @@ def _check_evaluated_target(
     shown = ", ".join(str(date) for date in missing[:5])
     if len(missing) > 5:
         shown += f" and {len(missing) - 5} more"
+    closed = (
+        closed_weekdays(with_value, data_profile.frequency)
+        if isinstance(missing, pd.DatetimeIndex) else []
+    )
+    if closed and np.isin(missing.dayofweek, closed).all():
+        days = weekday_names(sorted(set(missing.dayofweek)))
+        raise DataContentError(
+            f"The target has {len(missing)} missing value(s) {where} "
+            f"({shown}), counting the missing timestamps that asfreq() "
+            f"restores: all of them on {days}, when the target never has a "
+            f"value. skforecast cannot compute the metrics on them, whatever "
+            f"the estimator. If the business is closed on {days}, fill them "
+            f"with 0 in the data, after asking the user; otherwise, impute the "
+            f"target, or evaluate on dates without missing values.",
+            field = "data",
+        )
     raise DataContentError(
         f"The target has {len(missing)} missing value(s) {where} ({shown}), "
         f"counting the missing timestamps that asfreq() restores. skforecast "

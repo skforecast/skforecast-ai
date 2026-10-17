@@ -84,6 +84,13 @@ _YEAR_NANOS = 31_556_952 * 10**9
 # not grow with the length of the series.
 _FREQUENCY_WINDOW = 10
 _MAX_FREQUENCY_WINDOWS = 200
+# When gaps leave no such window (daily data without Sundays), the frequency
+# is inferred on windows of three consecutive timestamps, the fewest pandas
+# infers one from. A long index is read in blocks of consecutive windows:
+# single windows evenly spaced may all fall on the same phase of a periodic
+# pattern of gaps (every one starting on a Saturday).
+_GAPS_WINDOW = 3
+_GAPS_WINDOW_BLOCK = 20
 
 # Minimum share of the regular grid that must be observed to accept a
 # frequency inferred despite gaps. Below it the spacing is irregular rather
@@ -107,7 +114,10 @@ _COARSER_EVIDENCE = np.log(1e6)
 _MAX_CANDIDATES = 20
 
 
-def infer_frequency(index: pd.DatetimeIndex) -> str | None:
+def infer_frequency(
+    index: pd.DatetimeIndex,
+    regular_gaps: bool = True,
+) -> str | None:
     """
     Infer the frequency of a DatetimeIndex, tolerating missing timestamps.
 
@@ -115,13 +125,21 @@ def infer_frequency(index: pd.DatetimeIndex) -> str | None:
     inferred on windows of consecutive timestamps (the stretches between
     gaps), and the most frequent answer is accepted when every timestamp
     lies on its regular grid and at least half of that grid is observed.
-    The missing timestamps are then counted by `count_missing_timestamps()`
-    and become NaN rows after `asfreq()`.
+    Gaps so regular or frequent that no stretch gives a frequency (daily
+    data without Sundays, a day in four missing at random) are told on
+    windows of three timestamps, with the same conditions and one more (see
+    `_frequency_with_regular_gaps`). The missing timestamps are then counted
+    by `count_missing_timestamps()` and become NaN rows after `asfreq()`.
 
     Parameters
     ----------
     index : pandas DatetimeIndex
         The datetime index to infer frequency from.
+    regular_gaps : bool, default True
+        Whether gaps that leave no gap-free stretch are told on windows of
+        three timestamps. False bounds the cost of a call on every series
+        of long-format data: on irregular dates, pandas takes a fraction of
+        a millisecond per window.
 
     Returns
     -------
@@ -140,17 +158,29 @@ def infer_frequency(index: pd.DatetimeIndex) -> str | None:
     if freq is not None:
         return freq
 
-    return _infer_frequency_with_gaps(index)
+    return _infer_frequency_with_gaps(index, regular_gaps)
 
 
-def _infer_frequency_with_gaps(index: pd.DatetimeIndex) -> str | None:
+def _infer_frequency_with_gaps(
+    index: pd.DatetimeIndex,
+    regular_gaps: bool = True,
+) -> str | None:
     """
-    Infer a frequency from the gap-free stretches of a DatetimeIndex.
+    Infer a frequency from a DatetimeIndex with missing timestamps.
+
+    The frequency is inferred first on the gap-free stretches of the index,
+    and the most frequent answer whose grid fits is accepted. When no
+    stretch gives one, because the gaps are regular or frequent, it is
+    inferred on windows of three timestamps (see
+    `_frequency_with_regular_gaps`).
 
     Parameters
     ----------
     index : pandas DatetimeIndex
         Datetime index whose frequency `pd.infer_freq` could not infer.
+    regular_gaps : bool, default True
+        Whether to infer it on windows of three timestamps when no stretch
+        gives one.
 
     Returns
     -------
@@ -177,17 +207,104 @@ def _infer_frequency_with_gaps(index: pd.DatetimeIndex) -> str | None:
             candidates[freq] = candidates.get(freq, 0) + 1
 
     for freq in sorted(candidates, key=candidates.get, reverse=True):
-        try:
-            grid = pd.date_range(index[0], index[-1], freq=freq)
-        except ValueError:
-            continue
-        if (
-            len(index) >= _MIN_FREQUENCY_COVERAGE * len(grid)
-            and index.isin(grid).all()
-        ):
+        if _fitting_grid(index, freq) is not None:
             return freq
+    if candidates or not regular_gaps:
+        # The stretches tell the frequency, and its grid does not fit: there
+        # are timestamps off it (a Saturday among business days), or too
+        # few on it. A finer frequency with gaps would hide that.
+        return None
 
-    return None
+    return _frequency_with_regular_gaps(index)
+
+
+def _frequency_with_regular_gaps(index: pd.DatetimeIndex) -> str | None:
+    """
+    Infer the frequency of a sorted DatetimeIndex whose gaps leave no
+    stretch of `_FREQUENCY_WINDOW` consecutive timestamps that gives one.
+
+    pandas infers a frequency from three timestamps, so windows of three
+    give the candidates: `'D'` from a Monday, Tuesday and Wednesday of daily
+    data without Sundays. A candidate fits when its grid holds every
+    timestamp and is at least `_MIN_FREQUENCY_COVERAGE` observed (see
+    `_fitting_grid`), and when the most common step between consecutive
+    timestamps is one period of the grid. That last condition rejects a
+    frequency finer than the data: a stray timestamp at noon among daily
+    ones gives `'12h'` on two windows, whose grid is half observed, but the
+    other timestamps are two periods of it apart. Of the candidates that
+    fit, the coarsest is the frequency: business days with gaps also fit
+    the daily grid, and stay `'B'`, a candidate whenever `'D'` is one.
+
+    Parameters
+    ----------
+    index : pandas DatetimeIndex
+        Sorted datetime index of distinct timestamps, at least
+        `_FREQUENCY_WINDOW` of them.
+
+    Returns
+    -------
+    frequency : str, None
+        The coarsest frequency that fits, or None.
+    """
+    n_windows = len(index) - _GAPS_WINDOW + 1
+    if n_windows > _MAX_FREQUENCY_WINDOWS:
+        n_blocks = _MAX_FREQUENCY_WINDOWS // _GAPS_WINDOW_BLOCK
+        firsts = np.linspace(0, n_windows - _GAPS_WINDOW_BLOCK, n_blocks).astype(int)
+        starts = np.unique(firsts[:, None] + np.arange(_GAPS_WINDOW_BLOCK))
+    else:
+        starts = np.arange(n_windows)
+
+    candidates = set()
+    for start in starts:
+        try:
+            freq = pd.infer_freq(index[start:start + _GAPS_WINDOW])
+        except (TypeError, ValueError):
+            continue
+        if freq is not None:
+            candidates.add(freq)
+    if "D" in candidates:
+        # pandas infers business days only from three that cross a weekend,
+        # which data closed on Fridays too never has.
+        candidates.add("B")
+
+    found, found_size = None, 0
+    for freq in sorted(candidates):
+        grid = _fitting_grid(index, freq)
+        if grid is None:
+            continue
+        # Searched as timestamps: the grid is in nanoseconds, the index may
+        # be in seconds or microseconds.
+        steps = np.diff(grid.searchsorted(index))
+        if np.bincount(steps).argmax() != 1:
+            continue
+        if found is None or len(grid) < found_size:
+            found, found_size = freq, len(grid)
+
+    return found
+
+
+def _fitting_grid(index: pd.DatetimeIndex, frequency: str) -> pd.DatetimeIndex | None:
+    """
+    Return the grid of `frequency` from the first to the last timestamp of a
+    sorted DatetimeIndex when it holds every timestamp and at least
+    `_MIN_FREQUENCY_COVERAGE` of it is observed, or None.
+
+    A grid estimated at twice the size the minimum coverage allows is not
+    built: a few dates a second apart among dates a day apart would build
+    a grid of every second of the range.
+    """
+    largest = len(index) / _MIN_FREQUENCY_COVERAGE
+    try:
+        span = (index[-1] - index[0]).value / _YEAR_NANOS
+        if span * _periods_per_year(frequency) > 2 * largest:
+            return None
+        grid = pd.date_range(index[0], index[-1], freq=frequency)
+    except ValueError:
+        return None
+    if len(index) < _MIN_FREQUENCY_COVERAGE * len(grid) or not index.isin(grid).all():
+        return None
+
+    return grid
 
 
 def create_data_profile(
@@ -540,6 +657,13 @@ def create_data_profile(
             else None
         ),
         numbers_as_text        = numbers_as_text,
+        gap_weekdays           = (
+            regular_gap_weekdays(
+                series_dates if series_dates is not None else datetime_index,
+                frequency,
+            )
+            if has_gaps else None
+        ),
     )
     # How the file was read comes first: its encoding, then its dates.
     if encoding == CP1252:
@@ -2749,10 +2873,12 @@ def _coarser_frequency(
             coarser = _frequency_name(timestamps[0], offset * step)
     if coarser is None:
         # pandas infers a frequency with gaps from calendar steps that the
-        # checks above do not name (half months, business month ends).
+        # checks above do not name (half months, business month ends). Only
+        # on gap-free stretches: windows of three on every sparse series
+        # would cost seconds on a thousand of them.
         raw_steps = np.diff(dates)
         if raw_steps.min() >= 13 * day and not (raw_steps % day).any():
-            coarser = infer_frequency(timestamps)
+            coarser = infer_frequency(timestamps, regular_gaps=False)
     if coarser is not None and _periods_per_year(coarser) < _periods_per_year(
         frequency
     ):
@@ -3936,6 +4062,7 @@ def generate_warnings(
     long_format: bool = False,
     series_ending_early: tuple[str, dict[str, str]] | None = None,
     numbers_as_text: dict[str, tuple[int, int, list, int]] | None = None,
+    gap_weekdays: list[int] | None = None,
 ) -> list[str]:
     """
     Generate human-readable warnings about potential data issues.
@@ -3972,6 +4099,13 @@ def generate_warnings(
     numbers_as_text : dict, default None
         Text exogenous columns that hold numbers written as text (see
         `detect_numbers_as_text`).
+    gap_weekdays : list of int, default None
+        Days of the week (0 for Monday) that every missing timestamp falls
+        on, when the data (each series, for long format) has no date on
+        them (see `regular_gap_weekdays`). The note on missing timestamps
+        then names them, says that a forecast predicts them too, and that
+        a business closed on them can fill them with 0, after asking the
+        user: nothing is filled in.
 
     Returns
     -------
@@ -4004,7 +4138,21 @@ def generate_warnings(
             "spacing is irregular, or there are too few timestamps."
         )
 
-    if n_missing_timestamps > 0:
+    if n_missing_timestamps > 0 and gap_weekdays:
+        days = weekday_names(gap_weekdays)
+        owners = (
+            "the series that miss them never have a date" if long_format
+            else "the data never has a date"
+        )
+        warnings.append(
+            f"Missing timestamps: {n_missing_timestamps} timestamps of "
+            f"frequency '{frequency}' are missing from the date range, all "
+            f"of them on {days}, when {owners}. asfreq() inserts them as "
+            f"rows with missing values, and a forecast predicts {days} too. "
+            f"If the business is closed on {days}, they can be filled with 0 "
+            f"in the data, after asking the user."
+        )
+    elif n_missing_timestamps > 0:
         warnings.append(
             f"Missing timestamps: {n_missing_timestamps} timestamps of "
             f"frequency '{frequency}' are missing from the date range. "
@@ -5304,6 +5452,210 @@ def count_missing_timestamps(
         return 0
 
     return int((~expected.isin(datetime_index)).sum())
+
+
+_WEEKDAY_NAMES = (
+    "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday",
+)
+
+
+def _daily_or_finer(frequency: str | None) -> tuple[bool, bool]:
+    """
+    Return whether a frequency puts a timestamp on every day it covers (a
+    step of a day or less, or business days), and whether it is business
+    days, whose grid has no Saturday or Sunday.
+    """
+    if frequency is None:
+        return False, False
+    try:
+        offset = pd.tseries.frequencies.to_offset(frequency)
+    except ValueError:
+        return False, False
+    if isinstance(offset, pd.offsets.BusinessDay) and offset.n == 1:
+        return True, True
+
+    return isinstance(offset, pd.offsets.Tick) and offset.nanos <= _DAY_NANOS, False
+
+
+def _open_every_weekday(dates: pd.DatetimeIndex, business: bool) -> bool:
+    """
+    Return whether dates fall on every day of the week of their grid (Monday
+    to Friday for business days), so that none of them can be closed. It
+    spares sorting the dates of most data, whose gaps are not closed days.
+    """
+    days = np.asarray(pd.DatetimeIndex(dates).dayofweek, dtype=float)
+    counts = np.bincount(days[~np.isnan(days)].astype(np.int64), minlength=7)
+
+    return bool(counts[:5 if business else 7].all())
+
+
+def _wall_nanoseconds(dates: pd.DatetimeIndex) -> np.ndarray | None:
+    """
+    Return the sorted, distinct dates as nanoseconds of their wall time (the
+    local time of time zone aware dates), or None when they do not fit in
+    nanoseconds.
+    """
+    dates = pd.DatetimeIndex(dates).dropna()
+    if dates.tz is not None:
+        dates = dates.tz_localize(None)
+    try:
+        nanoseconds = dates.as_unit("ns").asi8
+    except (OverflowError, ValueError):
+        return None
+    # Most indexes are already sorted and distinct: no sort is needed.
+    if (np.diff(nanoseconds) > 0).all():
+        return nanoseconds
+
+    return np.unique(nanoseconds)
+
+
+def _closed_weekdays_ns(dates: np.ndarray, business: bool) -> np.ndarray:
+    """
+    Return the days of the week (0 for Monday) on which no date of `dates`
+    (sorted wall times in nanoseconds) falls, although at least two of them
+    lie within their range.
+    """
+    days = dates // _DAY_NANOS
+    first, n_days = days[0], days[-1] - days[0] + 1
+    # 1970-01-01, day 0, was a Thursday.
+    counts = np.full(7, n_days // 7)
+    counts[(first + 3 + np.arange(n_days % 7)) % 7] += 1
+    if business:
+        counts[5:] = 0
+    counts[np.unique((days + 3) % 7)] = 0
+
+    return np.flatnonzero(counts >= 2)
+
+
+def _gap_weekdays_ns(
+    dates: np.ndarray,
+    frequency: str,
+    business: bool,
+) -> list[int] | None:
+    """
+    Return the days of the week that every timestamp missing from the grid
+    of `frequency` falls on, when the dates never fall on them (see
+    `_closed_weekdays_ns`): an empty list when no timestamp is missing, and
+    None when some missing timestamp falls on another day.
+    """
+    if len(dates) < 2:
+        return []
+    offset = pd.tseries.frequencies.to_offset(frequency)
+    if not business:
+        steps = (dates - dates[0]) // offset.nanos
+        if steps[-1] + 1 == len(dates):
+            return []
+    closed = _closed_weekdays_ns(dates, business)
+    if len(closed) == 0:
+        return None
+    if business:
+        grid = pd.date_range(
+            pd.Timestamp(dates[0]), pd.Timestamp(dates[-1]), freq=frequency
+        ).asi8
+        missing = np.setdiff1d(grid, dates, assume_unique=True)
+    else:
+        missing = dates[0] + offset.nanos * np.setdiff1d(
+            np.arange(steps[-1] + 1), steps, assume_unique=True
+        )
+    if len(missing) == 0:
+        return []
+    if not np.isin((missing // _DAY_NANOS + 3) % 7, closed).all():
+        return None
+
+    return [int(weekday) for weekday in closed]
+
+
+def closed_weekdays(
+    dates: pd.DatetimeIndex,
+    frequency: str | None,
+) -> list[int]:
+    """
+    Return the days of the week on which dates of a daily or finer frequency
+    never fall, although their range holds at least two of each (a shop
+    closed on Sundays).
+
+    Parameters
+    ----------
+    dates : pandas DatetimeIndex
+        Dates of a series, with a value or a row. Time zone aware dates are
+        read in their local time.
+    frequency : str, None
+        Frequency of the dates.
+
+    Returns
+    -------
+    weekdays : list of int
+        Days of the week (0 for Monday), or an empty list when the frequency
+        is coarser than a day, or not known.
+    """
+    daily, business = _daily_or_finer(frequency)
+    if not daily or _open_every_weekday(dates, business):
+        return []
+    nanoseconds = _wall_nanoseconds(dates)
+    if nanoseconds is None or len(nanoseconds) < 2:
+        return []
+
+    return [int(day) for day in _closed_weekdays_ns(nanoseconds, business)]
+
+
+def regular_gap_weekdays(
+    dates: pd.DatetimeIndex | dict[object, np.ndarray],
+    frequency: str | None,
+) -> list[int]:
+    """
+    Return the days of the week that every missing timestamp of a daily or
+    finer frequency falls on, when those days have no date at all (a shop
+    closed on Sundays): the gaps are regular, rather than missing at random.
+
+    Parameters
+    ----------
+    dates : pandas DatetimeIndex, dict
+        Dates of a single series (or of the rows of wide-format data), or
+        the dates of each series of long-format data as wall times in
+        nanoseconds (see `_long_series_dates`), each series checked on its
+        own range.
+    frequency : str, None
+        Frequency of the data.
+
+    Returns
+    -------
+    weekdays : list of int
+        Days of the week (0 for Monday) of the missing timestamps, or an
+        empty list when none is missing, when one falls on a day of the
+        week that has dates (in its series), or when the frequency is
+        coarser than a day, or not known.
+    """
+    daily, business = _daily_or_finer(frequency)
+    if not daily:
+        return []
+    if isinstance(dates, dict):
+        series = list(dates.values())
+    elif _open_every_weekday(dates, business):
+        return []
+    else:
+        nanoseconds = _wall_nanoseconds(dates)
+        if nanoseconds is None:
+            return []
+        series = [nanoseconds]
+    weekdays: set[int] = set()
+    for nanoseconds in series:
+        found = _gap_weekdays_ns(nanoseconds, frequency, business)
+        if found is None:
+            return []
+        weekdays.update(found)
+
+    return sorted(weekdays)
+
+
+def weekday_names(weekdays: list[int]) -> str:
+    """
+    Name days of the week in plural (`'Saturdays and Sundays'`).
+    """
+    names = [f"{_WEEKDAY_NAMES[day]}s" for day in sorted(weekdays)]
+    if len(names) == 1:
+        return names[0]
+
+    return ", ".join(names[:-1]) + " and " + names[-1]
 
 
 def _check_duplicate_timestamps(

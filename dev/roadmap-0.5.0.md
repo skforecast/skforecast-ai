@@ -270,7 +270,17 @@ pequeños; se pueden agrupar en dos o tres PR.
   `InvalidInputError` se reporta como `ValueError`, así que
   `mcp/_errors.py:304-307` omite el mensaje propio (V32, descartado en la
   auditoría por otra razón pero real), y `get_failure(comparison_id)` sin
-  candidato responde "named None".
+  candidato responde "named None". Unos datos sin fechas (`index_type`
+  range) con exógenas futuras desde fichero fallan en la librería:
+  `load_exog` toma la primera columna como índice (pregunta 6 de
+  [#99](https://github.com/skforecast/skforecast-ai/pull/99), anterior a
+  ella).
+- **`forecast()` y `forecast_code()` con una ruta en `exog`**, leída con
+  `load_exog` (el perfil da la columna de fechas, los ids y el orden de las
+  fechas). Hoy solo aceptan un DataFrame o una Series, y el fichero llega al
+  script por `exog.attrs['exog_file']`, que pandas arrastra a los frames
+  derivados; una ruta sería el canal explícito (preguntas 1 y 5 de #99).
+  *[API]*
 - **Dependencias opcionales**: `missing_dependency` de XGBoost o CatBoost
   llega sin `hint` ni `details` (V02: el mismo contrato que los modelos
   fundacionales, con `pip install` y el `--with` de `uvx`); un `compare` por
@@ -539,7 +549,63 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     lectura no falla (pregunta en la PR).
   - Nota de release solo en **Fixed**, sin destacado ni "Before upgrading":
     los scripts solo cambian para ficheros que antes fallaban.
-- **D9. 1h: el script lee el fichero de exógenas futuras que corrió**
+- **D9. 1e: frecuencia con huecos regulares o frecuentes** (2026-10-16).
+  Concretado en [#98](https://github.com/skforecast/skforecast-ai/pull/98):
+  - Cuando ningún tramo de 10 fechas seguidas da frecuencia, se infiere en
+    ventanas de 3 (las menos de las que pandas infiere una), en bloques de
+    20 ventanas seguidas si el índice es largo: ventanas sueltas a
+    intervalos regulares pueden caer todas en la misma fase de un patrón
+    semanal. Una candidata vale si su rejilla contiene todas las fechas,
+    está observada al menos en `_MIN_FREQUENCY_COVERAGE` (50 %) y el paso
+    más común entre fechas seguidas es un periodo: así un dato suelto a
+    mediodía entre días no da `'12h'` (los pasos se buscan como fechas,
+    así vale cualquier unidad del índice). De las que valen, la más gruesa
+    (`'B'` antes que `'D'`), y `'B'` es candidata siempre que lo sea `'D'`
+    (pandas no ve `'B'` en tres días que no cruzan un fin de semana: de
+    lunes a jueves).
+  - Si algún tramo da frecuencia y su rejilla no encaja (un sábado entre
+    laborables), sigue sin frecuencia: no se busca otra más fina con
+    huecos. Por eso lo que hoy se infiere no cambia: comprobado en toda la
+    suite (cada llamada comparada con 0.5.x), en 4000 índices al azar y en
+    los goldens de contexto del LLM, que no cambian.
+  - Sin domingos es `'D'` con los domingos como fechas que faltan, con el
+    tratamiento de los huecos al azar del 10 al 20 %: `forecast` predice
+    también los domingos, y `backtest` y `forecast` con `test_size` dan
+    `invalid_argument` porque los NaN caen en los folds de test. Nada se
+    rellena solo (principio 3).
+  - Días de cierre (revisión de la PR): cuando todas las fechas que faltan
+    caen en días de la semana sin ninguna fecha, que se repiten al menos
+    dos veces en el rango (`regular_gap_weekdays`; en formato largo, cada
+    serie en su rango), el aviso de fechas que faltan los nombra, dice que
+    `forecast` los predice y que, si el negocio cierra esos días, se pueden
+    rellenar con 0 en los datos tras preguntar al usuario. Los errores de
+    `backtest` y de `test_size` (una serie, `_check_evaluated_target`;
+    varias, `_check_multiseries_evaluation`) dan el mismo consejo cuando
+    todas las fechas sin valor evaluadas caen en días en que su serie nunca
+    tiene valor (`closed_weekdays`). Con huecos al azar, o con domingos y
+    festivos (no todas las fechas caen en los días cerrados), los textos de
+    antes. La solución de fondo, `CustomBusinessDay` con `weekmask`, va a la
+    0.6.0 (al final de este fichero).
+  - Formato largo: una tienda de lunes a sábado junto a una oficina de
+    laborables da `'D'` (antes, fechas fuera de la rejilla `'B'`), como ya
+    daban series diarias junto a laborables; de acuerdo en la revisión.
+    `_coarser_frequency`, que
+    infiere una vez por serie dispersa, usa solo los tramos sin huecos
+    (`regular_gaps=False`): con las ventanas de 3, mil series dispersas
+    pasaban de 1 s a 9 s.
+  - D7: en 1166 lecturas de fechas ambiguas (mensuales, trimestrales y
+    diarias cortas, con y sin huecos), ninguna lectura equivocada pasa a
+    ser la única regular. Los mensuales con huecos de más de un año se
+    leen ahora en su orden, y un año o menos con huecos sigue siendo
+    ambiguo (las dos lecturas son regulares).
+  - V14: el error de `plan` dice que las fechas que faltan se rellenan
+    solo cuando las demás siguen una frecuencia regular "and fill at
+    least half of its periods". La frecuencia más cercana y los huecos
+    en ese error (que D7 dejó para 1e) no se añaden, de acuerdo en la
+    revisión: necesitarían un campo nuevo del perfil.
+  - Nota de release en **Fixed**, sin destacado ni "Before upgrading", que
+    nombra también los textos de los días de cierre.
+- **D10. 1h: el script lee el fichero de exógenas futuras que corrió**
   (2026-10-16). Concretado en
   [#99](https://github.com/skforecast/skforecast-ai/pull/99):
   - `load_exog` deja en `exog.attrs['exog_file']` un `FutureExogFile`
@@ -576,6 +642,11 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     librería, como antes.
   - Nota de release en **Added** (`forecast-code --exog`) y **Fixed**, con
     una línea en "Before upgrading" (el script lee otra ruta).
+  - Respuestas de la revisión: se mantienen el `dropna(how='all')` de las
+    filas solo de separadores, el `rename` de la columna de fechas y
+    `FutureExogFile` público (principio 5); el `attrs` que se arrastra a un
+    frame derivado se deja, porque lo resuelve aceptar una ruta en
+    `forecast()` (fase 5).
 
 ## Decisiones abiertas
 
@@ -736,3 +807,29 @@ las columnas de texto, que en pandas 3 es `str` y no `object`:
 que una exógena de texto no se trataría como categórica. Visto en
 [#95](https://github.com/skforecast/skforecast-ai/pull/95). Pasar la suite
 con pandas 3 antes de quitar la cota de skforecast.
+
+### Días de cierre con `CustomBusinessDay` y `weekmask`
+
+La solución de fondo para un negocio que cierra los mismos días de la
+semana. Desde 1e
+([#98](https://github.com/skforecast/skforecast-ai/pull/98), D9), unos
+datos diarios sin domingos son `'D'` con los domingos como fechas que
+faltan: `forecast` los predice, y `backtest` y `forecast` con `test_size`
+fallan porque caen en los folds de test. El aviso y los errores lo dicen y
+proponen rellenarlos con 0 pidiendo permiso. Una frecuencia sin esos días
+(`pd.offsets.CustomBusinessDay(weekmask='Mon Tue Wed Thu Fri Sat')`) no
+tendría huecos. Comprobado el 2026-10-16:
+
+- skforecast 0.26 ajusta, predice (del lunes al sábado) y hace backtest en
+  memoria con un índice de esa frecuencia, sin NaN.
+- Su `freqstr` es `'C'`, que pierde la `weekmask`: `to_offset('C')` es de
+  lunes a viernes, así que el `asfreq('C')` que emitiría el script quita los
+  sábados sin avisar (260 filas de 312).
+- Hace falta un campo en el perfil (la `weekmask`, o los días de cierre de
+  `regular_gap_weekdays`) y emitir el offset en el script en vez de una
+  cadena. Revisar también lo que lee la frecuencia como texto: la
+  estacionalidad (`estimate_seasonality`), las variables de calendario, las
+  exógenas futuras, `count_missing_timestamps` y el contexto del LLM.
+- Decidir cuándo se elige: solo cuando los huecos son de días de la semana
+  sin ninguna fecha (lo que ya detecta `regular_gap_weekdays`), y si un
+  domingo abierto suelto (rebajas) lo descarta.

@@ -61,6 +61,45 @@ def test_generate_warnings_output_when_timestamps_are_missing():
     ]
 
 
+@pytest.mark.parametrize(
+    "gap_weekdays, long_format, days, owners",
+    [
+        ([6], False, "Sundays", "the data never has a date"),
+        ([5, 6], False, "Saturdays and Sundays", "the data never has a date"),
+        ([0, 2, 6], True, "Mondays, Wednesdays and Sundays",
+         "the series that miss them never have a date"),
+    ],
+    ids=["sundays", "weekends", "three days of long-format data"],
+)
+def test_generate_warnings_output_when_timestamps_are_missing_on_closed_days(
+    gap_weekdays, long_format, days, owners
+):
+    """
+    Test that missing timestamps that all fall on days of the week without
+    any date (a business closed on them) produce a warning that names those
+    days, says that a forecast predicts them too, and that they can be
+    filled with 0 if the business is closed, after asking the user.
+    """
+    warnings = generate_warnings(
+        n_observations       = 100,
+        frequency            = "D",
+        missing_target       = {},
+        missing_exog         = {},
+        index_type           = "datetime",
+        n_missing_timestamps = 51,
+        long_format          = long_format,
+        gap_weekdays         = gap_weekdays,
+    )
+
+    assert warnings == [
+        f"Missing timestamps: 51 timestamps of frequency 'D' are missing from "
+        f"the date range, all of them on {days}, when {owners}. asfreq() "
+        f"inserts them as rows with missing values, and a forecast predicts "
+        f"{days} too. If the business is closed on {days}, they can be "
+        f"filled with 0 in the data, after asking the user."
+    ]
+
+
 def test_generate_warnings_output_when_timestamps_are_duplicated():
     """
     Test that timestamps repeated in identical rows produce a warning with

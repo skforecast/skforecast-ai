@@ -41,11 +41,17 @@ def _sparse(steps: list[int]) -> pd.DatetimeIndex:
         (_WEEKS_AND_MONDAY, "W-SUN", "W-SUN"),
         (pd.date_range("2016-01-01", periods=30, freq="QS-JAN").delete([3]),
          None, "QS-OCT"),
+        (pd.date_range("2020-01-01", "2021-12-31", freq="BME").delete([15]),
+         None, "BME"),
+        (pd.date_range("2020-01-01", "2021-12-31", freq="BME").delete([4, 11, 17]),
+         None, None),
     ],
     ids=["consecutive_days", "short", "own_frequency", "inferred_with_gaps",
          "steps_of_whole_weeks", "few_even_steps", "many_even_steps",
          "month_starts_with_gaps", "month_ends_with_gaps",
-         "own_frequency_and_stray_day", "quarters_with_gaps"],
+         "own_frequency_and_stray_day", "quarters_with_gaps",
+         "business_month_ends_with_gaps",
+         "business_month_ends_without_ten_in_a_row"],
 )
 def test_coarser_frequency_output(dates, own_frequency, expected):
     """
@@ -54,7 +60,10 @@ def test_coarser_frequency_output(dates, own_frequency, expected):
     (also with a stray day after a Sunday later on), month starts or month
     ends with gaps (quarters named as quarters), or the step all its steps
     are multiples of (whole weeks, named as weeks; even steps only from 21
-    dates, as fewer even steps may be chance).
+    dates, as fewer even steps may be chance). Business month ends are
+    inferred on their gap-free stretches only: with gaps that leave no ten
+    in a row they count as days with gaps, which bounds the cost of a call
+    on every sparse series.
     """
     offset = pd.tseries.frequencies.to_offset("D")
     positions = (dates.asi8 - dates.asi8[0]) // offset.nanos
