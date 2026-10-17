@@ -3361,3 +3361,22 @@ def test_forecast_output_when_data_and_exog_are_text_dates_day_first(exog):
         "exog_future['date'] = pd.to_datetime(exog_future['date'], "
         "format='%d/%m/%Y')\n"
     ) in result.code
+
+
+def test_forecast_InvalidInputError_when_target_list_and_multiindex():
+    """
+    Test that forecast() without a profile, of data indexed by a
+    `(series_id, date)` MultiIndex with a list of targets, raises with the
+    field 'target' before the first level fills `series_id_column`.
+    """
+    data = df_items_sales_long.set_index(["series", "date"])
+    err_msg = re.escape(
+        "`target` is a list of columns (['value']), but `data` is indexed by "
+        "a MultiIndex (levels ['series', 'date']), which is long format: the "
+        "series are stacked in rows, told apart by the first level. Pass "
+        "`target` as the name of the column of values, not as a list."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        ForecastingAssistant().forecast(data=data, target=["value"], steps=3)
+
+    assert exc_info.value.field == "target"
