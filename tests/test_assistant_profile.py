@@ -1879,3 +1879,26 @@ def test_profile_reads_thousands_of_a_series_after_the_sample(tmp_path, monkeypa
     assert data_profile.target_stats["a"]["max"] == 829.0
     assert data_profile.target_stats["b"]["min"] == 1100.0
     assert data_profile.target_stats["b"]["max"] == 1129.0
+
+
+def test_profile_InvalidInputError_when_target_list_and_multiindex():
+    """
+    Test that profile() of data indexed by a `(series_id, date)` MultiIndex
+    with a list of targets raises with the field 'target', not about the
+    `series_id_column` that the first level fills and the caller did not
+    pass, and that the name of the column of values still profiles them.
+    """
+    data = df_items_sales_long.set_index(["series", "date"])
+    err_msg = re.escape(
+        "`target` is a list of columns (['value']), but `data` is indexed by "
+        "a MultiIndex (levels ['series', 'date']), which is long format: the "
+        "series are stacked in rows, told apart by the first level. Pass "
+        "`target` as the name of the column of values, not as a list."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        ForecastingAssistant().profile(data=data, target=["value"])
+
+    assert exc_info.value.field == "target"
+    profile = ForecastingAssistant().profile(data=data, target="value")
+    assert profile.data_profile.data_format == "long"
+    assert profile.data_profile.n_series == 3

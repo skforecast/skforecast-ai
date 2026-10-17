@@ -175,7 +175,9 @@ Resultados incorrectos sin aviso, el peor tipo de fallo después de la fase 1.
   `forecast`), y el perfil debe nombrar la serie corta. skforecast también la
   descarta sin avisar:
   [#1406](https://github.com/skforecast/skforecast/issues/1406). *[LLM]* si
-  cambia el texto del backtest.
+  cambia el texto del backtest. En formato ancho el perfil no guarda dónde
+  empieza cada serie (sus NaN iniciales): hace falta para nombrar las series
+  cortas, y el aviso de residuos de 2c-i (D13) lo usará cuando exista.
 - **2c. Intervalos de los backtests multiserie.** Defecto conocido: con un
   intervalo del 80 %, cubren el 56 % con ForecasterRecursiveMultiSeries y el
   14 % con ForecasterDirectMultiVariate en `items_sales`, porque los scripts
@@ -686,7 +688,25 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
   no hace falta un cálculo propio que luego habría que quitar. Los residuos
   fuera de muestra, que piden un tramo de validación y cambian el coste y
   los scripts, van a la 0.6.0.
-- **D?. 2c-i: aviso de pocos residuos con varias series** (2026-10-17).
+- **D12. 2d: `target` como lista se valida en el perfil** (2026-10-17).
+  Concretado en [#100](https://github.com/skforecast/skforecast-ai/pull/100):
+  una
+  lista junto con un `series_id_column` que pasó el usuario da
+  `invalid_argument` con `field: "series_id_column"` antes de comprobar las
+  columnas, también con una lista de una columna (`["y"]` no se convierte en
+  `"y"`); el mensaje dice qué pasar en formato largo y en ancho, sin `hint`.
+  Una lista con datos indexados por un MultiIndex `(series_id, date)`, que
+  es formato largo, da `invalid_argument` con `field: "target"` y un texto
+  propio (pasar el nombre de la columna de valores), con una serie o con
+  varias, antes de que el MultiIndex rellene `series_id_column`: en
+  `create_data_profile`, en `profile()` y en `forecast()` sin perfil, que
+  aplanan el MultiIndex antes. Antes, con varias series salía el error de
+  timestamps repetidos (field `data`), o el de `series_id_column`, que el
+  usuario no pasó. Una columna
+  repetida da `invalid_argument` con `field: "target"` y la nombra, antes de
+  comprobar que las columnas existen. Mismo texto en la API, la CLI y el MCP.
+- **D13. 2c-i: aviso de pocos residuos con varias series** (2026-10-17).
+  Concretado en [#101](https://github.com/skforecast/skforecast-ai/pull/101).
   Solo el aviso de `create_cv` (también notice del MCP); ningún script ni
   plan cambia, y no llega al contexto del LLM:
   - ForecasterRecursiveMultiSeries cuenta por serie lo que skforecast 0.26
@@ -706,6 +726,11 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     como ForecasterDirect (`steps - 1` filas menos) y el aviso nombra el
     level.
   - Con una sola serie el texto no cambia.
+  - Revisión: los forecasters directos cuentan filas, no `steps` por filas,
+    porque los residuos de los pasos de una misma fila no son
+    independientes; el texto de `encoding=None` se queda. El inicio de cada
+    serie en formato ancho lo necesita también 2b (nombrar las series
+    cortas): cuando el perfil lo guarde, este aviso lo usará.
 
 ## Decisiones abiertas
 
