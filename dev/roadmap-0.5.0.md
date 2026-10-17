@@ -686,6 +686,26 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
   no hace falta un cálculo propio que luego habría que quitar. Los residuos
   fuera de muestra, que piden un tramo de validación y cambian el coste y
   los scripts, van a la 0.6.0.
+- **D?. 2c-i: aviso de pocos residuos con varias series** (2026-10-17).
+  Solo el aviso de `create_cv` (también notice del MCP); ningún script ni
+  plan cambia, y no llega al contexto del LLM:
+  - ForecasterRecursiveMultiSeries cuenta por serie lo que skforecast 0.26
+    guarda por serie (residuos y binner de cada una): las observaciones de
+    la serie en la primera ventana de entrenamiento menos `window_size`. En
+    formato largo, cada serie se sitúa en el índice que reparte los folds
+    (desde la primera fecha de todas) con sus fechas de inicio y fin, en la
+    zona horaria del perfil; si ese índice no se puede rehacer, cuenta la
+    ventana entera, como antes. En formato ancho el perfil no sabe dónde
+    empieza cada serie (sus NaN iniciales): cuenta la ventana entera.
+  - El aviso nombra hasta 5 series con menos de 100 filas, de menos a más
+    filas, con "and N more series"; una serie sin filas en la ventana no
+    se nombra (no se entrena en ese fold).
+  - Con `encoding=None` skforecast junta los residuos de todas las series
+    (`_unknown_level`): se suman las filas de todas y el aviso lo dice.
+  - ForecasterDirectMultiVariate solo guarda residuos de su `level`: cuenta
+    como ForecasterDirect (`steps - 1` filas menos) y el aviso nombra el
+    level.
+  - Con una sola serie el texto no cambia.
 
 ## Decisiones abiertas
 
