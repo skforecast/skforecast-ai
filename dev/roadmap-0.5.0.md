@@ -686,7 +686,9 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
   no hace falta un cálculo propio que luego habría que quitar. Los residuos
   fuera de muestra, que piden un tramo de validación y cambian el coste y
   los scripts, van a la 0.6.0.
-- **D?. 2d: `target` como lista se valida en el perfil** (2026-10-17): una
+- **D12. 2d: `target` como lista se valida en el perfil** (2026-10-17).
+  Concretado en [#100](https://github.com/skforecast/skforecast-ai/pull/100):
+  una
   lista junto con un `series_id_column` que pasó el usuario da
   `invalid_argument` con `field: "series_id_column"` antes de comprobar las
   columnas, también con una lista de una columna (`["y"]` no se convierte en
