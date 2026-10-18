@@ -20,10 +20,10 @@ rodearlo aquí; la sección "Dependencia de skforecast 0.27.0" lista lo que
 tiene que estar resuelto y publicado antes de la release, y cada hallazgo
 nuevo que sea de skforecast se añade a esa lista.
 
-Con eso la 0.5.0 se alarga, y la regla de antes aplica: una 0.4.3 solo con el
-rechazo de V08 (el `.` de miles leído como decimal sin aviso, introducido
-por la lectura de `;` de la 0.4.2) y como mucho G04, que no tocan scripts ni
-contexto del LLM. Pendiente de decidir.
+**No habrá 0.4.3** (decidido el 2026-10-18): de la 0.4.2 se pasa
+directamente a la 0.5.0, aunque se alargue. V08 (el `.` de miles leído como
+decimal sin aviso, introducido por la lectura de `;` de la 0.4.2) queda
+arreglado en la 0.5.0 (#86) y no se publica antes. No volver a plantearlo.
 
 Las referencias `Vnn` y `Gnn` son las de la auditoría; las `Hn`, las del check
 con agentes de la 0.4.0 (su tabla está en `git show
@@ -424,8 +424,8 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
   de valores con y sin separador, o con `,` decimal como `1.705,11`. Se
   guarda `thousands` en el perfil y se emite en el script solo cuando no es
   el de hoy. Cuando es ambiguo (todos los valores con tres cifras tras el
-  punto), `data_unreadable` con hint. El rechazo a secas solo es el plan B de
-  una 0.4.3.
+  punto), `data_unreadable` con hint. (El rechazo a secas era el plan B de
+  una 0.4.3, que no habrá.)
   Concretado en [#86](https://github.com/skforecast/skforecast-ai/pull/86)
   (2026-10-15):
   - Solo `thousands='.'`, con `,` decimal: `thousands=','` (`"10,025.1"` en un
@@ -1011,19 +1011,25 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     de contar (un candidato con plan inválido cuenta hoy el coste de su
     forecaster sin ejecutar nada) va con 4b, que necesita la cuenta antes
     de ejecutar también con candidatos explícitos.
+- **D3. La confirmación de coste repite la cifra** (2026-10-18). Por
+  encima del umbral, `backtest` y `compare` del servidor MCP exigen
+  `confirm_cost` con el número de ajustes que devolvió `create_cv` (el
+  total de D19). Si falta o no coincide, error con el coste y la pista de
+  preguntar al usuario. Un `confirm_cost=True` a secas lo pasaría siempre
+  el modelo pequeño (lanzaba con el aviso leído, 12 de 12); repetir la
+  cifra obliga a haberla leído, y una estrategia que cambia invalida la
+  confirmación vieja. En la API de Python y en la CLI, que decide una
+  persona, basta `confirm_cost=True`. Va en 4b, que también construye los
+  planes de los candidatos antes de contar (D19).
+- **D4. V05: las columnas del CSV de métricas de `forecast` se renombran**
+  (2026-10-18) para que coincidan con las del backtest (nombres de
+  skforecast y `levels`), con una línea en "Before upgrading". Va en 3c-ii,
+  junto con RMSE como métrica del servidor.
 
 ## Decisiones abiertas
 
 Se toman en el PR que las necesita y se pasan a la sección de arriba.
-
-- **D3. Forma de la confirmación de coste**: un argumento `confirm_cost` (o
-  similar) que el servidor exige por encima del umbral, o un `cost_id` que
-  devuelve la estimación y que la ejecución tiene que citar. Afecta a la API
-  de Python, a la CLI y al SKILL.
-- **D4. V05: renombrar las columnas del CSV de métricas de `forecast`** para
-  que coincidan con las del backtest (rompe a quien ya lo lee) o documentar
-  la diferencia. Propuesta: renombrar, con nota de release; la API puede
-  romperse en una minor temprana.
+Ninguna abierta ahora.
 
 ## Dependencia de skforecast 0.27.0
 
