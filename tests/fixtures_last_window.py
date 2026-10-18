@@ -318,3 +318,64 @@ with warnings.catch_warnings():
     profile_h2o_missing_target = profile_of(
         with_missing(data_h2o, [30], column="x")
     )
+
+
+# --- Missing values of the exogenous variables (h2o, 120 months) ---
+# Column 'promo' with 2 missing values, at the positions 10 and 100 (counting
+# from 0); the target is complete. The plan with Ridge drops the training
+# rows that have one (`dropna_from_series=True`) and cannot predict from
+# them.
+data_h2o_exog = data_h2o.assign(promo=np.arange(120.0))
+data_h2o_exog.iloc[[10, 100], 1] = np.nan
+_profile_h2o_exog = _assistant.profile(
+    data_h2o_exog, target="x", exog_columns=["promo"]
+)
+profile_h2o_exog = _profile_h2o_exog.data_profile
+plan_h2o_exog_ridge = _assistant.plan(_profile_h2o_exog, steps=12)
+plan_h2o_exog_lgbm = _assistant.plan(
+    _profile_h2o_exog, steps=12, estimator="LGBMRegressor"
+)
+
+# The same data with one missing value of the target as well (position 30,
+# counting from 0).
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", category=MissingValuesWarning)
+    profile_h2o_exog_missing_target = _assistant.profile(
+        with_missing(data_h2o_exog, [90], column="x"),
+        target       = "x",
+        exog_columns = ["promo"],
+    ).data_profile
+
+# --- Daily single series without Sundays (a shop closed on Sundays) ---
+# data_single without its 8 Sundays: frequency 'D' with 8 missing timestamps,
+# all of them on Sundays, the closed days of D9.
+data_single_closed_sundays = (
+    data_single.loc[data_single["date"].dt.dayofweek != 6].reset_index(drop=True)
+)
+_profile_single_closed = _assistant.profile(
+    data_single_closed_sundays, target="y", date_column="date"
+)
+profile_single_closed = _profile_single_closed.data_profile
+plan_single_closed_ridge = _assistant.plan(
+    _profile_single_closed, estimator="Ridge", **_single_kwargs
+)
+
+# --- No training row left (h2o, 120 months) ---
+# The target missing at the positions 13 and 50 (counting from 0). The plan
+# with Ridge reads a rolling mean of 36, whose statistic needs every value of
+# its window when training, and drops the rows that read a missing value
+# (`dropna_from_series=True`): every row of the first 84 months (the rows
+# of targets 36 to 83) reads one, as in c_06 of the audit.
+data_h2o_no_training_row = with_missing(data_h2o, [120 - 13, 120 - 50], column="x")
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", category=MissingValuesWarning)
+    _profile_h2o_no_training_row = _assistant.profile(
+        data_h2o_no_training_row, target="x"
+    )
+profile_h2o_no_training_row = _profile_h2o_no_training_row.data_profile
+plan_h2o_no_training_row_ridge = _assistant.plan(
+    _profile_h2o_no_training_row, steps=12
+)
+plan_h2o_no_training_row_lgbm = _assistant.plan(
+    _profile_h2o_no_training_row, steps=12, estimator="LGBMRegressor"
+)

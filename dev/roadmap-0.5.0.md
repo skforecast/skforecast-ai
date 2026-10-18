@@ -275,6 +275,27 @@ cuenta al usuario.
   por comparación. MSLE con un objetivo con valores negativos falla al
   ejecutar (sklearn lo rechaza): error en el plan, no en el script. La
   explicación del plan debe decir por qué quitó MAPE del panel. *[LLM]*
+  De la revisión de
+  [#105](https://github.com/skforecast/skforecast-ai/pull/105) (D17):
+  - `backtest()` comprueba antes de ejecutar el objetivo de cada fold, no
+    las exógenas: con Ridge, un faltante de una exógena en una fila que
+    predice un fold de test sigue fallando como `execution_failed`.
+    Comprobar también las exógenas de cada fold, nombrando columna y
+    fechas, como hace `forecast()` con las futuras.
+  - La comprobación de que un fold tiene filas de entrenamiento completas
+    solo corre en `backtest()`: extenderla a `forecast()` y a
+    `forecast(test_size=...)`, donde el mismo "All samples have been
+    removed" es menos frecuente.
+  - Una serie cuya última ventana tiene un faltante solo en algunos folds
+    se queda fuera de esos folds sin decirlo, y sus métricas y la media usan
+    menos folds: un aviso en el resumen del backtest (y en skforecast, el
+    comentario de #1406).
+  - Guardar en el perfil los días de cierre que ya calcula para su nota
+    (por ejemplo `DataProfile.closed_weekdays`), para que `create_cv` dé el
+    consejo exacto en vez de uno condicional. Cambia el esquema del perfil.
+  - ForecasterDirectMultiVariate: skforecast nunca descarta una serie de su
+    última ventana, así que un faltante da predicciones NaN o un error
+    dentro del script. Sin cubrir.
 
 ## Fase 4. Coste
 
@@ -839,6 +860,69 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     dice fracción, que no tiene sentido cerca del cero y que sMAPE ya es
     un porcentaje. Pendiente el check de pago de `check_ask_context.py`
     (fase 7).
+- **D17. 3a: los valores faltantes, una sola regla** (2026-10-18), en
+  [#105](https://github.com/skforecast/skforecast-ai/pull/105). En la
+  revisión se confirmaron el estimador de las reglas que acepta faltantes
+  (`RandomForestRegressor` por debajo de 250 observaciones), el aviso de
+  `create_cv` también con estimadores que los aceptan, y
+  `BacktestMissingValues` como registro interno fuera de `schemas/`:
+  - La regla y sus textos viven en `recommendation/missing_values.py`. El
+    estimador que se ofrece es el primer candidato de las reglas que acepta
+    faltantes (`select_nan_tolerant_estimator`, para la tarea del plan y el
+    tamaño de los datos): `RandomForestRegressor` por debajo de 250
+    observaciones y `LGBMRegressor` desde 250, en vez de `'LGBMRegressor'`
+    escrito a mano. Lo usan el aviso de `create_cv`, los errores con datos
+    (lecturas de la ventana, exógenas futuras, `dropna_from_series=False`)
+    y el `MissingValuesNotice`; `DATA_VALUES_HINT` ya no nombra ninguno:
+    dice que cambiar de estimador solo evita el error cuando el mensaje
+    nombra uno.
+  - `create_cv` (sin datos) dice cada caso como condición: un faltante
+    dentro de un fold de test falla con cualquier estimador; un fold
+    predicho desde uno, con un estimador que no los acepta o con
+    ForecasterEquivalentDate; con diferenciación, uno de los últimos
+    `order` valores antes de un fold, con cualquier estimador (el aviso que
+    faltaba con un estimador que los acepta); una exógena con faltantes,
+    con un estimador que no los acepta. Avisa también con un estimador que
+    acepta faltantes (el primer caso). Objetivo y exógenas van en avisos
+    separados, para que cada uno quepa en los 1000 caracteres de un notice.
+    Con fechas que faltan en datos diarios o más finos, el consejo de los
+    días de cierre va delante, condicionado: el perfil no guarda qué días
+    son.
+  - El notice dice además que `backtest` comprueba los folds antes de
+    ejecutar y que se corra antes de cambiar el plan o preguntar, y ofrece
+    el estimador solo cuando el del plan no acepta faltantes, con lo que no
+    evita (el fold de test que tiene uno).
+  - Con datos, el error de un faltante en los folds de test los numera
+    (`test fold 5 of 6`, `all 8 test folds`). El texto de los días de
+    cierre de D9 sale de una sola función (`closed_days_remedy`) y manda
+    también en el error de una ventana que lee faltantes de días cerrados
+    (por ejemplo, `forecast()` de una tienda que cierra los domingos) y en
+    los dos errores nuevos.
+  - Nuevo en `backtest()` de una serie: `DataContentError` antes de
+    ejecutar cuando, con `dropna_from_series=True`, ninguna fila de
+    entrenamiento de un fold queda sin leer un faltante (el caso B de c_06,
+    que fallaba con "All samples have been removed due to NaNs" y el
+    consejo `dropna_from_series=False`, que el plan rechaza con Ridge).
+    Replica skforecast: lags y ventanas sobre la serie diferenciada, las
+    ventanas con todos sus valores al entrenar (`min_periods`), el objetivo
+    de cada paso en ForecasterDirect, las ventanas de entrenamiento de los
+    folds que reentrenan. Comprobado contra el backtest real en unas 475
+    configuraciones al azar, sin diferencias. Las exógenas no se miran.
+  - La comprobación previa de D15 mira ahora los faltantes intermedios de
+    las últimas ventanas cuando skforecast las descarta (estimador que no
+    los acepta, o diferenciación): una serie que solo por ellos no se
+    pronostica en ningún fold da `DataContentError` (`data`, con
+    `DATA_VALUES_HINT`) con sus fechas y lo que funciona (el estimador de
+    las reglas, un plan sin diferenciación, rellenarlos con permiso o quitar
+    la serie). Las series cortas se informan antes. Comprobado contra el
+    backtest real en unas 1100 configuraciones al azar, en ancho y largo.
+  - El paso `handle_missing_values` del plan dice solo lo que funciona para
+    su estimador y nunca propone `dropna_from_series` (dice que solo quita
+    filas de entrenamiento): el estimador de las reglas, imputar con
+    permiso del usuario y, para una exógena, dejarla fuera de
+    `exog_columns`. Sale también con solo fechas que faltan, y
+    ForecasterStats tiene el suyo (falla con un faltante del objetivo y
+    predice NaN desde una exógena que falta).
 
 ## Decisiones abiertas
 
@@ -865,9 +949,10 @@ arranque de las sesiones en la nube instala skforecast desde su rama
 | Issue | Qué pide | Qué hace skforecast-ai cuando llegue | Estado |
 |:--|:--|:--|:--|
 | [#1357](https://github.com/skforecast/skforecast/issues/1357) | Nombres de serie enteros (G02) | Nada que quitar: los ids como texto de 1b se quedan, porque conservan los ceros (`001`) | Resuelto en `0.27.x` ([#1412](https://github.com/skforecast/skforecast/pull/1412), 2026-10-18) |
-| [#1406](https://github.com/skforecast/skforecast/issues/1406) | Avisar de una serie que no se pronostica en ningún fold (G03) | 2b se queda en la comprobación previa y el aviso del perfil: los scripts corren con `suppress_warnings=True` y fallar antes de ejecutar es mejor para un agente | Abierto |
+| [#1406](https://github.com/skforecast/skforecast/issues/1406) | Avisar de una serie que no se pronostica en ningún fold (G03), y, por un comentario de 2026-10-18 (D17), también de la que se descarta de un fold por un faltante en su última ventana | 2b se queda en la comprobación previa y el aviso del perfil: los scripts corren con `suppress_warnings=True` y fallar antes de ejecutar es mejor para un agente | Abierto |
 | [#1410](https://github.com/skforecast/skforecast/issues/1410) | Una serie con exactamente `window_size` observaciones en la ventana de entrenamiento de un fold multiserie (2b) | Nada: el backtest falla dentro del script con "must be greater than the maximum window size"; con el arreglo, la serie se descarta de ese fold como las más cortas, que es lo que ya supone la comprobación de 2b | Abierto |
 | [#1409](https://github.com/skforecast/skforecast/issues/1409) | Cobertura y anchura del intervalo en las métricas del backtesting (D11) | 2c-ii las lee de la salida del backtesting, sin cálculo propio en el script | Abierto |
+| [#1411](https://github.com/skforecast/skforecast/issues/1411) | El error "All samples have been removed due to NaNs" aconseja `dropna_from_series = False`, que falla con un estimador que no acepta faltantes (D17, #105) | Nada: la comprobación previa de 3a ya da el consejo que funciona antes de ejecutar; con el arreglo, el error de skforecast dentro de un script también lo dirá | Abierto |
 | Sin issue | El skill `metric-selection` describía MAPE como "Percentage error" sin decir que sklearn devuelve una fracción (D16, #104) | Nada: corregido en la rama `0.27.x` de skforecast y sincronizado aquí (2026-10-18) | Hecho |
 
 Detalle de cada uno:

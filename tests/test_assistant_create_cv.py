@@ -2104,22 +2104,27 @@ def test_create_cv_fields_without_effect_when_stats_refit_changes_the_window():
 def test_create_cv_UserWarning_when_backtest_can_read_missing_values():
     """
     Test that create_cv() warns, with a single series that has missing
-    timestamps and a plan whose estimator does not tolerate them, that the
-    backtest raises when a fold is predicted from one; with LGBMRegressor
-    or complete data there is no warning (warnings are errors here).
+    timestamps, when the backtest raises: with a plan whose estimator does
+    not tolerate them, also when a fold is predicted from one, naming the
+    estimator of the rules that would avoid it; with LGBMRegressor, only
+    when a test fold holds one, which no estimator avoids. Complete data
+    gives no warning (warnings are errors here).
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=data_h2o_gaps, target="x")
     plan = assistant.plan(profile, steps=12)
 
     warn_msg = re.escape(
-        "The target has missing values or missing timestamps (asfreq() "
-        "restores them as missing values), and ForecasterRecursive with "
-        "Ridge cannot predict from a missing value: `backtest()` of this "
-        "plan raises when a test fold is predicted from one, naming its "
-        "dates. `dropna_from_series` only drops them from the training "
-        "data. Impute the target, or choose an estimator that accepts "
-        "missing values (for example 'LGBMRegressor') to backtest every fold."
+        "The target has missing timestamps (asfreq() restores them as missing "
+        "values), and `backtest()` checks every test fold before running: it raises, "
+        "naming the dates, when a test fold holds one, whatever the estimator, since "
+        "no metric is computed on it; and when a test fold is predicted from one, "
+        "since ForecasterRecursive with Ridge cannot predict from a missing value. "
+        "`dropna_from_series` only drops the training rows that read one, and a "
+        "training window left without rows raises too. An estimator that accepts "
+        "missing values (such as 'RandomForestRegressor') avoids the error of a fold "
+        "predicted from a missing value, not of a fold that holds one. Impute the "
+        "target to backtest every fold."
     )
     with pytest.warns(UserWarning, match=warn_msg) as record:
         assistant.create_cv(profile, plan, initial_train_size=84)
@@ -2128,7 +2133,14 @@ def test_create_cv_UserWarning_when_backtest_can_read_missing_values():
     assert record[0].filename == __file__
 
     plan_lgbm = assistant.plan(profile, steps=12, estimator="LGBMRegressor")
-    assistant.create_cv(profile, plan_lgbm, initial_train_size=84)
+    warn_msg_lgbm = re.escape(
+        "The target has missing timestamps (asfreq() restores them as missing "
+        "values), and `backtest()` checks every test fold before running: it raises, "
+        "naming the dates, when a test fold holds one, whatever the estimator, since "
+        "no metric is computed on it. Impute the target to backtest every fold."
+    )
+    with pytest.warns(UserWarning, match=warn_msg_lgbm):
+        assistant.create_cv(profile, plan_lgbm, initial_train_size=84)
 
     profile_clean = assistant.profile(data=df_h2o, target="x")
     plan_clean = assistant.plan(profile_clean, steps=12)

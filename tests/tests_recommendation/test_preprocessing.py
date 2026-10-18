@@ -477,6 +477,66 @@ def test_derive_steps_handle_gaps_is_non_blocking():
     assert gap_steps[0].blocking is False
 
 
+def test_derive_steps_handle_missing_values_never_proposes_dropna_from_series():
+    """
+    Test that a missing exogenous value with Ridge gets the advice of what
+    works (V11): the estimator of the rules, filling them in after asking
+    the user, or leaving the column out. `dropna_from_series`, which the
+    plan already sets and only drops training rows, is named as what does
+    not help, never as an option of the snippet. The missing timestamps are
+    handled as missing values of the target, without a remedy of their own.
+    """
+    profile = DataProfile(
+        series_lengths={"y": 100},
+        n_series=1,
+        n_total_observations=100,
+        index_type="datetime",
+        frequency="D",
+        target="y",
+        exog_columns=["promo"],
+        missing_exog={"promo": 2},
+        has_gaps=True,
+        frequency_is_set=True,
+    )
+    steps = derive_preprocessing_steps(
+        profile, "ForecasterRecursive", estimator="Ridge", task_type="single_series"
+    )
+    by_action = {step.action: step for step in steps}
+
+    assert by_action["handle_gaps"].code_snippet == (
+        "# After asfreq(), missing timestamps become NaN, handled\n"
+        "# as missing values of the target (handle_missing_values)."
+    )
+    assert by_action["handle_missing_values"] == PreprocessingStep(
+        action="handle_missing_values",
+        reason=(
+            "The target has missing timestamps (asfreq() restores them as "
+            "missing values): ForecasterRecursive with Ridge cannot predict "
+            "from them, and `dropna_from_series` only drops the training rows "
+            "that read one. An estimator that accepts missing values (such as "
+            "'RandomForestRegressor') predicts from them. A missing value on a "
+            "date that a backtest or `test_size` scores fails with any "
+            "estimator. Imputing the target, after asking the user, avoids "
+            "these errors. The exogenous column 'promo' has missing values: "
+            "ForecasterRecursive with Ridge cannot predict from them, and "
+            "`dropna_from_series` only drops the training rows that have one. "
+            "An estimator that accepts missing values (such as "
+            "'RandomForestRegressor') predicts from them; otherwise, fill them "
+            "in the data, after asking the user, or leave it out of "
+            "`exog_columns` when profiling."
+        ),
+        code_snippet=(
+            "# Option 1: an estimator that accepts missing values, "
+            "estimator='RandomForestRegressor'\n"
+            "# Option 2: impute them in the data, after asking the user\n"
+            "# Option 3: leave the exogenous columns with missing values out "
+            "of exog_columns"
+        ),
+        blocking=False,
+    )
+    assert "dropna_from_series" not in by_action["handle_missing_values"].code_snippet
+
+
 def test_derive_steps_all_steps_are_preprocessing_step_instances():
     profile = DataProfile(
         series_lengths={"value": 100},

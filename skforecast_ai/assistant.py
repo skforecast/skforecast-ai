@@ -125,6 +125,7 @@ from .recommendation import (
     select_estimator_and_candidates,
     select_forecaster_and_candidates,
     select_metric,
+    select_nan_tolerant_estimator,
     select_task_type_from_forecaster,
     select_transformer_exog,
     select_transformer_series,
@@ -132,6 +133,7 @@ from .recommendation import (
     warn_first_window,
     warn_interval_residuals,
 )
+from .recommendation.missing_values import tolerant_estimator_phrase
 from .schemas import (
     CV_OVERRIDE_NAMES,
     OVERRIDE_NAMES,
@@ -1457,12 +1459,17 @@ class ForecastingAssistant:
             if dropna_override is False and rule_dropna:
                 # The rule drops the rows only when there are missing values
                 # and the estimator does not accept them: it would fail.
+                tolerant = select_nan_tolerant_estimator(
+                    task_type      = task_type,
+                    n_observations = estimator_n_observations(
+                                         task_type, data_profile
+                                     ),
+                )
                 raise InvalidInputError(
                     f"`dropna_from_series=False` cannot be applied: the data "
                     f"has missing values and '{est}' does not accept them. "
-                    f"Omit it, impute the missing values, or choose an "
-                    f"estimator that accepts them (for example "
-                    f"'LGBMRegressor').",
+                    f"Omit it, impute the missing values, or choose "
+                    f"{tolerant_estimator_phrase(tolerant)}.",
                     field = "dropna_from_series",
                 )
             dropna_from_series = (
@@ -1493,6 +1500,9 @@ class ForecastingAssistant:
             profile          = planned_profile,
             forecaster       = fc,
             foundation_model = foundation_model,
+            estimator        = est,
+            task_type        = task_type,
+            differentiation  = differentiation,
         )
 
         if metric_override is None:
