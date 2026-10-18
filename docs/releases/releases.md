@@ -44,7 +44,7 @@ The main changes in this release are:
 
 + New attribute `cost` of the [<code>ComparisonResult</code>][results] of [<code>ForecastingAssistant.compare()</code>][assistant]: the trainings, estimator fits and inference windows of each candidate and of all of them together, the baseline included, counted before any candidate runs ([#108](https://github.com/skforecast/skforecast-ai/pull/108)).
 
-+ New `EstimatorNotRecommendedWarning`: [<code>ForecastingAssistant.backtest()</code>][assistant] and `forecast()` warn it when the estimator of the plan is not the one the rules choose for its forecaster, naming both and who chose it. The MCP server gives it as an `EstimatorNotRecommendedNotice` that asks the agent to tell the user. See [Exceptions and warnings][exceptions].
++ New `EstimatorNotRecommendedWarning`: [<code>ForecastingAssistant.backtest()</code>][assistant] and `forecast()` warn it when the estimator of the plan is not the one the rules choose for its forecaster, naming both and who chose it. The MCP server gives it as an `EstimatorNotRecommendedNotice` that asks the agent to tell the user. See [Exceptions and warnings][exceptions] ([#110](https://github.com/skforecast/skforecast-ai/pull/110)).
 
 + New option `--exog` of the `forecast-code` command of the [CLI][cli], so the script reads the future exogenous values from that file, as `forecast --exog` does, instead of `exog_future.csv`. See the [CLI guide][cli-guide] ([#99](https://github.com/skforecast/skforecast-ai/pull/99)).
 
