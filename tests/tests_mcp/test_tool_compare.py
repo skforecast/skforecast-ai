@@ -16,7 +16,7 @@ from skforecast_ai import (
 )
 from skforecast_ai.mcp import _runtime, create_server
 
-from ..fixtures_assistant import df_multi_long_numeric_ids, df_no_exog
+from ..fixtures_assistant import df_crossing_zero, df_multi_long_numeric_ids, df_no_exog
 from ..fixtures_datasets import df_items_sales_long
 
 from .fixtures_mcp import (
@@ -807,3 +807,27 @@ def test_tool_compare_output_when_series_ids_are_numbers(tmp_path):
     assert result["summary"] == expected.describe()
     assert text_of(result["files"]["leaderboard"]) == csv_of(expected.results)
     assert not expected.failures
+
+
+def test_tool_compare_notice_of_undefined_mape_when_target_crosses_zero(tmp_path):
+    """
+    Test that MAPE requested on a target that crosses zero gets, in the
+    response of `compare`, the notice that it has no meaning instead of its
+    unit, which needs the profile of the data. The plan of the explicit
+    candidate carries its own warning, as any warning of its plan.
+    """
+    path = write_csv(tmp_path, "profit.csv", df_crossing_zero)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, _, cv_id = cv_of(server, path, target="profit", steps=6)
+
+    result = content_of(call(server, "compare", {
+        "cv_id": cv_id, "baseline": False,
+        "candidates": [{"name": "ridge", "config": {"estimator": "Ridge"}}],
+        "metric": ["mean_absolute_error", "mean_absolute_percentage_error"],
+    }))
+    assert [(n["source"], n["category"]) for n in result["notices"]] == [
+        ("runtime", "MetricUndefinedNotice"), ("plan", "UserWarning"),
+    ]
+    assert result["notices"][0]["message"].startswith(
+        "`mean_absolute_percentage_error` has no meaning on this data"
+    )

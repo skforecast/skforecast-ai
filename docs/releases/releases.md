@@ -26,6 +26,7 @@ The main changes in this release are:
 
     + `plan()` of wide-format data whose series start or end with missing values may choose another estimator: `DataProfile.n_total_observations` no longer counts those values. See **Changed**.
     + [<code>ForecastingAssistant.backtest()</code>][assistant] of ForecasterRecursiveMultiSeries raises `insufficient_data` for a series that no fold forecasts, which it left out before, and `invalid_argument` when its missing values are the cause. See **Fixed**.
+    + `plan()` of a target that takes values at or around zero, also one that crosses it with negative values, leaves MAPE out of the default metrics and so of the generated script. Pass it in `metric` to compute it anyway. See **Fixed**.
 
     And some code needs to be updated:
 
@@ -58,6 +59,8 @@ The main changes in this release are:
 + The errors and warnings about missing values name the estimator that the rules choose for the data (`RandomForestRegressor` below 250 observations, `LGBMRegressor` from 250) instead of always `LGBMRegressor`, put first the advice of a business closed on the missing weekdays, and, in [<code>ForecastingAssistant.backtest()</code>][assistant], name the test folds that hold a missing value ([#105](https://github.com/skforecast/skforecast-ai/pull/105)).
 
 + In wide-format data, each series of `DataProfile.series_lengths` spans the dates from its first to its last value, as in long format, instead of the whole frame, so its `start`, `end` and `length` say where it starts. `n_total_observations`, which sizes the estimator, follows them, and the note on short series names the series in wide and long data ([#103](https://github.com/skforecast/skforecast-ai/pull/103)).
+
++ The `MetricUnitNotice` of the MCP server gives the unit of sMAPE, already a percentage from 0 to 200, as it does for MAPE, a fraction, and [<code>ForecastingAssistant.ask()</code>][assistant] no longer describes MAPE as a percentage ([#104](https://github.com/skforecast/skforecast-ai/pull/104)).
 
 
 **Fixed**
@@ -93,6 +96,8 @@ The main changes in this release are:
 + [<code>ForecastingAssistant.backtest()</code>][assistant] of a single series failed inside the script with "All samples have been removed due to NaNs" when every training row of a fold read a missing value. It now raises `DataContentError` before running, with what avoids it ([#105](https://github.com/skforecast/skforecast-ai/pull/105)).
 
 + Fixed an issue in [<code>ForecastingAssistant.plan()</code>][assistant] and `refine_plan()` where `ForecasterDirectMultiVariate` got the estimator chosen for the series pooled (`LGBMRegressor` from 250 observations), which on few dates per step predicted a constant. The rule now counts the dates the series share, and the explanation says so ([#102](https://github.com/skforecast/skforecast-ai/pull/102)).
+
++ Fixed an issue in [<code>ForecastingAssistant.plan()</code>][assistant] where the default metrics of a target that crosses zero with negative values (profits, temperatures) included MAPE, which reached values such as 3e13. MAPE is now left out when any series touches or crosses zero; asked for in `metric`, it comes with a warning, and the MCP server says it has no meaning instead of asking to multiply it by 100 ([#104](https://github.com/skforecast/skforecast-ai/pull/104)).
 
 
 ## 0.4.2 <small>Oct 12, 2026</small> { id="0.4.2" }

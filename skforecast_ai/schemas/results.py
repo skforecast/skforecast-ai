@@ -409,8 +409,8 @@ class ForecastResult(SingleRunResult):
     metrics : pandas DataFrame, None
         Evaluation metrics. DataFrame with a `series` column and one
         column per metric of `plan.metrics_to_compute` (by default `MAE`,
-        `MSE` and `MASE`, plus `MAPE` when the target has no values near
-        zero). For single-series tasks
+        `MSE` and `MASE`, plus `MAPE` when the target of no series takes
+        values at or around zero). For single-series tasks
         this contains one row; for multi-series tasks one row per level.
         None in prediction mode (`test_size=None`), where there is no
         ground truth to evaluate against.

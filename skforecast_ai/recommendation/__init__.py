@@ -41,7 +41,11 @@ from .forecaster_selection import (
     select_forecaster_and_candidates,
     select_task_type_from_forecaster,
 )
-from .metric_selection import select_metric
+from .metric_selection import (
+    describe_series_near_zero,
+    select_metric,
+    series_near_zero,
+)
 from .missing_values import select_nan_tolerant_estimator
 from .preprocessing import (
     build_forecaster_kwargs,
@@ -72,6 +76,7 @@ __all__ = [
     "cv_as_executed",
     "derive_cv_defaults",
     "derive_preprocessing_steps",
+    "describe_series_near_zero",
     "estimator_n_observations",
     "constant_calendar_features",
     "drop_colliding_calendar_features",
@@ -91,6 +96,7 @@ __all__ = [
     "select_transformer_exog",
     "select_transformer_series",
     "select_window_features",
+    "series_near_zero",
     "warn_first_window",
     "warn_interval_residuals",
 ]

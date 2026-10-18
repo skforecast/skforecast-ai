@@ -268,7 +268,34 @@ cuenta al usuario.
   [#95](https://github.com/skforecast/skforecast-ai/pull/95), los números
   escritos como texto y los faltantes de cada columna), y con ellos al
   contexto del LLM: un plan que no usa exógenas no debería llevarlos.
-  *[LLM]*
+  *[LLM]* De la revisión de
+  [#104](https://github.com/skforecast/skforecast-ai/pull/104) (D16):
+  `compare()` con los candidatos por defecto no avisa de un MAPE sin
+  sentido (con candidatos explícitos sale el aviso de cada plan): un aviso
+  por comparación. MSLE con un objetivo con valores negativos falla al
+  ejecutar (sklearn lo rechaza): error en el plan, no en el script. La
+  explicación del plan debe decir por qué quitó MAPE del panel. *[LLM]*
+  De la revisión de
+  [#105](https://github.com/skforecast/skforecast-ai/pull/105) (D17):
+  - `backtest()` comprueba antes de ejecutar el objetivo de cada fold, no
+    las exógenas: con Ridge, un faltante de una exógena en una fila que
+    predice un fold de test sigue fallando como `execution_failed`.
+    Comprobar también las exógenas de cada fold, nombrando columna y
+    fechas, como hace `forecast()` con las futuras.
+  - La comprobación de que un fold tiene filas de entrenamiento completas
+    solo corre en `backtest()`: extenderla a `forecast()` y a
+    `forecast(test_size=...)`, donde el mismo "All samples have been
+    removed" es menos frecuente.
+  - Una serie cuya última ventana tiene un faltante solo en algunos folds
+    se queda fuera de esos folds sin decirlo, y sus métricas y la media usan
+    menos folds: un aviso en el resumen del backtest (y en skforecast, el
+    comentario de #1406).
+  - Guardar en el perfil los días de cierre que ya calcula para su nota
+    (por ejemplo `DataProfile.closed_weekdays`), para que `create_cv` dé el
+    consejo exacto en vez de uno condicional. Cambia el esquema del perfil.
+  - ForecasterDirectMultiVariate: skforecast nunca descarta una serie de su
+    última ventana, así que un faltante da predicciones NaN o un error
+    dentro del script. Sin cubrir.
 
 ## Fase 4. Coste
 
@@ -355,7 +382,13 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
    revisados y un solo check de pago contra un modelo real
    (`tools/ai/check_ask_context.py`, lo lanzas tú). En el mismo ciclo:
    `ask(context=profile, plan=plan)` explica el script sin la codificación ni
-   el formato de fecha de las exógenas (pregunta 4 de #97).
+   el formato de fecha de las exógenas (pregunta 4 de #97). El `--dry-run`
+   y el check se lanzan en local: `check_ask_context.py` descarga los
+   datasets de skforecast con `fetch_dataset`, y la red de una sesión en la
+   nube lo bloquea (en #104 se quedó colgado más de una hora). Después,
+   volver a grabar las salidas de `ask()` de
+   `agentic-forecasting.ipynb` y `agentic-forecasting-step-by-step.ipynb`,
+   que llaman porcentaje a MAPE (#104).
 2. Check con agentes de `tools/mcp/` (cambian el SKILL, el coste y las
    descripciones: está en "When to run it"), al menos con sonnet y con haiku
    en los escenarios críticos. Debe incluir un escenario con un CSV de Excel
@@ -801,7 +834,37 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     faltantes intermedios de las últimas ventanas, a 3a; `create_cv` no
     avisa, porque el error del backtest ya salta antes de ejecutar nada. El
     caso límite de `window_size` es un bug de skforecast (#1410).
-- **D?. 3a: los valores faltantes, una sola regla** (2026-10-18):
+- **D16. 3c-i: MAPE en objetivos que tocan o cruzan el cero, y la unidad de
+  MAPE y sMAPE** (2026-10-17), en
+  [#104](https://github.com/skforecast/skforecast-ai/pull/104). V10 y V20;
+  RMSE y V05 esperan a D4:
+  - Una serie está cerca del cero si `min <= 0.01` y `max >= -0.01`
+    (`series_near_zero`, en `metric_selection.py`). Basta una serie para
+    dejar MAPE fuera del panel por defecto de todas: el panel es uno para
+    el plan. Una serie solo negativa, lejos del cero, conserva MAPE. Cambia
+    el script de esos objetivos; ningún golden de renderizado cambia
+    (sus fixtures ya empezaban en 0).
+  - MAPE pedido a mano (primaria o en la lista) con un objetivo así: se
+    calcula, con un `UserWarning` que va también a `plan.warnings` (en el
+    MCP, un notice del `plan` con source `plan`). El texto da el rango del
+    objetivo o, con varias series, las nombra con su rango, hasta 5. Solo
+    MAPE: sMAPE y MSLE no avisan (preguntas en la PR).
+  - MCP: con un objetivo así, MAPE recibe un `MetricUndefinedNotice` (no
+    lo reportes ni lo conviertas; usa una métrica que no divida por el
+    valor real) en vez del de unidad. Lo decide el perfil, no el valor de
+    la métrica, igual que el panel. El `MetricUnitNotice` es uno solo con
+    la unidad de cada métrica presente: MAPE fracción, sMAPE ya en
+    porcentaje (0 a 200), sin multiplicar.
+  - La regla 9 del prompt de `ask()` decía "MAPE is a percentage": ahora
+    dice fracción, que no tiene sentido cerca del cero y que sMAPE ya es
+    un porcentaje. Pendiente el check de pago de `check_ask_context.py`
+    (fase 7).
+- **D17. 3a: los valores faltantes, una sola regla** (2026-10-18), en
+  [#105](https://github.com/skforecast/skforecast-ai/pull/105). En la
+  revisión se confirmaron el estimador de las reglas que acepta faltantes
+  (`RandomForestRegressor` por debajo de 250 observaciones), el aviso de
+  `create_cv` también con estimadores que los aceptan, y
+  `BacktestMissingValues` como registro interno fuera de `schemas/`:
   - La regla y sus textos viven en `recommendation/missing_values.py`. El
     estimador que se ofrece es el primer candidato de las reglas que acepta
     faltantes (`select_nan_tolerant_estimator`, para la tarea del plan y el
@@ -885,9 +948,11 @@ arranque de las sesiones en la nube instala skforecast desde su rama
 | Issue | Qué pide | Qué hace skforecast-ai cuando llegue | Estado |
 |:--|:--|:--|:--|
 | [#1357](https://github.com/skforecast/skforecast/issues/1357) | Nombres de serie enteros (G02) | Nada que quitar: los ids como texto de 1b se quedan, porque conservan los ceros (`001`) | Abierto |
-| [#1406](https://github.com/skforecast/skforecast/issues/1406) | Avisar de una serie que no se pronostica en ningún fold (G03) | 2b se queda en la comprobación previa y el aviso del perfil: los scripts corren con `suppress_warnings=True` y fallar antes de ejecutar es mejor para un agente | Abierto |
+| [#1406](https://github.com/skforecast/skforecast/issues/1406) | Avisar de una serie que no se pronostica en ningún fold (G03), y, por un comentario de 2026-10-18 (D17), también de la que se descarta de un fold por un faltante en su última ventana | 2b se queda en la comprobación previa y el aviso del perfil: los scripts corren con `suppress_warnings=True` y fallar antes de ejecutar es mejor para un agente | Abierto |
 | [#1410](https://github.com/skforecast/skforecast/issues/1410) | Una serie con exactamente `window_size` observaciones en la ventana de entrenamiento de un fold multiserie (2b) | Nada: el backtest falla dentro del script con "must be greater than the maximum window size"; con el arreglo, la serie se descarta de ese fold como las más cortas, que es lo que ya supone la comprobación de 2b | Abierto |
 | [#1409](https://github.com/skforecast/skforecast/issues/1409) | Cobertura y anchura del intervalo en las métricas del backtesting (D11) | 2c-ii las lee de la salida del backtesting, sin cálculo propio en el script | Abierto |
+| [#1411](https://github.com/skforecast/skforecast/issues/1411) | El error "All samples have been removed due to NaNs" aconseja `dropna_from_series = False`, que falla con un estimador que no acepta faltantes (D17, #105) | Nada: la comprobación previa de 3a ya da el consejo que funciona antes de ejecutar; con el arreglo, el error de skforecast dentro de un script también lo dirá | Abierto |
+| Sin issue | El skill `metric-selection` describía MAPE como "Percentage error" sin decir que sklearn devuelve una fracción (D16, #104) | Nada: corregido en la rama `0.27.x` de skforecast y sincronizado aquí (2026-10-18) | Hecho |
 
 Detalle de cada uno:
 

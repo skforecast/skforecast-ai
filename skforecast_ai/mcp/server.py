@@ -139,8 +139,9 @@ SCALED_METRICS = {
     "RMSSE": "root_mean_squared_scaled_error",
 }
 
-# MAPE, as the metrics of a backtest and of a forecast call it.
+# MAPE and sMAPE, as the metrics of a backtest and of a forecast call them.
 MAPE_NAMES = frozenset({"mean_absolute_percentage_error", "MAPE"})
+SMAPE_NAMES = frozenset({"symmetric_mean_absolute_percentage_error", "SMAPE"})
 
 # Hint of an error of `profile` about the content of the file.
 DATA_PROBLEM_HINT = (
@@ -573,7 +574,10 @@ def _holdout_notices(predictions: Any, test_size: Any) -> list[ToolNotice]:
     ]
 
 
-def _metric_notices(metrics: Any) -> list[ToolNotice]:
+def _metric_notices(
+    metrics: Any,
+    data_profile: Any = None,
+) -> list[ToolNotice]:
     """
     Notice with the reference of the scaled metrics (MASE, RMSSE) among the
     metrics of a backtest or a forecast.
@@ -586,12 +590,15 @@ def _metric_notices(metrics: Any) -> list[ToolNotice]:
     ----------
     metrics : pandas DataFrame, None
         Metrics of the result, one column per metric.
+    data_profile : DataProfile, default None
+        Profile of the data the metrics were computed on, passed to
+        `_mape_notices`.
 
     Returns
     -------
     notices : list of ToolNotice
         One notice (source `'runtime'`) when a scaled metric was computed,
-        and the one of `_mape_notices` when MAPE was.
+        and those of `_mape_notices` when MAPE or sMAPE was.
     """
 
     if metrics is None:
@@ -601,7 +608,7 @@ def _metric_notices(metrics: Any) -> list[ToolNotice]:
         if column in SCALED_METRICS
     ))
     if not names:
-        return _mape_notices(metrics)
+        return _mape_notices(metrics, data_profile)
     shown = " and ".join(f"`{name}`" for name in names)
 
     return [
@@ -618,42 +625,96 @@ def _metric_notices(metrics: Any) -> list[ToolNotice]:
             ),
             count    = 1,
         ),
-        *_mape_notices(metrics),
+        *_mape_notices(metrics, data_profile),
     ]
 
 
-def _mape_notices(metrics: Any) -> list[ToolNotice]:
+def _mape_notices(
+    metrics: Any,
+    data_profile: Any = None,
+) -> list[ToolNotice]:
     """
-    Notice with the unit of MAPE among the metrics of a result or the
-    columns of a leaderboard: a fraction, which agents report as a
-    percentage as it is (1.245 as "1.25 %", 100 times too small).
+    Notices with the unit of MAPE and sMAPE among the metrics of a result or
+    the columns of a leaderboard, or saying that MAPE means nothing on the
+    data.
+
+    MAPE is a fraction, which agents report as a percentage as it is (1.245
+    as "1.25 %", 100 times too small), and sMAPE a percentage, which they
+    would multiply by 100 next to it. On a target at or around zero, MAPE
+    divides by values near zero: telling the agent to multiply its 3e13 by
+    100 invited a 3e15 %.
 
     Parameters
     ----------
     metrics : pandas DataFrame, None
         Metrics of the result, one column per metric.
+    data_profile : DataProfile, default None
+        Profile of the data the metrics were computed on. When the target
+        of any of its series takes values at or around zero, MAPE gets a
+        `MetricUndefinedNotice` instead of its unit.
 
     Returns
     -------
     notices : list of ToolNotice
-        One notice (source `'runtime'`) when MAPE was computed, else empty.
+        A `MetricUnitNotice` (source `'runtime'`) with the unit of each of
+        MAPE and sMAPE that was computed, and a `MetricUndefinedNotice`
+        (source `'runtime'`) for MAPE on such a target; empty when neither
+        was computed.
     """
 
-    if metrics is None or not MAPE_NAMES.intersection(metrics.columns):
-        return []
+    from ..recommendation import describe_series_near_zero
 
-    return [
-        ToolNotice(
-            source   = "runtime",
-            category = "MetricUnitNotice",
-            message  = (
-                "`mean_absolute_percentage_error` is a fraction, not a "
-                "percentage: 0.05 is 5 %, and 1.245 is 124.5 %. Multiply it "
-                "by 100 before you write it with a % sign."
-            ),
-            count    = 1,
+    if metrics is None:
+        return []
+    has_mape = bool(MAPE_NAMES.intersection(metrics.columns))
+    has_smape = bool(SMAPE_NAMES.intersection(metrics.columns))
+    near_zero = (
+        describe_series_near_zero(data_profile)
+        if has_mape and data_profile is not None else None
+    )
+
+    units = []
+    if has_mape and near_zero is None:
+        units.append(
+            "`mean_absolute_percentage_error` is a fraction, not a "
+            "percentage: 0.05 is 5 %, and 1.245 is 124.5 %. Multiply it "
+            "by 100 before you write it with a % sign."
         )
-    ]
+    if has_smape:
+        units.append(
+            "`symmetric_mean_absolute_percentage_error` is already a "
+            "percentage, from 0 to 200: 1.245 is 1.245 %. Write it with a % "
+            "sign as it is, without multiplying it by 100."
+        )
+    notices = []
+    if units:
+        notices.append(
+            ToolNotice(
+                source   = "runtime",
+                category = "MetricUnitNotice",
+                message  = " ".join(units),
+                count    = 1,
+            )
+        )
+    if near_zero is not None:
+        notices.append(
+            ToolNotice(
+                source   = "runtime",
+                category = "MetricUndefinedNotice",
+                message  = (
+                    f"`mean_absolute_percentage_error` has no meaning on "
+                    f"this data: it divides each error by the actual value, "
+                    f"and {near_zero}. Do not report its value, neither as a "
+                    f"fraction nor as a percentage, and do not convert it: "
+                    f"say that MAPE is not defined for this target, and use "
+                    f"a metric that does not divide by the actual value, "
+                    f"such as `mean_absolute_error`."
+                ),
+                count    = 1,
+            )
+        )
+
+    return notices
 
 
 def _accepts_text(annotation: Any) -> bool:
@@ -2269,7 +2330,9 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                             outcome.warnings,
                             plan_warnings  = result.plan.warnings,
                             data_warnings  = cv_entry.data_warnings,
-                            server_notices = _metric_notices(result.metrics),
+                            server_notices = _metric_notices(
+                                result.metrics, cv_entry.profile.data_profile
+                            ),
                         ),
             source    = cv_entry,
             code      = result.code,
@@ -2513,7 +2576,10 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                                            *state.models.notices(
                                                ran_models, uncached, ran=True
                                            ),
-                                           *_mape_notices(result.results),
+                                           *_mape_notices(
+                                               result.results,
+                                               cv_entry.profile.data_profile,
+                                           ),
                                        ],
                                    ),
             source               = cv_entry,
@@ -2624,7 +2690,9 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                             data_warnings  = plan_entry.data_warnings,
                             server_notices = [
                                 *_holdout_notices(result.predictions, test_size),
-                                *_metric_notices(result.metrics),
+                                *_metric_notices(
+                                    result.metrics, plan_entry.profile.data_profile
+                                ),
                                 *_exog_notices(
                                     result.plan, plan_entry.profile, forecast=True
                                 ),
