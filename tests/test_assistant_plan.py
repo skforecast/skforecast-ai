@@ -22,14 +22,17 @@ from tests.fixtures_assistant import (
     df_biweekly,
     df_calendar_named_exog,
     df_categorical_exog,
+    df_crossing_zero,
     df_hourly,
     df_irregular,
     df_multi_long,
     df_multi_wide,
+    df_multi_wide_crossing_zero,
     df_multi_wide_pooled,
     df_no_exog,
     df_range_index,
     df_single,
+    df_single_positive,
     df_with_missing,
 )
 
@@ -1682,6 +1685,121 @@ def test_plan_error_when_metric_invalid(metric, error, message):
         assistant.plan(profile, steps=10, metric=metric)
 
     assert info.value.field == "metric"
+
+
+@pytest.mark.parametrize(
+    "data, target, expected_metric",
+    [
+        (df_crossing_zero, "profit", "mean_absolute_error"),
+        (
+            df_multi_wide_crossing_zero,
+            ["series_a", "series_b"],
+            "mean_absolute_scaled_error",
+        ),
+    ],
+    ids=["single series", "one of two series"],
+)
+def test_plan_output_default_panel_without_mape_when_target_crosses_zero(
+    data, target, expected_metric
+):
+    """
+    Test that the default panel leaves MAPE out, without a warning, when the
+    target of a series crosses zero (the minimum is negative), also when
+    only one series of several does.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=data, target=target, date_column="date")
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        plan = assistant.plan(profile, steps=6)
+
+    assert plan.metric == expected_metric
+    assert plan.metrics_to_compute == [
+        "mean_absolute_error",
+        "mean_squared_error",
+        "mean_absolute_scaled_error",
+    ]
+    assert plan.warnings == []
+
+
+@pytest.mark.parametrize(
+    "metric",
+    [
+        "mean_absolute_percentage_error",
+        ["mean_absolute_error", "mean_absolute_percentage_error"],
+    ],
+    ids=["primary", "also computed"],
+)
+def test_plan_UserWarning_when_mape_requested_and_target_crosses_zero(metric):
+    """
+    Test that MAPE requested on a target that crosses zero is computed as
+    requested, with a UserWarning saying that its value means nothing, whose
+    text also goes to `plan.warnings`.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_crossing_zero, target="profit", date_column="date"
+    )
+
+    warn_msg = (
+        "`mean_absolute_percentage_error` has no meaning on this data: it "
+        "divides each error by the actual value, and the target takes values "
+        "at or around zero (from -10 to 10), so its value can reach the "
+        "trillions. It is computed as requested; judge the model by a metric "
+        "that does not divide by the actual value, such as "
+        "`mean_absolute_error`."
+    )
+    with pytest.warns(UserWarning, match=re.escape(warn_msg)):
+        plan = assistant.plan(profile, steps=6, metric=metric)
+
+    assert "mean_absolute_percentage_error" in plan.metrics_to_compute
+    assert plan.warnings == [warn_msg]
+
+
+def test_plan_UserWarning_names_the_series_when_mape_requested_on_multiseries():
+    """
+    Test that, with several series, the warning of MAPE requested names the
+    series that crosses zero and its range.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data        = df_multi_wide_crossing_zero,
+        target      = ["series_a", "series_b"],
+        date_column = "date",
+    )
+
+    warn_msg = (
+        "the target takes values at or around zero in series 'series_b' "
+        "(from -10 to 10)"
+    )
+    with pytest.warns(UserWarning, match=re.escape(warn_msg)):
+        assistant.plan(profile, steps=6, metric="mean_absolute_percentage_error")
+
+
+@pytest.mark.parametrize(
+    "data, target, metric",
+    [
+        (df_single_positive, "sales", "mean_absolute_percentage_error"),
+        (df_crossing_zero, "profit", "mean_absolute_error"),
+        (df_crossing_zero, "profit", "symmetric_mean_absolute_percentage_error"),
+    ],
+    ids=["MAPE on positive target", "MAE crossing zero", "sMAPE crossing zero"],
+)
+def test_plan_no_warning_when_metric_is_meaningful(data, target, metric):
+    """
+    Test that MAPE on a target away from zero, or a metric that does not
+    divide by the actual value on a target that crosses zero, gives no
+    warning.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=data, target=target, date_column="date")
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        plan = assistant.plan(profile, steps=6, metric=metric)
+
+    assert plan.warnings == []
 
 
 def test_plan_TypeError_when_metric_given_positionally():

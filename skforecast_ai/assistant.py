@@ -111,6 +111,7 @@ from .recommendation import (
     cv_as_executed,
     derive_cv_defaults,
     derive_preprocessing_steps,
+    describe_series_near_zero,
     constant_calendar_features,
     drop_colliding_calendar_features,
     estimator_n_observations,
@@ -1003,9 +1004,14 @@ class ForecastingAssistant:
             skforecast (`'mean_absolute_error'`, `'mean_squared_error'`,
             ...), with the semantics of `compare()`: the first one is the
             primary metric (`plan.metric`) and only the ones given are
-            computed (`plan.metrics_to_compute`). If None, the metric is
-            selected from the data (MAE for one series, MASE for several)
-            and the default panel is computed.
+            computed (`plan.metrics_to_compute`). MAPE on a target that
+            takes values at or around zero is computed, with a
+            `UserWarning` whose text also goes to `plan.warnings`: it
+            divides by the actual value, so its value means nothing there.
+            If None, the metric is selected from the data (MAE for one
+            series, MASE for several) and the default panel is computed,
+            without MAPE when the target of any series touches or crosses
+            zero.
         use_exog : bool, default None
             Whether the plan uses the exogenous columns of the profile.
             False leaves them out (`forecast()` then takes no `exog`); True
@@ -1610,6 +1616,25 @@ class ForecastingAssistant:
             )
             plan_warnings.append(constant_calendar_message)
 
+        # MAPE asked for by the caller on a target the rules leave it out
+        # for: their choice, so it is computed, but its value means nothing.
+        mape_message = None
+        near_zero = describe_series_near_zero(data_profile)
+        if (
+            metric_override is not None
+            and "mean_absolute_percentage_error" in metric_override
+            and near_zero is not None
+        ):
+            mape_message = (
+                f"`mean_absolute_percentage_error` has no meaning on this "
+                f"data: it divides each error by the actual value, and "
+                f"{near_zero}, so its value can reach the trillions. It is "
+                f"computed as requested; judge the model by a metric that "
+                f"does not divide by the actual value, such as "
+                f"`mean_absolute_error`."
+            )
+            plan_warnings.append(mape_message)
+
         # The decisions the caller made instead of the rules: None asks for
         # the rule, and empty keyword arguments are the defaults.
         overridden_fields = [
@@ -1666,6 +1691,8 @@ class ForecastingAssistant:
             warnings.warn(unrecommended_message, UnrecommendedForecasterWarning)
         if constant_calendar_message is not None:
             warnings.warn(constant_calendar_message, UserWarning, stacklevel=2)
+        if mape_message is not None:
+            warnings.warn(mape_message, UserWarning, stacklevel=2)
 
         return plan
 
