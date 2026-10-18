@@ -8,6 +8,7 @@ import pytest
 from skforecast_ai import (
     ForecastingAssistant,
     LLMRequiredError,
+    PlanEditsDiscardedWarning,
     UnrecommendedForecasterWarning,
 )
 from skforecast_ai.schemas.plans import PlanOverrides, WindowFeature
@@ -136,12 +137,13 @@ def test_refine_plan_prompt_skips_when_switching_to_baseline():
         "lags/window_features to refine). Ignoring prompt."
     )
     with pytest.warns(UserWarning, match=warn_msg):
-        refined = assistant.refine_plan(
-            profile,
-            plan,
-            prompt="weekly seasonality",
-            forecaster="ForecasterEquivalentDate",
-        )
+        with pytest.warns(PlanEditsDiscardedWarning):
+            refined = assistant.refine_plan(
+                profile,
+                plan,
+                prompt="weekly seasonality",
+                forecaster="ForecasterEquivalentDate",
+            )
 
     assert refined.task_type == "baseline"
     assert refined.forecaster_kwargs == {"offset": 7, "n_offsets": 1}

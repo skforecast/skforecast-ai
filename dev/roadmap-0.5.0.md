@@ -296,6 +296,18 @@ cuenta al usuario.
   - ForecasterDirectMultiVariate: skforecast nunca descarta una serie de su
     última ventana, así que un faltante da predicciones NaN o un error
     dentro del script. Sin cubrir.
+  De la revisión de
+  [#107](https://github.com/skforecast/skforecast-ai/pull/107) (D18):
+  - `transformer_exog` y `categorical_features` también se pierden en
+    silencio al cambiar de forecaster: nombrarlos en el aviso cuando tenían
+    efecto en el plan anterior.
+  - Los lags que refinó el LLM cuentan como elegidos por el usuario (el
+    refinado lo pidió él), así que también se nombran.
+  - Un solo aviso, no dos, cuando en la misma llamada hay ediciones a mano
+    descartadas y decisiones que el forecaster nuevo no admite.
+  - Los lags, las ventanas y el estimador que eligieron las reglas no se
+    nombran: la familia nueva los vuelve a decidir y la explicación del
+    plan ya lo cuenta.
 
 ## Fase 4. Coste
 
@@ -923,7 +935,41 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     `exog_columns`. Sale también con solo fechas que faltan, y
     ForecasterStats tiene el suyo (falla con un faltante del objetivo y
     predice NaN desde una exógena que falta).
-- **D?. 4a: una sola cuenta del coste de una comparación** (2026-10-18).
+- **D18. 3b: `refine_plan()` nombra lo que deja fuera** (2026-10-18), en
+  [#107](https://github.com/skforecast/skforecast-ai/pull/107). Con
+  un `PlanEditsDiscardedWarning` propio, aparte del de las ediciones a mano
+  (su texto va también a `plan.warnings` y al notice del MCP, con source
+  `plan`):
+  - Se nombra una decisión de `OVERRIDE_NAMES` (no `forecaster` ni
+    `metric`) que el plan tenía con efecto y que el plan refinado no tiene,
+    cuando la eligió el usuario (`plan.overridden_fields`) o cuando es una
+    decisión sobre los datos (`use_exog`, `differentiation`,
+    `calendar_features`, `target_transformer`, `dropna_from_series`) que
+    pusieron las reglas y el forecaster nuevo no admite (los no
+    autorregresivos; `use_exog` solo el baseline). Cada valor dice quién lo
+    eligió: `differentiation=1 (chosen by the user)`.
+  - No se nombra lo que el plan nuevo vuelve a decidir (una decisión de las
+    reglas con un forecaster autorregresivo, el estimador que las reglas
+    vuelven a elegir al entrar o salir de DMV, D14), los valores sin efecto
+    (None, `False`, `'none'`, `[]`, `{}`: `calendar_features=[]` o
+    `target_transformer='none'` no cambian nada con ForecasterStats), las
+    claves pasadas en la llamada, ni lo ya nombrado como edición a mano.
+  - Los lags, las ventanas y el estimador que eligieron las reglas no se
+    nombran al cambiar de familia: son del forecaster que se sustituye y
+    el cambio pedido ya lo dice. Sí cuando los eligió el usuario. Tampoco
+    `transformer_exog` ni `categorical_features`, que no son decisiones de
+    `plan()` (pregunta en la PR).
+  - V29: con un estimador nuevo (pasado, o elegido otra vez por cambiar de
+    familia) y sin `estimator_kwargs`, los del plan se descartan, como
+    hasta ahora (no tienen por qué valer para otro estimador), y el aviso
+    los nombra con el estimador para el que se escribieron. Lo dicen la
+    descripción de `estimator_kwargs` de `RefinePlanArgs` (el único cambio
+    del golden de esquemas), `RefinePlanOverrides`, el paso 3 del SKILL.md
+    y `docs/api/mcp.md`.
+  - El texto llega al contexto del LLM por `plan.warnings`; los goldens no
+    cambian (ningún escenario cambia de familia). El check de pago de
+    `check_ask_context.py` queda para la fase 7.
+- **D19. 4a: una sola cuenta del coste de una comparación** (2026-10-18).
   Concretado en [#108](https://github.com/skforecast/skforecast-ai/pull/108):
   - `count_comparison_cost` (`execution/comparison.py`) cuenta, sin
     ejecutar nada, los entrenamientos, los ajustes de estimador y las
@@ -960,6 +1006,11 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     La regla 2 de las instrucciones remite a los remedios del `CostNotice`.
   - Con candidatos explícitos el agente no ve la cuenta antes de llamar a
     `compare`: llega en su respuesta. Verla antes es 4b (D3).
+  - Revisión: el baseline se queda en los desgloses con 0, para que se vea
+    que está incluido. Construir todos los planes de los candidatos antes
+    de contar (un candidato con plan inválido cuenta hoy el coste de su
+    forecaster sin ejecutar nada) va con 4b, que necesita la cuenta antes
+    de ejecutar también con candidatos explícitos.
 
 ## Decisiones abiertas
 

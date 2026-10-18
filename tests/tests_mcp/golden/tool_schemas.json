@@ -711,7 +711,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Keyword arguments of the estimator, e.g. {'n_estimators': 200}. A foundation model only takes context_length, cross_learning, point_estimate, max_horizon, add_calendar_features and n_fourier_terms. Null for the defaults of the estimator."
+              "description": "Keyword arguments of the estimator, e.g. {'n_estimators': 200}. A foundation model only takes context_length, cross_learning, point_estimate, max_horizon, add_calendar_features and n_fourier_terms. Null for the defaults of the estimator. Omitted while the estimator changes (passed, or chosen again for another forecaster), those of the plan are left out, since they were written for the previous estimator, and a notice names them."
             },
             "steps": {
               "description": "Forecast horizon: number of steps ahead to predict, from 1 to the length of the longest series (12 for a year of monthly data).",

@@ -415,6 +415,13 @@ class PlanEditsDiscardedWarning(UserWarning):
     lost. The warning names those fields; its text is also kept in the
     `warnings` of the refined plan.
 
+    It is warned too when the refined plan leaves out decisions of the plan
+    that its forecaster or its estimator cannot take: the `estimator_kwargs`
+    written for another estimator, or the differentiation, the calendar
+    features and the target transformer of an autoregressive plan switched
+    to `ForecasterStats`, `ForecasterFoundation` or the baseline. The
+    warning names each value and whether the user or the rules chose it.
+
     `compare()` without `candidates` warns it too when the plan of its
     `CVResult` runs as the row `'Strategy plan'`, which `plan()` rebuilds
     in the same way: the edits it would not build do not run.

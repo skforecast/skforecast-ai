@@ -108,6 +108,8 @@ The main changes in this release are:
 
 + Fixed an issue in [<code>ForecastingAssistant.plan()</code>][assistant] where the default metrics of a target that crosses zero with negative values (profits, temperatures) included MAPE, which reached values such as 3e13. MAPE is now left out when any series touches or crosses zero; asked for in `metric`, it comes with a warning, and the MCP server says it has no meaning instead of asking to multiply it by 100 ([#104](https://github.com/skforecast/skforecast-ai/pull/104)).
 
++ Fixed an issue in [<code>ForecastingAssistant.refine_plan()</code>][assistant] where switching to `ForecasterStats`, `ForecasterFoundation` or the baseline dropped the differentiation, calendar features and target transformer without a warning, as a new `estimator` did with the `estimator_kwargs` of the previous one. A `PlanEditsDiscardedWarning` (a notice in the MCP server) now names what is left out and whether you or the rules chose it ([#107](https://github.com/skforecast/skforecast-ai/pull/107)).
+
 
 ## 0.4.2 <small>Oct 12, 2026</small> { id="0.4.2" }
 

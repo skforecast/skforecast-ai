@@ -90,6 +90,7 @@ from .schemas import (
     ForecastingProfile,
     ForecastPlan,
     FutureExogFile,
+    OVERRIDE_NAMES,
 )
 from .exceptions import (
     DataContentError,
@@ -576,6 +577,113 @@ def discarded_plan_edits(
             fields.append(f"forecaster_kwargs['{key}']")
 
     return fields
+
+
+# Decisions about the data rather than about the forecaster: one the rules
+# made is named by `dropped_plan_decisions` when the refined forecaster
+# cannot take it. Lags, window features and the estimator belong to the
+# forecaster being replaced, and are named only when the user chose them.
+_DATA_DECISIONS = (
+    "use_exog",
+    "differentiation",
+    "calendar_features",
+    "target_transformer",
+    "dropna_from_series",
+)
+
+
+def _is_neutral(value: object) -> bool:
+    """
+    Whether the value of a decision, as `plan_override_value` returns it,
+    leaves the plan as if the decision did not exist: no differencing, no
+    calendar features, no transformer, no exogenous variables, no dropped
+    rows, no keyword arguments.
+    """
+    return value is None or value is False or value == "none" or value in ([], {})
+
+
+def dropped_plan_decisions(
+    plan: ForecastPlan,
+    refined: ForecastPlan,
+    explicit_keys: set[str],
+    discarded: list[str],
+) -> str | None:
+    """
+    Text of the warning that names the decisions of a plan that
+    `refine_plan()` leaves out of the refined plan, and why.
+
+    A decision is named when the plan holds a value with an effect (not
+    None, `False`, `'none'` or an empty list or dict) that the refined plan
+    does not hold, and either the user chose it (`plan.overridden_fields`)
+    or the rules made a decision about the data (`use_exog`,
+    `differentiation`, `calendar_features`, `target_transformer`,
+    `dropna_from_series`) that the refined forecaster cannot take. A value
+    that the rules decide again for the refined forecaster is not named,
+    nor a key overridden in the call, nor one already named as an edit by
+    hand in `discarded`.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan received by `refine_plan()`.
+    refined : ForecastPlan
+        Plan returned by `refine_plan()`.
+    explicit_keys : set of str
+        Keys overridden in the call.
+    discarded : list of str
+        Fields of `plan` named as edited by hand (`discarded_plan_edits`).
+
+    Returns
+    -------
+    message : str, None
+        Text of the warning, or None when nothing is left out.
+    """
+
+    edited = {
+        _FIELD_OVERRIDES.get(field)
+        or _FORECASTER_KWARG_OVERRIDES.get(field[len("forecaster_kwargs['"):-2])
+        for field in discarded
+    }
+    not_taken: list[str] = []
+    kwargs_text = None
+    for name in OVERRIDE_NAMES:
+        if name in ("forecaster", "metric") or name in explicit_keys or name in edited:
+            continue
+        value = plan_override_value(plan, name)
+        if _is_neutral(value) or value == plan_override_value(refined, name):
+            continue
+        chosen = name in plan.overridden_fields
+        if not chosen:
+            # A decision of the rules is decided again when the refined
+            # forecaster takes it; it is left out only when it cannot.
+            takes = (
+                refined.task_type != "baseline"
+                if name == "use_exog"
+                else refined.forecaster in AUTOREG_FORECASTERS
+            )
+            if name not in _DATA_DECISIONS or takes:
+                continue
+        chosen_by = f"(chosen by the {'user' if chosen else 'rules'})"
+        if name == "estimator_kwargs" and refined.estimator is not None:
+            kwargs_text = (
+                f"refine_plan() left out the estimator_kwargs of the plan, "
+                f"{value!r} {chosen_by}, written for {plan.estimator}: "
+                f"{refined.estimator} starts from its defaults; pass "
+                f"`estimator_kwargs` to set its own."
+            )
+        else:
+            not_taken.append(f"{name}={value!r} {chosen_by}")
+
+    texts = []
+    if not_taken:
+        texts.append(
+            f"refine_plan() left out the values of the plan that "
+            f"{refined.forecaster} does not take: {', '.join(not_taken)}."
+        )
+    if kwargs_text is not None:
+        texts.append(kwargs_text)
+
+    return " ".join(texts) or None
 
 
 def resolve_interval_method(task_type: str, interval: list[float] | None) -> str | None:

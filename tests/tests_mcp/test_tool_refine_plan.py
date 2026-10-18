@@ -147,7 +147,8 @@ def test_tool_refine_plan_overrides_given_as_json_text(tmp_path):
 def test_tool_refine_plan_announces_model_download(tmp_path, monkeypatch):
     """
     Test that refining a plan to a foundation model whose weights are not in
-    the local Hugging Face cache announces the download once.
+    the local Hugging Face cache announces the download once, before the
+    notice of the decisions the foundation model does not take.
     """
     monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "hf"))
     monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
@@ -176,7 +177,8 @@ def test_tool_refine_plan_announces_model_download(tmp_path, monkeypatch):
     )
 
     assert [(n["source"], n["category"]) for n in refined["notices"]] == [
-        ("plan", "ModelDownloadNotice")
+        ("plan", "ModelDownloadNotice"),
+        ("plan", "PlanEditsDiscardedWarning"),
     ]
     assert "'soda-inria/tabicl'" in refined["notices"][0]["message"]
     assert [(n["source"], n["category"]) for n in again["notices"]] == [
@@ -202,3 +204,61 @@ def test_tool_refine_plan_invalid_argument_when_steps_longer_than_the_series(
 
     assert (error["code"], error["field"]) == ("invalid_argument", "overrides.steps")
     assert error["details"] == {"steps": 500, "longest_series": 204}
+
+
+@pytest.mark.parametrize(
+    "plan_arguments, overrides, cleared, expected",
+    [
+        (
+            {"estimator": "LGBMRegressor", "estimator_kwargs": {"n_estimators": 50}},
+            {"estimator": "Ridge"},
+            "estimator_kwargs",
+            "refine_plan() left out the estimator_kwargs of the plan, "
+            "{'n_estimators': 50} (chosen by the user), written for "
+            "LGBMRegressor: Ridge starts from its defaults; pass "
+            "`estimator_kwargs` to set its own.",
+        ),
+        (
+            {"differentiation": 1, "calendar_features": [], "target_transformer": "none"},
+            {"forecaster": "ForecasterStats"},
+            "differentiation",
+            "refine_plan() left out the values of the plan that ForecasterStats "
+            "does not take: differentiation=1 (chosen by the user).",
+        ),
+    ],
+    ids=["estimator_kwargs", "differentiation"],
+)
+def test_tool_refine_plan_notice_names_left_out_decisions(
+    tmp_path, plan_arguments, overrides, cleared, expected
+):
+    """
+    Test that the decisions of the plan that the refined plan leaves out,
+    the `estimator_kwargs` of the previous estimator or a differentiation
+    order that ForecasterStats does not take, are named in a notice of
+    source `plan`, with the text of the Python API, and that the same
+    refinement with that key set to null, which asks to leave it out, has
+    no such notice.
+    """
+    server, _, _, _, plan_id = _planned(tmp_path, **plan_arguments)
+
+    refined = content_of(
+        call(server, "refine_plan", {"plan_id": plan_id, "overrides": overrides})
+    )
+    cleared_plan = content_of(
+        call(
+            server,
+            "refine_plan",
+            {"plan_id": plan_id, "overrides": {**overrides, cleared: None}},
+        )
+    )
+
+    notices = [
+        (notice["source"], notice["message"])
+        for notice in refined["notices"]
+        if notice["category"] == "PlanEditsDiscardedWarning"
+    ]
+    assert notices == [("plan", expected)]
+    assert not any(
+        notice["category"] == "PlanEditsDiscardedWarning"
+        for notice in cleared_plan["notices"]
+    )
