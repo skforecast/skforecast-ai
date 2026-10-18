@@ -13,7 +13,10 @@ from skforecast.exceptions import IgnoredArgumentWarning
 from skforecast.model_selection import TimeSeriesFold
 
 from skforecast_ai import ForecastingAssistant, LLMRequiredError
-from skforecast_ai.exceptions import InvalidInputError
+from skforecast_ai.exceptions import (
+    EstimatorNotRecommendedWarning,
+    InvalidInputError,
+)
 from skforecast_ai.recommendation.backtesting import _compute_min_train_size
 from skforecast_ai.schemas import CV_OVERRIDE_NAMES, CVParams, CVResult
 from tests.fixtures_csv_dialect import df_dialect, write_dialect
@@ -1745,9 +1748,15 @@ def test_create_cv_output_when_dates_with_time_zone_do_not_start_at_midnight(
     )
 
     result = assistant.create_cv(profile, plan)
-    backtest = assistant.backtest(
-        data=data, cv=result, profile=profile, plan=plan, show_progress=False
+    warn_msg = re.escape(
+        "The estimator of the plan, 'Ridge' (chosen by the user), is not the "
+        "one the rules recommend for ForecasterRecursive on these data: "
+        "'LGBMRegressor'."
     )
+    with pytest.warns(EstimatorNotRecommendedWarning, match=warn_msg):
+        backtest = assistant.backtest(
+            data=data, cv=result, profile=profile, plan=plan, show_progress=False
+        )
 
     assert profile.data_profile.start_date == f"{start}:00"
     assert result.cv_config["initial_train_size"] == initial_train_size

@@ -12,6 +12,7 @@ from skforecast.exceptions import MissingValuesWarning
 
 from skforecast_ai import ForecastingAssistant, ForecastResult
 from skforecast_ai.exceptions import (
+    EstimatorNotRecommendedWarning,
     ForecastExecutionError,
     InvalidInputError,
     InvalidInputTypeError,
@@ -54,6 +55,20 @@ from tests.fixtures_assistant import (
     df_multi_long_three_series,
     series_single,
     series_unnamed,
+)
+
+# Warnings of forecast() for an estimator chosen by the user that is not the
+# one of the rules: LGBMRegressor on one short series, Ridge on the pooled
+# observations of several series.
+LGBM_RECURSIVE_WARNING = re.escape(
+    "The estimator of the plan, 'LGBMRegressor' (chosen by the user), is not "
+    "the one the rules recommend for ForecasterRecursive on these data: "
+    "'Ridge'."
+)
+RIDGE_MULTISERIES_WARNING = re.escape(
+    "The estimator of the plan, 'Ridge' (chosen by the user), is not the one "
+    "the rules recommend for ForecasterRecursiveMultiSeries on these data: "
+    "'LGBMRegressor'."
 )
 
 
@@ -200,14 +215,17 @@ def test_forecast_output_when_exog_columns_named_like_calendar_features():
     features were skipped.
     """
     assistant = ForecastingAssistant()
-    result = assistant.forecast(
-        data        = df_calendar_named_exog,
-        target      = "sales",
-        date_column = "date",
-        steps       = 5,
-        test_size   = 5,
-        estimator   = "LGBMRegressor",
-    )
+    with pytest.warns(
+        EstimatorNotRecommendedWarning, match=LGBM_RECURSIVE_WARNING
+    ):
+        result = assistant.forecast(
+            data        = df_calendar_named_exog,
+            target      = "sales",
+            date_column = "date",
+            steps       = 5,
+            test_size   = 5,
+            estimator   = "LGBMRegressor",
+        )
 
     assert isinstance(result, ForecastResult)
     assert result.plan.forecaster_kwargs["calendar_features"] == {
@@ -260,15 +278,18 @@ def test_forecast_output_when_long_format_multiindex(with_profile, ids):
         data_flat = data_flat.assign(series=data_flat["series"].map(ids))
         exog_flat = exog_flat.assign(series=exog_flat["series"].map(ids))
     assistant = ForecastingAssistant()
-    expected = assistant.forecast(
-        data             = data_flat,
-        target           = "value",
-        date_column      = "date",
-        series_id_column = "series",
-        steps            = 7,
-        estimator        = "Ridge",
-        exog             = exog_flat,
-    )
+    with pytest.warns(
+        EstimatorNotRecommendedWarning, match=RIDGE_MULTISERIES_WARNING
+    ):
+        expected = assistant.forecast(
+            data             = data_flat,
+            target           = "value",
+            date_column      = "date",
+            series_id_column = "series",
+            steps            = 7,
+            estimator        = "Ridge",
+            exog             = exog_flat,
+        )
     data = data_flat.set_index(["series", "date"])
     if with_profile:
         profile = assistant.profile(data=data, target="value")
@@ -277,9 +298,12 @@ def test_forecast_output_when_long_format_multiindex(with_profile, ids):
     else:
         kwargs = {"target": "value", "steps": 7, "estimator": "Ridge"}
 
-    result = assistant.forecast(
-        data=data, exog=exog_flat.set_index(["series", "date"]), **kwargs
-    )
+    with pytest.warns(
+        EstimatorNotRecommendedWarning, match=RIDGE_MULTISERIES_WARNING
+    ):
+        result = assistant.forecast(
+            data=data, exog=exog_flat.set_index(["series", "date"]), **kwargs
+        )
 
     assert result.plan.use_exog is True
     assert result.code == expected.code
@@ -647,8 +671,11 @@ def test_forecast_UserWarning_when_future_exog_missing_value_and_lightgbm():
         "such as '2023-04-12')."
     )
     # skforecast warns too, from the executed script.
-    with pytest.warns(
-        MissingValuesWarning, match=re.escape("`exog` has missing values.")
+    with (
+        pytest.warns(
+            MissingValuesWarning, match=re.escape("`exog` has missing values.")
+        ),
+        pytest.warns(EstimatorNotRecommendedWarning, match=LGBM_RECURSIVE_WARNING),
     ):
         with pytest.warns(UserWarning, match=warn_msg) as record:
             result = ForecastingAssistant().forecast(
@@ -1313,13 +1340,21 @@ def test_forecast_UserWarning_when_multiseries_final_rows_without_target(estimat
         "2012-05-02) and forecasts the dates after 2012-04-29. Drop those rows to "
         "avoid this warning."
     )
-    with pytest.warns(UserWarning, match=warn_msg):
+    # Ridge is not the estimator of the rules for the pooled observations.
+    not_recommended = (
+        pytest.warns(
+            EstimatorNotRecommendedWarning, match=RIDGE_MULTISERIES_WARNING
+        )
+        if estimator == "Ridge" else contextlib.nullcontext()
+    )
+    with not_recommended, pytest.warns(UserWarning, match=warn_msg):
         result = assistant.forecast(
             data=data, target=target, steps=7, estimator=estimator
         )
-    expected = assistant.forecast(
-        data=df_items_sales_wide, target=target, steps=7, estimator=estimator
-    )
+    with not_recommended:
+        expected = assistant.forecast(
+            data=df_items_sales_wide, target=target, steps=7, estimator=estimator
+        )
 
     pd.testing.assert_frame_equal(result.predictions, expected.predictions)
 
@@ -1362,7 +1397,10 @@ def test_forecast_UserWarning_when_last_window_missing_value_and_lightgbm():
         "values; check that they are meant to be missing."
     )
     # skforecast warns too, when profiling and from the executed script.
-    with pytest.warns(MissingValuesWarning):
+    with (
+        pytest.warns(MissingValuesWarning),
+        pytest.warns(EstimatorNotRecommendedWarning, match=LGBM_RECURSIVE_WARNING),
+    ):
         with pytest.warns(UserWarning, match=warn_msg) as record:
             result = ForecastingAssistant().forecast(
                 data=data, target="x", steps=3, estimator="LGBMRegressor"
@@ -1395,6 +1433,7 @@ def test_forecast_output_when_evaluation_mode_and_last_window_missing_value():
     with (
         pytest.warns(UserWarning, match="reads missing values of the target") as record,
         pytest.warns(MissingValuesWarning),
+        pytest.warns(EstimatorNotRecommendedWarning, match=LGBM_RECURSIVE_WARNING),
     ):
         result = ForecastingAssistant().forecast(
             data=data, target="x", steps=3, test_size=3, estimator="LGBMRegressor"
@@ -1473,7 +1512,10 @@ def test_forecast_UserWarning_when_evaluation_training_ends_with_missing_and_lig
         "meant to be missing."
     )
     # skforecast warns too, when profiling and from the executed script.
-    with pytest.warns(MissingValuesWarning):
+    with (
+        pytest.warns(MissingValuesWarning),
+        pytest.warns(EstimatorNotRecommendedWarning, match=LGBM_RECURSIVE_WARNING),
+    ):
         with pytest.warns(UserWarning, match=warn_msg):
             result = ForecastingAssistant().forecast(
                 data=data, target="x", steps=12, test_size=12,
@@ -1820,7 +1862,10 @@ def test_forecast_evaluation_mode_when_last_training_date_absent():
         + "LGBMRegressor treats them as missing values; check that they are "
         "meant to be missing."
     )
-    with pytest.warns(MissingValuesWarning):
+    with (
+        pytest.warns(MissingValuesWarning),
+        pytest.warns(EstimatorNotRecommendedWarning, match=LGBM_RECURSIVE_WARNING),
+    ):
         with pytest.warns(UserWarning, match=warn_msg):
             result = ForecastingAssistant().forecast(
                 data=data, target="x", steps=12, test_size=12,
@@ -3380,3 +3425,58 @@ def test_forecast_InvalidInputError_when_target_list_and_multiindex():
         ForecastingAssistant().forecast(data=data, target=["value"], steps=3)
 
     assert exc_info.value.field == "target"
+
+
+# =============================================================================
+# Tests: estimator that is not the one of the rules
+# =============================================================================
+def test_forecast_EstimatorNotRecommendedWarning_when_plan_refined_to_another_estimator():
+    """
+    Test that forecast() of a plan refined to LGBMRegressor, when the rules
+    recommend Ridge for the 100 observations of the series, warns
+    EstimatorNotRecommendedWarning once, with the text that names both
+    estimators and says that the user chose it, and still runs that plan. The
+    warning points at the call of the user.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.refine_plan(
+        profile, assistant.plan(profile, steps=5), estimator="LGBMRegressor"
+    )
+
+    with pytest.warns(
+        EstimatorNotRecommendedWarning, match=LGBM_RECURSIVE_WARNING
+    ) as record:
+        result = assistant.forecast(
+            data=df_single, profile=profile, plan=plan, test_size=5
+        )
+
+    filenames = [
+        warning.filename for warning in record
+        if issubclass(warning.category, EstimatorNotRecommendedWarning)
+    ]
+    assert filenames == [__file__]
+    assert result.plan.estimator == "LGBMRegressor"
+
+
+def test_forecast_does_not_warn_EstimatorNotRecommendedWarning_when_plan_of_the_rules():
+    """
+    Test that forecast() of the plan of the rules (Ridge for 100
+    observations), and of the same plan refined to the same estimator, does
+    not warn EstimatorNotRecommendedWarning.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5)
+    same_estimator = assistant.refine_plan(profile, plan, estimator="Ridge")
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", category=EstimatorNotRecommendedWarning)
+        results = [
+            assistant.forecast(
+                data=df_single, profile=profile, plan=one_plan, test_size=5
+            )
+            for one_plan in (plan, same_estimator)
+        ]
+
+    assert [result.plan.estimator for result in results] == ["Ridge", "Ridge"]

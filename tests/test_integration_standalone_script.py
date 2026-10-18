@@ -15,6 +15,7 @@ from skforecast.model_selection import TimeSeriesFold
 
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai._utils import load_exog
+from skforecast_ai.exceptions import EstimatorNotRecommendedWarning
 
 from tests.fixtures_assistant import (
     df_crossing_zero,
@@ -43,6 +44,20 @@ from tests.fixtures_csv_dialect import (
 )
 from tests.fixtures_datasets import df_h2o, df_items_sales_long
 from tests.fixtures_future_exog import data_long, exog_long
+
+
+# Warnings of forecast() for an estimator chosen by the user that is not the
+# one of the rules.
+RIDGE_MULTISERIES_WARNING = re.escape(
+    "The estimator of the plan, 'Ridge' (chosen by the user), is not the one "
+    "the rules recommend for ForecasterRecursiveMultiSeries on these data: "
+    "'LGBMRegressor'."
+)
+LGBM_RECURSIVE_WARNING = re.escape(
+    "The estimator of the plan, 'LGBMRegressor' (chosen by the user), is not "
+    "the one the rules recommend for ForecasterRecursive on these data: "
+    "'Ridge'."
+)
 
 
 def _run_standalone(script: str, workdir) -> pd.DataFrame:
@@ -605,12 +620,18 @@ def test_standalone_script_matches_forecast_when_long_format_future_exog_day_fir
         series_id_column = "series",
         date_format      = profile.data_profile.date_format,
     )
-    executed = assistant.forecast(
-        data=csv_path, steps=7, profile=profile, estimator="Ridge", exog=future
-    )
-    expected = assistant.forecast(
-        data=iso_path, steps=7, estimator="Ridge", exog=exog, **kwargs
-    )
+    with pytest.warns(
+        EstimatorNotRecommendedWarning, match=RIDGE_MULTISERIES_WARNING
+    ):
+        executed = assistant.forecast(
+            data=csv_path, steps=7, profile=profile, estimator="Ridge", exog=future
+        )
+    with pytest.warns(
+        EstimatorNotRecommendedWarning, match=RIDGE_MULTISERIES_WARNING
+    ):
+        expected = assistant.forecast(
+            data=iso_path, steps=7, estimator="Ridge", exog=exog, **kwargs
+        )
 
     assert profile.data_profile.date_format == "%d/%m/%Y"
     assert (
@@ -762,7 +783,10 @@ def test_standalone_script_matches_forecast_when_csv_last_window_has_missing_val
     # skforecast warns about the missing value when the lags are selected.
     with pytest.warns(MissingValuesWarning):
         code = assistant.forecast_code(**kwargs).code
-    with pytest.warns(MissingValuesWarning):
+    with (
+        pytest.warns(MissingValuesWarning),
+        pytest.warns(EstimatorNotRecommendedWarning, match=LGBM_RECURSIVE_WARNING),
+    ):
         with pytest.warns(
             UserWarning, match=re.escape("reads missing values of the target")
         ):
@@ -870,9 +894,12 @@ def test_standalone_script_matches_forecast_when_long_format_multiindex(tmp_path
     """
     data = data_long.set_index(["series", "date"])
     exog = exog_long.set_index(["series", "date"])
-    executed = ForecastingAssistant().forecast(
-        data=data, target="value", steps=7, estimator="Ridge", exog=exog
-    )
+    with pytest.warns(
+        EstimatorNotRecommendedWarning, match=RIDGE_MULTISERIES_WARNING
+    ):
+        executed = ForecastingAssistant().forecast(
+            data=data, target="value", steps=7, estimator="Ridge", exog=exog
+        )
     data.to_csv(tmp_path / "data.csv")
     exog.to_csv(tmp_path / "exog_future.csv")
 

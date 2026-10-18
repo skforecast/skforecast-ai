@@ -3,6 +3,7 @@
 import ast
 import json
 import re
+import warnings
 from types import SimpleNamespace
 
 import numpy as np
@@ -36,6 +37,7 @@ from skforecast_ai import (
     CompareProgress,
     ComparisonResult,
     DataNotFoundError,
+    EstimatorNotRecommendedWarning,
     ForecastingAssistant,
     InvalidInputError,
     InvalidInputTypeError,
@@ -594,6 +596,35 @@ def test_compare_propagates_interval_to_candidates():
     for bt in result.candidates.values():
         assert bt.plan.interval == [0.1, 0.9]
         assert bt.plan.interval_method == "bootstrapping"
+
+
+def test_compare_does_not_warn_EstimatorNotRecommendedWarning_for_candidates():
+    """
+    Test that compare() with explicit candidates that run LGBMRegressor, which
+    the rules do not recommend for the 100 observations of the series (Ridge),
+    runs them without warning EstimatorNotRecommendedWarning: comparing
+    estimators is the point of the comparison.
+    """
+    candidates = [
+        ("lgbm", {"estimator": "LGBMRegressor", "lags": [1, 2, 3]}),
+        ("ridge", {"estimator": "Ridge", "lags": [1, 2, 3]}),
+    ]
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", category=EstimatorNotRecommendedWarning)
+        result = assistant.compare(
+            data=df_single,
+            cv=_single_cv(),
+            target="sales",
+            date_column="date",
+            candidates=candidates,
+            show_progress=False,
+            baseline=False,
+        )
+
+    assert sorted(result.candidates) == ["lgbm", "ridge"]
+    assert result.candidates["lgbm"].plan.estimator == "LGBMRegressor"
+    assert list(result.failures) == []
 
 
 def test_compare_output_when_multi_series_wide():
@@ -3245,12 +3276,20 @@ def test_compare_strategy_plan_row_when_plan_was_refined(monkeypatch):
             profile       = profile_h2o,
             show_progress = False,
         )
-    backtest = assistant.backtest(
-        data    = df_h2o,
-        cv      = cv_h2o_refined,
-        profile = profile_h2o,
-        plan    = plan_h2o_refined,
+    # The plan refined to LGBMRegressor is not the estimator of the rules for
+    # h2o: backtest() warns, the row of the comparison does not.
+    warn_msg = re.escape(
+        "The estimator of the plan, 'LGBMRegressor' (chosen by the user), is "
+        "not the one the rules recommend for ForecasterRecursive on these "
+        "data: 'Ridge'."
     )
+    with pytest.warns(EstimatorNotRecommendedWarning, match=warn_msg):
+        backtest = assistant.backtest(
+            data    = df_h2o,
+            cv      = cv_h2o_refined,
+            profile = profile_h2o,
+            plan    = plan_h2o_refined,
+        )
 
     assert list(result.results["name"]) == [
         "ForecasterRecursive",

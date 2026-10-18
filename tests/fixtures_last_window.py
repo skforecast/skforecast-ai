@@ -264,6 +264,9 @@ plan_h2o_ridge = _assistant.plan(_profile_h2o, steps=12)
 plan_h2o_lgbm = _assistant.plan(
     _profile_h2o, steps=12, estimator="LGBMRegressor"
 )
+plan_h2o_forest = _assistant.plan(
+    _profile_h2o, steps=12, estimator="RandomForestRegressor"
+)
 plan_h2o_direct = _assistant.plan(
     _profile_h2o, steps=12, forecaster="ForecasterDirect"
 )
