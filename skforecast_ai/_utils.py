@@ -48,6 +48,7 @@ from ._dates import (
     row_dates,
     training_end,
 )
+from .recommendation.missing_values import closed_days_remedy
 from .profiling.data_profile import (
     COMPACT_DATE_FORMAT,
     _compact_dates,
@@ -2447,15 +2448,27 @@ def _check_evaluated_target(
             return
         finally:
             cv.verbose = original_verbose
-        positions = sorted({
-            position
+        bounds = [
+            (int(start), int(end))
             for start, end in zip(
                 folds["test_start_with_gap"], folds["test_end_with_gap"]
             )
-            for position in range(int(start), int(end))
+        ]
+        positions = sorted({
+            position for start, end in bounds for position in range(start, end)
         })
         evaluated = y.iloc[positions]
-        where = "in the test folds"
+        # The folds that hold a missing value, numbered from 1 in the order
+        # the backtest runs them.
+        absent = np.flatnonzero(y.isna().to_numpy())
+        with_missing = [
+            number for number, (start, end) in enumerate(bounds, start=1)
+            if ((absent >= start) & (absent < end)).any()
+        ]
+        where = (
+            f"in {_test_folds_phrase(with_missing, len(bounds))}"
+            if with_missing else ""
+        )
     elif end_train is not None and steps is not None:
         end = training_end(end_train, getattr(y.index, "tz", None))
         evaluated = y.loc[y.index > end].iloc[:steps]
@@ -2481,8 +2494,7 @@ def _check_evaluated_target(
             f"({shown}), counting the missing timestamps that asfreq() "
             f"restores: all of them on {days}, when the target never has a "
             f"value. skforecast cannot compute the metrics on them, whatever "
-            f"the estimator. If the business is closed on {days}, fill them "
-            f"with 0 in the data, after asking the user; otherwise, impute the "
+            f"the estimator. {closed_days_remedy(days)}; otherwise, impute the "
             f"target, or evaluate on dates without missing values.",
             field = "data",
         )
@@ -2493,6 +2505,23 @@ def _check_evaluated_target(
         f"the target, or evaluate on dates without missing values.",
         field = "data",
     )
+
+
+def _test_folds_phrase(numbers: list[int], n_folds: int) -> str:
+    """
+    Name test folds by their numbers, from 1: `'test fold 4 of 6'`,
+    `'test folds 2 and 4 of 6'`, up to 5 numbers and then `'and N more'`,
+    or `'all 6 test folds'`.
+    """
+    if len(numbers) == n_folds > 1:
+        return f"all {n_folds} test folds"
+    shown = [str(number) for number in numbers[:5]]
+    if len(numbers) > 5:
+        shown.append(f"{len(numbers) - 5} more")
+    if len(shown) == 1:
+        return f"test fold {shown[0]} of {n_folds}"
+
+    return f"test folds {', '.join(shown[:-1])} and {shown[-1]} of {n_folds}"
 
 
 def long_training_message(

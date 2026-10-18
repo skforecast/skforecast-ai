@@ -394,16 +394,19 @@ def test_tool_create_cv_missing_values_notice_with_the_warning_of_the_library(
             source   = "data",
             category = "MissingValuesNotice",
             message  = (
-                "The missing values of the target are data of the user: do "
-                "not fill in, drop or write any of them yourself, in their "
-                "file or in a copy of it, unless they asked for exactly that. "
-                "Ask before you do. Without touching the data, an estimator "
-                "that accepts missing values (such as 'LGBMRegressor', with "
-                "`refine_plan` and a new `create_cv`) lets `backtest` run on "
-                "every fold: if you switch to it, say in your answer that you "
-                "changed the estimator and why. If you forecast without a "
-                "backtest, say in your answer that the forecast has no "
-                "measure of error and why."
+                "The missing values of the target are data of the user: do not fill "
+                "in, drop or write any of them yourself, in their file or in a copy "
+                "of it, unless they asked for exactly that. Ask before you do. "
+                "`backtest` checks every test fold before running anything and names "
+                "the dates that make it fail: run it before changing the plan or "
+                "asking the user about the values. Without touching the data, "
+                "switching with `refine_plan` and a new `create_cv` to an estimator "
+                "that accepts missing values (such as 'RandomForestRegressor') "
+                "avoids the error of a fold predicted from a missing value, not of a "
+                "fold that holds one: if you switch to it, say in your answer that "
+                "you changed the estimator and why. If you forecast without a "
+                "backtest, say in your answer that the forecast has no measure of "
+                "error and why."
             ),
             count    = 1,
         ),
@@ -425,28 +428,32 @@ def test_tool_create_cv_missing_values_notice_with_the_warning_of_the_library(
             source   = "runtime",
             category = "UserWarning",
             message  = (
-                "The target has missing values or missing timestamps "
-                "(asfreq() restores them as missing values), and "
-                "ForecasterRecursive with Ridge cannot predict from a "
-                "missing value: `backtest()` of this plan raises when a test "
-                "fold is predicted from one, naming its dates. "
-                "`dropna_from_series` only drops them from the training "
-                "data. Impute the target, or choose an estimator that "
-                "accepts missing values (for example 'LGBMRegressor') to "
-                "backtest every fold."
+                "The target has missing timestamps (asfreq() restores them as "
+                "missing values), and `backtest()` checks every test fold before "
+                "running: it raises, naming the dates, when a test fold holds one, "
+                "whatever the estimator, since no metric is computed on it; and when "
+                "a test fold is predicted from one, since ForecasterRecursive with "
+                "Ridge cannot predict from a missing value. `dropna_from_series` "
+                "only drops the training rows that read one, and a training window "
+                "left without rows raises too. An estimator that accepts missing "
+                "values (such as 'RandomForestRegressor') avoids the error of a fold "
+                "predicted from a missing value, not of a fold that holds one. "
+                "Impute the target to backtest every fold."
             ),
             count    = 1,
         ),
     ]
 
 
-def test_tool_create_cv_no_missing_values_notice_when_estimator_accepts_them(
+def test_tool_create_cv_missing_values_notice_without_estimator_when_estimator_accepts_them(
     tmp_path,
 ):
     """
-    Test that the same file with missing months gives no notice, neither
-    of the server nor of the library, when the estimator of the plan
-    accepts missing values.
+    Test that the same file with missing months, with an estimator that
+    accepts missing values, still gives the notice of the server and the
+    warning of the library: a missing value inside a test fold fails with
+    any estimator. Neither offers another estimator (V16: the notice of
+    0.4 promised that LGBMRegressor let every fold run).
     """
     path = write_csv(tmp_path, "gaps.csv", df_h2o_backtest_gaps_csv)
     server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
@@ -456,7 +463,35 @@ def test_tool_create_cv_no_missing_values_notice_when_estimator_accepts_them(
         call(server, "create_cv", {"plan_id": plan_id, "initial_train_size": 84})
     )
 
-    assert result["notices"] == []
+    assert [ToolNotice(**n) for n in result["notices"]] == [
+        ToolNotice(
+            source   = "data",
+            category = "MissingValuesNotice",
+            message  = (
+                "The missing values of the target are data of the user: do "
+                "not fill in, drop or write any of them yourself, in their "
+                "file or in a copy of it, unless they asked for exactly that. "
+                "Ask before you do. `backtest` checks every test fold before "
+                "running anything and names the dates that make it fail: run "
+                "it before changing the plan or asking the user about the "
+                "values. If you forecast without a backtest, say in your "
+                "answer that the forecast has no measure of error and why."
+            ),
+            count    = 1,
+        ),
+        ToolNotice(
+            source   = "runtime",
+            category = "UserWarning",
+            message  = (
+                "The target has missing timestamps (asfreq() restores them as "
+                "missing values), and `backtest()` checks every test fold before "
+                "running: it raises, naming the dates, when a test fold holds one, "
+                "whatever the estimator, since no metric is computed on it. Impute "
+                "the target to backtest every fold."
+            ),
+            count    = 1,
+        ),
+    ]
 
 
 def test_tool_create_cv_cost_and_notices_of_inference_windows(tmp_path, monkeypatch):

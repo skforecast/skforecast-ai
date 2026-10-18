@@ -17,6 +17,7 @@ from skforecast_ai import ForecastingAssistant
 from skforecast_ai._utils import load_exog
 
 from tests.fixtures_assistant import (
+    df_crossing_zero,
     df_multi_long,
     df_multi_long_integer_ids,
     df_multi_long_numeric_ids,
@@ -969,6 +970,44 @@ def test_standalone_scripts_match_forecast_and_backtest_when_metric_override(
     assert backtest_code == backtest.code
     assert list(forecast.metrics.columns) == ["series", "MSE", "MedAE"]
     assert list(backtest.metrics.columns) == metric
+    _assert_same_predictions(_run_standalone(forecast_code, tmp_path), forecast.predictions)
+    np.testing.assert_allclose(
+        _run_standalone(backtest_code, tmp_path)["pred"].to_numpy(),
+        backtest.predictions["pred"].to_numpy(),
+        rtol=1e-6,
+    )
+
+
+def test_standalone_scripts_match_forecast_and_backtest_when_target_crosses_zero(
+    tmp_path,
+):
+    """
+    Test that, on a target that crosses zero, the scripts of forecast_code()
+    (evaluation mode) and backtest_code() leave MAPE out of the default
+    panel, run as files and give the predictions of forecast() and
+    backtest(), whose metrics are that panel.
+    """
+    csv_path = tmp_path / "profit.csv"
+    df_crossing_zero.to_csv(csv_path, index=False)
+    assistant = ForecastingAssistant()
+    cv = TimeSeriesFold(steps=6, initial_train_size=60, refit=False)
+    inputs = {"data": csv_path, "target": "profit", "date_column": "date"}
+
+    forecast_code = assistant.forecast_code(**inputs, steps=6, test_size=6).code
+    forecast = assistant.forecast(**inputs, steps=6, test_size=6)
+    backtest_code = assistant.backtest_code(**inputs, cv=cv).code
+    backtest = assistant.backtest(**inputs, cv=cv, show_progress=False)
+
+    assert forecast_code == forecast.code
+    assert backtest_code == backtest.code
+    assert "mean_absolute_percentage_error" not in forecast_code
+    assert "mean_absolute_percentage_error" not in backtest_code
+    assert list(forecast.metrics.columns) == ["series", "MAE", "MSE", "MASE"]
+    assert list(backtest.metrics.columns) == [
+        "mean_absolute_error",
+        "mean_squared_error",
+        "mean_absolute_scaled_error",
+    ]
     _assert_same_predictions(_run_standalone(forecast_code, tmp_path), forecast.predictions)
     np.testing.assert_allclose(
         _run_standalone(backtest_code, tmp_path)["pred"].to_numpy(),

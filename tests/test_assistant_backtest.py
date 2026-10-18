@@ -498,7 +498,7 @@ def test_backtest_InvalidInputError_when_lag_reads_missing_timestamp():
     """
     profile = assistant.profile(data=data_h2o_gaps, target="x")
     plan = assistant.plan(profile, steps=12)
-    warn_msg = re.escape("`backtest()` of this plan raises")
+    warn_msg = re.escape("`backtest()` checks every test fold")
     with pytest.warns(UserWarning, match=warn_msg):
         cv = assistant.create_cv(profile, plan, initial_train_size=84, refit=False)
 
@@ -508,7 +508,7 @@ def test_backtest_InvalidInputError_when_lag_reads_missing_timestamp():
         "ForecasterRecursive with Ridge cannot use them, so its predictions "
         "would be missing. "
         "Either they are filled in, or the plan uses an estimator that "
-        "accepts missing values (for example 'LGBMRegressor')."
+        "accepts missing values (such as 'RandomForestRegressor')."
     )
     with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
         assistant.backtest(
@@ -1011,7 +1011,7 @@ def test_backtest_DataContentError_when_time_zone_data_and_cv_date_without_zone(
     cv = TimeSeriesFold(steps=12, initial_train_size="2004-01-01", verbose=False)
 
     err_msg = re.escape(
-        "The target has 1 missing value(s) in the test folds (2008-02-01"
+        "The target has 1 missing value(s) in test fold 5 of 5 (2008-02-01"
     )
     with pytest.warns(MissingValuesWarning):
         with pytest.raises(DataContentError, match=err_msg):

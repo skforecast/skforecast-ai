@@ -25,7 +25,8 @@ The main changes in this release are:
     + `plan()` and `refine_plan()` with `ForecasterDirectMultiVariate`: the estimator is chosen for the dates the series share, so it can be `Ridge` where it was `LGBMRegressor`. Pass `estimator="LGBMRegressor"` to keep the previous one. See **Fixed**.
 
     + `plan()` of wide-format data whose series start or end with missing values may choose another estimator: `DataProfile.n_total_observations` no longer counts those values. See **Changed**.
-    + [<code>ForecastingAssistant.backtest()</code>][assistant] of ForecasterRecursiveMultiSeries raises `insufficient_data` for a series that no fold forecasts, which it left out before. See **Fixed**.
+    + [<code>ForecastingAssistant.backtest()</code>][assistant] of ForecasterRecursiveMultiSeries raises `insufficient_data` for a series that no fold forecasts, which it left out before, and `invalid_argument` when its missing values are the cause. See **Fixed**.
+    + `plan()` of a target that takes values at or around zero, also one that crosses it with negative values, leaves MAPE out of the default metrics and so of the generated script. Pass it in `metric` to compute it anyway. See **Fixed**.
     + The `compare` tool of the MCP server reports in `cost.n_fits` the trainings of all its candidates instead of those of the shared strategy, and its `cost` counts the candidates that fail too. See **Fixed**.
 
     And some code needs to be updated:
@@ -41,12 +42,14 @@ The main changes in this release are:
 
 + New argument `dayfirst` of [<code>ForecastingAssistant.profile()</code>][assistant] (`--dayfirst` or `--monthfirst` in the CLI, `dayfirst` in the `profile` tool of the MCP server) for text dates that read both day first and month first, in a CSV file or the `date_column` of a DataFrame; with dates already parsed, an `IgnoredArgumentWarning` says it does not apply. The profile records the format of the dates as `DataProfile.date_format`. See the [CLI guide][cli-guide] ([#96](https://github.com/skforecast/skforecast-ai/pull/96)).
 
-+ New attribute `cost` of the [<code>ComparisonResult</code>][results] of [<code>ForecastingAssistant.compare()</code>][assistant]: the trainings, estimator fits and inference windows of each candidate and of all of them together, the baseline included, counted before any candidate runs.
++ New attribute `cost` of the [<code>ComparisonResult</code>][results] of [<code>ForecastingAssistant.compare()</code>][assistant]: the trainings, estimator fits and inference windows of each candidate and of all of them together, the baseline included, counted before any candidate runs ([#108](https://github.com/skforecast/skforecast-ai/pull/108)).
 
 + New option `--exog` of the `forecast-code` command of the [CLI][cli], so the script reads the future exogenous values from that file, as `forecast --exog` does, instead of `exog_future.csv`. See the [CLI guide][cli-guide] ([#99](https://github.com/skforecast/skforecast-ai/pull/99)).
 
 
 **Changed**
+
++ skforecast-ai now requires `skforecast>=0.27.0`, whose fixes it relies on instead of working around them ([#106](https://github.com/skforecast/skforecast-ai/pull/106)).
 
 + A target whose values are numbers written with a thousands separator or with `%` (`10,025.1`, `12.5%`) raises a `DataContentError` that names that format, as an error of the data and not of `target`, instead of the hint about missing value markers ([#86](https://github.com/skforecast/skforecast-ai/pull/86)).
 
@@ -58,7 +61,11 @@ The main changes in this release are:
 
 + The error of [<code>ForecastingAssistant.plan()</code>][assistant] for dates without a regular frequency describes their spacing instead of asking for ISO 8601 dates that may already be, and the description of the profile that the LLM and the MCP server read lists the irregular spacing instead of "none detected" ([#96](https://github.com/skforecast/skforecast-ai/pull/96)).
 
++ The errors and warnings about missing values name the estimator that the rules choose for the data (`RandomForestRegressor` below 250 observations, `LGBMRegressor` from 250) instead of always `LGBMRegressor`, put first the advice of a business closed on the missing weekdays, and, in [<code>ForecastingAssistant.backtest()</code>][assistant], name the test folds that hold a missing value ([#105](https://github.com/skforecast/skforecast-ai/pull/105)).
+
 + In wide-format data, each series of `DataProfile.series_lengths` spans the dates from its first to its last value, as in long format, instead of the whole frame, so its `start`, `end` and `length` say where it starts. `n_total_observations`, which sizes the estimator, follows them, and the note on short series names the series in wide and long data ([#103](https://github.com/skforecast/skforecast-ai/pull/103)).
+
++ The `MetricUnitNotice` of the MCP server gives the unit of sMAPE, already a percentage from 0 to 200, as it does for MAPE, a fraction, and [<code>ForecastingAssistant.ask()</code>][assistant] no longer describes MAPE as a percentage ([#104](https://github.com/skforecast/skforecast-ai/pull/104)).
 
 
 **Fixed**
@@ -87,13 +94,19 @@ The main changes in this release are:
 
 + [<code>ForecastingAssistant.create_cv()</code>][assistant] gave no warning of prediction intervals estimated from too few residuals with ForecasterRecursiveMultiSeries or ForecasterDirectMultiVariate, as it does with a single series. It now counts the rows of each series in the first training window, also when a series starts later (in long or wide format), and names the series with fewer than 100 ([#101](https://github.com/skforecast/skforecast-ai/pull/101), [#103](https://github.com/skforecast/skforecast-ai/pull/103)).
 
-+ Fixed an issue in [<code>ForecastingAssistant.backtest()</code>][assistant] with ForecasterRecursiveMultiSeries, where a series that no fold could forecast (too short for the lags and window features, starting after the training window without refit, or ending before the folds) was left out of the predictions and of the average across series without a warning. It now raises `InvalidInputError` (`insufficient_data`) naming those series ([#103](https://github.com/skforecast/skforecast-ai/pull/103)).
++ Fixed an issue in [<code>ForecastingAssistant.backtest()</code>][assistant] with ForecasterRecursiveMultiSeries, where a series that no fold could forecast (too short for the lags and window features, starting after the training window without refit, ending before the folds, or with a missing value before every fold that its estimator or the differentiation cannot use) was left out of the predictions and of the average across series without a warning. It now raises `InvalidInputError` naming those series ([#103](https://github.com/skforecast/skforecast-ai/pull/103), [#105](https://github.com/skforecast/skforecast-ai/pull/105)).
 
-+ [<code>ForecastingAssistant.compare()</code>][assistant] applied the threshold of a long training (50 estimator fits) to each candidate, so candidates cheap one by one ran 78 fits without a warning. It now applies it to all the candidates together and warns once, before running, with the total and what each candidate adds.
++ The advice on missing values was wrong in places: [<code>ForecastingAssistant.create_cv()</code>][assistant] and the MCP server promised that an estimator that accepts them let every fold of `backtest()` run, though a missing value inside a test fold fails with any estimator, and `plan()` proposed `dropna_from_series` for missing exogenous values. They now say only what works, and `create_cv()` also warns with that estimator, with the differentiation and for exogenous values ([#105](https://github.com/skforecast/skforecast-ai/pull/105)).
 
-+ In the MCP server, `cost.n_fits` of `compare` was the trainings of the shared strategy, not of the comparison; it is now the total, like `estimator_fits`. The `CostNotice` of `create_cv` offered `refit` also where it lowers nothing (ForecasterStats, foundation models, a strategy that trains once); it now names only the changes that lower the cost. See the [MCP server reference][mcp].
++ [<code>ForecastingAssistant.backtest()</code>][assistant] of a single series failed inside the script with "All samples have been removed due to NaNs" when every training row of a fold read a missing value. It now raises `DataContentError` before running, with what avoids it ([#105](https://github.com/skforecast/skforecast-ai/pull/105)).
+
++ [<code>ForecastingAssistant.compare()</code>][assistant] applied the threshold of a long training (50 estimator fits) to each candidate, so candidates cheap one by one ran 78 fits without a warning. It now applies it to all the candidates together and warns once, before running, with the total and what each candidate adds ([#108](https://github.com/skforecast/skforecast-ai/pull/108)).
+
++ In the MCP server, `cost.n_fits` of `compare` was the trainings of the shared strategy, not of the comparison; it is now the total, like `estimator_fits`. The `CostNotice` of `create_cv` offered `refit` also where it lowers nothing (ForecasterStats, foundation models, a strategy that trains once); it now names only the changes that lower the cost. See the [MCP server reference][mcp] ([#108](https://github.com/skforecast/skforecast-ai/pull/108)).
 
 + Fixed an issue in [<code>ForecastingAssistant.plan()</code>][assistant] and `refine_plan()` where `ForecasterDirectMultiVariate` got the estimator chosen for the series pooled (`LGBMRegressor` from 250 observations), which on few dates per step predicted a constant. The rule now counts the dates the series share, and the explanation says so ([#102](https://github.com/skforecast/skforecast-ai/pull/102)).
+
++ Fixed an issue in [<code>ForecastingAssistant.plan()</code>][assistant] where the default metrics of a target that crosses zero with negative values (profits, temperatures) included MAPE, which reached values such as 3e13. MAPE is now left out when any series touches or crosses zero; asked for in `metric`, it comes with a warning, and the MCP server says it has no meaning instead of asking to multiply it by 100 ([#104](https://github.com/skforecast/skforecast-ai/pull/104)).
 
 
 ## 0.4.2 <small>Oct 12, 2026</small> { id="0.4.2" }

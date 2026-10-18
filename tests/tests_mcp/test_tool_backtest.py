@@ -8,7 +8,7 @@ from skforecast_ai import ForecastingAssistant
 from skforecast_ai.mcp import _runtime, create_server
 from skforecast_ai.mcp.models import ToolNotice
 
-from ..fixtures_assistant import df_multi_long_numeric_ids
+from ..fixtures_assistant import df_crossing_zero, df_multi_long_numeric_ids
 from ..fixtures_datasets import df_items_sales_long
 from .fixtures_mcp import (
     DATA_VALUES_HINT,
@@ -383,15 +383,17 @@ def test_tool_backtest_invalid_argument_when_lag_reads_missing_month(tmp_path):
             source   = "runtime",
             category = "UserWarning",
             message  = (
-                "The target has missing values or missing timestamps "
-                "(asfreq() restores them as missing values), and "
-                "ForecasterRecursive with Ridge cannot predict from a "
-                "missing value: `backtest()` of this plan raises when a test "
-                "fold is predicted from one, naming its dates. "
-                "`dropna_from_series` only drops them from the training "
-                "data. Impute the target, or choose an estimator that "
-                "accepts missing values (for example 'LGBMRegressor') to "
-                "backtest every fold."
+                "The target has missing timestamps (asfreq() restores them as "
+                "missing values), and `backtest()` checks every test fold before "
+                "running: it raises, naming the dates, when a test fold holds one, "
+                "whatever the estimator, since no metric is computed on it; and when "
+                "a test fold is predicted from one, since ForecasterRecursive with "
+                "Ridge cannot predict from a missing value. `dropna_from_series` "
+                "only drops the training rows that read one, and a training window "
+                "left without rows raises too. An estimator that accepts missing "
+                "values (such as 'RandomForestRegressor') avoids the error of a fold "
+                "predicted from a missing value, not of a fold that holds one. "
+                "Impute the target to backtest every fold."
             ),
             count    = 1,
         )
@@ -406,7 +408,7 @@ def test_tool_backtest_invalid_argument_when_lag_reads_missing_month(tmp_path):
         "ForecasterRecursive with Ridge cannot use them, so its predictions "
         "would be missing. "
         "Either they are filled in, or the plan uses an estimator that "
-        "accepts missing values (for example 'LGBMRegressor')."
+        "accepts missing values (such as 'RandomForestRegressor')."
     )
     assert error["hint"] == DATA_VALUES_HINT
     assert not forecast.is_error
@@ -504,3 +506,23 @@ def test_tool_backtest_insufficient_data_when_a_series_is_never_forecast(tmp_pat
         "Remove those series, or use shorter lags and window features."
     )
     assert error_of(forecast, "forecast")["code"] == "insufficient_data"
+
+
+def test_tool_backtest_notice_of_undefined_mape_when_target_crosses_zero(tmp_path):
+    """
+    Test that MAPE requested on a target that crosses zero gets, in the
+    response of `backtest`, the notice that it has no meaning instead of its
+    unit, which needs the profile of the data.
+    """
+    path = write_csv(tmp_path, "profit.csv", df_crossing_zero)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, _, cv_id = cv_of(
+        server, path, target="profit", steps=6,
+        metric="mean_absolute_percentage_error",
+    )
+
+    result = content_of(call(server, "backtest", {"cv_id": cv_id}))
+    assert [n["category"] for n in result["notices"]] == ["MetricUndefinedNotice"]
+    assert result["notices"][-1]["message"].startswith(
+        "`mean_absolute_percentage_error` has no meaning on this data"
+    )

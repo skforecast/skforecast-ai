@@ -2067,7 +2067,8 @@ def test_compare_ValueError_when_target_missing_in_test_folds():
     ).drop(index=[85]).reset_index(drop=True)
 
     err_msg = re.escape(
-        "The target has 1 missing value(s) in the test folds (2023-03-27 00:00:00)"
+        "The target has 1 missing value(s) in test fold 4 of 6 (2023-03-27 "
+        "00:00:00)"
     )
     with pytest.raises(ValueError, match=err_msg):
         assistant.compare(

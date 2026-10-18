@@ -22,12 +22,14 @@ from skforecast_ai.profiling.data_profile import _fmt_timestamp
 from tests.fixtures_last_window import (
     data_long,
     data_single,
+    data_single_closed_sundays,
     data_wide,
     plan_long_foundation,
     plan_long_lgbm,
     plan_long_multivariate,
     plan_long_ridge,
     plan_single_baseline,
+    plan_single_closed_ridge,
     plan_single_direct,
     plan_single_lgbm,
     plan_single_ridge,
@@ -37,6 +39,7 @@ from tests.fixtures_last_window import (
     plans_single_without_lags,
     profile_long,
     profile_single,
+    profile_single_closed,
     profile_wide,
     with_missing,
     with_missing_long,
@@ -366,7 +369,7 @@ def test_validate_last_window_InvalidInputError_when_lag_reads_missing_value(
         f"value(s), such as '{date}'). {plan.forecaster} with Ridge cannot use "
         f"them, so its predictions would be missing. "
         f"Either they are filled in, or the plan uses an estimator that "
-        f"accepts missing values (for example 'LGBMRegressor')."
+        f"accepts missing values (such as 'RandomForestRegressor')."
     )
     with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
         validate_last_window(data=data, profile=profile_single, plan=plan)
@@ -1210,7 +1213,7 @@ def test_validate_last_window_InvalidInputError_when_final_rows_false_and_ridge_
         "value(s), such as '2023-03-01'). ForecasterRecursive with Ridge cannot "
         "use them, so its predictions would be missing. "
         "Either they are filled in, or the plan uses an estimator that "
-        "accepts missing values (for example 'LGBMRegressor')."
+        "accepts missing values (such as 'RandomForestRegressor')."
     )
     with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
         validate_last_window(
@@ -1319,3 +1322,31 @@ def test_validate_last_window_DataContentError_when_final_rows_without_target():
     assert (exc_info.value.code, exc_info.value.field) == (
         "invalid_argument", "data"
     )
+
+
+# =============================================================================
+# Tests: days the business is closed
+# =============================================================================
+def test_validate_last_window_DataContentError_names_closed_days():
+    """
+    Test that a missing value read by the predictions that falls on a day of
+    the week without any value (daily data without Sundays: lag 5 reads
+    Sunday 2023-02-26) is named with that day, and that the advice of the
+    closed days comes first (D9): fill them with 0 after asking the user,
+    then the estimator of the rules (RandomForestRegressor, for 52
+    observations).
+    """
+    err_msg = re.escape(
+        "The forecaster reads missing values of the target to predict ('y': "
+        "1 value(s), such as '2023-02-26'). All of them are on Sundays, when "
+        "the target never has a value. ForecasterRecursive with Ridge cannot "
+        "use them, so its predictions would be missing. If the business is "
+        "closed on Sundays, fill them with 0 in the data, after asking the "
+        "user; otherwise, either they are imputed, or the plan uses an "
+        "estimator that accepts missing values (such as "
+        "'RandomForestRegressor')."
+    )
+    with pytest.raises(DataContentError, match=err_msg):
+        validate_last_window(
+            data_single_closed_sundays, profile_single_closed, plan_single_closed_ridge
+        )
