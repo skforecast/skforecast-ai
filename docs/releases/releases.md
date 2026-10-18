@@ -46,6 +46,8 @@ The main changes in this release are:
 
 **Changed**
 
++ skforecast-ai now requires `skforecast>=0.27.0`, whose fixes it relies on instead of working around them.
+
 + A target whose values are numbers written with a thousands separator or with `%` (`10,025.1`, `12.5%`) raises a `DataContentError` that names that format, as an error of the data and not of `target`, instead of the hint about missing value markers ([#86](https://github.com/skforecast/skforecast-ai/pull/86)).
 
 + The scripts of long-format data read the column of series ids as text (`dtype={'store': str}` in `pd.read_csv`) and turn the ids into text before the reshape, also those of the future exogenous variables. The predictions are the same; future exogenous variables with integer ids now match the same ids of the data written as text ([#90](https://github.com/skforecast/skforecast-ai/pull/90)).
