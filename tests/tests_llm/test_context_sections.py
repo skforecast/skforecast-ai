@@ -499,6 +499,58 @@ def test_render_metrics_section_states_that_none_were_computed():
     assert "No evaluation metrics were computed" in section
 
 
+@pytest.mark.parametrize(
+    "for_describe", [False, True], ids=lambda dt: f"for_describe: {dt}"
+)
+def test_render_metrics_section_output_when_plan_is_a_holdout_evaluation(
+    for_describe,
+):
+    """
+    Test that the metrics of a forecast whose plan has `end_train` (run with
+    `test_size`) are introduced, in the context of `ask()` and in
+    `describe()`, as a hold-out evaluation on dates already in the data and
+    not a forecast of the future, with the end of training and the steps.
+    """
+    metrics = pd.DataFrame({"series": ["sales"], "MAE": [2.5]})
+    holdout = plan.model_copy(update={"end_train": "2023-04-05"})
+    one_step = plan.model_copy(update={"end_train": "2023-04-09", "steps": 1})
+
+    section = render_metrics_section(
+        metrics, has_predictions=True, for_describe=for_describe, plan=holdout
+    )
+
+    assert section == (
+        "<evaluation_metrics>\n"
+        "Hold-out evaluation, not a forecast of the future: the model was "
+        "trained on the data up to 2023-04-05 and predicted the next 5 steps, "
+        "whose dates are already in the data. These metrics score those "
+        "predictions against the observed values.\n"
+        "series  MAE\n"
+        " sales  2.5\n"
+        "</evaluation_metrics>"
+    )
+    assert "predicted the next 1 step, whose" in render_metrics_section(
+        metrics, plan=one_step
+    )
+
+
+def test_render_metrics_section_output_without_holdout_text_when_no_end_train():
+    """
+    Test that a plan without `end_train` (a backtest, or a forecast of the
+    future) adds nothing to the metrics, and that without metrics the
+    hold-out text is never given.
+    """
+    metrics = pd.DataFrame({"series": ["sales"], "MAE": [2.5]})
+    holdout = plan.model_copy(update={"end_train": "2023-04-05"})
+
+    assert render_metrics_section(metrics, plan=plan) == (
+        render_metrics_section(metrics)
+    )
+    assert "Hold-out" not in render_metrics_section(
+        None, has_predictions=True, plan=holdout
+    )
+
+
 def test_render_predictions_section_withholds_values_when_send_data_false():
     """
     Test that row-level values are replaced by aggregate statistics when

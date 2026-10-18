@@ -1025,6 +1025,48 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
   (2026-10-18) para que coincidan con las del backtest (nombres de
   skforecast y `levels`), con una línea en "Before upgrading". Va en 3c-ii,
   junto con RMSE como métrica del servidor.
+- **D?. 3e: avisos del forecast** (2026-10-18). H11 y H4 del check con
+  agentes de la 0.4.0:
+  - H11: `forecast` del servidor MCP sin `test_size` lleva un
+    `UnmeasuredPlanNotice` (source `runtime`) cuando ningún `backtest` ni
+    `compare` del servidor midió su plan: dice que no hay medida de
+    precisión, que lo diga, que lo mida (`create_cv` con ese plan y
+    `backtest` o `compare`) antes de presentarlo como fiable y que no le dé
+    la precisión de otro plan.
+  - Un plan está medido cuando un `backtest` de él terminó, o cuando corrió
+    como candidato de un `compare` (cualquiera, no solo el ganador: un plan
+    reconstruido con las decisiones de otro candidato predice lo que la
+    tabla puntuó). Un backtest rechazado o un candidato que falla no miden.
+  - Dos planes son el mismo cuando vienen del mismo perfil (`profile_id`:
+    las mismas decisiones sobre otros datos u otro objetivo son otro plan)
+    y coinciden en todo salvo `interval` e `interval_method`, que no cambian
+    las predicciones puntuales, y lo que describe o dice de dónde vienen las
+    decisiones (`explanation`, `warnings`, `llm_refined_fields`,
+    `overridden_fields`), que un candidato de `compare` registra distinto
+    para las mismas decisiones. Se comparan planes, no ids, así que no
+    repite el falso aviso del `WARN` de H11 con un plan reconstruido con un
+    intervalo ni con el ganador de `compare` que ya era el plan del agente.
+    La métrica cuenta como decisión (pregunta en la PR).
+  - Lo medido vive en el estado del servidor (`measured_plans`, una clave
+    SHA-256 por plan), no en el store: sigue valiendo cuando el store
+    expulsa el backtest o la comparación. "La sesión" es la vida del
+    servidor, como los ids.
+  - Un forecast con `test_size` no lleva el aviso (es una medida), pero no
+    cuenta como medida del forecast del futuro (pregunta en la PR).
+  - Solo en el servidor: la API de Python y la CLI no tienen sesión ni
+    guardan lo que se midió, y quien llama es una persona que tiene el
+    backtest a la vista. `ask()` sobre un forecast del futuro ya recibe
+    "No evaluation metrics were computed".
+  - H4: `render_metrics_section` recibe el plan; con `end_train` (un
+    forecast con `test_size`) dice antes de las métricas que es una
+    evaluación hold-out sobre fechas que ya están en los datos, no el
+    pronóstico del futuro, con el fin del entrenamiento y los pasos. Llega
+    a `describe()` (el resumen del servidor) y al contexto de `ask()`.
+    Golden nuevo `forecast_holdout_evaluation`; los demás no cambian. El
+    check de pago de `check_ask_context.py` queda para la fase 7.
+  - El SKILL.md y el check con agentes no cambian aquí: van a la fase 6 y a
+    "Herramientas de mantenimiento" (el `WARN` de H11 puede leer el notice
+    en vez de comparar ids).
 
 ## Decisiones abiertas
 
@@ -1116,7 +1158,9 @@ No bloquean la release; se hacen cuando haya hueco.
 - Una sesión del check puede cargar los skills de fábrica de Claude Code con
   `Skill`.
 - El `WARN` de H11 da un aviso en falso cuando el plan se reconstruye igual
-  con un intervalo (está anotado en el README del check).
+  con un intervalo (está anotado en el README del check). Desde 3e puede
+  leer el `UnmeasuredPlanNotice` de la respuesta de `forecast` en vez de
+  comparar ids, que quita también el falso aviso del ganador de `compare`.
 - El guard de Bash (`.claude/hooks/pre_bash_guard.py`) resuelve la rama
   desde `CLAUDE_PROJECT_DIR` antes que desde el `cwd` de la llamada: en un
   worktree comprueba la rama del checkout principal.

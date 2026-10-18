@@ -21,6 +21,7 @@ from .fixtures_mcp import (
     error_of,
     h2o_server,
     profile_and_plan,
+    run_session,
     text_of,
     write_csv,
 )
@@ -58,11 +59,12 @@ def test_tool_forecast_output_matches_python_api(tmp_path, test_size):
     assert text_of(result["files"]["predictions"]) == csv_of(expected.predictions)
     # Only an evaluation has metrics, and with them the notice that gives
     # the reference of MASE and the unit of MAPE, after the one that says it
-    # is an evaluation.
+    # is an evaluation. A forecast of the future of a plan the session never
+    # measured says so.
     categories = [notice["category"] for notice in result["notices"]]
     if test_size is None:
         assert sorted(result["files"]) == ["predictions"]
-        assert categories == []
+        assert categories == ["UnmeasuredPlanNotice"]
     else:
         assert text_of(result["files"]["metrics"]) == csv_of(expected.metrics)
         assert categories == [
@@ -75,7 +77,8 @@ def test_tool_forecast_evaluation_plan_is_not_registered(tmp_path):
     """
     Test that the plan of an evaluation, which holds the split of the test
     set, is never registered as a plan, and that only the evaluation carries
-    the notice that its dates are already in the data.
+    the notice that its dates are already in the data, and only the forecast
+    of the future the one that its plan was never measured.
     """
     server, path = h2o_server(tmp_path)
     _, plan_id = profile_and_plan(server, path)
@@ -93,7 +96,9 @@ def test_tool_forecast_evaluation_plan_is_not_registered(tmp_path):
     assert "2007-07-01 00:00:00 to 2008-06-01 00:00:00" in (
         evaluation["notices"][0]["message"]
     )
-    assert future["notices"] == []
+    assert [notice["category"] for notice in future["notices"]] == [
+        "UnmeasuredPlanNotice"
+    ]
 
 
 def test_tool_forecast_with_future_exog(tmp_path):
@@ -244,7 +249,7 @@ def test_tool_forecast_without_exog_when_plan_does_not_use_them(tmp_path):
 
     assert text_of(result["files"]["predictions"]) == csv_of(expected.predictions)
     assert [notice["category"] for notice in result["notices"]] == [
-        "ExogLeftOutNotice"
+        "UnmeasuredPlanNotice", "ExogLeftOutNotice"
     ]
     assert (given["code"], given["field"]) == ("invalid_argument", "exog_path")
     assert given["message"] == (
@@ -609,3 +614,224 @@ def test_tool_forecast_notice_of_undefined_mape_when_target_crosses_zero(tmp_pat
     assert result["notices"][-1]["message"].startswith(
         "`mean_absolute_percentage_error` has no meaning on this data"
     )
+
+
+UNMEASURED_MESSAGE = (
+    "No `backtest` or `compare` in this session measured this plan (the same "
+    "decisions, with or without an interval), so this forecast has no measure "
+    "of accuracy. Say so, and before presenting it as reliable measure it: "
+    "`create_cv` with this `plan_id`, then `backtest` or `compare`. Never give "
+    "the accuracy of another plan as that of this forecast."
+)
+
+
+def _categories(result: dict) -> list[str]:
+    """
+    Categories of the notices of a response.
+    """
+
+    return [notice["category"] for notice in result["notices"]]
+
+
+def test_tool_forecast_unmeasured_notice_until_the_plan_is_backtested(tmp_path):
+    """
+    Test that a forecast of the future of a plan no backtest measured carries
+    the `UnmeasuredPlanNotice`, and that once a backtest of that plan ran the
+    same forecast carries none.
+    """
+    server, path = h2o_server(tmp_path)
+
+    async def steps(client):
+        profile = content_of(
+            await client.call_tool("profile", {"data_path": path, "target": "x"})
+        )
+        plan = content_of(
+            await client.call_tool("plan", {"profile_id": profile["id"], "steps": 12})
+        )
+        before = content_of(
+            await client.call_tool("forecast", {"plan_id": plan["id"]})
+        )
+        cv = content_of(await client.call_tool("create_cv", {"plan_id": plan["id"]}))
+        content_of(await client.call_tool("backtest", {"cv_id": cv["id"]}))
+        after = content_of(
+            await client.call_tool("forecast", {"plan_id": plan["id"]})
+        )
+        return before, after
+
+    before, after = run_session(server, steps)
+
+    assert before["notices"] == [
+        {
+            "source": "runtime",
+            "category": "UnmeasuredPlanNotice",
+            "message": UNMEASURED_MESSAGE,
+            "count": 1,
+        }
+    ]
+    assert after["notices"] == []
+
+
+@pytest.mark.parametrize(
+    "rebuild",
+    ["plan", "refine_plan"],
+    ids=lambda dt: f"rebuild: {dt}",
+)
+def test_tool_forecast_no_unmeasured_notice_when_plan_rebuilt_with_interval(
+    tmp_path, rebuild
+):
+    """
+    Test that a plan built again with the decisions of a backtested plan plus
+    an interval (with `plan` or with `refine_plan`), which has another id,
+    counts as measured: the interval does not change the point predictions.
+    """
+    server, path = h2o_server(tmp_path)
+
+    async def steps(client):
+        profile = content_of(
+            await client.call_tool("profile", {"data_path": path, "target": "x"})
+        )
+        plan = content_of(
+            await client.call_tool("plan", {"profile_id": profile["id"], "steps": 12})
+        )
+        cv = content_of(await client.call_tool("create_cv", {"plan_id": plan["id"]}))
+        content_of(await client.call_tool("backtest", {"cv_id": cv["id"]}))
+        if rebuild == "plan":
+            arguments = {
+                "profile_id": profile["id"], "steps": 12, "interval": [0.1, 0.9],
+            }
+        else:
+            arguments = {
+                "plan_id": plan["id"], "overrides": {"interval": [0.1, 0.9]},
+            }
+        rebuilt = content_of(await client.call_tool(rebuild, arguments))
+        forecast = content_of(
+            await client.call_tool("forecast", {"plan_id": rebuilt["id"]})
+        )
+        return plan, rebuilt, forecast
+
+    plan, rebuilt, forecast = run_session(server, steps)
+
+    assert rebuilt["id"] != plan["id"]
+    assert "UnmeasuredPlanNotice" not in _categories(forecast)
+
+
+def test_tool_forecast_unmeasured_notice_when_another_plan_was_measured(tmp_path):
+    """
+    Test that a backtest of one plan does not count for another: a plan
+    refined with another estimator, and the same decisions on another
+    profile of the data, still carry the `UnmeasuredPlanNotice`.
+    """
+    server, path = h2o_server(tmp_path)
+
+    async def steps(client):
+        profile = content_of(
+            await client.call_tool("profile", {"data_path": path, "target": "x"})
+        )
+        plan = content_of(
+            await client.call_tool("plan", {"profile_id": profile["id"], "steps": 12})
+        )
+        cv = content_of(await client.call_tool("create_cv", {"plan_id": plan["id"]}))
+        content_of(await client.call_tool("backtest", {"cv_id": cv["id"]}))
+        refined = content_of(
+            await client.call_tool(
+                "refine_plan",
+                {
+                    "plan_id": plan["id"],
+                    "overrides": {"estimator": "RandomForestRegressor"},
+                },
+            )
+        )
+        other_estimator = content_of(
+            await client.call_tool("forecast", {"plan_id": refined["id"]})
+        )
+        other_profile = content_of(
+            await client.call_tool("profile", {"data_path": path, "target": "x"})
+        )
+        same_plan = content_of(
+            await client.call_tool(
+                "plan", {"profile_id": other_profile["id"], "steps": 12}
+            )
+        )
+        other_data = content_of(
+            await client.call_tool("forecast", {"plan_id": same_plan["id"]})
+        )
+        return other_estimator, other_data
+
+    other_estimator, other_data = run_session(server, steps)
+
+    assert _categories(other_estimator) == ["UnmeasuredPlanNotice"]
+    assert _categories(other_data) == ["UnmeasuredPlanNotice"]
+
+
+def test_tool_forecast_no_unmeasured_notice_for_any_candidate_of_compare(tmp_path):
+    """
+    Test that `compare` measures every candidate that ran, not only the
+    winner: neither the plan of the winner nor a plan built again with the
+    decisions of another candidate (ForecasterDirect) carries the
+    `UnmeasuredPlanNotice`.
+    """
+    server, path = h2o_server(tmp_path)
+
+    async def steps(client):
+        profile = content_of(
+            await client.call_tool("profile", {"data_path": path, "target": "x"})
+        )
+        plan = content_of(
+            await client.call_tool("plan", {"profile_id": profile["id"], "steps": 12})
+        )
+        cv = content_of(await client.call_tool("create_cv", {"plan_id": plan["id"]}))
+        comparison = content_of(
+            await client.call_tool("compare", {"cv_id": cv["id"]})
+        )
+        direct = content_of(
+            await client.call_tool(
+                "refine_plan",
+                {
+                    "plan_id": plan["id"],
+                    "overrides": {"forecaster": "ForecasterDirect"},
+                },
+            )
+        )
+        best = content_of(
+            await client.call_tool(
+                "forecast", {"plan_id": comparison["links"]["best_plan_id"]}
+            )
+        )
+        other = content_of(
+            await client.call_tool("forecast", {"plan_id": direct["id"]})
+        )
+        return comparison, best, other
+
+    comparison, best, other = run_session(server, steps)
+
+    assert "ForecasterDirect" in comparison["summary"]
+    assert "UnmeasuredPlanNotice" not in _categories(best)
+    assert "UnmeasuredPlanNotice" not in _categories(other)
+
+
+def test_tool_forecast_evaluation_says_it_is_a_holdout_without_unmeasured_notice(
+    tmp_path,
+):
+    """
+    Test that a forecast with `test_size` of a plan never measured gets no
+    `UnmeasuredPlanNotice` (it is a measure itself), and that its summary,
+    the context `ask()` reads, says in words that it is a hold-out
+    evaluation on dates already in the data and not the future.
+    """
+    server, path = h2o_server(tmp_path)
+    _, plan_id = profile_and_plan(server, path)
+
+    result = content_of(
+        call(server, "forecast", {"plan_id": plan_id, "test_size": 12})
+    )
+
+    assert _categories(result) == [
+        "HoldoutEvaluationNotice", "MetricReferenceNotice", "MetricUnitNotice",
+    ]
+    assert (
+        "<evaluation_metrics>\n"
+        "Hold-out evaluation, not a forecast of the future: the model was "
+        "trained on the data up to 2007-06-01 and predicted the next 12 steps, "
+        "whose dates are already in the data. These metrics score those "
+        "predictions against the observed values.\n"
+    ) in result["summary"]

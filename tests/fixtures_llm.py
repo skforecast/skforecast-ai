@@ -105,6 +105,9 @@ plan_foundation_without_covariates = assistant.plan(
     forecaster = "ForecasterFoundation",
     estimator  = "Salesforce/moirai-2.0-R-small",
 )
+# The plan of `forecast(test_size=5)` on `df_no_exog` (100 days up to
+# 2023-04-10): `forecast()` stamps `end_train` onto the plan it was given.
+plan_holdout = plan_single.model_copy(update={"end_train": "2023-04-05"})
 
 
 # ---------------------------------------------------------------------------
@@ -121,6 +124,12 @@ _forecast_index = pd.date_range("2023-04-11", periods=5, freq="D")
 predictions_single = pd.DataFrame(
     {"pred": [1000.0, 1111.1111, 1250.0, 1375.0, 2000.0]},
     index=_forecast_index,
+)
+
+# Predictions of the last 5 days of the data, those of `plan_holdout`.
+predictions_holdout = pd.DataFrame(
+    {"pred": [1000.0, 1111.1111, 1250.0, 1375.0, 2000.0]},
+    index=pd.date_range("2023-04-06", periods=5, freq="D"),
 )
 
 predictions_interval = pd.DataFrame(
@@ -728,6 +737,10 @@ GOLDEN_SCENARIOS = {
     ),
     "forecast_prediction_mode_no_metrics": lambda: make_forecast_result(
         metrics=None
+    ),
+    "forecast_holdout_evaluation": lambda: make_forecast_result(
+        plan        = plan_holdout,
+        predictions = predictions_holdout,
     ),
     "forecast_multi_series": lambda: make_forecast_result(
         profile     = profile_multi,
