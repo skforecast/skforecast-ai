@@ -139,8 +139,9 @@ SCALED_METRICS = {
     "RMSSE": "root_mean_squared_scaled_error",
 }
 
-# MAPE, as the metrics of a backtest and of a forecast call it.
+# MAPE and sMAPE, as the metrics of a backtest and of a forecast call them.
 MAPE_NAMES = frozenset({"mean_absolute_percentage_error", "MAPE"})
+SMAPE_NAMES = frozenset({"symmetric_mean_absolute_percentage_error", "SMAPE"})
 
 # Hint of an error of `profile` about the content of the file.
 DATA_PROBLEM_HINT = (
@@ -166,18 +167,31 @@ FUTURE_EXOG_HINT = (
     "dates already in the data, which is not the forecast the user asked for."
 )
 
+# What an agent says when it changes the estimator because of the missing
+# values: the model switched it and did not tell, in the hint and in the
+# notice of `create_cv`.
+SWITCH_ESTIMATOR_NOTE = (
+    "if you switch to it, say in your answer that you changed the estimator "
+    "and why"
+)
+
 # Hint of `backtest`, `compare` and `forecast` for an error of the library
 # about the values of the data (missing values a prediction reads, final
 # rows without a target). The message says what would solve it, and an agent
 # does it without asking: it fills the values in, or changes the estimator
 # and does not tell.
+# The estimator is the one the message names: the rules choose it for the
+# data (`select_nan_tolerant_estimator`), and a message names one only when
+# it avoids that error, never for a missing value inside a test fold. With
+# the differentiation it avoids it only in a plan without it, which the
+# message says too.
 DATA_VALUES_HINT = (
     "The values the message names are data of the user: do not fill in, drop "
     "or write any of them yourself, and ask before a corrected copy is "
-    "written. Say in your answer that this call failed and why. When the "
-    "message blames the estimator, one that accepts missing values (such as "
-    "'LGBMRegressor') avoids the error without touching the data: if you "
-    "switch to it, say in your answer that you changed the estimator and why."
+    "written. Say in your answer that this call failed and why. Only when the "
+    "message names an estimator that accepts missing values does changing the "
+    "plan as the message says avoid this error without touching the data: "
+    f"{SWITCH_ESTIMATOR_NOTE}."
 )
 
 # Hint of `forecast` for an error of the library about the file of future
@@ -366,12 +380,14 @@ def _exog_notices(plan: Any, profile: Any, forecast: bool) -> list[ToolNotice]:
 def _missing_values_notices(plan: Any, profile: Any) -> list[ToolNotice]:
     """
     Notice of `create_cv` for a plan whose backtest can fail on the missing
-    values of the target. The warning of the library that comes with it says
-    what would solve it (`Impute the target, or choose an estimator...`),
-    which is right for whoever owns the data and an order for an agent: it
-    fills the values in without asking, or skips the backtest and forecasts
-    without telling. This notice carries the rule of `DATA_VALUES_HINT`, one
-    call before the error that has it.
+    values of the data (see `backtest_missing_values`). The warning of the
+    library that comes with it says when the backtest fails and what avoids
+    it (`impute the target to backtest every fold`), which is right for
+    whoever owns the data and an order for an agent: it fills the values in
+    without asking, switches the estimator before the backtest says it
+    helps, or skips the backtest and forecasts without telling. This notice
+    carries the rule of `DATA_VALUES_HINT`, one call before the error that
+    has it, with the estimator of the warning and what it does not avoid.
 
     Parameters
     ----------
@@ -387,22 +403,45 @@ def _missing_values_notices(plan: Any, profile: Any) -> list[ToolNotice]:
         for that reason.
     """
 
-    from .._last_window import backtest_missing_values_reason
-
-    reason = backtest_missing_values_reason(plan, profile.data_profile)
-    if reason is None:
-        return []
-    message = (
-        "The missing values of the target are data of the user: do not fill "
-        "in, drop or write any of them yourself, in their file or in a copy "
-        "of it, unless they asked for exactly that. Ask before you do."
+    from ..recommendation.missing_values import (
+        TOLERANT_ESTIMATOR_SCOPE,
+        backtest_missing_values,
+        tolerant_estimator_phrase,
     )
-    if reason[1]:
+
+    missing_values = backtest_missing_values(plan, profile.data_profile)
+    if missing_values is None:
+        return []
+    owners = [
+        name for name, missing in (
+            ("the target", missing_values.target),
+            ("the exogenous columns", missing_values.exog),
+        )
+        if missing
+    ]
+    message = (
+        f"The missing values of {' and '.join(owners)} are data of the user: do "
+        f"not fill in, drop or write any of them yourself, in their file or in "
+        f"a copy of it, unless they asked for exactly that. Ask before you do."
+    )
+    if missing_values.target:
         message += (
-            " Without touching the data, an estimator that accepts missing "
-            "values (such as 'LGBMRegressor', with `refine_plan` and a new "
-            "`create_cv`) lets `backtest` run on every fold: if you switch to "
-            "it, say in your answer that you changed the estimator and why."
+            " `backtest` checks every test fold before running anything and "
+            "names the dates that make it fail: run it before changing the "
+            "plan or asking the user about the values."
+        )
+    if missing_values.estimator is not None:
+        does = []
+        if missing_values.exog:
+            does.append("lets the plan predict from the missing exogenous values")
+        if missing_values.cannot_predict is not None:
+            for_target = "for the target, " if does else ""
+            does.append(f"{for_target}{TOLERANT_ESTIMATOR_SCOPE}")
+        message += (
+            f" Without touching the data, switching with `refine_plan` and a "
+            f"new `create_cv` to "
+            f"{tolerant_estimator_phrase(missing_values.estimator)} "
+            f"{' and, '.join(does)}: {SWITCH_ESTIMATOR_NOTE}."
         )
     message += (
         " If you forecast without a backtest, say in your answer that the "
@@ -535,7 +574,10 @@ def _holdout_notices(predictions: Any, test_size: Any) -> list[ToolNotice]:
     ]
 
 
-def _metric_notices(metrics: Any) -> list[ToolNotice]:
+def _metric_notices(
+    metrics: Any,
+    data_profile: Any = None,
+) -> list[ToolNotice]:
     """
     Notice with the reference of the scaled metrics (MASE, RMSSE) among the
     metrics of a backtest or a forecast.
@@ -548,12 +590,15 @@ def _metric_notices(metrics: Any) -> list[ToolNotice]:
     ----------
     metrics : pandas DataFrame, None
         Metrics of the result, one column per metric.
+    data_profile : DataProfile, default None
+        Profile of the data the metrics were computed on, passed to
+        `_mape_notices`.
 
     Returns
     -------
     notices : list of ToolNotice
         One notice (source `'runtime'`) when a scaled metric was computed,
-        and the one of `_mape_notices` when MAPE was.
+        and those of `_mape_notices` when MAPE or sMAPE was.
     """
 
     if metrics is None:
@@ -563,7 +608,7 @@ def _metric_notices(metrics: Any) -> list[ToolNotice]:
         if column in SCALED_METRICS
     ))
     if not names:
-        return _mape_notices(metrics)
+        return _mape_notices(metrics, data_profile)
     shown = " and ".join(f"`{name}`" for name in names)
 
     return [
@@ -580,42 +625,96 @@ def _metric_notices(metrics: Any) -> list[ToolNotice]:
             ),
             count    = 1,
         ),
-        *_mape_notices(metrics),
+        *_mape_notices(metrics, data_profile),
     ]
 
 
-def _mape_notices(metrics: Any) -> list[ToolNotice]:
+def _mape_notices(
+    metrics: Any,
+    data_profile: Any = None,
+) -> list[ToolNotice]:
     """
-    Notice with the unit of MAPE among the metrics of a result or the
-    columns of a leaderboard: a fraction, which agents report as a
-    percentage as it is (1.245 as "1.25 %", 100 times too small).
+    Notices with the unit of MAPE and sMAPE among the metrics of a result or
+    the columns of a leaderboard, or saying that MAPE means nothing on the
+    data.
+
+    MAPE is a fraction, which agents report as a percentage as it is (1.245
+    as "1.25 %", 100 times too small), and sMAPE a percentage, which they
+    would multiply by 100 next to it. On a target at or around zero, MAPE
+    divides by values near zero: telling the agent to multiply its 3e13 by
+    100 invited a 3e15 %.
 
     Parameters
     ----------
     metrics : pandas DataFrame, None
         Metrics of the result, one column per metric.
+    data_profile : DataProfile, default None
+        Profile of the data the metrics were computed on. When the target
+        of any of its series takes values at or around zero, MAPE gets a
+        `MetricUndefinedNotice` instead of its unit.
 
     Returns
     -------
     notices : list of ToolNotice
-        One notice (source `'runtime'`) when MAPE was computed, else empty.
+        A `MetricUnitNotice` (source `'runtime'`) with the unit of each of
+        MAPE and sMAPE that was computed, and a `MetricUndefinedNotice`
+        (source `'runtime'`) for MAPE on such a target; empty when neither
+        was computed.
     """
 
-    if metrics is None or not MAPE_NAMES.intersection(metrics.columns):
-        return []
+    from ..recommendation import describe_series_near_zero
 
-    return [
-        ToolNotice(
-            source   = "runtime",
-            category = "MetricUnitNotice",
-            message  = (
-                "`mean_absolute_percentage_error` is a fraction, not a "
-                "percentage: 0.05 is 5 %, and 1.245 is 124.5 %. Multiply it "
-                "by 100 before you write it with a % sign."
-            ),
-            count    = 1,
+    if metrics is None:
+        return []
+    has_mape = bool(MAPE_NAMES.intersection(metrics.columns))
+    has_smape = bool(SMAPE_NAMES.intersection(metrics.columns))
+    near_zero = (
+        describe_series_near_zero(data_profile)
+        if has_mape and data_profile is not None else None
+    )
+
+    units = []
+    if has_mape and near_zero is None:
+        units.append(
+            "`mean_absolute_percentage_error` is a fraction, not a "
+            "percentage: 0.05 is 5 %, and 1.245 is 124.5 %. Multiply it "
+            "by 100 before you write it with a % sign."
         )
-    ]
+    if has_smape:
+        units.append(
+            "`symmetric_mean_absolute_percentage_error` is already a "
+            "percentage, from 0 to 200: 1.245 is 1.245 %. Write it with a % "
+            "sign as it is, without multiplying it by 100."
+        )
+    notices = []
+    if units:
+        notices.append(
+            ToolNotice(
+                source   = "runtime",
+                category = "MetricUnitNotice",
+                message  = " ".join(units),
+                count    = 1,
+            )
+        )
+    if near_zero is not None:
+        notices.append(
+            ToolNotice(
+                source   = "runtime",
+                category = "MetricUndefinedNotice",
+                message  = (
+                    f"`mean_absolute_percentage_error` has no meaning on "
+                    f"this data: it divides each error by the actual value, "
+                    f"and {near_zero}. Do not report its value, neither as a "
+                    f"fraction nor as a percentage, and do not convert it: "
+                    f"say that MAPE is not defined for this target, and use "
+                    f"a metric that does not divide by the actual value, "
+                    f"such as `mean_absolute_error`."
+                ),
+                count    = 1,
+            )
+        )
+
+    return notices
 
 
 def _accepts_text(annotation: Any) -> bool:
@@ -2231,7 +2330,9 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                             outcome.warnings,
                             plan_warnings  = result.plan.warnings,
                             data_warnings  = cv_entry.data_warnings,
-                            server_notices = _metric_notices(result.metrics),
+                            server_notices = _metric_notices(
+                                result.metrics, cv_entry.profile.data_profile
+                            ),
                         ),
             source    = cv_entry,
             code      = result.code,
@@ -2475,7 +2576,10 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                                            *state.models.notices(
                                                ran_models, uncached, ran=True
                                            ),
-                                           *_mape_notices(result.results),
+                                           *_mape_notices(
+                                               result.results,
+                                               cv_entry.profile.data_profile,
+                                           ),
                                        ],
                                    ),
             source               = cv_entry,
@@ -2586,7 +2690,9 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                             data_warnings  = plan_entry.data_warnings,
                             server_notices = [
                                 *_holdout_notices(result.predictions, test_size),
-                                *_metric_notices(result.metrics),
+                                *_metric_notices(
+                                    result.metrics, plan_entry.profile.data_profile
+                                ),
                                 *_exog_notices(
                                     result.plan, plan_entry.profile, forecast=True
                                 ),

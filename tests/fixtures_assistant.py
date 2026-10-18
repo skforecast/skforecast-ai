@@ -149,6 +149,27 @@ df_multi_wide_pooled = pd.DataFrame(
     }
 )
 
+# --- Single series away from zero (MAPE is meaningful) ---
+df_single_positive = df_single.assign(sales=df_single["sales"] + 1.0)
+
+# --- Targets that cross zero (profits, temperatures, net flows) ---
+# MAPE divides by the actual value: the default panel leaves it out. The
+# wide frame has one series away from zero and one that crosses it.
+_t_single = np.arange(_n_obs, dtype=float)
+df_crossing_zero = pd.DataFrame(
+    {
+        "date": _dates,
+        "profit": np.round(10.0 * np.sin(2 * np.pi * _t_single / 12), 2),
+    }
+)
+df_multi_wide_crossing_zero = pd.DataFrame(
+    {
+        "date": _dates,
+        "series_a": np.arange(_n_obs, dtype=float) + 50.0,
+        "series_b": np.round(10.0 * np.sin(2 * np.pi * _t_single / 12), 2),
+    }
+)
+
 # --- Data with missing values in target and exog ---
 _target_with_nan = np.arange(_n_obs, dtype=float)
 _target_with_nan[10] = np.nan

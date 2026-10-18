@@ -7,7 +7,7 @@ import pytest
 
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai._last_window import validate_series_lengths
-from skforecast_ai.exceptions import InvalidInputError
+from skforecast_ai.exceptions import DataContentError, InvalidInputError
 
 from tests.fixtures_last_window import (
     cv_items_sales,
@@ -30,6 +30,7 @@ from tests.fixtures_last_window import (
     profile_wide,
     profile_wide_many,
     with_leading_missing,
+    with_missing_long,
 )
 
 _assistant = ForecastingAssistant()
@@ -479,6 +480,195 @@ def test_validate_series_lengths_passes_when_strategy_cannot_be_split():
         data, profile_wide, plan_wide_ridge,
         cv=cv_items_sales(initial_train_size=200),
     ) is None
+
+
+# =============================================================================
+# Tests: backtesting (cv), missing values in the last windows
+# =============================================================================
+# Positions 80, 83, ..., 116 (counting from 0) of 'item_1' missing: every
+# last window of `cv_items_sales()` (the 5 or 6 days before the folds that
+# start at 84, 87, ..., 117) has one of them.
+_EVERY_WINDOW = list(range(80, 117, 3))
+_EVERY_WINDOW_DATES = (
+    "'item_1': 13 value(s), such as '2012-03-21', '2012-03-24', "
+    "'2012-03-27', '2012-03-30', '2012-04-02' and 8 more"
+)
+
+
+def _missing_every_window(data, profile):
+    """Return `data` with the values of `_EVERY_WINDOW` of 'item_1' missing."""
+    if profile.data_format == "long":
+        return with_missing_long(
+            data, "item_1", [120 - position for position in _EVERY_WINDOW]
+        )
+    data = data.copy()
+    data.iloc[_EVERY_WINDOW, data.columns.get_loc("item_1")] = np.nan
+    return data
+
+
+def _differenced(plan, order=1):
+    """Return a copy of `plan` with a differentiation of order `order`."""
+    return plan.model_copy(
+        update={"forecaster_kwargs": {**plan.forecaster_kwargs, "differentiation": order}},
+        deep=True,
+    )
+
+
+def _missing_message(window, why, remedy, found=_EVERY_WINDOW_DATES):
+    """Return the message for series that missing values leave out of every fold."""
+    return (
+        f"Some series cannot be forecast in any fold of the backtest: the "
+        f"{window} values before every fold they could be forecast in have a "
+        f"missing value ({found}), and {why}. skforecast leaves them out of "
+        f"those folds without a warning, so they would get no predictions and "
+        f"no metrics, and the average across series would leave them out. "
+        f"{remedy}"
+    )
+
+
+_FILL = "otherwise, fill them in the data, after asking the user, or remove those series."
+
+
+@pytest.mark.parametrize(
+    "data, profile, plan, window, why, remedy",
+    [
+        (
+            data_wide, profile_wide, plan_wide_ridge, 5,
+            "ForecasterRecursiveMultiSeries with Ridge cannot predict from them",
+            "An estimator that accepts missing values (such as 'LGBMRegressor') "
+            "predicts from them; " + _FILL,
+        ),
+        (
+            data_long, profile_long, plan_long_ridge, 5,
+            "ForecasterRecursiveMultiSeries with Ridge cannot predict from them",
+            "An estimator that accepts missing values (such as 'LGBMRegressor') "
+            "predicts from them; " + _FILL,
+        ),
+        (
+            data_wide, profile_wide, _differenced(plan_wide_lgbm), 6,
+            "with the differentiation, ForecasterRecursiveMultiSeries cannot "
+            "predict from a missing value whatever the estimator",
+            "A plan without the differentiation predicts from them; " + _FILL,
+        ),
+        (
+            data_long, profile_long, _differenced(plan_long_ridge), 6,
+            "with the differentiation, ForecasterRecursiveMultiSeries cannot "
+            "predict from a missing value whatever the estimator",
+            "A plan without the differentiation and with an estimator that "
+            "accepts missing values (such as 'LGBMRegressor') predicts from "
+            "them; " + _FILL,
+        ),
+    ],
+    ids=["wide_ridge", "long_ridge", "wide_lgbm_differentiation", "long_ridge_differentiation"],
+)
+@pytest.mark.parametrize("refit", [False, True], ids=["no_refit", "refit"])
+def test_validate_series_lengths_DataContentError_when_every_last_window_has_missing_values(
+    data, profile, plan, window, why, remedy, refit
+):
+    """
+    Test that a series long enough for every fold, but with a missing value
+    in the last window before each of them, is rejected in a backtest with
+    the message of the missing values (not the one of short series): with
+    an estimator that does not accept them, or with the differentiation
+    (whatever the estimator), skforecast drops it from every fold without a
+    warning. The remedy is what lets the plan predict from them, with the
+    estimator of the rules for the 360 observations of items_sales
+    (LGBMRegressor). The error is a DataContentError on `data`, so the MCP
+    server adds the hint that leaves the values to the user.
+    """
+    data = _missing_every_window(data, profile)
+
+    expected = _missing_message(window, why, remedy)
+    with pytest.raises(DataContentError, match=re.escape(expected)) as exc_info:
+        validate_series_lengths(data, profile, plan, cv=cv_items_sales(refit=refit))
+
+    assert (exc_info.value.code, exc_info.value.field) == ("invalid_argument", "data")
+    assert exc_info.value.hint is None
+
+
+@pytest.mark.parametrize(
+    "data, profile, plan",
+    [
+        (data_wide, profile_wide, plan_wide_lgbm),
+        (data_long, profile_long, plan_long_lgbm),
+    ],
+    ids=["wide", "long"],
+)
+def test_validate_series_lengths_passes_when_estimator_accepts_missing_last_windows(
+    data, profile, plan
+):
+    """
+    Test that the same series passes with an estimator that accepts missing
+    values and no differentiation: skforecast keeps its last windows and
+    predicts from them.
+    """
+    data = _missing_every_window(data, profile)
+
+    assert validate_series_lengths(data, profile, plan, cv=cv_items_sales()) is None
+
+
+def test_validate_series_lengths_passes_when_a_last_window_has_no_missing_value():
+    """
+    Test that a series with missing values in some last windows only (the
+    positions 80 and 83, before the folds that start at 84 and 87) passes:
+    the later folds forecast it.
+    """
+    data = data_wide.copy()
+    data.iloc[[80, 83], data.columns.get_loc("item_1")] = np.nan
+
+    assert validate_series_lengths(
+        data, profile_wide, plan_wide_ridge, cv=cv_items_sales()
+    ) is None
+
+
+def test_validate_series_lengths_DataContentError_names_closed_days_of_last_windows():
+    """
+    Test that, when the missing values that drop a series from every fold
+    all fall on a day of the week on which it never has a value ('item_1'
+    without Sundays, a plan whose window of 7 always holds one), the
+    message names that day and gives the advice of the closed days first
+    (D9): fill them with 0 after asking the user.
+    """
+    data = data_wide.copy()
+    data.loc[data.index.dayofweek == 6, "item_1"] = np.nan
+    plan = plan_wide_ridge.model_copy(
+        update={"forecaster_kwargs": {**plan_wide_ridge.forecaster_kwargs, "lags": [1, 7]}},
+        deep=True,
+    )
+
+    expected = _missing_message(
+        window = 7,
+        why    = "ForecasterRecursiveMultiSeries with Ridge cannot predict from them",
+        remedy = (
+            "If the business is closed on Sundays, fill them with 0 in the "
+            "data, after asking the user; otherwise, an estimator that accepts "
+            "missing values (such as 'LGBMRegressor') predicts from them, or "
+            "impute them, or remove those series."
+        ),
+        found  = (
+            "'item_1': 6 value(s), such as '2012-03-18', '2012-03-25', "
+            "'2012-04-01', '2012-04-08', '2012-04-15' and 1 more"
+        ),
+    )
+    with pytest.raises(DataContentError, match=re.escape(expected)):
+        validate_series_lengths(data, profile_wide, plan, cv=cv_items_sales())
+
+
+def test_validate_series_lengths_reports_short_series_before_missing_last_windows():
+    """
+    Test that a short series ('item_2', 5 values) is reported before a
+    series that missing values drop from every fold ('item_1'): the
+    remedies of the short series change the windows the other is read on.
+    """
+    data = _missing_every_window(
+        with_leading_missing(data_wide, "item_2", 5), profile_wide
+    )
+
+    expected = _never_message("'item_2': 5", short=True, late=False)
+    with pytest.raises(InvalidInputError, match=re.escape(expected)):
+        validate_series_lengths(
+            data, profile_wide, plan_wide_ridge, cv=cv_items_sales()
+        )
 
 
 # =============================================================================

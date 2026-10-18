@@ -228,7 +228,7 @@ def test_server_workflow_when_daily_data_closed_on_sundays(tmp_path):
     ]
     assert backtest["code"] == "invalid_argument"
     assert backtest["message"] == (
-        "The target has 15 missing value(s) in the test folds (2023-09-17 "
+        "The target has 15 missing value(s) in all 8 test folds (2023-09-17 "
         "00:00:00, 2023-09-24 00:00:00, 2023-10-01 00:00:00, 2023-10-08 "
         "00:00:00, 2023-10-15 00:00:00 and 10 more), counting the missing "
         "timestamps that asfreq() restores: all of them on Sundays, when the "

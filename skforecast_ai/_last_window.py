@@ -22,6 +22,13 @@ from .profiling.data_profile import (
     closed_weekdays,
     weekday_names,
 )
+from .recommendation.missing_values import (
+    backtest_missing_values,
+    backtest_missing_values_messages,
+    closed_days_remedy,
+    nan_tolerant_estimator,
+    tolerant_estimator_phrase,
+)
 from .schemas import DataProfile, ForecastPlan
 
 
@@ -137,7 +144,7 @@ def _check_wide(
     # The level of ForecasterDirectMultiVariate, as the generated code
     # writes it (`_get_target_str`).
     level = profile.target[0] if isinstance(profile.target, list) else profile.target
-    missing = {}
+    missing, closed = {}, {}
     for column_position, column in enumerate(frame.columns):
         values = present[:, column_position]
         if plan.forecaster == "ForecasterRecursiveMultiSeries":
@@ -161,8 +168,11 @@ def _check_wide(
             missing[_plain(column)] = (
                 frame.index[len(frame) - np.asarray(read)], by_differentiation
             )
+            closed[_plain(column)] = _closed_weekdays_of(
+                frame.index, present[:, column_position], profile
+            )
 
-    _report(missing, plan, order, by_series=False)
+    _report(missing, plan, profile, order, by_series=False, closed=closed)
 
 
 def _target_frame(
@@ -322,7 +332,11 @@ def _check_long(
         np.tile(window_dates, (n_series, 1))
         >= predicted["min"].to_numpy()[:, None]
     )
-    missing = {}
+    missing, closed = {}, {}
+    # The dates with a value of each series, grouped once: filtering them per
+    # series was quadratic with thousands of series.
+    value_dates = pd.DatetimeIndex(with_value["date"])
+    positions_by_code = None
     for row, code in enumerate(predicted.index):
         window_present = is_present[row][in_series[row]]
         if window_present.all():
@@ -338,8 +352,13 @@ def _check_long(
             missing[_plain(names[code])] = (
                 window_dates[np.asarray(read) - 1], by_differentiation
             )
+            if positions_by_code is None:
+                positions_by_code = with_value.groupby("code").indices
+            closed[_plain(names[code])] = closed_weekdays(
+                value_dates[positions_by_code[code]], profile.frequency
+            )
 
-    _report(missing, plan, order, by_series=True)
+    _report(missing, plan, profile, order, by_series=True, closed=closed)
 
 
 def _on_series_grid(rows: pd.DataFrame, frequency: str) -> np.ndarray:
@@ -505,12 +524,30 @@ def _plain(value: object) -> object:
     return value.item() if isinstance(value, np.generic) else value
 
 
+def _closed_weekdays_of(
+    dates: pd.Index,
+    present: np.ndarray,
+    profile: DataProfile,
+) -> list[int]:
+    """
+    Return the days of the week on which a series never has a value (see
+    `closed_weekdays`), from its dates and whether each one has a value; an
+    empty list without dates.
+    """
+    if not isinstance(dates, pd.DatetimeIndex):
+        return []
+
+    return closed_weekdays(dates[np.asarray(present, dtype=bool)], profile.frequency)
+
+
 def _report(
     missing: dict,
     plan: ForecastPlan,
+    profile: DataProfile,
     order: int,
     by_series: bool,
     where: str = "",
+    closed: dict | None = None,
 ) -> None:
     """
     Raise for the missing values read by the predictions, or warn when the
@@ -518,7 +555,12 @@ def _report(
     variables. `missing` maps each series (its id when `by_series`, its
     column otherwise) to the dates of its missing values read and whether
     the inverse of the differentiation reads one. `where` names the test
-    folds of a backtest that read them.
+    folds of a backtest that read them. `closed` maps each series to the
+    days of the week on which it never has a value (see
+    `closed_weekdays`): when every missing value read falls on them, the
+    error names those days and says that a business closed on them can
+    fill them with 0, after asking the user, as the errors of the
+    evaluated dates do.
     """
     if not missing:
         return
@@ -531,10 +573,27 @@ def _report(
         f"The forecaster reads missing values of the target to predict"
         f"{where} ({series}{shown})."
     )
+    days = _closed_days(missing, closed or {})
+    if days is not None:
+        owner = "the target never has" if len(missing) == 1 else (
+            "those series never have"
+        )
+        message += f" All of them are on {days}, when {owner} a value."
+
+    def remedy(fill: str) -> str:
+        """
+        Put the advice of a business closed on those days first, and then
+        `fill`, which says "imputed" there instead of "filled in".
+        """
+        if days is None:
+            return fill[:1].upper() + fill[1:]
+        imputed = fill.replace("filled in", "imputed")
+        return f"{closed_days_remedy(days)}; otherwise, {imputed}"
+
     if plan.forecaster == "ForecasterEquivalentDate":
         raise DataContentError(
             f"{message} {plan.forecaster} repeats them as missing predictions. "
-            f"Those values have to be filled in before predicting.",
+            f"{remedy('those values have to be filled in before predicting.')}",
             field = "data",
         )
     if any(by_differentiation for _, by_differentiation in missing.values()):
@@ -542,16 +601,18 @@ def _report(
         # predictions are missing whatever the estimator.
         raise DataContentError(
             f"{message} The differentiation of {plan.forecaster} reads the "
-            f"last {order} value(s), so its predictions would be missing. Those "
-            f"values have to be filled in before predicting.",
+            f"last {order} value(s), so its predictions would be missing. "
+            f"{remedy('those values have to be filled in before predicting.')}",
             field = "data",
         )
     if plan.estimator not in NAN_TOLERANT_ESTIMATORS:
+        estimator = tolerant_estimator_phrase(nan_tolerant_estimator(plan, profile))
         raise DataContentError(
             f"{message} {plan.forecaster} with {plan.estimator} cannot use "
-            f"them, so its predictions would be missing. Either they are "
-            f"filled in, or the plan uses an estimator that accepts missing "
-            f"values (for example 'LGBMRegressor').",
+            f"them, so its predictions would be missing. "
+            + remedy(
+                f"either they are filled in, or the plan uses {estimator}."
+            ),
             field = "data",
         )
     warnings.warn(
@@ -560,6 +621,23 @@ def _report(
         UserWarning,
         stacklevel = _caller_stacklevel(),
     )
+
+
+def _closed_days(missing: dict, closed: dict) -> str | None:
+    """
+    Name the days of the week of the missing values read (`'Sundays'`) when
+    every one of them falls on a day on which its series never has a value
+    (`closed`, by series), None otherwise.
+    """
+    weekdays: set[int] = set()
+    for name, (dates, _) in missing.items():
+        if not isinstance(dates, pd.DatetimeIndex) or not closed.get(name):
+            return None
+        if not np.isin(dates.dayofweek, closed[name]).all():
+            return None
+        weekdays.update(int(day) for day in dates.dayofweek)
+
+    return weekday_names(sorted(weekdays))
 
 
 def _where(dates: pd.Index) -> str:
@@ -877,8 +955,21 @@ def validate_series_lengths(
             long   = profile.data_format == "long",
             dropna = dropna,
         )
+        short = {
+            name: (length, ended)
+            for name, (length, ended, read) in never.items() if read is None
+        }
+        if short:
+            _report_never_forecast(short, plan, window)
         if never:
-            _report_never_forecast(never, plan, window)
+            _report_missing_last_windows(
+                missing = {name: read for name, (_, _, read) in never.items()},
+                plan    = plan,
+                profile = profile,
+                spans   = spans,
+                window  = window,
+                order   = order,
+            )
 
 
 def _series_never_forecast(
@@ -892,8 +983,8 @@ def _series_never_forecast(
     """
     Return the series that ForecasterRecursiveMultiSeries forecasts in no
     fold of a backtest, mapped to their number of observations from the
-    first to the last value, and whether they end before the window of the
-    last fold.
+    first to the last value, whether they end before the window of the
+    last fold, and the missing values that left them out (see below).
 
     skforecast forecasts a series in a fold when it was trained on it and
     it has a last window before the fold:
@@ -911,10 +1002,13 @@ def _series_never_forecast(
       inside the dates from the first to the last value of the series: a
       series that starts late, or ends before the fold, is left out.
 
-    Missing values between the first and the last value of a series, which
-    can also drop a last window, are not checked here. It returns an empty
-    dict when the strategy cannot be split on the dates of the data (the
-    check of the first training window reports it).
+    A missing value between the first and the last value of a series in a
+    last window drops it from that fold too (`dropna`): a series left out
+    of every fold it could be forecast in only for that is mapped to the
+    dates of those missing values as well (None for the others), so its
+    error says what fills them. It returns an empty dict when the strategy
+    cannot be split on the dates of the data (the check of the first
+    training window reports it).
     """
     # The folds are split on the dates of every series, from the earliest
     # first date to the latest last one, as skforecast splits a dict.
@@ -961,6 +1055,7 @@ def _series_never_forecast(
                 # Dates off the grid of the span, which skforecast cannot
                 # put on one index either: not checked here.
                 continue
+        offset = start
         stop = start + len(present)
         values = np.flatnonzero(present) + start
         # Values of the series from its first to its last one inside the
@@ -984,10 +1079,28 @@ def _series_never_forecast(
                 - np.maximum(last_window[:, 0], start)
             )
             forecast &= inside >= window
+        length = int(values[-1] - values[0] + 1)
+        ended = bool(stop < last_window[-1, 1])
         if not forecast.any():
-            never[_plain(name)] = (
-                int(values[-1] - values[0] + 1), bool(stop < last_window[-1, 1])
+            never[_plain(name)] = (length, ended, None)
+            continue
+        if dropna:
+            # A missing value between the first and the last value of the
+            # series in a last window drops it from that fold too.
+            absent = np.flatnonzero(~present) + offset
+            absent = absent[(absent > values[0]) & (absent < values[-1])]
+            in_window = (
+                np.searchsorted(absent, last_window[:, 1])
+                - np.searchsorted(absent, last_window[:, 0])
             )
+            if not (forecast & (in_window == 0)).any():
+                # The missing values that dropped it from the folds it would
+                # be forecast in otherwise.
+                read = np.unique(np.concatenate([
+                    absent[(absent >= low) & (absent < high)]
+                    for low, high in last_window[forecast]
+                ]))
+                never[_plain(name)] = (length, ended, span[read])
 
     return never
 
@@ -1033,6 +1146,71 @@ def _report_never_forecast(never: dict, plan: ForecastPlan, window: int) -> None
         code  = "insufficient_data",
         field = "data",
         hint  = f"{remedies}.",
+    )
+
+
+def _report_missing_last_windows(
+    missing: dict,
+    plan: ForecastPlan,
+    profile: DataProfile,
+    spans: dict,
+    window: int,
+    order: int,
+) -> None:
+    """
+    Raise for the series that a backtest of ForecasterRecursiveMultiSeries
+    forecasts in no fold because the last window before every fold it could
+    forecast has a missing value, which skforecast drops from the fold with
+    an estimator that does not accept missing values, and always with the
+    differentiation (see `_series_never_forecast`). `missing` maps each
+    series to the dates of those missing values. When all of them fall on
+    days of the week on which their series never has a value, the message
+    names those days and says that a business closed on them can fill them
+    with 0, after asking the user.
+    """
+    found = [f"{name!r}: {_where(dates)}" for name, dates in missing.items()]
+    shown = "; ".join(found[:_SHOWN])
+    if len(found) > _SHOWN:
+        shown += f"; and {len(found) - _SHOWN} more series"
+    closed = {
+        name: _closed_weekdays_of(*spans[name], profile)
+        for name in missing
+    }
+    days = _closed_days(
+        {name: (dates, False) for name, dates in missing.items()}, closed
+    )
+    if order:
+        why = (
+            f"with the differentiation, {plan.forecaster} cannot predict from "
+            f"a missing value whatever the estimator"
+        )
+    else:
+        why = f"{plan.forecaster} with {plan.estimator} cannot predict from them"
+    estimator = tolerant_estimator_phrase(nan_tolerant_estimator(plan, profile))
+    if not order:
+        works = f"{estimator} predicts from them"
+    elif plan.estimator in NAN_TOLERANT_ESTIMATORS:
+        works = "a plan without the differentiation predicts from them"
+    else:
+        works = (
+            f"a plan without the differentiation and with {estimator} predicts "
+            f"from them"
+        )
+    remedy = (
+        f"{closed_days_remedy(days)}; otherwise, {works}, or impute them, or "
+        f"remove those series."
+        if days is not None else
+        f"{works[:1].upper()}{works[1:]}; otherwise, fill them in the data, "
+        f"after asking the user, or remove those series."
+    )
+    raise DataContentError(
+        f"Some series cannot be forecast in any fold of the backtest: the "
+        f"{window} values before every fold they could be forecast in have a "
+        f"missing value ({shown}), and {why}. skforecast leaves them out of "
+        f"those folds without a warning, so they would get no predictions and "
+        f"no metrics, and the average across series would leave them out. "
+        f"{remedy}",
+        field = "data",
     )
 
 
@@ -1288,8 +1466,7 @@ def _check_multiseries_evaluation(
                 f"The target has missing values in the test split ({shown}), "
                 f"all of them on {days}, when those series never have a "
                 f"value. skforecast cannot compute the metrics on them, "
-                f"whatever the estimator. If the business is closed on "
-                f"{days}, fill them with 0 in the data, after asking the user; "
+                f"whatever the estimator. {closed_days_remedy(days)}; "
                 f"otherwise, impute the target, or evaluate on dates without "
                 f"missing values.",
                 field = "data",
@@ -1368,6 +1545,8 @@ def validate_backtest_windows(
     finally:
         cv.verbose = original_verbose
 
+    _check_training_rows(frame.index, absent, folds, plan, profile)
+
     # The positions read depend on the steps predicted from the window, the
     # gap included: fewer in an incomplete last fold.
     read_by_steps: dict[int, tuple[np.ndarray, int, int]] = {}
@@ -1406,58 +1585,132 @@ def validate_backtest_windows(
             _plain(profile.target): (frame.index[sorted(read)], by_differentiation)
         },
         plan      = plan,
+        profile   = profile,
         order     = order,
         by_series = False,
         where     = f" {n_folds} of the {len(folds)} test folds",
+        closed    = {
+            _plain(profile.target): _closed_weekdays_of(frame.index, ~absent, profile)
+        },
     )
 
 
-def backtest_missing_values_reason(
-    plan: ForecastPlan, profile: DataProfile
-) -> tuple[str, bool] | None:
+def _check_training_rows(
+    index: pd.Index,
+    absent: np.ndarray,
+    folds: pd.DataFrame,
+    plan: ForecastPlan,
+    profile: DataProfile,
+) -> None:
     """
-    Why a backtest of a plan can read missing values of the target it cannot
-    use: a single series with missing values or missing timestamps, and a
-    forecaster that cannot predict from one (a lag forecaster whose
-    estimator does not tolerate them, or ForecasterEquivalentDate).
+    Raise when every training row of a fold of a single series reads a
+    missing value of the target and the plan drops those rows
+    (`dropna_from_series`, which the plan sets for an estimator that does
+    not accept missing values): skforecast is left with nothing to train
+    on and fails with "All samples have been removed due to NaNs", whose
+    advice (`dropna_from_series=False`) the plan rejects for that estimator.
 
-    Parameters
-    ----------
-    plan : ForecastPlan
-        Plan a strategy is built for.
-    profile : DataProfile
-        Profile of the data.
-
-    Returns
-    -------
-    reason : tuple, None
-        None when the backtest cannot fail for that reason. Otherwise who
-        cannot use a missing value (`'ForecasterRecursive with Ridge cannot
-        predict from'`, `'ForecasterEquivalentDate repeats'`) and whether an
-        estimator that accepts missing values would avoid it.
+    A training row of target date `t` reads the differenced values of its
+    lags and of its window features (whose statistics need every value of
+    the window when training) and is dropped when its target is missing
+    too. The training windows are those of the folds that train the
+    forecaster. The exogenous variables are not checked: the rows they
+    drop only make this check pass where skforecast fails, never the
+    other way round.
     """
-    if profile.n_series != 1 or not isinstance(profile.target, str):
-        return None
-    if not profile.missing_target and not profile.has_gaps:
-        return None
-    if plan.forecaster == "ForecasterEquivalentDate":
-        return f"{plan.forecaster} repeats", False
+    kwargs = plan.forecaster_kwargs
     if (
-        plan.forecaster in AUTOREG_FORECASTERS
-        and plan.estimator not in NAN_TOLERANT_ESTIMATORS
+        plan.forecaster not in {"ForecasterRecursive", "ForecasterDirect"}
+        or kwargs.get("dropna_from_series") is not True
     ):
-        return f"{plan.forecaster} with {plan.estimator} cannot predict from", True
+        return
+    lags = kwargs.get("lags")
+    if isinstance(lags, int) and not isinstance(lags, bool):
+        lags = list(range(1, lags + 1))
+    else:
+        lags = [int(lag) for lag in lags or []]
+    windows = _window_sizes(kwargs.get("window_features"))
+    order = int(kwargs.get("differentiation") or 0)
+    window_size = max(lags + windows, default=0) + order
+    n_values = len(absent)
+    if not window_size or window_size >= n_values:
+        return
 
-    return None
+    # A differenced value is missing when one of the `order + 1` values it
+    # is made of is; the first `order` ones are never read.
+    counts = np.concatenate([[0], np.cumsum(absent)])
+    positions = np.arange(n_values)
+    differenced = counts[positions + 1] - counts[np.maximum(positions - order, 0)] > 0
+    differenced[:order] = True
+    missing_counts = np.concatenate([[0], np.cumsum(differenced)])
+    # Whether the predictors of target position `t` read no missing value.
+    readable = np.zeros(n_values, dtype=bool)
+    targets = positions[window_size:]
+    readable[targets] = True
+    for lag in lags:
+        readable[targets] &= ~differenced[targets - lag]
+    for size in windows:
+        readable[targets] &= (
+            missing_counts[targets] - missing_counts[targets - size] == 0
+        )
+
+    steps = plan.steps if plan.forecaster == "ForecasterDirect" else 1
+    for start, end, fit in zip(
+        folds["train_start"], folds["train_end"], folds["fit_forecaster"]
+    ):
+        if not fit:
+            continue
+        start, end = int(start), int(end)
+        first, last = start + window_size, end - steps
+        if last < first:
+            # Too short a window, which skforecast reports itself.
+            continue
+        rows = readable[first:last + 1]
+        # Every step of a direct forecaster needs a row whose target, `step
+        # - 1` positions later, is not missing.
+        trainable = all(
+            (rows & ~differenced[first + step:last + step + 1]).any()
+            for step in range(steps)
+        )
+        if trainable:
+            continue
+        in_window = np.flatnonzero(absent[start:end]) + start
+        dates = index[in_window]
+        days = _closed_days(
+            {0: (dates, False)}, {0: _closed_weekdays_of(index, ~absent, profile)}
+        )
+        estimator = tolerant_estimator_phrase(nan_tolerant_estimator(plan, profile))
+        shorter = "use shorter lags and window features, which read fewer values"
+        remedy = (
+            f"{closed_days_remedy(days)}; otherwise, {estimator} trains on "
+            f"them, or {shorter}, or impute them."
+            if days is not None else
+            f"{estimator[:1].upper()}{estimator[1:]} trains on them; otherwise, "
+            f"{shorter}, or fill in the missing values, after asking the user."
+        )
+        span = (
+            f"{_fmt_timestamp(index[start])} to {_fmt_timestamp(index[end - 1])}"
+            if isinstance(index, pd.DatetimeIndex)
+            else f"index {_plain(index[start])!r} to {_plain(index[end - 1])!r}"
+        )
+        raise DataContentError(
+            f"Every training row of the backtest from {span} reads a missing "
+            f"value of the target ({_where(dates)}): {plan.forecaster} with "
+            f"{plan.estimator} drops the rows whose lags, window features or "
+            f"target read one (`dropna_from_series`), so skforecast would have "
+            f"no row to train on. {remedy}",
+            field = "data",
+        )
 
 
 def warn_backtest_missing_values(plan: ForecastPlan, profile: DataProfile) -> None:
     """
-    Warn when a strategy is built for a plan whose backtest can read missing
-    values of the target (see `backtest_missing_values_reason`). Where they
-    are is not known without the data, so `backtest()` checks every fold
-    (see `validate_backtest_windows`) and this warning says beforehand that
-    it can raise, and what avoids it.
+    Warn when a strategy is built for a plan whose backtest can fail on the
+    missing values of the data (see `backtest_missing_values`). Where they
+    are is not known without the data, so the warning says when the
+    backtest fails and what avoids it, each case a condition: `backtest()`
+    checks every fold of the target before running (see
+    `_check_evaluated_target` and `validate_backtest_windows`).
 
     Parameters
     ----------
@@ -1470,21 +1723,8 @@ def warn_backtest_missing_values(plan: ForecastPlan, profile: DataProfile) -> No
     -------
     None
     """
-    reason = backtest_missing_values_reason(plan, profile)
-    if reason is None:
+    missing_values = backtest_missing_values(plan, profile)
+    if missing_values is None:
         return
-    who, estimator_avoids_it = reason
-    estimator = (
-        ", or choose an estimator that accepts missing values (for "
-        "example 'LGBMRegressor')"
-    ) if estimator_avoids_it else ""
-    warnings.warn(
-        f"The target has missing values or missing timestamps (asfreq() "
-        f"restores them as missing values), and {who} a missing value: "
-        f"`backtest()` of this plan raises when a test fold is predicted "
-        f"from one, naming its dates. `dropna_from_series` only drops them "
-        f"from the training data. Impute the target{estimator} to backtest "
-        f"every fold.",
-        UserWarning,
-        stacklevel = 3,
-    )
+    for message in backtest_missing_values_messages(missing_values, plan):
+        warnings.warn(message, UserWarning, stacklevel=3)

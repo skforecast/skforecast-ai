@@ -28,6 +28,10 @@ from .profiling.data_profile import (
 )
 from .rendering._helpers import _get_numeric_exog
 from .rendering.foundation import _get_foundation_exog
+from .recommendation.missing_values import (
+    nan_tolerant_estimator,
+    tolerant_estimator_phrase,
+)
 from .schemas import DataProfile, ForecastPlan, FutureExogFile
 
 # Values listed in a message, at most.
@@ -1100,12 +1104,12 @@ def _check_values(
         found = "; ".join(
             f"{column!r}: {where}" for column, where in with_missing.items()
         )
+        estimator = tolerant_estimator_phrase(nan_tolerant_estimator(plan, profile))
         raise DataContentError(
             f"`exog` has missing values in the rows to forecast ({found}). "
             f"{plan.forecaster} with {plan.estimator} cannot use them, so its "
             f"predictions would be missing. Either they are filled in, or the "
-            f"plan uses an estimator that accepts missing values (for example "
-            f"'LGBMRegressor').",
+            f"plan uses {estimator}.",
             field = "exog",
         )
     if with_missing:

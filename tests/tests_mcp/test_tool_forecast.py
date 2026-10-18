@@ -7,7 +7,7 @@ from skforecast_ai import ForecastingAssistant
 from skforecast_ai._utils import load_exog
 from skforecast_ai.mcp import create_server
 
-from ..fixtures_assistant import df_single
+from ..fixtures_assistant import df_crossing_zero, df_single
 from ..fixtures_csv_dialect import df_dialect, write_dialect
 from ..fixtures_datasets import df_items_sales_long
 from .fixtures_mcp import (
@@ -410,7 +410,7 @@ def test_tool_forecast_invalid_argument_with_hint_when_future_exog_has_missing_v
         "value(s), such as '2023-04-13'). ForecasterRecursive with Ridge "
         "cannot use them, so its predictions would be missing. "
         "Either they are filled in, or the plan uses an estimator that "
-        "accepts missing values (for example 'LGBMRegressor')."
+        "accepts missing values (such as 'RandomForestRegressor')."
     )
     assert error["hint"] == (
         "The file of future values is the user's: tell them what the message "
@@ -587,3 +587,25 @@ def test_tool_forecast_output_when_series_ids_are_numbers(tmp_path):
     assert result["summary"] == expected.describe()
     assert text_of(result["files"]["predictions"]) == csv_of(expected.predictions)
     assert sorted(predictions["level"].unique()) == ["001", "1", "10"]
+
+
+def test_tool_forecast_notice_of_undefined_mape_when_target_crosses_zero(tmp_path):
+    """
+    Test that MAPE requested on a target that crosses zero gets, in the
+    response of `forecast`, the notice that it has no meaning instead of its
+    unit, which needs the profile of the data.
+    """
+    path = write_csv(tmp_path, "profit.csv", df_crossing_zero)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, plan_id = profile_and_plan(
+        server, path, target="profit", steps=6,
+        metric="mean_absolute_percentage_error",
+    )
+
+    result = content_of(
+        call(server, "forecast", {"plan_id": plan_id, "test_size": 6})
+    )
+    assert [n["category"] for n in result["notices"]] == ["HoldoutEvaluationNotice", "MetricUndefinedNotice"]
+    assert result["notices"][-1]["message"].startswith(
+        "`mean_absolute_percentage_error` has no meaning on this data"
+    )
