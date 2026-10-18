@@ -268,7 +268,13 @@ cuenta al usuario.
   [#95](https://github.com/skforecast/skforecast-ai/pull/95), los números
   escritos como texto y los faltantes de cada columna), y con ellos al
   contexto del LLM: un plan que no usa exógenas no debería llevarlos.
-  *[LLM]*
+  *[LLM]* De la revisión de
+  [#104](https://github.com/skforecast/skforecast-ai/pull/104) (D16):
+  `compare()` con los candidatos por defecto no avisa de un MAPE sin
+  sentido (con candidatos explícitos sale el aviso de cada plan): un aviso
+  por comparación. MSLE con un objetivo con valores negativos falla al
+  ejecutar (sklearn lo rechaza): error en el plan, no en el script. La
+  explicación del plan debe decir por qué quitó MAPE del panel. *[LLM]*
 
 ## Fase 4. Coste
 
@@ -355,7 +361,13 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
    revisados y un solo check de pago contra un modelo real
    (`tools/ai/check_ask_context.py`, lo lanzas tú). En el mismo ciclo:
    `ask(context=profile, plan=plan)` explica el script sin la codificación ni
-   el formato de fecha de las exógenas (pregunta 4 de #97).
+   el formato de fecha de las exógenas (pregunta 4 de #97). El `--dry-run`
+   y el check se lanzan en local: `check_ask_context.py` descarga los
+   datasets de skforecast con `fetch_dataset`, y la red de una sesión en la
+   nube lo bloquea (en #104 se quedó colgado más de una hora). Después,
+   volver a grabar las salidas de `ask()` de
+   `agentic-forecasting.ipynb` y `agentic-forecasting-step-by-step.ipynb`,
+   que llaman porcentaje a MAPE (#104).
 2. Check con agentes de `tools/mcp/` (cambian el SKILL, el coste y las
    descripciones: está en "When to run it"), al menos con sonnet y con haiku
    en los escenarios críticos. Debe incluir un escenario con un CSV de Excel
@@ -801,8 +813,10 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     faltantes intermedios de las últimas ventanas, a 3a; `create_cv` no
     avisa, porque el error del backtest ya salta antes de ejecutar nada. El
     caso límite de `window_size` es un bug de skforecast (#1410).
-- **D?. 3c-i: MAPE en objetivos que tocan o cruzan el cero, y la unidad de
-  MAPE y sMAPE** (2026-10-17). V10 y V20; RMSE y V05 esperan a D4:
+- **D16. 3c-i: MAPE en objetivos que tocan o cruzan el cero, y la unidad de
+  MAPE y sMAPE** (2026-10-17), en
+  [#104](https://github.com/skforecast/skforecast-ai/pull/104). V10 y V20;
+  RMSE y V05 esperan a D4:
   - Una serie está cerca del cero si `min <= 0.01` y `max >= -0.01`
     (`series_near_zero`, en `metric_selection.py`). Basta una serie para
     dejar MAPE fuera del panel por defecto de todas: el panel es uno para
@@ -853,6 +867,7 @@ arranque de las sesiones en la nube instala skforecast desde su rama
 | [#1406](https://github.com/skforecast/skforecast/issues/1406) | Avisar de una serie que no se pronostica en ningún fold (G03) | 2b se queda en la comprobación previa y el aviso del perfil: los scripts corren con `suppress_warnings=True` y fallar antes de ejecutar es mejor para un agente | Abierto |
 | [#1410](https://github.com/skforecast/skforecast/issues/1410) | Una serie con exactamente `window_size` observaciones en la ventana de entrenamiento de un fold multiserie (2b) | Nada: el backtest falla dentro del script con "must be greater than the maximum window size"; con el arreglo, la serie se descarta de ese fold como las más cortas, que es lo que ya supone la comprobación de 2b | Abierto |
 | [#1409](https://github.com/skforecast/skforecast/issues/1409) | Cobertura y anchura del intervalo en las métricas del backtesting (D11) | 2c-ii las lee de la salida del backtesting, sin cálculo propio en el script | Abierto |
+| Sin issue (lo haces en skforecast) | El skill `metric-selection` describe MAPE como "Percentage error" sin decir que sklearn devuelve una fracción (D16, #104) | Llega con `/sync-skforecast-assets` en la fase 7 | Pendiente |
 
 Detalle de cada uno:
 
