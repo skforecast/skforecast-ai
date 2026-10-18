@@ -398,12 +398,14 @@ class ToolResult(BaseModel):
         `files`.
     cost : dict, None
         Cost of a cross-validation strategy, a backtest or a comparison:
-        `n_folds`, `n_fits` (trainings of the forecaster in the shared
-        strategy), `estimator_fits` (fits of an estimator, which a direct
-        forecaster multiplies by `steps`) and `inference_windows` (the
-        cost of a foundation model, never trained: one forecast per series
-        and fold; 0 for the other forecasters); for a comparison, the last
-        two are sums over its candidates. A cross-validation strategy also
+        `n_folds`, `n_fits` (trainings of the forecaster),
+        `estimator_fits` (fits of an estimator, which a direct forecaster
+        multiplies by `steps`) and `inference_windows` (the cost of a
+        foundation model, never trained: one forecast per series and fold;
+        0 for the other forecasters). For a comparison, `n_folds` is that
+        of the shared strategy and the other three are totals over all its
+        candidates, the baseline included, counted before they run (a
+        candidate that fails counts too). A cross-validation strategy also
         has `compare_estimator_fits` and `compare_inference_windows`, those
         of a comparison without candidates with it. None for the other
         kinds.

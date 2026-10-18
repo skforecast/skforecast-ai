@@ -10,7 +10,7 @@ import copy
 import numbers
 import re
 import warnings
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
@@ -84,6 +84,7 @@ from .profiling.csv_dialect import (
     undefined_byte_error,
 )
 from .schemas import (
+    ComparisonCost,
     CVResult,
     DataProfile,
     ForecastingProfile,
@@ -2806,6 +2807,163 @@ def warn_long_inference(
         f"If not feasible, use a cross-validation strategy with fewer folds "
         f"(a later `initial_train_size` or a larger `fold_stride`) or "
         f"forecast fewer series.",
+        LongTrainingWarning,
+        stacklevel=3,
+    )
+
+
+def cost_remedies(
+    forecasters: Iterable[str],
+    n_fits: int,
+    steps: int,
+    skip_folds: bool = True,
+    false: str = "False",
+) -> list[str]:
+    """
+    Name the changes that lower the cost of a backtest or a comparison.
+
+    Only what lowers the cost of the forecasters given is named: `refit`
+    changes nothing for `ForecasterStats` (skforecast refits it in every
+    fold whatever it says) nor for `ForecasterFoundation` (never trained),
+    and nothing for the others either once they train once (`n_fits` 1);
+    fewer folds lower every cost but that of a forecaster trained once. A
+    shorter horizon is named only for a direct forecaster trained once,
+    since nothing else lowers its cost then, and not next to
+    `ForecasterStats` or `ForecasterFoundation`: for them it means more
+    folds of the default `fold_stride`, a higher cost. The order is fixed,
+    so the text is the same for the same input.
+
+    Parameters
+    ----------
+    forecasters : iterable of str
+        Names of the forecasters whose cost is above the threshold, or adds
+        up to a total above it.
+    n_fits : int
+        Number of folds in which a forecaster is trained under the
+        strategy, see `count_cv_fits`.
+    steps : int
+        Forecast horizon of each fold.
+    skip_folds : bool, default True
+        Whether `skip_folds` can be named among the ways to have fewer
+        folds: False when `ForecasterStats` runs on the strategy, which
+        rejects it. Never named when `forecasters` has `ForecasterStats`.
+    false : str, default 'False'
+        How the text writes `refit=False`: `'false'` for the JSON arguments
+        of the MCP server.
+
+    Returns
+    -------
+    remedies : list of str
+        One phrase per change, such as `'an integer `refit` (retrain every n
+        folds)'`. Empty when nothing lowers the cost.
+    """
+
+    forecasters = set(forecasters)
+    untrained = {"ForecasterStats", "ForecasterFoundation", "ForecasterEquivalentDate"}
+    refits = bool(forecasters - untrained) and n_fits > 1
+    remedies = []
+    if refits:
+        remedies.append("an integer `refit` (retrain every n folds)")
+    if refits or forecasters & {"ForecasterStats", "ForecasterFoundation"}:
+        if skip_folds and "ForecasterStats" not in forecasters:
+            ways = (
+                "a later `initial_train_size`, a larger `fold_stride` or "
+                "`skip_folds`"
+            )
+        else:
+            ways = "a later `initial_train_size` or a larger `fold_stride`"
+        remedies.append(f"fewer folds ({ways})")
+    if refits:
+        remedies.append(f"`refit={false}` (train once)")
+    if (
+        n_fits <= 1
+        and steps > 1
+        and forecasters & DIRECT_FORECASTERS
+        and not forecasters & {"ForecasterStats", "ForecasterFoundation"}
+    ):
+        remedies.append(
+            "a shorter horizon (a direct forecaster fits one estimator per step)"
+        )
+    if "ForecasterFoundation" in forecasters:
+        remedies.append("fewer series")
+
+    return remedies
+
+
+def join_remedies(remedies: list[str]) -> str:
+    """
+    Join the phrases of `cost_remedies` as `'a, b or c'`.
+
+    Parameters
+    ----------
+    remedies : list of str
+        Phrases returned by `cost_remedies`.
+
+    Returns
+    -------
+    text : str
+        The phrases joined, the last one with "or".
+    """
+
+    if len(remedies) <= 1:
+        return "".join(remedies)
+
+    return f"{', '.join(remedies[:-1])} or {remedies[-1]}"
+
+
+def warn_long_comparison(
+    cost: ComparisonCost,
+    n_fits: int,
+    steps: int,
+) -> None:
+    """
+    Warn before a comparison whose candidates fit many estimators in all.
+
+    The threshold of `warn_long_training` applies to the total of the
+    comparison, not to each candidate: candidates that are cheap one by
+    one can add up to an expensive run. The warning states the total and
+    what each candidate adds to it.
+
+    Parameters
+    ----------
+    cost : ComparisonCost
+        Cost of the comparison, see `count_comparison_cost`.
+    n_fits : int
+        Number of folds in which a forecaster is trained under the shared
+        strategy, see `count_cv_fits`.
+    steps : int
+        Forecast horizon of each fold.
+
+    Returns
+    -------
+    None
+    """
+
+    if cost.estimator_fits <= LONG_TRAINING_FITS:
+        return
+
+    candidates = cost.candidates.values()
+    # A direct forecaster fits one estimator per step, which is what makes
+    # it costly: its share says so.
+    shown = ", ".join(
+        f"'{name}': {candidate.estimator_fits}"
+        + (
+            f" ({candidate.n_fits} trainings x {steps} estimators)"
+            if candidate.forecaster in DIRECT_FORECASTERS else ""
+        )
+        for name, candidate in cost.candidates.items()
+    )
+    remedies = cost_remedies(
+        forecasters = [c.forecaster for c in candidates if c.estimator_fits],
+        n_fits      = n_fits,
+        steps       = steps,
+        skip_folds  = all(c.forecaster != "ForecasterStats" for c in candidates),
+    )
+    warnings.warn(
+        f"The comparison will fit {cost.estimator_fits} estimators in all "
+        f"({shown}). This can take substantial amounts of time. If not "
+        f"feasible, compare fewer candidates or use "
+        f"{join_remedies(remedies)}.",
         LongTrainingWarning,
         stacklevel=3,
     )

@@ -24,12 +24,16 @@ from ..exceptions import InvalidInputError, InvalidInputTypeError
 from ..recommendation import (
     baseline_missing_values_note,
     count_estimator_fits,
+    count_inference_windows,
+    count_trainings,
     select_baseline_config,
 )
 from ..schemas import (
     CANDIDATE_CONFIG_KEYS,
     BacktestResult,
     CandidateConfig,
+    CandidateCost,
+    ComparisonCost,
     ForecastingProfile,
     ForecastPlan,
 )
@@ -785,6 +789,75 @@ def exclude_costly_candidates(
     )
 
     return kept, note
+
+
+def count_comparison_cost(
+    candidate_configs: list[tuple[str, CandidateConfig]],
+    preferred: str,
+    steps: int,
+    n_fits: int,
+    n_folds: int,
+    n_series: int,
+) -> ComparisonCost:
+    """
+    Count the cost of a comparison before it runs.
+
+    The one count of what `compare()` runs on a shared strategy, the
+    baseline included, shared by `compare()` (which applies the
+    thresholds of an expensive run to its totals) and by the cost the MCP
+    server announces in `create_cv` for a `compare` without candidates.
+    It comes from the forecaster of each candidate and the strategy, so it
+    is the same with automatic and with explicit candidates, and nothing
+    runs to get it.
+
+    Parameters
+    ----------
+    candidate_configs : list of tuple of (str, CandidateConfig)
+        Candidates as `(name, config)` pairs, the baseline included when
+        the comparison runs it, in the order they run.
+    preferred : str
+        Recommended forecaster of the profile, the one of a candidate
+        whose config does not name one.
+    steps : int
+        Forecast horizon of each fold.
+    n_fits : int
+        Number of folds in which a forecaster is trained under the shared
+        strategy, see `count_cv_fits`.
+    n_folds : int
+        Number of folds of the shared strategy.
+    n_series : int
+        Number of series of the data.
+
+    Returns
+    -------
+    cost : ComparisonCost
+        Cost of each candidate and the totals.
+    """
+
+    candidates = {}
+    for name, config in candidate_configs:
+        forecaster = config.get("forecaster") or preferred
+        candidates[name] = CandidateCost(
+            forecaster        = forecaster,
+            n_fits            = count_trainings(
+                                    n_fits     = n_fits,
+                                    forecaster = forecaster,
+                                    n_folds    = n_folds,
+                                ),
+            estimator_fits    = count_estimator_fits(
+                                    n_fits     = n_fits,
+                                    forecaster = forecaster,
+                                    steps      = steps,
+                                    n_folds    = n_folds,
+                                ),
+            inference_windows = count_inference_windows(
+                                    n_folds    = n_folds,
+                                    n_series   = n_series,
+                                    forecaster = forecaster,
+                                ),
+        )
+
+    return ComparisonCost(n_folds=n_folds, candidates=candidates)
 
 
 def build_comparison_explanation(

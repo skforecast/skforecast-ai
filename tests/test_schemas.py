@@ -11,7 +11,9 @@ from pydantic import ValidationError
 from skforecast_ai.schemas import (
     CV_OVERRIDE_NAMES,
     CandidateConfig,
+    CandidateCost,
     CompareProgress,
+    ComparisonCost,
     DataProfile,
     ForecastPlan,
     RefinePlanOverrides,
@@ -1501,3 +1503,65 @@ def test_data_profile_ValidationError_when_date_format_is_not_a_format(date_form
         DataProfile.model_validate_json(json.dumps(fields))
 
     assert exc_info.value.errors()[0]["loc"] == ("date_format",)
+
+
+comparison_cost = ComparisonCost(
+    n_folds    = 6,
+    candidates = {
+        "direct": CandidateCost(
+            forecaster="ForecasterDirect", n_fits=6, estimator_fits=36,
+            inference_windows=0,
+        ),
+        "foundation": CandidateCost(
+            forecaster="ForecasterFoundation", n_fits=0, estimator_fits=0,
+            inference_windows=12,
+        ),
+    },
+)
+
+
+def test_comparison_cost_json_roundtrip():
+    """
+    Test ComparisonCost dumps its totals and survives a model_dump_json ->
+    model_validate_json roundtrip, and a model_dump -> model_validate one.
+    """
+    dumped = comparison_cost.model_dump()
+
+    assert dumped["n_fits"] == 6
+    assert dumped["estimator_fits"] == 36
+    assert dumped["inference_windows"] == 12
+    assert ComparisonCost.model_validate(dumped) == comparison_cost
+    assert (
+        ComparisonCost.model_validate_json(comparison_cost.model_dump_json())
+        == comparison_cost
+    )
+
+
+def test_comparison_cost_ValidationError_when_a_total_is_not_the_sum():
+    """
+    Test ComparisonCost rejects a total that is not the sum of its
+    candidates instead of dropping it.
+    """
+    dumped = {**comparison_cost.model_dump(), "estimator_fits": 30}
+
+    err_msg = re.escape(
+        "estimator_fits must be the sum of the candidates (estimator_fits=36)."
+    )
+    with pytest.raises(ValidationError, match=err_msg):
+        ComparisonCost.model_validate(dumped)
+
+
+def test_candidate_cost_ValidationError_when_a_count_is_negative():
+    """
+    Test CandidateCost rejects a negative count and an unknown field.
+    """
+    with pytest.raises(ValidationError, match="greater than or equal to 0"):
+        CandidateCost(
+            forecaster="ForecasterRecursive", n_fits=-1, estimator_fits=0,
+            inference_windows=0,
+        )
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        CandidateCost(
+            forecaster="ForecasterRecursive", n_fits=1, estimator_fits=1,
+            inference_windows=0, steps=6,
+        )

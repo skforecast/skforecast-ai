@@ -29,6 +29,7 @@ from .fixtures_mcp import (
     df_h2o_csv,
     error_of,
     h2o_server,
+    profile_and_plan,
     run_session,
     text_of,
     write_csv,
@@ -61,7 +62,8 @@ def test_tool_compare_output_matches_python_api(tmp_path):
     Test that `compare` ranks the candidates as the Python API does (same
     summary, leaderboard, best predictions and metrics, the invalid
     candidate as a failure ranked last), registers the plan of the winner
-    and states the cost summed over the candidates that ran.
+    and states the cost summed over all the candidates, counted before they
+    run.
     """
     server, path = h2o_server(tmp_path)
     profile_id, _, cv_id = cv_of(server, path)
@@ -86,10 +88,12 @@ def test_tool_compare_output_matches_python_api(tmp_path):
     assert text_of(result["files"]["leaderboard"]) == csv_of(expected.results)
     assert text_of(result["files"]["best_predictions"]) == csv_of(best.predictions)
     assert text_of(result["files"]["best_metrics"]) == csv_of(best.metrics)
-    # Ridge 1, the direct forecaster one per step (12) and the baseline 0;
-    # the candidate that failed trained nothing, and no foundation model ran.
+    # Counted before running, the candidate that failed included: one
+    # training each (the baseline too), and estimator fits Ridge 1, the
+    # failed candidate 1, the direct forecaster one per step (12) and the
+    # baseline 0; no foundation model ran.
     assert result["cost"] == {
-        "n_folds": 6, "n_fits": 1, "estimator_fits": 13, "inference_windows": 0
+        "n_folds": 6, "n_fits": 4, "estimator_fits": 14, "inference_windows": 0
     }
     # The leaderboard has MAPE, whose unit the server states.
     assert [n["category"] for n in result["notices"]] == ["MetricUnitNotice"]
@@ -99,6 +103,57 @@ def test_tool_compare_output_matches_python_api(tmp_path):
         "comparison_id": result["id"],
     }
     assert best_plan["summary"] == script.describe()
+
+
+def test_tool_compare_cost_of_candidates_above_the_threshold_only_in_total(
+    tmp_path,
+):
+    """
+    Test that `compare` with explicit candidates, each at most 50 estimator
+    fits (two ForecasterDirect of 8 trainings x 6 estimators, 48 each) but
+    104 together, carries the `LongTrainingWarning` of the total, counted
+    before they run, with what each candidate adds, the baseline included;
+    and that its `cost` has the totals: trainings 8 per candidate, the
+    baseline too, and the folds of the shared strategy.
+    """
+    server, path = h2o_server(tmp_path)
+    _, plan_id = profile_and_plan(server, path, steps=6)
+    cv = content_of(
+        call(
+            server, "create_cv",
+            {"plan_id": plan_id, "initial_train_size": 160, "refit": True},
+        )
+    )
+    candidates = [
+        {"name": "direct_a", "config": {"forecaster": "ForecasterDirect", "lags": 3}},
+        {"name": "direct_b", "config": {"forecaster": "ForecasterDirect", "lags": 6}},
+        {"name": "rec", "config": {}},
+    ]
+
+    result = content_of(
+        call(server, "compare", {"cv_id": cv["id"], "candidates": candidates})
+    )
+
+    assert result["cost"] == {
+        "n_folds": 8, "n_fits": 32, "estimator_fits": 104, "inference_windows": 0
+    }
+    assert [n["category"] for n in result["notices"]] == [
+        "MetricUnitNotice", "LongTrainingWarning",
+    ]
+    assert result["notices"][1] == {
+        "source": "runtime",
+        "category": "LongTrainingWarning",
+        "message": (
+            "The comparison will fit 104 estimators in all ('direct_a': 48 "
+            "(8 trainings x 6 estimators), 'direct_b': 48 (8 trainings x 6 "
+            "estimators), 'rec': 8, 'Baseline (seasonal naive)': 0). This can "
+            "take substantial amounts of time. If not feasible, compare fewer "
+            "candidates or use an integer `refit` (retrain every n folds), "
+            "fewer folds (a later `initial_train_size`, a larger `fold_stride` "
+            "or `skip_folds`) or `refit=False` (train once)."
+        ),
+        "count": 1,
+    }
 
 
 def test_tool_compare_code_and_failures_of_the_candidates(tmp_path):
@@ -717,10 +772,12 @@ def test_tool_compare_runs_the_refined_plan_of_the_strategy_as_a_row(
         "The strategy was created for the plan of row 'Strategy plan' "
         "(ForecasterRecursive + LGBMRegressor)."
     ) in result["summary"]
-    # Direct 5, stats 6 (one per fold), recursive 1 and the plan of the
-    # strategy 1.
+    # Trainings: stats 6 (one per fold), and 1 for each of direct,
+    # recursive, the baseline and the plan of the strategy. Estimator fits:
+    # direct 5, stats 6, recursive 1, the plan of the strategy 1 and the
+    # baseline 0.
     assert result["cost"] == {
-        "n_folds": 6, "n_fits": 1, "estimator_fits": 13, "inference_windows": 0
+        "n_folds": 6, "n_fits": 10, "estimator_fits": 13, "inference_windows": 0
     }
 
 
