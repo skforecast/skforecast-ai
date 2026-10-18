@@ -46,7 +46,7 @@ The main changes in this release are:
 
 **Changed**
 
-+ skforecast-ai now requires `skforecast>=0.27.0`, whose fixes it relies on instead of working around them.
++ skforecast-ai now requires `skforecast>=0.27.0`, whose fixes it relies on instead of working around them ([#106](https://github.com/skforecast/skforecast-ai/pull/106)).
 
 + A target whose values are numbers written with a thousands separator or with `%` (`10,025.1`, `12.5%`) raises a `DataContentError` that names that format, as an error of the data and not of `target`, instead of the hint about missing value markers ([#86](https://github.com/skforecast/skforecast-ai/pull/86)).
 
