@@ -313,7 +313,9 @@ class RefinePlanOverrides(TypedDict, total=False):
         of a foundation model, e.g. `'google/timesfm-3.0-pytorch'`.
     estimator_kwargs : dict, None
         Keyword arguments for the estimator constructor. None resets them
-        to the built-in defaults.
+        to the built-in defaults. When omitted with a new `estimator`, the
+        keyword arguments of the plan, written for the previous one, are
+        left out with a `PlanEditsDiscardedWarning` that names them.
     steps : int
         Forecast horizon.
     interval : list of float, None

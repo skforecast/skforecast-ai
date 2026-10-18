@@ -8,6 +8,7 @@ import pytest
 from typer.testing import CliRunner
 
 from skforecast_ai.cli import app, _read_json_input
+from skforecast_ai.exceptions import PlanEditsDiscardedWarning
 from tests.fixtures_assistant import df_single
 
 runner = CliRunner()
@@ -808,13 +809,16 @@ class TestPipeComposition:
         ])
         assert plan_result.exit_code == 0, plan_result.output
 
-        refine_result = runner.invoke(
-            app,
-            ["refine-plan", "--from-plan", "-",
-             "--forecaster", "ForecasterEquivalentDate",
-             "--format", "json", "--quiet"],
-            input=plan_result.output,
-        )
+        # The baseline takes neither the calendar features nor the scaling
+        # that the rules chose for the ML plan.
+        with pytest.warns(PlanEditsDiscardedWarning, match="ForecasterEquivalentDate"):
+            refine_result = runner.invoke(
+                app,
+                ["refine-plan", "--from-plan", "-",
+                 "--forecaster", "ForecasterEquivalentDate",
+                 "--format", "json", "--quiet"],
+                input=plan_result.output,
+            )
         assert refine_result.exit_code == 0, refine_result.output
         plan = json.loads(refine_result.output)["plan"]
         assert plan["task_type"] == "baseline"

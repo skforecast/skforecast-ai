@@ -801,6 +801,39 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     faltantes intermedios de las últimas ventanas, a 3a; `create_cv` no
     avisa, porque el error del backtest ya salta antes de ejecutar nada. El
     caso límite de `window_size` es un bug de skforecast (#1410).
+- **D?. 3b: `refine_plan()` nombra lo que deja fuera** (2026-10-18). Con
+  un `PlanEditsDiscardedWarning` propio, aparte del de las ediciones a mano
+  (su texto va también a `plan.warnings` y al notice del MCP, con source
+  `plan`):
+  - Se nombra una decisión de `OVERRIDE_NAMES` (no `forecaster` ni
+    `metric`) que el plan tenía con efecto y que el plan refinado no tiene,
+    cuando la eligió el usuario (`plan.overridden_fields`) o cuando es una
+    decisión sobre los datos (`use_exog`, `differentiation`,
+    `calendar_features`, `target_transformer`, `dropna_from_series`) que
+    pusieron las reglas y el forecaster nuevo no admite (los no
+    autorregresivos; `use_exog` solo el baseline). Cada valor dice quién lo
+    eligió: `differentiation=1 (chosen by the user)`.
+  - No se nombra lo que el plan nuevo vuelve a decidir (una decisión de las
+    reglas con un forecaster autorregresivo, el estimador que las reglas
+    vuelven a elegir al entrar o salir de DMV, D14), los valores sin efecto
+    (None, `False`, `'none'`, `[]`, `{}`: `calendar_features=[]` o
+    `target_transformer='none'` no cambian nada con ForecasterStats), las
+    claves pasadas en la llamada, ni lo ya nombrado como edición a mano.
+  - Los lags, las ventanas y el estimador que eligieron las reglas no se
+    nombran al cambiar de familia: son del forecaster que se sustituye y
+    el cambio pedido ya lo dice. Sí cuando los eligió el usuario. Tampoco
+    `transformer_exog` ni `categorical_features`, que no son decisiones de
+    `plan()` (pregunta en la PR).
+  - V29: con un estimador nuevo (pasado, o elegido otra vez por cambiar de
+    familia) y sin `estimator_kwargs`, los del plan se descartan, como
+    hasta ahora (no tienen por qué valer para otro estimador), y el aviso
+    los nombra con el estimador para el que se escribieron. Lo dicen la
+    descripción de `estimator_kwargs` de `RefinePlanArgs` (el único cambio
+    del golden de esquemas), `RefinePlanOverrides`, el paso 3 del SKILL.md
+    y `docs/api/mcp.md`.
+  - El texto llega al contexto del LLM por `plan.warnings`; los goldens no
+    cambian (ningún escenario cambia de familia). El check de pago de
+    `check_ask_context.py` queda para la fase 7.
 
 ## Decisiones abiertas
 

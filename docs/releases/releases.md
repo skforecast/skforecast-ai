@@ -88,6 +88,8 @@ The main changes in this release are:
 
 + Fixed an issue in [<code>ForecastingAssistant.plan()</code>][assistant] and `refine_plan()` where `ForecasterDirectMultiVariate` got the estimator chosen for the series pooled (`LGBMRegressor` from 250 observations), which on few dates per step predicted a constant. The rule now counts the dates the series share, and the explanation says so ([#102](https://github.com/skforecast/skforecast-ai/pull/102)).
 
++ Fixed an issue in [<code>ForecastingAssistant.refine_plan()</code>][assistant] where switching to `ForecasterStats`, `ForecasterFoundation` or the baseline dropped the differentiation, calendar features and target transformer without a warning, as a new `estimator` did with the `estimator_kwargs` of the previous one. A `PlanEditsDiscardedWarning` (a notice in the MCP server) now names what is left out and whether you or the rules chose it.
+
 
 ## 0.4.2 <small>Oct 12, 2026</small> { id="0.4.2" }
 
