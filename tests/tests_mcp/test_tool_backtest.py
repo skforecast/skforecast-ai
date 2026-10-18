@@ -383,15 +383,17 @@ def test_tool_backtest_invalid_argument_when_lag_reads_missing_month(tmp_path):
             source   = "runtime",
             category = "UserWarning",
             message  = (
-                "The target has missing values or missing timestamps "
-                "(asfreq() restores them as missing values), and "
-                "ForecasterRecursive with Ridge cannot predict from a "
-                "missing value: `backtest()` of this plan raises when a test "
-                "fold is predicted from one, naming its dates. "
-                "`dropna_from_series` only drops them from the training "
-                "data. Impute the target, or choose an estimator that "
-                "accepts missing values (for example 'LGBMRegressor') to "
-                "backtest every fold."
+                "The target has missing timestamps (asfreq() restores them as "
+                "missing values), and `backtest()` checks every test fold before "
+                "running: it raises, naming the dates, when a test fold holds one, "
+                "whatever the estimator, since no metric is computed on it; and when "
+                "a test fold is predicted from one, since ForecasterRecursive with "
+                "Ridge cannot predict from a missing value. `dropna_from_series` "
+                "only drops the training rows that read one, and a training window "
+                "left without rows raises too. An estimator that accepts missing "
+                "values (such as 'RandomForestRegressor') avoids the error of a fold "
+                "predicted from a missing value, not of a fold that holds one. "
+                "Impute the target to backtest every fold."
             ),
             count    = 1,
         )
@@ -406,7 +408,7 @@ def test_tool_backtest_invalid_argument_when_lag_reads_missing_month(tmp_path):
         "ForecasterRecursive with Ridge cannot use them, so its predictions "
         "would be missing. "
         "Either they are filled in, or the plan uses an estimator that "
-        "accepts missing values (for example 'LGBMRegressor')."
+        "accepts missing values (such as 'RandomForestRegressor')."
     )
     assert error["hint"] == DATA_VALUES_HINT
     assert not forecast.is_error

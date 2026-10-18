@@ -46,6 +46,7 @@ from .metric_selection import (
     select_metric,
     series_near_zero,
 )
+from .missing_values import select_nan_tolerant_estimator
 from .preprocessing import (
     build_forecaster_kwargs,
     check_exog_usage,
@@ -90,6 +91,7 @@ __all__ = [
     "select_forecaster_and_candidates",
     "select_lags",
     "select_metric",
+    "select_nan_tolerant_estimator",
     "select_task_type_from_forecaster",
     "select_transformer_exog",
     "select_transformer_series",

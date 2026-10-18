@@ -23,6 +23,8 @@ from .._constants import (
     NAN_TOLERANT_ESTIMATORS,
 )
 from ..schemas import DataProfile, PreprocessingStep
+from .forecaster_selection import select_task_type_from_forecaster
+from .missing_values import missing_values_advice
 
 if TYPE_CHECKING:
     from skforecast.foundation import FoundationModelInfo
@@ -290,6 +292,9 @@ def derive_preprocessing_steps(
     profile: DataProfile,
     forecaster: str,
     foundation_model: FoundationModelInfo | None = None,
+    estimator: str | None = None,
+    task_type: str | None = None,
+    differentiation: int | None = None,
 ) -> list[PreprocessingStep]:
     """
     Determine required preprocessing steps for a given profile and forecaster.
@@ -314,6 +319,14 @@ def derive_preprocessing_steps(
         categorical exogenous variables are consumed natively, excluded,
         or not used at all. Required when `forecaster` is
         `'ForecasterFoundation'`.
+    estimator : str, default None
+        Name of the estimator of the plan. The advice on missing values
+        depends on whether it accepts them (see `missing_values_advice`).
+    task_type : str, default None
+        Forecasting task category of the plan, which sizes the estimator
+        the advice recommends. None takes the one of `forecaster`.
+    differentiation : int, default None
+        Order of the differentiation of the plan.
 
     Returns
     -------
@@ -323,6 +336,8 @@ def derive_preprocessing_steps(
         describe how the forecaster or the data already handles the issue.
     """
     steps: list[PreprocessingStep] = []
+    if task_type is None:
+        task_type = select_task_type_from_forecaster(forecaster)
 
     # --- Duplicate timestamps ---
     # Only identical rows reach this point (profiling raises when repeated
@@ -369,8 +384,8 @@ def derive_preprocessing_steps(
                     "gaps become NaN rows."
                 ),
                 code_snippet=(
-                    "# After asfreq(), missing timestamps become NaN.\n"
-                    "# Handle with dropna_from_series=True or imputation."
+                    "# After asfreq(), missing timestamps become NaN, handled\n"
+                    "# as missing values of the target (handle_missing_values)."
                 ),
                 blocking=False,
             ))
@@ -437,21 +452,24 @@ def derive_preprocessing_steps(
             ),
             blocking=False,
         ))
-    elif profile.missing_target or profile.missing_exog:
-        steps.append(PreprocessingStep(
-            action="handle_missing_values",
-            reason=(
-                "Impute or handle missing values before training. Use "
-                "dropna_from_series=True or a NaN-tolerant estimator."
-            ),
-            code_snippet=(
-                "# Option 1: Use dropna_from_series=True\n"
-                "# Option 2: Use a NaN-tolerant estimator (LightGBM, "
-                "CatBoost, HistGradientBoosting)\n"
-                "# Option 3: Impute missing values manually"
-            ),
-            blocking=False,
-        ))
+    else:
+        # What works for the estimator of the plan: `dropna_from_series`,
+        # which the plan already sets when it is needed, only drops training
+        # rows, so it is never the advice.
+        advice = missing_values_advice(
+            profile         = profile,
+            forecaster      = forecaster,
+            estimator       = estimator,
+            task_type       = task_type,
+            differentiation = differentiation,
+        )
+        if advice is not None:
+            steps.append(PreprocessingStep(
+                action="handle_missing_values",
+                reason=advice[0],
+                code_snippet=advice[1],
+                blocking=False,
+            ))
 
     # --- Categorical exogenous variables ---
     # The baseline uses no exogenous variables, so there is nothing to encode.

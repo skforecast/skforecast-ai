@@ -613,7 +613,8 @@ def test_tool_compare_invalid_argument_with_hint_when_the_target_has_missing_val
 
     assert (error["code"], error["field"]) == ("invalid_argument", "data_path")
     assert error["message"] == (
-        "The target has 3 missing value(s) in the test folds (2008-04-01 "
+        "The target has 3 missing value(s) in test folds 5 and 6 of 6 "
+        "(2008-04-01 "
         "00:00:00, 2008-05-01 00:00:00, 2008-06-01 00:00:00), counting the "
         "missing timestamps that asfreq() restores. skforecast cannot compute "
         "the metrics on them, whatever the estimator. Impute the target, or "
