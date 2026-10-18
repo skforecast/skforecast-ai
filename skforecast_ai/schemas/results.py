@@ -7,13 +7,14 @@
 
 from __future__ import annotations
 import traceback
-from typing import TYPE_CHECKING, ClassVar, Literal, get_args
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, get_args
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
     computed_field,
     field_validator,
+    model_validator,
 )
 from .._display import (
     DisplayMixin,
@@ -25,7 +26,7 @@ from .._display import (
     render_plan,
     render_profile,
 )
-from ..exceptions import InvalidInputTypeError
+from ..exceptions import InvalidInputError, InvalidInputTypeError
 from ._compat import PickleDefaultsMixin
 from ._types import JSONFrame, JSONTimeSeriesFold, OptionalJSONFrame
 from .explainable import ExplainableResult
@@ -906,6 +907,127 @@ class CompareProgress(BaseModel):
     error: str | None = None
 
 
+class CandidateCost(BaseModel):
+    """
+    Cost of one candidate of `compare()` on the shared strategy, counted
+    before it runs.
+
+    Attributes
+    ----------
+    forecaster : str
+        Name of the forecaster of the candidate.
+    n_fits : int
+        Trainings of the forecaster, as skforecast runs them: 0 for
+        `ForecasterFoundation`, one per fold for `ForecasterStats`.
+    estimator_fits : int
+        Fits of an estimator: a direct forecaster fits one per step in
+        every training; 0 for `ForecasterFoundation` and
+        `ForecasterEquivalentDate`.
+    inference_windows : int
+        Cost of `ForecasterFoundation`, never trained: up to one forecast
+        per series and fold. 0 for the other forecasters.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    forecaster: str
+    n_fits: int = Field(ge=0)
+    estimator_fits: int = Field(ge=0)
+    inference_windows: int = Field(ge=0)
+
+
+# Totals of `ComparisonCost`, computed from its candidates.
+_COST_TOTALS = ("n_fits", "estimator_fits", "inference_windows")
+
+
+class ComparisonCost(BaseModel):
+    """
+    Cost of a comparison: every candidate on the shared strategy, the
+    baseline included, counted from the plan and the strategy before
+    anything runs (`count_comparison_cost`).
+
+    `compare()` applies the thresholds of an expensive run
+    (`LongTrainingWarning`) to these totals. A candidate that fails is
+    counted all the same: the count is made before it runs.
+
+    Attributes
+    ----------
+    n_folds : int
+        Folds of the shared strategy, the same for every candidate.
+    candidates : dict
+        Mapping of candidate name to its `CandidateCost`, in the order the
+        candidates run.
+    n_fits : int
+        Trainings of all the candidates together.
+    estimator_fits : int
+        Estimator fits of all the candidates together.
+    inference_windows : int
+        Inference windows of all the candidates together.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    n_folds: int = Field(ge=0)
+    candidates: dict[str, CandidateCost]
+
+    @model_validator(mode="before")
+    @classmethod
+    def _check_totals(cls, data: Any) -> Any:
+        """
+        Accept the totals that `model_dump()` writes, so a dumped cost
+        validates again, when they are the sums of the candidates; other
+        totals raise instead of being dropped.
+        """
+
+        if not isinstance(data, dict):
+            return data
+        totals = {key: data[key] for key in _COST_TOTALS if key in data}
+        if not totals:
+            return data
+        data = {key: value for key, value in data.items() if key not in totals}
+        try:
+            candidates = list(data["candidates"].values())
+            sums = {
+                key: sum(
+                    candidate[key] if isinstance(candidate, dict)
+                    else getattr(candidate, key)
+                    for candidate in candidates
+                )
+                for key in totals
+            }
+        except (AttributeError, KeyError, TypeError):
+            # The candidates themselves are invalid: their validation says
+            # why.
+            return data
+        wrong = [key for key, value in totals.items() if value != sums[key]]
+        if wrong:
+            raise InvalidInputError(
+                f"{', '.join(wrong)} must be the sum of the candidates "
+                f"({', '.join(f'{key}={sums[key]}' for key in wrong)}).",
+                field = wrong[0],
+            )
+
+        return data
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def n_fits(self) -> int:
+        """Return the trainings of all the candidates together."""
+        return sum(cost.n_fits for cost in self.candidates.values())
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def estimator_fits(self) -> int:
+        """Return the estimator fits of all the candidates together."""
+        return sum(cost.estimator_fits for cost in self.candidates.values())
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def inference_windows(self) -> int:
+        """Return the inference windows of all the candidates together."""
+        return sum(cost.inference_windows for cost in self.candidates.values())
+
+
 def _one_line_summary(error_type: str, message: str, max_length: int = 200) -> str:
     """
     Summarize an error as `'ErrorType: first non-empty line of the message'`,
@@ -938,9 +1060,10 @@ class ComparisonResult(
     profile : ForecastingProfile
         Shared profile used for every candidate.
     cv_config : dict
-        Resolved `TimeSeriesFold` parameters plus the resulting `n_folds`,
-        applied identically to
-        every candidate.
+        Resolved `TimeSeriesFold` parameters plus the resulting `n_folds`
+        and `n_fits`, applied identically to every candidate: `n_fits` is
+        the number of folds in which the strategy trains a forecaster, not
+        the trainings of the comparison, which `cost` adds up.
     results : pandas DataFrame
         Ranked comparison table, one row per candidate sorted best to
         worst by `ranking_metric`. Columns are
@@ -990,6 +1113,10 @@ class ComparisonResult(
         received a `TimeSeriesFold` or explicit `candidates`, or when the
         plan belongs to a forecaster family that cannot be ranked with the
         candidates.
+    cost : ComparisonCost, default None
+        Cost of every candidate on the shared strategy and the totals,
+        counted before anything runs. None for a result built by hand or
+        saved by a version without it.
     best_name : str
         Name of the top-ranked candidate.
     best_candidate : BacktestResult
@@ -1028,6 +1155,7 @@ class ComparisonResult(
     cv_llm_configured: bool = False
     cv_defaults_explanation: str = ""
     strategy_plan_name: str | None = None
+    cost: ComparisonCost | None = None
 
     _explanation_title: ClassVar[str] = "Comparison Explanation"
 

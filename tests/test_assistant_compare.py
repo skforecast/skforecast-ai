@@ -1342,10 +1342,154 @@ def test_compare_LongTrainingWarning_once_when_explicit_candidate_is_costly(
     ]
     assert len(messages) == 1
     assert messages[0].startswith(
-        "ForecasterDirect will be fit 60 times (6 trainings x 10 estimators)."
+        "The comparison will fit 60 estimators in all ('direct': 60 "
+        "(6 trainings x 10 estimators))."
     )
     assert list(result.results["name"]) == ["direct"]
     assert result.failures == {}
+
+
+def test_compare_LongTrainingWarning_once_when_candidates_add_up_above_threshold():
+    """
+    Test that explicit candidates that fit fewer than 50 estimators each
+    (36, 36 and 6) but 78 together make compare() emit one
+    LongTrainingWarning before running, with the total and what each
+    candidate adds, and that `result.cost` has the same values.
+    """
+    cv = TimeSeriesFold(steps=6, initial_train_size=64, refit=True, verbose=False)
+
+    with pytest.warns(LongTrainingWarning) as record:
+        result = assistant.compare(
+            data          = df_no_exog,
+            cv            = cv,
+            target        = "sales",
+            date_column   = "date",
+            candidates    = [
+                ("direct_a", {"forecaster": "ForecasterDirect", "lags": [1, 2, 3]}),
+                (
+                    "direct_b",
+                    {"forecaster": "ForecasterDirect", "lags": [1, 2],
+                     "estimator": "Ridge"},
+                ),
+                ("recursive", {"forecaster": "ForecasterRecursive"}),
+            ],
+            show_progress = False,
+            baseline      = False,
+        )
+
+    messages = [
+        str(w.message).split("\n")[0]
+        for w in record if w.category is LongTrainingWarning
+    ]
+    assert messages == [
+        "The comparison will fit 78 estimators in all ('direct_a': 36 "
+        "(6 trainings x 6 estimators), 'direct_b': 36 (6 trainings x 6 "
+        "estimators), 'recursive': 6). This can take substantial amounts of "
+        "time. If not feasible, compare fewer candidates or use an integer "
+        "`refit` (retrain every n folds), fewer folds (a later "
+        "`initial_train_size`, a larger `fold_stride` or `skip_folds`) or "
+        "`refit=False` (train once)."
+    ]
+    assert result.failures == {}
+    assert result.cost.model_dump() == {
+        "n_folds": 6,
+        "candidates": {
+            "direct_a": {
+                "forecaster": "ForecasterDirect", "n_fits": 6,
+                "estimator_fits": 36, "inference_windows": 0,
+            },
+            "direct_b": {
+                "forecaster": "ForecasterDirect", "n_fits": 6,
+                "estimator_fits": 36, "inference_windows": 0,
+            },
+            "recursive": {
+                "forecaster": "ForecasterRecursive", "n_fits": 6,
+                "estimator_fits": 6, "inference_windows": 0,
+            },
+        },
+        "n_fits": 18,
+        "estimator_fits": 78,
+        "inference_windows": 0,
+    }
+
+
+def test_compare_cost_counts_the_baseline_and_matches_what_ran():
+    """
+    Test that `result.cost` counts the baseline with 0 estimator fits, that
+    the totals are the sum of the candidates, and that the trainings counted
+    before running equal the `n_fits` of the `cv_config` of each candidate
+    that ran: one per fold for ForecasterStats (6), one for the others
+    (`refit=False`), including a candidate with its own differentiation.
+    """
+    cv = TimeSeriesFold(steps=6, initial_train_size=64, refit=False, verbose=False)
+
+    result = assistant.compare(
+        data          = df_no_exog,
+        cv            = cv,
+        target        = "sales",
+        date_column   = "date",
+        candidates    = [
+            ("stats", {"forecaster": "ForecasterStats"}),
+            (
+                "diff",
+                {"forecaster": "ForecasterDirect", "differentiation": 1,
+                 "lags": [1, 2]},
+            ),
+            ("recursive", {"forecaster": "ForecasterRecursive"}),
+        ],
+        show_progress = False,
+    )
+
+    assert result.failures == {}
+    assert result.cost.model_dump() == {
+        "n_folds": 6,
+        "candidates": {
+            "stats": {
+                "forecaster": "ForecasterStats", "n_fits": 6,
+                "estimator_fits": 6, "inference_windows": 0,
+            },
+            "diff": {
+                "forecaster": "ForecasterDirect", "n_fits": 1,
+                "estimator_fits": 6, "inference_windows": 0,
+            },
+            "recursive": {
+                "forecaster": "ForecasterRecursive", "n_fits": 1,
+                "estimator_fits": 1, "inference_windows": 0,
+            },
+            "Baseline (seasonal naive)": {
+                "forecaster": "ForecasterEquivalentDate", "n_fits": 1,
+                "estimator_fits": 0, "inference_windows": 0,
+            },
+        },
+        "n_fits": 9,
+        "estimator_fits": 13,
+        "inference_windows": 0,
+    }
+    assert result.candidates["diff"].cv_config["differentiation"] == 1
+    assert set(result.cost.candidates) == set(result.candidates)
+    for name, candidate in result.candidates.items():
+        assert result.cost.candidates[name].n_fits == candidate.cv_config["n_fits"]
+
+
+def test_compare_cost_leaves_out_the_baseline_when_baseline_is_false():
+    """
+    Test that `result.cost` has only the candidates given when
+    `baseline=False`.
+    """
+    result = assistant.compare(
+        data          = df_single,
+        cv            = _single_cv(),
+        target        = "sales",
+        date_column   = "date",
+        candidates    = _LIGHT_CANDIDATES,
+        show_progress = False,
+        baseline      = False,
+    )
+
+    assert list(result.cost.candidates) == ["recursive_default", "direct_ridge"]
+    assert result.cost.n_folds == 6
+    assert result.cost.n_fits == 2
+    assert result.cost.estimator_fits == 6
 
 
 def test_build_comparison_explanation_notes_foundation_is_not_trained():

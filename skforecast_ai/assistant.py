@@ -66,6 +66,7 @@ from .execution.comparison import (
     build_comparison_explanation,
     build_comparison_table,
     compare_sort_key,
+    count_comparison_cost,
     resolve_compare_candidates,
     resolve_default_candidates,
 )
@@ -199,6 +200,7 @@ from ._utils import (
     plan_override_value,
     recorded_data_path,
     structure_differences,
+    warn_long_comparison,
     warn_long_inference,
     warn_long_training,
 )
@@ -3623,6 +3625,8 @@ class ForecastingAssistant:
             were not passed have their value, and which ones were passed.
             - strategy_plan_name: name of the row that runs the plan of
             the `CVResult`, or None.
+            - cost: cost of every candidate on the shared strategy and the
+            totals, counted before any candidate runs.
             - best_name: name of the top-ranked candidate.
             - best_candidate: top-ranked candidate as a `BacktestResult`.
 
@@ -3657,6 +3661,12 @@ class ForecastingAssistant:
             When `candidates` is None and the backend of the default
             foundation model is not installed, so `ForecasterFoundation`
             is left out of the comparison.
+        LongTrainingWarning
+            Before any candidate runs, when all the candidates together
+            (the baseline included) fit more than 50 estimators, or the
+            `ForecasterFoundation` candidates forecast more than 2000
+            inference windows; and when `candidates` is None and an
+            automatic candidate is left out for exceeding the fit budget.
 
         Notes
         -----
@@ -3805,38 +3815,29 @@ class ForecastingAssistant:
                 add_baseline_candidate(candidate_configs, profile, interval)
             )
 
-        # Warned once per costly candidate here; the warning of each
-        # backtest() call is silenced in the loop so it is not repeated.
-        for _, config in candidate_configs:
-            forecaster = config.get("forecaster") or profile.forecaster
-            warn_long_training(
-                estimator_fits = count_estimator_fits(
-                                     n_fits     = n_fits,
-                                     forecaster = forecaster,
-                                     steps      = steps,
-                                     n_folds    = cv_config["n_folds"],
-                                 ),
-                n_fits         = n_fits,
-                forecaster     = forecaster,
-                steps          = steps,
-            )
-
-        # The foundation candidates run one after another: their inference
-        # windows add up, and one warning states the total.
+        # The candidates run one after another, so the thresholds of an
+        # expensive run apply to their total, counted once here before
+        # anything runs (cheap candidates can add up to an expensive run);
+        # the warning of each backtest() call is silenced in the loop. The
+        # inference windows of the foundation candidates add up likewise.
         n_series = profile.data_profile.n_series
-        foundation_windows = [
-            count_inference_windows(
-                n_folds    = cv_config["n_folds"],
-                n_series   = n_series,
-                forecaster = config.get("forecaster") or profile.forecaster,
-            )
-            for _, config in candidate_configs
-        ]
+        cost = count_comparison_cost(
+                   candidate_configs = candidate_configs,
+                   preferred         = profile.forecaster,
+                   steps             = steps,
+                   n_fits            = n_fits,
+                   n_folds           = cv_config["n_folds"],
+                   n_series          = n_series,
+               )
+        warn_long_comparison(cost=cost, n_fits=n_fits, steps=steps)
         warn_long_inference(
-            inference_windows = sum(foundation_windows),
+            inference_windows = cost.inference_windows,
             n_series          = n_series,
             n_folds           = cv_config["n_folds"],
-            n_candidates      = sum(windows > 0 for windows in foundation_windows),
+            n_candidates      = sum(
+                                    candidate.inference_windows > 0
+                                    for candidate in cost.candidates.values()
+                                ),
         )
 
         iterator: Any = candidate_configs
@@ -4039,6 +4040,7 @@ class ForecastingAssistant:
             explanation        = explanation,
             baseline_name      = baseline_name,
             strategy_plan_name = strategy_name,
+            cost               = cost,
             **_cv_provenance_fields(
                 cv_result, cv, cv_config, None, profile, created_for_row=strategy_name
             ),

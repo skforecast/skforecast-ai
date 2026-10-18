@@ -92,6 +92,7 @@ from .models import (
 # it, and starts it when nothing did (`create_server`).
 if TYPE_CHECKING:
     from ..assistant import ForecastingAssistant
+    from ..schemas import ComparisonCost
 
 logger = logging.getLogger("skforecast_ai.mcp")
 
@@ -231,9 +232,10 @@ which is not a seasonal naive forecast nor the baseline of `compare`. Never \
 invent a number, nor derive one: no percentage, ratio or difference that a \
 response does not give.
 2. Cost: read `cost` of `create_cv` before running. Before a run above 50 \
-estimator fits, stop: tell the user the number of fits and the cheaper \
-strategies (an integer `refit`, fewer folds, `refit=false`) and run the \
-expensive one only if they choose it. Asking to retrain is not that choice.
+estimator fits (a `compare`: all its candidates together), stop: tell the \
+user the number of fits and the cheaper strategies its `CostNotice` names \
+and run the expensive one only if they choose it. Asking to retrain is not \
+that choice.
 3. Read `notices` before reporting and tell the user about data problems \
 (missing dates, rows without target) and plan warnings.
 4. `compare` without `interval` uses the interval of the plan of the \
@@ -419,7 +421,13 @@ def _missing_values_notices(plan: Any, profile: Any) -> list[ToolNotice]:
     ]
 
 
-def _cost_notices(cost: dict[str, int]) -> list[ToolNotice]:
+def _cost_notices(
+    cost: dict[str, int],
+    forecaster: str,
+    steps: int,
+    compare_cost: ComparisonCost,
+    compare_n_fits: int,
+) -> list[ToolNotice]:
     """
     Notice of `create_cv` for a strategy whose backtest, or whose `compare`
     without candidates, is above the thresholds of an expensive run. The
@@ -427,14 +435,27 @@ def _cost_notices(cost: dict[str, int]) -> list[ToolNotice]:
     (`... will be fit 220 times`), and rule 2 of the instructions says what
     to do with it: an agent that has only the instructions reads the number
     and runs anyway. This notice carries that rule with the number, in the
-    response where the strategy can still change.
+    response where the strategy can still change, and names only the
+    changes that lower that cost (`cost_remedies`): `refit` lowers nothing
+    for ForecasterStats nor for a foundation model, nor once the strategy
+    trains once.
 
     Parameters
     ----------
     cost : dict
-        Cost of the strategy as `create_cv` returns it: `estimator_fits` and
-        `inference_windows` of its backtest, `compare_estimator_fits` and
-        `compare_inference_windows` of a `compare` without candidates.
+        Cost of the strategy as `create_cv` returns it: `n_fits`,
+        `estimator_fits` and `inference_windows` of its backtest,
+        `compare_estimator_fits` and `compare_inference_windows` of a
+        `compare` without candidates.
+    forecaster : str
+        Forecaster of the plan of the strategy.
+    steps : int
+        Forecast horizon of the plan.
+    compare_cost : ComparisonCost
+        Cost of each candidate of a `compare` without candidates.
+    compare_n_fits : int
+        Number of folds in which the shared strategy of that `compare`
+        trains a forecaster.
 
     Returns
     -------
@@ -442,6 +463,8 @@ def _cost_notices(cost: dict[str, int]) -> list[ToolNotice]:
         One notice (source `'runtime'`), or none when every run is at or
         below the thresholds.
     """
+
+    from .._utils import cost_remedies, join_remedies
 
     backtest_parts = []
     if cost["estimator_fits"] > LONG_TRAINING_FITS:
@@ -451,33 +474,64 @@ def _cost_notices(cost: dict[str, int]) -> list[ToolNotice]:
             f"runs up to {cost['inference_windows']} inference windows"
         )
     compare_parts = []
+    # The forecasters whose cost makes the total of the comparison: those
+    # of the estimator fits, or the foundation model of the windows.
+    compare_costly = set()
     if cost["compare_estimator_fits"] > LONG_TRAINING_FITS:
         compare_parts.append(
             f"fits about {cost['compare_estimator_fits']} estimators"
         )
+        compare_costly |= {
+            candidate.forecaster for candidate in compare_cost.candidates.values()
+            if candidate.estimator_fits
+        }
     if cost["compare_inference_windows"] > LONG_INFERENCE_WINDOWS:
         compare_parts.append(
             f"runs up to {cost['compare_inference_windows']} inference windows"
         )
+        compare_costly.add("ForecasterFoundation")
     if not backtest_parts and not compare_parts:
         return []
 
     runs = []
+    cheaper = []
     if backtest_parts:
         runs.append(f"`backtest` {' and '.join(backtest_parts)}")
+        remedies = cost_remedies(
+                       forecasters = [forecaster],
+                       n_fits      = cost["n_fits"],
+                       steps       = steps,
+                       false       = "false",
+                   )
+        cheaper.append(
+            f"for `backtest`, {join_remedies(remedies)}" if compare_parts
+            else join_remedies(remedies)
+        )
     if compare_parts:
         runs.append(
             f"`compare` without `candidates` {' and '.join(compare_parts)}"
+        )
+        remedies = cost_remedies(
+                       forecasters = compare_costly,
+                       n_fits      = compare_n_fits,
+                       steps       = steps,
+                       skip_folds  = all(
+                                         candidate.forecaster != "ForecasterStats"
+                                         for candidate in compare_cost.candidates.values()
+                                     ),
+                       false       = "false",
+                   )
+        cheaper.append(
+            f"for `compare`, {join_remedies(['a list of `candidates`', *remedies])}"
         )
     message = (
         f"Expensive run: with this strategy, {'; '.join(runs)} (an expensive "
         f"run is one above {LONG_TRAINING_FITS} estimator fits or "
         f"{LONG_INFERENCE_WINDOWS} inference windows). Stop here and do not "
-        f"run it: tell the user those numbers and the cheaper strategies (an "
-        f"integer `refit`, fewer folds, `refit=false`; for `compare`, a list "
-        f"of `candidates`), and run the expensive one only if they choose it. "
-        f"Asking to retrain the model, or to evaluate it as in production, is "
-        f"not that choice."
+        f"run it: tell the user those numbers and the cheaper strategies "
+        f"({'; '.join(cheaper)}), and run the expensive one only if they "
+        f"choose it. Asking to retrain the model, or to evaluate it as in "
+        f"production, is not that choice."
     )
     if not backtest_parts:
         message += " `backtest` of this plan is below the thresholds and can run."
@@ -1437,36 +1491,35 @@ def _default_compare_cost(
     assistant: ForecastingAssistant,
     profile: Any,
     cv_result: Any,
-) -> tuple[dict[str, int], int]:
+) -> tuple[ComparisonCost, int]:
     """
-    Cost of the candidates that a `compare` without candidates runs with a
-    strategy, resolved by `resolve_default_candidates()`, as `compare()`
-    resolves them: the candidates of the profile (without a foundation model
-    whose backend is not installed), the plan the strategy was created for
-    when it is none of them, and without the alternatives above the budget
-    of `compare()` (the recommended forecaster and the plan of the strategy
-    always run). The
-    interval and the metric are those the `compare` tool takes from that
-    plan. The baseline fits nothing and is not counted. The fits are those
-    of the strategy as `compare()` shares it, not as the forecaster of the
-    plan runs it (ForecasterStats is refitted in every fold).
+    Cost of the `compare` tool without candidates on a strategy, counted as
+    `compare()` counts it (`count_comparison_cost`), from the candidates
+    `resolve_default_candidates()` resolves: the candidates of the profile
+    (without a foundation model whose backend is not installed), the plan
+    the strategy was created for when it is none of them, and without the
+    alternatives above the budget of `compare()` (the recommended
+    forecaster and the plan of the strategy always run), plus the baseline
+    the tool adds by default. The interval and the metric are those the
+    `compare` tool takes from that plan. The fits are those of the
+    strategy as `compare()` shares it, not as the forecaster of the plan
+    runs it (ForecasterStats is refitted in every fold).
 
     Returns
     -------
-    fits : dict
-        Estimator fits of each candidate, by the name of its row.
-    inference_windows : int
-        Inference windows of the foundation candidates (one per series and
-        fold).
+    cost : ComparisonCost
+        Cost of each candidate, by the name of its row, and the totals.
+    n_fits : int
+        Number of folds in which the shared strategy trains a forecaster.
     """
 
     from .._utils import plan_override_value
-    from ..execution.comparison import resolve_default_candidates
-    from ..recommendation import (
-        count_estimator_fits,
-        count_inference_windows,
-        resolve_cv_config,
+    from ..execution.comparison import (
+        add_baseline_candidate,
+        count_comparison_cost,
+        resolve_default_candidates,
     )
+    from ..recommendation import resolve_cv_config
 
     plan = cv_result.plan
     interval = list(plan.interval) if plan.interval is not None else None
@@ -1497,26 +1550,18 @@ def _default_compare_cost(
                      steps         = plan.steps,
                      n_folds       = n_folds,
                  ).candidates
+    candidates, _, _ = add_baseline_candidate(candidates, profile, interval)
 
-    fits = {}
-    inference_windows = 0
-    for name, config in candidates:
-        forecaster = config.get("forecaster") or profile.forecaster
-        fits[name] = int(
-            count_estimator_fits(
-                n_fits     = n_fits,
-                forecaster = forecaster,
-                steps      = plan.steps,
-                n_folds    = n_folds,
-            )
-        )
-        inference_windows += count_inference_windows(
-            n_folds    = n_folds,
-            n_series   = profile.data_profile.n_series,
-            forecaster = forecaster,
-        )
+    cost = count_comparison_cost(
+               candidate_configs = candidates,
+               preferred         = profile.forecaster,
+               steps             = plan.steps,
+               n_fits            = n_fits,
+               n_folds           = n_folds,
+               n_series          = profile.data_profile.n_series,
+           )
 
-    return fits, int(inference_windows)
+    return cost, n_fits
 
 
 def _register(
@@ -1984,6 +2029,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         ))] = None,
         ctx: Context = None,
     ) -> ToolResult:
+        from .._utils import cost_remedies, join_remedies
         from ..schemas.results import CV_OVERRIDE_NAMES
 
         _inputs.check_not_numeric_text(initial_train_size, "initial_train_size")
@@ -2020,19 +2066,30 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 n_series          = plan_entry.profile.data_profile.n_series,
                 n_folds           = cost["n_folds"],
             )
-            compare_fits, compare_windows = _default_compare_cost(
+            compare_cost, compare_n_fits = _default_compare_cost(
                 state.assistant, plan_entry.profile, result
             )
-            cost["compare_estimator_fits"] = sum(compare_fits.values())
-            cost["compare_inference_windows"] = compare_windows
+            cost["compare_estimator_fits"] = compare_cost.estimator_fits
+            cost["compare_inference_windows"] = compare_cost.inference_windows
             object_id = store.new_id("cv")
             summary = state.summary(object_id, result.describe())
             code_file = state.code_file(object_id, result.code)
             control.wrote(summary[2], code_file)
-            return object_id, result, summary, code_file, cost, compare_fits
+            return (
+                object_id, result, summary, code_file, cost, compare_cost,
+                compare_n_fits,
+            )
 
         outcome = await run_call(work, report=_report(ctx), label="create_cv")
-        object_id, result, summary, code_file, cost, compare_fits = outcome.value
+        (
+            object_id, result, summary, code_file, cost, compare_cost,
+            compare_n_fits,
+        ) = outcome.value
+        compare_candidates = compare_cost.candidates.values()
+        compare_skip_folds = all(
+            candidate.forecaster != "ForecasterStats"
+            for candidate in compare_candidates
+        )
         links = {"profile_id": plan_entry.profile_id, "plan_id": plan_entry.id}
         # A `compare` without candidates runs other forecasters with this
         # strategy, which can cost far more than the plan it was built for
@@ -2041,7 +2098,21 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         if cost["compare_estimator_fits"] > max(
             LONG_TRAINING_FITS, cost["estimator_fits"]
         ):
-            shown = ", ".join(f"{name}: {fits}" for name, fits in compare_fits.items())
+            shown = ", ".join(
+                f"{name}: {candidate.estimator_fits}"
+                for name, candidate in compare_cost.candidates.items()
+            )
+            remedies = cost_remedies(
+                           forecasters = [
+                                             candidate.forecaster
+                                             for candidate in compare_candidates
+                                             if candidate.estimator_fits
+                                         ],
+                           n_fits      = compare_n_fits,
+                           steps       = result.plan.steps,
+                           skip_folds  = compare_skip_folds,
+                           false       = "false",
+                       )
             compare_notice.append(
                 ToolNotice(
                     source   = "runtime",
@@ -2050,8 +2121,8 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                         f"`compare` without `candidates` on this strategy fits "
                         f"about {cost['compare_estimator_fits']} estimators "
                         f"({shown}), more than the {cost['estimator_fits']} of "
-                        f"this plan. Pass `candidates` to choose what runs, or "
-                        f"use `refit=false` or fewer folds."
+                        f"this plan. Pass `candidates` to choose what runs"
+                        + (f", or use {join_remedies(remedies)}." if remedies else ".")
                     ),
                     count    = 1,
                 )
@@ -2064,6 +2135,13 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             and cost["inference_windows"] == 0
         ):
             n_series = plan_entry.profile.data_profile.n_series
+            remedies = cost_remedies(
+                           forecasters = ["ForecasterFoundation"],
+                           n_fits      = compare_n_fits,
+                           steps       = result.plan.steps,
+                           skip_folds  = compare_skip_folds,
+                           false       = "false",
+                       )
             compare_notice.append(
                 ToolNotice(
                     source   = "runtime",
@@ -2074,7 +2152,8 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                         f"{cost['compare_inference_windows']} inference windows "
                         f"({n_series} series x {cost['n_folds']} folds), which "
                         f"can take minutes on a CPU. Pass `candidates` to "
-                        f"choose what runs, or use fewer folds."
+                        f"choose what runs, or use "
+                        f"{join_remedies(remedies)}."
                     ),
                     count    = 1,
                 )
@@ -2092,7 +2171,13 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                                 plan_warnings  = result.plan.warnings,
                                 data_warnings  = plan_entry.data_warnings,
                                 server_notices = [
-                                    *_cost_notices(cost),
+                                    *_cost_notices(
+                                        cost,
+                                        forecaster     = result.plan.forecaster,
+                                        steps          = result.plan.steps,
+                                        compare_cost   = compare_cost,
+                                        compare_n_fits = compare_n_fits,
+                                    ),
                                     *_missing_values_notices(
                                         plan_entry.obj, plan_entry.profile
                                     ),
@@ -2427,13 +2512,6 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             best_summary,
             best_code,
         )
-        # The cost of the candidates that ran, each with the strategy it ran.
-        candidate_costs = [
-            _cost(candidate.cv_config, candidate.plan.forecaster, candidate.plan.steps)
-            for candidate in result.candidates.values()
-        ]
-        estimator_fits = sum(cost["estimator_fits"] for cost in candidate_costs)
-        inference_windows = sum(cost["inference_windows"] for cost in candidate_costs)
         # Only the candidates whose script ran (also those that failed while
         # running) can have downloaded weights. Their license is given too,
         # in the announcement of the download or alone.
@@ -2449,11 +2527,14 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 if failure.generated_code is not None
             ),
         ]
+        # The one count of the comparison, made before any candidate ran
+        # (the one its thresholds apply to): the totals of every candidate,
+        # the baseline and those that failed included.
         cost = {
-            "n_folds": int(result.cv_config["n_folds"]),
-            "n_fits": int(result.cv_config["n_fits"]),
-            "estimator_fits": estimator_fits,
-            "inference_windows": inference_windows,
+            "n_folds": result.cost.n_folds,
+            "n_fits": result.cost.n_fits,
+            "estimator_fits": result.cost.estimator_fits,
+            "inference_windows": result.cost.inference_windows,
         }
 
         return _register(

@@ -147,25 +147,35 @@ refitted in every fold whatever `refit` says; foundation models and the
 baseline count 0 estimator fits. A foundation model is never trained: its
 cost is `inference_windows`, one per series and fold (and it downloads its
 weights the first time). `compare` runs every candidate on the same folds,
-so it costs about the sum of theirs (its response reports the totals).
-`compare_estimator_fits` and `compare_inference_windows` of `create_cv`
+so it costs the sum of theirs: its `cost` has `n_folds` of the shared
+strategy and the totals over all its candidates, the baseline included
+(`n_fits`, `estimator_fits` and `inference_windows`), counted before they
+run. `compare_estimator_fits` and `compare_inference_windows` of `create_cv`
 are those sums for a `compare` without `candidates`, which can be far more
 than the plan (with `refit=true`, ForecasterDirect fits one estimator per
 step and fold; with many series, the foundation model forecasts each one in
 each fold); a `CompareCostNotice` says so (for a foundation plan, its own
 `LongTrainingWarning` notice says it instead). `inference_windows` is an
 upper bound: a series without data in a fold is not forecast in it. Above
-50 estimator fits, or 2000 inference windows (added up over the foundation
-candidates of a `compare`), a run gets a `LongTrainingWarning` notice and
-can take minutes on a CPU; `compare` without `candidates` leaves out the
+50 estimator fits, or 2000 inference windows (for a `compare`, all its
+candidates together), a run gets a `LongTrainingWarning` notice and can
+take minutes on a CPU; `compare` without `candidates` leaves out the
 candidates above 500 estimator fits, never the recommended forecaster
-nor the plan of the strategy. Before an expensive run (a `backtest` or a `compare` above those
+nor the plan of the strategy. With `candidates`, no tool gives the total
+before the run, and the `LongTrainingWarning` of `compare` (with the total
+and what each candidate adds) comes in its response: each candidate costs
+what `create_cv` gives for a plan of its forecaster with the same
+arguments. Before an expensive run (a `backtest` or a `compare` above those
 thresholds), stop and do not run it: tell the user the number of fits and
-the cheaper strategies, an integer `refit` (retrain every n folds), fewer
-folds (a larger `fold_stride` or a later `initial_train_size`) or
-`refit=false` (train once, no help for ForecasterStats nor for a foundation
-model). Run the expensive one only when the user chooses it in so many
-words: asking to retrain regularly is not that choice.
+the cheaper strategies the `CostNotice` names. They are only those that
+lower that cost: an integer `refit` (retrain every n folds) or
+`refit=false` (train once) do nothing for ForecasterStats (refitted in
+every fold) nor for a foundation model (never trained), nor once the
+strategy trains once; fewer folds (a larger `fold_stride`, a later
+`initial_train_size` or `skip_folds`, which ForecasterStats does not
+allow) and, for a foundation model, fewer series. Run the expensive one
+only when the user chooses it in so many words: asking to retrain
+regularly is not that choice.
 
 Progress and cancellation: `compare` reports when each candidate starts
 and ends, and any long call (a backtest, a forecast, a candidate) sends a

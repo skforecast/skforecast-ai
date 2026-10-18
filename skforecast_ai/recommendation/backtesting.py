@@ -922,6 +922,42 @@ def count_inference_windows(
     return n_folds * n_series
 
 
+def count_trainings(
+    n_fits: int,
+    forecaster: str,
+    n_folds: int,
+) -> int:
+    """
+    Count the trainings of a forecaster in a backtest, as skforecast runs
+    it.
+
+    Parameters
+    ----------
+    n_fits : int
+        Number of folds in which a forecaster is trained under the
+        strategy, see `count_cv_fits`.
+    forecaster : str
+        Name of the skforecast forecaster class.
+    n_folds : int
+        Number of folds of the strategy, see `count_cv_folds`.
+
+    Returns
+    -------
+    trainings : int
+        0 for `ForecasterFoundation` (never trained), `n_folds` for
+        `ForecasterStats` (refitted in every fold whatever `refit` says,
+        see `cv_as_executed`), and `n_fits` otherwise. It is the `n_fits`
+        of the `cv_config` of the backtest of that forecaster.
+    """
+
+    if forecaster == "ForecasterFoundation":
+        return 0
+    if forecaster == "ForecasterStats":
+        return n_folds
+
+    return n_fits
+
+
 def cv_as_executed(
     cv: TimeSeriesFold,
     forecaster: str | None,

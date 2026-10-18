@@ -26,6 +26,7 @@ The main changes in this release are:
 
     + `plan()` of wide-format data whose series start or end with missing values may choose another estimator: `DataProfile.n_total_observations` no longer counts those values. See **Changed**.
     + [<code>ForecastingAssistant.backtest()</code>][assistant] of ForecasterRecursiveMultiSeries raises `insufficient_data` for a series that no fold forecasts, which it left out before. See **Fixed**.
+    + The `compare` tool of the MCP server reports in `cost.n_fits` the trainings of all its candidates instead of those of the shared strategy, and its `cost` counts the candidates that fail too. See **Fixed**.
 
     And some code needs to be updated:
 
@@ -39,6 +40,8 @@ The main changes in this release are:
 + New argument `thousands` of [<code>ForecastingAssistant.profile()</code>][assistant] (`--thousands` in the CLI, `thousands` in the `profile` tool of the MCP server), recorded as `DataProfile.csv_thousands` and passed to `pd.read_csv` by the generated script. See the [CLI guide][cli-guide] ([#86](https://github.com/skforecast/skforecast-ai/pull/86)).
 
 + New argument `dayfirst` of [<code>ForecastingAssistant.profile()</code>][assistant] (`--dayfirst` or `--monthfirst` in the CLI, `dayfirst` in the `profile` tool of the MCP server) for text dates that read both day first and month first, in a CSV file or the `date_column` of a DataFrame; with dates already parsed, an `IgnoredArgumentWarning` says it does not apply. The profile records the format of the dates as `DataProfile.date_format`. See the [CLI guide][cli-guide] ([#96](https://github.com/skforecast/skforecast-ai/pull/96)).
+
++ New attribute `cost` of the [<code>ComparisonResult</code>][results] of [<code>ForecastingAssistant.compare()</code>][assistant]: the trainings, estimator fits and inference windows of each candidate and of all of them together, the baseline included, counted before any candidate runs.
 
 + New option `--exog` of the `forecast-code` command of the [CLI][cli], so the script reads the future exogenous values from that file, as `forecast --exog` does, instead of `exog_future.csv`. See the [CLI guide][cli-guide] ([#99](https://github.com/skforecast/skforecast-ai/pull/99)).
 
@@ -85,6 +88,10 @@ The main changes in this release are:
 + [<code>ForecastingAssistant.create_cv()</code>][assistant] gave no warning of prediction intervals estimated from too few residuals with ForecasterRecursiveMultiSeries or ForecasterDirectMultiVariate, as it does with a single series. It now counts the rows of each series in the first training window, also when a series starts later (in long or wide format), and names the series with fewer than 100 ([#101](https://github.com/skforecast/skforecast-ai/pull/101), [#103](https://github.com/skforecast/skforecast-ai/pull/103)).
 
 + Fixed an issue in [<code>ForecastingAssistant.backtest()</code>][assistant] with ForecasterRecursiveMultiSeries, where a series that no fold could forecast (too short for the lags and window features, starting after the training window without refit, or ending before the folds) was left out of the predictions and of the average across series without a warning. It now raises `InvalidInputError` (`insufficient_data`) naming those series ([#103](https://github.com/skforecast/skforecast-ai/pull/103)).
+
++ [<code>ForecastingAssistant.compare()</code>][assistant] applied the threshold of a long training (50 estimator fits) to each candidate, so candidates cheap one by one ran 78 fits without a warning. It now applies it to all the candidates together and warns once, before running, with the total and what each candidate adds.
+
++ In the MCP server, `cost.n_fits` of `compare` was the trainings of the shared strategy, not of the comparison; it is now the total, like `estimator_fits`. The `CostNotice` of `create_cv` offered `refit` also where it lowers nothing (ForecasterStats, foundation models, a strategy that trains once); it now names only the changes that lower the cost. See the [MCP server reference][mcp].
 
 + Fixed an issue in [<code>ForecastingAssistant.plan()</code>][assistant] and `refine_plan()` where `ForecasterDirectMultiVariate` got the estimator chosen for the series pooled (`LGBMRegressor` from 250 observations), which on few dates per step predicted a constant. The rule now counts the dates the series share, and the explanation says so ([#102](https://github.com/skforecast/skforecast-ai/pull/102)).
 

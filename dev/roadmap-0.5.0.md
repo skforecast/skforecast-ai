@@ -801,6 +801,42 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     faltantes intermedios de las últimas ventanas, a 3a; `create_cv` no
     avisa, porque el error del backtest ya salta antes de ejecutar nada. El
     caso límite de `window_size` es un bug de skforecast (#1410).
+- **D?. 4a: una sola cuenta del coste de una comparación** (2026-10-18):
+  - `count_comparison_cost` (`execution/comparison.py`) cuenta, sin
+    ejecutar nada, los entrenamientos, los ajustes de estimador y las
+    ventanas de inferencia de cada candidato a partir de su forecaster y de
+    la estrategia compartida, con el baseline incluido (0 ajustes) y con
+    candidatos por defecto o explícitos. La usan `compare()` y el
+    `create_cv` del MCP (`compare_estimator_fits` y
+    `compare_inference_windows`, que ahora cuentan también el baseline); el
+    resultado la guarda en `ComparisonResult.cost` (`ComparisonCost`, con
+    un `CandidateCost` por candidato, públicos en `skforecast_ai.schemas`).
+  - V19: el umbral (50 ajustes, 2000 ventanas) se aplica al total. Un solo
+    `LongTrainingWarning` antes del primer candidato, con el total y lo que
+    pone cada uno (los directos con entrenamientos x estimadores), en vez
+    del aviso por candidato. El aviso de ventanas ya sumaba.
+  - V06: `cost.n_fits` de `compare` es el total de entrenamientos, no se
+    renombra: así `n_fits`, `estimator_fits` e `inference_windows` de una
+    comparación son totales, y `cost` tiene las mismas claves en
+    `create_cv`, `backtest` y `compare`. `n_folds` sigue siendo el de la
+    estrategia compartida. Un candidato entrena como en skforecast: 0
+    veces ForecasterFoundation, una por fold ForecasterStats, y el
+    baseline como cualquier otro. `ComparisonResult.cv_config['n_fits']`
+    describe la estrategia y no cambia (tampoco el contexto del LLM).
+  - El `cost` de la respuesta de `compare` es esa cuenta previa, así que
+    un candidato que falla cuenta (antes solo sumaban los que corrían).
+  - V18 (de 3f): `cost_remedies` (`_utils.py`) nombra solo lo que baja el
+    coste: `refit` entero o `refit=false` si la estrategia entrena más de
+    una vez y para un forecaster que no sea ForecasterStats ni
+    fundacional; menos folds (con `skip_folds` salvo si corre
+    ForecasterStats, que lo rechaza, V17); un horizonte más corto solo para
+    un directo que entrena una vez y sin Stats ni fundacional al lado (para
+    ellos, con el `fold_stride` por defecto, son más folds); menos series
+    para el fundacional. Lo usan el `CostNotice` (separado para `backtest`
+    y para `compare`), el `CompareCostNotice` y el aviso de la comparación.
+    La regla 2 de las instrucciones remite a los remedios del `CostNotice`.
+  - Con candidatos explícitos el agente no ve la cuenta antes de llamar a
+    `compare`: llega en su respuesta. Verla antes es 4b (D3).
 
 ## Decisiones abiertas
 

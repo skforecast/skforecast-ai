@@ -182,10 +182,14 @@ def test_tool_create_cv_cost_notice_when_backtest_above_the_threshold(tmp_path):
             "`compare` without `candidates` fits about 88 estimators (an expensive "
             "run is one above 50 estimator fits or 2000 inference windows). Stop "
             "here and do not run it: tell the user those numbers "
-            "and the cheaper strategies (an integer `refit`, fewer folds, "
-            "`refit=false`; for `compare`, a list of `candidates`), and run the "
-            "expensive one only if they choose it. Asking to retrain the model, "
-            "or to evaluate it as in production, is not that choice."
+            "and the cheaper strategies (for `backtest`, an integer `refit` "
+            "(retrain every n folds), fewer folds (a later `initial_train_size`, "
+            "a larger `fold_stride` or `skip_folds`) or `refit=false` (train "
+            "once); for `compare`, a list of `candidates`, an integer `refit` "
+            "(retrain every n folds), fewer folds (a later `initial_train_size` "
+            "or a larger `fold_stride`) or `refit=false` (train once)), and run "
+            "the expensive one only if they choose it. Asking to retrain the "
+            "model, or to evaluate it as in production, is not that choice."
         ),
         count    = 1,
     )
@@ -252,12 +256,13 @@ def test_tool_create_cv_notice_of_the_cost_of_a_default_compare(
                 "fits about 98 estimators (an expensive run is one above 50 "
                 "estimator fits or 2000 inference windows). "
                 "Stop here and do not run it: tell the user those numbers and "
-                "the cheaper strategies (an integer `refit`, fewer folds, "
-                "`refit=false`; for `compare`, a list of `candidates`), and "
-                "run the expensive one only if they choose it. Asking to "
-                "retrain the model, or to evaluate it as in production, is "
-                "not that choice. `backtest` of this plan is below the "
-                "thresholds and can run."
+                "the cheaper strategies (for `compare`, a list of `candidates`, "
+                "an integer `refit` (retrain every n folds), fewer folds (a "
+                "later `initial_train_size` or a larger `fold_stride`) or "
+                "`refit=false` (train once)), and run the expensive one only "
+                "if they choose it. Asking to retrain the model, or to "
+                "evaluate it as in production, is not that choice. `backtest` "
+                "of this plan is below the thresholds and can run."
             ),
             count    = 1,
         ),
@@ -267,13 +272,78 @@ def test_tool_create_cv_notice_of_the_cost_of_a_default_compare(
             message  = (
                 "`compare` without `candidates` on this strategy fits about 98 "
                 "estimators (ForecasterRecursive: 7, ForecasterDirect: 84, "
-                "ForecasterStats: 7), more than the 7 "
-                "of this plan. Pass `candidates` to choose what runs, or use "
-                "`refit=false` or fewer folds."
+                "ForecasterStats: 7, Baseline (seasonal naive): 0), more than "
+                "the 7 of this plan. Pass `candidates` to choose what runs, or "
+                "use an integer `refit` (retrain every n folds), fewer folds (a "
+                "later `initial_train_size` or a larger `fold_stride`) or "
+                "`refit=false` (train once)."
             ),
             count    = 1,
         )
     ]
+
+
+def test_tool_create_cv_cost_notice_of_a_stats_plan_names_only_fewer_folds(
+    tmp_path, monkeypatch
+):
+    """
+    Test that the `CostNotice` of a ForecasterStats plan, which skforecast
+    refits in every fold whatever `refit` says, offers for its backtest only
+    fewer folds (without `skip_folds`, which it rejects), never `refit`,
+    with `refit` false or true; for a `compare` without candidates it names
+    `refit` only when the strategy refits, since only then does `refit`
+    lower the cost of the other candidates.
+    """
+    monkeypatch.setattr(
+        "skforecast_ai.execution.comparison.foundation_backend_installed",
+        lambda info: False,
+    )
+    server, _, _, plan_id = _planned(tmp_path, steps=1, forecaster="ForecasterStats")
+    arguments = {"plan_id": plan_id, "initial_train_size": 150, "fold_stride": 1}
+
+    once = content_of(call(server, "create_cv", arguments))
+    refits = content_of(call(server, "create_cv", {**arguments, "refit": True}))
+
+    assert once["cost"]["estimator_fits"] == refits["cost"]["estimator_fits"] == 54
+    assert once["cost"]["compare_estimator_fits"] == 56
+    assert refits["cost"]["compare_estimator_fits"] == 162
+    assert once["notices"][0] == {
+        "source": "runtime",
+        "category": "CostNotice",
+        "message": (
+            "Expensive run: with this strategy, `backtest` fits 54 estimators; "
+            "`compare` without `candidates` fits about 56 estimators (an "
+            "expensive run is one above 50 estimator fits or 2000 inference "
+            "windows). Stop here and do not run it: tell the user those "
+            "numbers and the cheaper strategies (for `backtest`, fewer folds "
+            "(a later `initial_train_size` or a larger `fold_stride`); for "
+            "`compare`, a list of `candidates` or fewer folds (a later "
+            "`initial_train_size` or a larger `fold_stride`)), and run the "
+            "expensive one only if they choose it. Asking to retrain the "
+            "model, or to evaluate it as in production, is not that choice."
+        ),
+        "count": 1,
+    }
+    assert once["notices"][1]["message"] == (
+        "`compare` without `candidates` on this strategy fits about 56 "
+        "estimators (ForecasterRecursive: 1, ForecasterDirect: 1, "
+        "ForecasterStats: 54, Baseline (seasonal naive): 0), more than the 54 "
+        "of this plan. Pass `candidates` to choose what runs, or use fewer "
+        "folds (a later `initial_train_size` or a larger `fold_stride`)."
+    )
+    assert refits["notices"][0]["message"] == (
+        "Expensive run: with this strategy, `backtest` fits 54 estimators; "
+        "`compare` without `candidates` fits about 162 estimators (an "
+        "expensive run is one above 50 estimator fits or 2000 inference "
+        "windows). Stop here and do not run it: tell the user those numbers "
+        "and the cheaper strategies (for `backtest`, fewer folds (a later "
+        "`initial_train_size` or a larger `fold_stride`); for `compare`, a "
+        "list of `candidates`, an integer `refit` (retrain every n folds), "
+        "fewer folds (a later `initial_train_size` or a larger `fold_stride`) "
+        "or `refit=false` (train once)), and run the expensive one only if "
+        "they choose it. Asking to retrain the model, or to evaluate it as in "
+        "production, is not that choice."
+    )
 
 
 def test_tool_create_cv_missing_values_notice_with_the_warning_of_the_library(
@@ -310,12 +380,13 @@ def test_tool_create_cv_missing_values_notice_with_the_warning_of_the_library(
                 "fits about 70 estimators (an expensive run is one above 50 "
                 "estimator fits or 2000 inference windows). "
                 "Stop here and do not run it: tell the user those numbers and "
-                "the cheaper strategies (an integer `refit`, fewer folds, "
-                "`refit=false`; for `compare`, a list of `candidates`), and "
-                "run the expensive one only if they choose it. Asking to "
-                "retrain the model, or to evaluate it as in production, is "
-                "not that choice. `backtest` of this plan is below the "
-                "thresholds and can run."
+                "the cheaper strategies (for `compare`, a list of `candidates`, "
+                "an integer `refit` (retrain every n folds), fewer folds (a "
+                "later `initial_train_size` or a larger `fold_stride`) or "
+                "`refit=false` (train once)), and run the expensive one only "
+                "if they choose it. Asking to retrain the model, or to "
+                "evaluate it as in production, is not that choice. `backtest` "
+                "of this plan is below the thresholds and can run."
             ),
             count    = 1,
         ),
@@ -342,9 +413,11 @@ def test_tool_create_cv_missing_values_notice_with_the_warning_of_the_library(
             message  = (
                 "`compare` without `candidates` on this strategy fits about 70 "
                 "estimators (ForecasterRecursive: 5, ForecasterDirect: 60, "
-                "ForecasterStats: 5), more than the 5 "
-                "of this plan. Pass `candidates` to choose what runs, or use "
-                "`refit=false` or fewer folds."
+                "ForecasterStats: 5), more than "
+                "the 5 of this plan. Pass `candidates` to choose what runs, or "
+                "use an integer `refit` (retrain every n folds), fewer folds (a "
+                "later `initial_train_size` or a larger `fold_stride`) or "
+                "`refit=false` (train once)."
             ),
             count    = 1,
         ),
@@ -426,12 +499,12 @@ def test_tool_create_cv_cost_and_notices_of_inference_windows(tmp_path, monkeypa
                 "runs up to 6 inference windows (an expensive run is one above "
                 "50 estimator fits or 3 inference windows). "
                 "Stop here and do not run it: tell the user those numbers and "
-                "the cheaper strategies (an integer `refit`, fewer folds, "
-                "`refit=false`; for `compare`, a list of `candidates`), and "
-                "run the expensive one only if they choose it. Asking to "
-                "retrain the model, or to evaluate it as in production, is "
-                "not that choice. `backtest` of this plan is below the "
-                "thresholds and can run."
+                "the cheaper strategies (for `compare`, a list of `candidates`, "
+                "fewer folds (a later `initial_train_size` or a larger "
+                "`fold_stride`) or fewer series), and run the expensive one "
+                "only if they choose it. Asking to retrain the model, or to "
+                "evaluate it as in production, is not that choice. `backtest` "
+                "of this plan is below the thresholds and can run."
             ),
             count    = 1,
         ),
@@ -442,7 +515,9 @@ def test_tool_create_cv_cost_and_notices_of_inference_windows(tmp_path, monkeypa
                 "`compare` without `candidates` on this strategy runs "
                 "ForecasterFoundation on up to 6 inference windows (1 series x 6 "
                 "folds), which can take minutes on a CPU. Pass `candidates` to "
-                "choose what runs, or use fewer folds."
+                "choose what runs, or use fewer folds (a later "
+                "`initial_train_size` or a larger `fold_stride`) or fewer "
+                "series."
             ),
             count    = 1,
         )
@@ -460,9 +535,12 @@ def test_tool_create_cv_cost_and_notices_of_inference_windows(tmp_path, monkeypa
             "windows; `compare` without `candidates` runs up to 6 inference "
             "windows (an expensive run is one above 50 estimator fits or 3 "
             "inference windows). Stop here and do not run it: tell the user "
-            "those numbers and the cheaper strategies (an integer `refit`, "
-            "fewer folds, `refit=false`; for `compare`, a list of "
-            "`candidates`), and run the expensive one only if they choose it. "
+            "those numbers and the cheaper strategies (for `backtest`, fewer "
+            "folds (a later `initial_train_size`, a larger `fold_stride` or "
+            "`skip_folds`) or fewer series; for `compare`, a list of "
+            "`candidates`, fewer folds (a later `initial_train_size` or a "
+            "larger `fold_stride`) or fewer series), and run the expensive one "
+            "only if they choose it. "
             "Asking to retrain the model, or to evaluate it as in production, "
             "is not that choice.",
         ),
@@ -762,9 +840,11 @@ def test_tool_create_cv_counts_the_strategy_plan_in_the_cost_of_a_default_compar
     """
     Test that for the strategy of a refined plan the cost of a `compare`
     without `candidates` includes the row 'Strategy plan' that `compare`
-    adds (Ridge 1, ForecasterDirect 12, ForecasterStats 6 and the plan 1),
-    without the foundation model whose backend is missing, and that the
-    `CompareCostNotice` lists the fits by the name of the row.
+    adds (Ridge 1, ForecasterDirect 12, ForecasterStats 6, the plan 1 and
+    the baseline 0), without the foundation model whose backend is missing,
+    and that the `CompareCostNotice` lists the fits by the name of the row
+    and names only fewer folds: the strategy trains once, so `refit` lowers
+    nothing, and `skip_folds` would make ForecasterStats fail.
     """
     monkeypatch.setattr(
         "skforecast_ai.execution.comparison.foundation_backend_installed",
@@ -794,9 +874,10 @@ def test_tool_create_cv_counts_the_strategy_plan_in_the_cost_of_a_default_compar
         message  = (
             "`compare` without `candidates` on this strategy fits about 20 "
             "estimators (ForecasterRecursive: 1, ForecasterDirect: 12, "
-            "ForecasterStats: 6, Strategy plan: 1), more than the 1 of this "
-            "plan. Pass `candidates` to choose what runs, or use `refit=false` "
-            "or fewer folds."
+            "ForecasterStats: 6, Strategy plan: 1, Baseline (seasonal naive): "
+            "0), more than the 1 of this plan. Pass `candidates` to choose what "
+            "runs, or use fewer folds (a later `initial_train_size` or a larger "
+            "`fold_stride`)."
         ),
         count    = 1,
     )
@@ -834,8 +915,11 @@ def test_tool_create_cv_counts_the_strategy_plan_over_the_budget_of_compare(
     assert notice["message"] == (
         "`compare` without `candidates` on this strategy fits about 98 "
         "estimators (ForecasterRecursive: 7, ForecasterStats: 7, Strategy "
-        "plan: 84), more than the 84 of this plan. Pass `candidates` to "
-        "choose what runs, or use `refit=false` or fewer folds."
+        "plan: 84, Baseline (seasonal naive): 0), more than the 84 of this "
+        "plan. Pass `candidates` to choose what runs, or use an integer "
+        "`refit` (retrain every n folds), fewer folds (a later "
+        "`initial_train_size` or a larger `fold_stride`) or `refit=false` "
+        "(train once)."
     )
 
 
