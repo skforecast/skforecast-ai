@@ -296,6 +296,18 @@ cuenta al usuario.
   - ForecasterDirectMultiVariate: skforecast nunca descarta una serie de su
     última ventana, así que un faltante da predicciones NaN o un error
     dentro del script. Sin cubrir.
+  De la revisión de
+  [#107](https://github.com/skforecast/skforecast-ai/pull/107) (D18):
+  - `transformer_exog` y `categorical_features` también se pierden en
+    silencio al cambiar de forecaster: nombrarlos en el aviso cuando tenían
+    efecto en el plan anterior.
+  - Los lags que refinó el LLM cuentan como elegidos por el usuario (el
+    refinado lo pidió él), así que también se nombran.
+  - Un solo aviso, no dos, cuando en la misma llamada hay ediciones a mano
+    descartadas y decisiones que el forecaster nuevo no admite.
+  - Los lags, las ventanas y el estimador que eligieron las reglas no se
+    nombran: la familia nueva los vuelve a decidir y la explicación del
+    plan ya lo cuenta.
 
 ## Fase 4. Coste
 
@@ -923,7 +935,8 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     `exog_columns`. Sale también con solo fechas que faltan, y
     ForecasterStats tiene el suyo (falla con un faltante del objetivo y
     predice NaN desde una exógena que falta).
-- **D?. 3b: `refine_plan()` nombra lo que deja fuera** (2026-10-18). Con
+- **D18. 3b: `refine_plan()` nombra lo que deja fuera** (2026-10-18), en
+  [#107](https://github.com/skforecast/skforecast-ai/pull/107). Con
   un `PlanEditsDiscardedWarning` propio, aparte del de las ediciones a mano
   (su texto va también a `plan.warnings` y al notice del MCP, con source
   `plan`):
