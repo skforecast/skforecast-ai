@@ -410,7 +410,7 @@ def test_tool_forecast_invalid_argument_with_hint_when_future_exog_has_missing_v
         "value(s), such as '2023-04-13'). ForecasterRecursive with Ridge "
         "cannot use them, so its predictions would be missing. "
         "Either they are filled in, or the plan uses an estimator that "
-        "accepts missing values (for example 'LGBMRegressor')."
+        "accepts missing values (such as 'RandomForestRegressor')."
     )
     assert error["hint"] == (
         "The file of future values is the user's: tell them what the message "

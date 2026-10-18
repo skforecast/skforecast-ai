@@ -801,6 +801,64 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     faltantes intermedios de las últimas ventanas, a 3a; `create_cv` no
     avisa, porque el error del backtest ya salta antes de ejecutar nada. El
     caso límite de `window_size` es un bug de skforecast (#1410).
+- **D?. 3a: los valores faltantes, una sola regla** (2026-10-18):
+  - La regla y sus textos viven en `recommendation/missing_values.py`. El
+    estimador que se ofrece es el primer candidato de las reglas que acepta
+    faltantes (`select_nan_tolerant_estimator`, para la tarea del plan y el
+    tamaño de los datos): `RandomForestRegressor` por debajo de 250
+    observaciones y `LGBMRegressor` desde 250, en vez de `'LGBMRegressor'`
+    escrito a mano. Lo usan el aviso de `create_cv`, los errores con datos
+    (lecturas de la ventana, exógenas futuras, `dropna_from_series=False`)
+    y el `MissingValuesNotice`; `DATA_VALUES_HINT` ya no nombra ninguno:
+    dice que cambiar de estimador solo evita el error cuando el mensaje
+    nombra uno.
+  - `create_cv` (sin datos) dice cada caso como condición: un faltante
+    dentro de un fold de test falla con cualquier estimador; un fold
+    predicho desde uno, con un estimador que no los acepta o con
+    ForecasterEquivalentDate; con diferenciación, uno de los últimos
+    `order` valores antes de un fold, con cualquier estimador (el aviso que
+    faltaba con un estimador que los acepta); una exógena con faltantes,
+    con un estimador que no los acepta. Avisa también con un estimador que
+    acepta faltantes (el primer caso). Objetivo y exógenas van en avisos
+    separados, para que cada uno quepa en los 1000 caracteres de un notice.
+    Con fechas que faltan en datos diarios o más finos, el consejo de los
+    días de cierre va delante, condicionado: el perfil no guarda qué días
+    son.
+  - El notice dice además que `backtest` comprueba los folds antes de
+    ejecutar y que se corra antes de cambiar el plan o preguntar, y ofrece
+    el estimador solo cuando el del plan no acepta faltantes, con lo que no
+    evita (el fold de test que tiene uno).
+  - Con datos, el error de un faltante en los folds de test los numera
+    (`test fold 5 of 6`, `all 8 test folds`). El texto de los días de
+    cierre de D9 sale de una sola función (`closed_days_remedy`) y manda
+    también en el error de una ventana que lee faltantes de días cerrados
+    (por ejemplo, `forecast()` de una tienda que cierra los domingos) y en
+    los dos errores nuevos.
+  - Nuevo en `backtest()` de una serie: `DataContentError` antes de
+    ejecutar cuando, con `dropna_from_series=True`, ninguna fila de
+    entrenamiento de un fold queda sin leer un faltante (el caso B de c_06,
+    que fallaba con "All samples have been removed due to NaNs" y el
+    consejo `dropna_from_series=False`, que el plan rechaza con Ridge).
+    Replica skforecast: lags y ventanas sobre la serie diferenciada, las
+    ventanas con todos sus valores al entrenar (`min_periods`), el objetivo
+    de cada paso en ForecasterDirect, las ventanas de entrenamiento de los
+    folds que reentrenan. Comprobado contra el backtest real en unas 475
+    configuraciones al azar, sin diferencias. Las exógenas no se miran.
+  - La comprobación previa de D15 mira ahora los faltantes intermedios de
+    las últimas ventanas cuando skforecast las descarta (estimador que no
+    los acepta, o diferenciación): una serie que solo por ellos no se
+    pronostica en ningún fold da `DataContentError` (`data`, con
+    `DATA_VALUES_HINT`) con sus fechas y lo que funciona (el estimador de
+    las reglas, un plan sin diferenciación, rellenarlos con permiso o quitar
+    la serie). Las series cortas se informan antes. Comprobado contra el
+    backtest real en unas 1100 configuraciones al azar, en ancho y largo.
+  - El paso `handle_missing_values` del plan dice solo lo que funciona para
+    su estimador y nunca propone `dropna_from_series` (dice que solo quita
+    filas de entrenamiento): el estimador de las reglas, imputar con
+    permiso del usuario y, para una exógena, dejarla fuera de
+    `exog_columns`. Sale también con solo fechas que faltan, y
+    ForecasterStats tiene el suyo (falla con un faltante del objetivo y
+    predice NaN desde una exógena que falta).
 
 ## Decisiones abiertas
 

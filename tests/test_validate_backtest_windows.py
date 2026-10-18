@@ -11,15 +11,19 @@ from tests.fixtures_last_window import (
     cv_h2o,
     data_h2o,
     data_h2o_gaps,
+    data_h2o_no_training_row,
     data_wide,
     plan_h2o_baseline,
     plan_h2o_direct,
     plan_h2o_lgbm,
+    plan_h2o_no_training_row_lgbm,
+    plan_h2o_no_training_row_ridge,
     plan_h2o_ridge,
     plan_wide_ridge,
     plans_h2o_without_lags,
     profile_h2o,
     profile_h2o_gaps,
+    profile_h2o_no_training_row,
     profile_of,
     profile_wide,
     with_missing,
@@ -39,7 +43,7 @@ def test_validate_backtest_windows_InvalidInputError_when_estimator_cannot_use_m
         "ForecasterRecursive with Ridge cannot use them, so its predictions "
         "would be missing. "
         "Either they are filled in, or the plan uses an estimator that "
-        "accepts missing values (for example 'LGBMRegressor')."
+        "accepts missing values (such as 'RandomForestRegressor')."
     )
     with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
         validate_backtest_windows(
@@ -62,7 +66,7 @@ def test_validate_backtest_windows_InvalidInputError_when_missing_value_in_incom
         "ForecasterRecursive with Ridge cannot use them, so its predictions "
         "would be missing. "
         "Either they are filled in, or the plan uses an estimator that "
-        "accepts missing values (for example 'LGBMRegressor')."
+        "accepts missing values (such as 'RandomForestRegressor')."
     )
     data = without_months(data_h2o, [105])
     with pytest.raises(InvalidInputError, match=err_msg):
@@ -207,7 +211,7 @@ def test_validate_backtest_windows_DataContentError_when_fold_reads_missing():
         "ForecasterRecursive with Ridge cannot use them, so its predictions "
         "would be missing. "
         "Either they are filled in, or the plan uses an estimator that "
-        "accepts missing values (for example 'LGBMRegressor')."
+        "accepts missing values (such as 'RandomForestRegressor')."
     )
     with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
         validate_backtest_windows(
@@ -217,4 +221,60 @@ def test_validate_backtest_windows_DataContentError_when_fold_reads_missing():
     assert type(exc_info.value) is DataContentError
     assert (exc_info.value.code, exc_info.value.field) == (
         "invalid_argument", "data"
+    )
+
+
+# =============================================================================
+# Tests: training rows
+# =============================================================================
+def test_validate_backtest_windows_DataContentError_when_no_training_row_is_left():
+    """
+    Test that a strategy whose first training window (84 months) has no row
+    that reads no missing value raises before running, for a plan with
+    Ridge that drops those rows (`dropna_from_series`): skforecast failed
+    inside the script with "All samples have been removed due to NaNs" and
+    the advice `dropna_from_series=False`, which the plan rejects for Ridge
+    (c_06 of the audit). The remedy names the estimator of the rules for 120
+    observations.
+    """
+    err_msg = re.escape(
+        "Every training row of the backtest from 1998-07-01 to 2005-06-01 "
+        "reads a missing value of the target (2 value(s), such as "
+        "'1999-08-01', '2002-09-01'): ForecasterRecursive with Ridge drops "
+        "the rows whose lags, window features or target read one "
+        "(`dropna_from_series`), so skforecast would have no row to train on. "
+        "An estimator that accepts missing values (such as "
+        "'RandomForestRegressor') trains on them; otherwise, use shorter lags "
+        "and window features, which read fewer values, or fill in the missing "
+        "values, after asking the user."
+    )
+    with pytest.raises(DataContentError, match=err_msg) as exc_info:
+        validate_backtest_windows(
+            data_h2o_no_training_row,
+            profile_h2o_no_training_row,
+            plan_h2o_no_training_row_ridge,
+            cv_h2o(),
+        )
+
+    assert (exc_info.value.code, exc_info.value.field) == (
+        "invalid_argument", "data"
+    )
+
+
+@pytest.mark.parametrize(
+    "plan, cv",
+    [
+        (plan_h2o_no_training_row_lgbm, cv_h2o()),
+        (plan_h2o_no_training_row_ridge, cv_h2o(initial_train_size=96)),
+    ],
+    ids=["estimator_accepts_missing_values", "later_window_with_rows"],
+)
+def test_validate_backtest_windows_no_error_when_training_rows_are_left(plan, cv):
+    """
+    Test that the same data passes with LGBMRegressor, which keeps the rows
+    with missing values (`dropna_from_series=False`), and with Ridge on a
+    training window of 96 months, whose rows of targets 87 to 95 read none.
+    """
+    validate_backtest_windows(
+        data_h2o_no_training_row, profile_h2o_no_training_row, plan, cv
     )

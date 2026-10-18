@@ -63,10 +63,10 @@ GAPS_WARNING = (
 DATA_VALUES_HINT = (
     "The values the message names are data of the user: do not fill in, drop "
     "or write any of them yourself, and ask before a corrected copy is "
-    "written. Say in your answer that this call failed and why. When the "
-    "message blames the estimator, one that accepts missing values (such as "
-    "'LGBMRegressor') avoids the error without touching the data: if you "
-    "switch to it, say in your answer that you changed the estimator and why."
+    "written. Say in your answer that this call failed and why. Only when the "
+    "message names an estimator that accepts missing values does switching to "
+    "it avoid this error without touching the data: if you switch to it, say "
+    "in your answer that you changed the estimator and why."
 )
 
 # Ten future values of `promo` after the last date of `df_single`.
