@@ -29,6 +29,11 @@ from .calendar import (
     select_calendar_encoding,
     select_calendar_features,
 )
+from .estimator_choice import (
+    estimator_change,
+    recommended_estimator,
+    warn_estimator_not_recommended,
+)
 from .explanation import (
     _build_profile_explanation,
     build_foundation_explanation,
@@ -79,10 +84,12 @@ __all__ = [
     "derive_cv_defaults",
     "derive_preprocessing_steps",
     "describe_series_near_zero",
+    "estimator_change",
     "estimator_n_observations",
     "constant_calendar_features",
     "drop_colliding_calendar_features",
     "finalize_lags",
+    "recommended_estimator",
     "resolve_cv_config",
     "resolve_cv_provenance",
     "select_baseline_config",
@@ -99,6 +106,7 @@ __all__ = [
     "select_transformer_series",
     "select_window_features",
     "series_near_zero",
+    "warn_estimator_not_recommended",
     "warn_first_window",
     "warn_interval_residuals",
 ]

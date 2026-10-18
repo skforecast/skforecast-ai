@@ -54,7 +54,11 @@ candidates).
    out, with a notice that names it (the `estimator_kwargs` of another
    estimator; the `differentiation`, `calendar_features` and
    `target_transformer` with `ForecasterStats`, a foundation model or the
-   baseline): tell the user.
+   baseline): tell the user. A `backtest` or `forecast` of a plan whose
+   estimator is not the one the rules recommend for its forecaster (one
+   you switched after a `MissingValuesNotice`, say) carries an
+   `EstimatorNotRecommendedNotice`: say in your answer which estimator
+   ran, which one the rules recommend and why it was changed.
 4. `create_cv(plan_id, ...)`: the backtesting strategy. Read `cost` before
    running anything; above 50 estimator fits (2000 inference windows for a
    foundation model) it already carries the `LongTrainingWarning` the

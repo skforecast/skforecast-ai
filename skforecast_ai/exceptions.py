@@ -390,6 +390,25 @@ class DataSentToLLMWarning(UserWarning):
     """
 
 
+class EstimatorNotRecommendedWarning(UserWarning):
+    """
+    Warned by `backtest()` and `forecast()` when the estimator of the plan is
+    not the one the rules recommend.
+
+    The recommended estimator is the one `plan()` chooses for the
+    forecaster of the plan and the size of the data (for
+    `ForecasterDirectMultiVariate`, the dates the series share), so a plan
+    with the estimator of the rules never warns, whatever the profile
+    recommends. The warning names both estimators and who chose the one of
+    the plan: the user (`ForecastPlan.overridden_fields`), or not recorded
+    (a candidate of `compare()`, a plan edited by hand). When it is the
+    estimator that accepts missing values that the advice on the missing
+    values of the data names, it says so. `ForecasterStats`,
+    `ForecasterFoundation` and the baseline have no estimator to choose and
+    never warn.
+    """
+
+
 class MissingBackendWarning(UserWarning):
     """
     Warned by `compare()` when a foundation model candidate is left out.

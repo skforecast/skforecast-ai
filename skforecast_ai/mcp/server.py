@@ -460,6 +460,65 @@ def _missing_values_notices(plan: Any, profile: Any) -> list[ToolNotice]:
     ]
 
 
+def _estimator_notices(plan: Any, profile: Any, run: str) -> list[ToolNotice]:
+    """
+    Notice of `backtest` and `forecast` for a plan whose estimator is not the
+    one the rules recommend for its forecaster (see `estimator_change`). An
+    agent that switches the estimator, after a `MissingValuesNotice` for
+    example, reports the result as that of the recommended plan: the user
+    is not told.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan that ran.
+    profile : ForecastingProfile
+        Profile the plan comes from.
+    run : str
+        `'backtest'` or `'forecast'`.
+
+    Returns
+    -------
+    notices : list of ToolNotice
+        One notice (source `'plan'`), or none when the estimator is the one
+        of the rules or the forecaster has none to choose.
+    """
+
+    from ..recommendation import estimator_change
+
+    change = estimator_change(plan, profile.data_profile)
+    if change is None:
+        return []
+    if change.chosen_by_user:
+        origin = "It was passed to `plan` or `refine_plan`"
+        if change.missing_values:
+            origin += (
+                ", and it is the estimator that accepts missing values that "
+                "the advice on the missing values of the data names"
+            )
+    else:
+        origin = (
+            "It was not passed to `plan` or `refine_plan`: it is the plan of a "
+            "candidate of `compare`"
+        )
+    message = (
+        f"This {run} ran the estimator {change.estimator!r}, not the one the "
+        f"rules recommend for {change.forecaster} on these data "
+        f"({change.recommended!r}). {origin}. Say in your answer that the "
+        f"estimator is not the recommended one, which one the rules recommend "
+        f"and why it was changed."
+    )
+
+    return [
+        ToolNotice(
+            source   = "plan",
+            category = "EstimatorNotRecommendedNotice",
+            message  = message,
+            count    = 1,
+        )
+    ]
+
+
 def _cost_notices(
     cost: dict[str, int],
     forecaster: str,
@@ -2415,9 +2474,14 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                             outcome.warnings,
                             plan_warnings  = result.plan.warnings,
                             data_warnings  = cv_entry.data_warnings,
-                            server_notices = _metric_notices(
-                                result.metrics, cv_entry.profile.data_profile
-                            ),
+                            server_notices = [
+                                *_estimator_notices(
+                                    result.plan, cv_entry.profile, "backtest"
+                                ),
+                                *_metric_notices(
+                                    result.metrics, cv_entry.profile.data_profile
+                                ),
+                            ],
                         ),
             source    = cv_entry,
             code      = result.code,
@@ -2770,6 +2834,9 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                             plan_warnings  = result.plan.warnings,
                             data_warnings  = plan_entry.data_warnings,
                             server_notices = [
+                                *_estimator_notices(
+                                    result.plan, plan_entry.profile, "forecast"
+                                ),
                                 *_holdout_notices(result.predictions, test_size),
                                 *_metric_notices(
                                     result.metrics, plan_entry.profile.data_profile

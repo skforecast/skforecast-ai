@@ -19,7 +19,7 @@ from typing import Any, Generic, TypeVar
 import anyio
 import anyio.lowlevel
 from anyio.lowlevel import RunVar
-from ..exceptions import CandidateFailedWarning
+from ..exceptions import CandidateFailedWarning, EstimatorNotRecommendedWarning
 from ._errors import ServerError
 from .models import ToolNotice
 
@@ -417,8 +417,10 @@ def build_notices(
     Turn the warnings of a call into notices.
 
     Warnings are deduplicated by category and text. `CandidateFailedWarning`
-    is left out (the failures of a comparison are in its result) and
-    deprecation warnings go to the log of the server.
+    is left out (the failures of a comparison are in its result), and so is
+    `EstimatorNotRecommendedWarning` (`backtest` and `forecast` give an
+    `EstimatorNotRecommendedNotice` of their own instead); deprecation
+    warnings go to the log of the server.
 
     Parameters
     ----------
@@ -449,7 +451,9 @@ def build_notices(
     counts: dict[tuple[str, str], int] = {}
     for record in records:
         category = record.category
-        if issubclass(category, CandidateFailedWarning):
+        if issubclass(
+            category, (CandidateFailedWarning, EstimatorNotRecommendedWarning)
+        ):
             continue
         text = notice_text(record)
         if issubclass(category, (DeprecationWarning, PendingDeprecationWarning)):

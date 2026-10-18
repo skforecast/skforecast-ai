@@ -250,6 +250,8 @@ def test_skill_md_covers_what_agents_get_wrong(phrase):
         "Never write those values yourself, nor answer with a `test_size` "
         "evaluation instead",
         "nor as the forecast of the future: its dates are already in the data",
+        "carries an `EstimatorNotRecommendedNotice`: say in your answer which "
+        "estimator ran, which one the rules recommend and why it was changed",
     ],
     ids=lambda phrase: phrase[:40],
 )
@@ -259,7 +261,8 @@ def test_skill_md_states_the_rules_agents_broke_in_the_agent_check(phrase):
     agent check: where the allowed directory is named, what MASE is scaled
     by, that the agent never copies a file of the user into the allowed
     directory, that a license is quoted from a response, what `get_code`
-    says to install and that an error names one problem of a file.
+    says to install, that an error names one problem of a file and that a
+    switch of estimator is said in the answer.
     """
     skill = _flat(SKILL_PATH.read_text(encoding="utf-8"))
 
