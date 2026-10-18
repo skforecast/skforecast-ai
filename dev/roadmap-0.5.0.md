@@ -397,9 +397,10 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
    con cotas iguales y lo cuenta (pendiente desde `96f4cdc`).
 3. Comprobaciones a mano (abajo).
 4. skforecast 0.27.0 publicado con todo lo de "Dependencia de skforecast
-   0.27.0" resuelto: `skforecast>=0.27.0` en `pyproject.toml`,
-   `/sync-skforecast-assets` (lo lanzas tú) y la suite contra la 0.27.0 de
-   PyPI.
+   0.27.0" resuelto, `/sync-skforecast-assets` (lo lanzas tú) y la suite
+   contra la 0.27.0 de PyPI. `pyproject.toml` pide ya `skforecast>=0.27.0`
+   (2026-10-18): hasta que esté en PyPI, las sesiones en la nube instalan
+   skforecast de su rama `0.27.x` y el entorno local también.
 5. `/release-note consolidate`, bump de versión (`/release-bump`) y
    publicación.
 6. Tras publicar: Deploy y Make Release en Glama y apuntar el TDQS nuevo
@@ -947,7 +948,7 @@ arranque de las sesiones en la nube instala skforecast desde su rama
 
 | Issue | Qué pide | Qué hace skforecast-ai cuando llegue | Estado |
 |:--|:--|:--|:--|
-| [#1357](https://github.com/skforecast/skforecast/issues/1357) | Nombres de serie enteros (G02) | Nada que quitar: los ids como texto de 1b se quedan, porque conservan los ceros (`001`) | Abierto |
+| [#1357](https://github.com/skforecast/skforecast/issues/1357) | Nombres de serie enteros (G02) | Nada que quitar: los ids como texto de 1b se quedan, porque conservan los ceros (`001`) | Resuelto en `0.27.x` ([#1412](https://github.com/skforecast/skforecast/pull/1412), 2026-10-18) |
 | [#1406](https://github.com/skforecast/skforecast/issues/1406) | Avisar de una serie que no se pronostica en ningún fold (G03), y, por un comentario de 2026-10-18 (D17), también de la que se descarta de un fold por un faltante en su última ventana | 2b se queda en la comprobación previa y el aviso del perfil: los scripts corren con `suppress_warnings=True` y fallar antes de ejecutar es mejor para un agente | Abierto |
 | [#1410](https://github.com/skforecast/skforecast/issues/1410) | Una serie con exactamente `window_size` observaciones en la ventana de entrenamiento de un fold multiserie (2b) | Nada: el backtest falla dentro del script con "must be greater than the maximum window size"; con el arreglo, la serie se descarta de ese fold como las más cortas, que es lo que ya supone la comprobación de 2b | Abierto |
 | [#1409](https://github.com/skforecast/skforecast/issues/1409) | Cobertura y anchura del intervalo en las métricas del backtesting (D11) | 2c-ii las lee de la salida del backtesting, sin cálculo propio en el script | Abierto |
