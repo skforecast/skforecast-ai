@@ -199,6 +199,7 @@ from ._utils import (
     with_read_notes,
     _revalidate_plan,
     discarded_plan_edits,
+    dropped_plan_decisions,
     plan_override_value,
     recorded_data_path,
     structure_differences,
@@ -1751,7 +1752,12 @@ class ForecastingAssistant:
         `use_exog`, `differentiation`, `calendar_features`,
         `target_transformer`, `dropna_from_series`) are carried over only
         when they are in `plan.overridden_fields` (and when the new forecaster can apply
-        them); otherwise the rules decide them again. The
+        them); otherwise the rules decide them again. What is left out
+        this way is named in a `PlanEditsDiscardedWarning` when it changes
+        the plan: a value with an effect that the user chose, or a decision
+        about the data that the rules made (`use_exog`, `differentiation`,
+        `calendar_features`, `target_transformer`, `dropna_from_series`) and
+        the new forecaster cannot take. The
         `llm_refined_fields` marks of the original plan are kept for the
         fields whose value is carried over unchanged. The `end_train` split
         boundary is not kept: a refined plan starts in prediction mode, so
@@ -1812,7 +1818,15 @@ class ForecastingAssistant:
             the refined plan does not keep them.
             The split boundary, the explanation, the warnings, the marks
             and the exogenous columns (recorded from the profile) are not
-            compared, nor the fields overridden in the call.
+            compared, nor the fields overridden in the call. Also when the
+            refined plan leaves out decisions of `plan` that its forecaster
+            or its estimator cannot take (the `estimator_kwargs` of
+            another estimator, the differentiation, calendar features or
+            target transformer of an autoregressive plan switched to
+            `ForecasterStats`, `ForecasterFoundation` or the baseline): it
+            names them and who chose them. A value without effect (no
+            differencing, an empty list of calendar features, `'none'`) and
+            one the rules decide again are not named.
         """
 
         allowed_keys = REFINE_PLAN_OVERRIDE_KEYS
@@ -2044,9 +2058,18 @@ class ForecastingAssistant:
                 f"`refine_plan()` accepts ({sorted(REFINE_PLAN_OVERRIDE_KEYS)}) "
                 f"as overrides to keep them."
             )
-        if message is not None:
-            refined_plan.warnings.append(message)
-            warnings.warn(message, PlanEditsDiscardedWarning, stacklevel=2)
+        # Decisions of `plan` that the refined forecaster or estimator
+        # cannot take are not carried over: said, not dropped silently.
+        dropped = dropped_plan_decisions(
+            plan          = plan,
+            refined       = refined_plan,
+            explicit_keys = explicit_keys,
+            discarded     = discarded or [],
+        )
+        for message in (message, dropped):
+            if message is not None:
+                refined_plan.warnings.append(message)
+                warnings.warn(message, PlanEditsDiscardedWarning, stacklevel=2)
 
         if reasoning is not None:
             refined_plan.explanation += (

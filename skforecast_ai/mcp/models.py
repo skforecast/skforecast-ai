@@ -153,7 +153,10 @@ class RefinePlanArgs(TypedDict, total=False):
         dict[str, Any] | None,
         Field(description=(
             f"{ESTIMATOR_KWARGS_DESCRIPTION} Null for the defaults of the "
-            f"estimator."
+            f"estimator. Omitted while the estimator changes (passed, or "
+            f"chosen again for another forecaster), those of the plan are "
+            f"left out, since they were written for the previous estimator, "
+            f"and a notice names them."
         )),
     ]
     steps: Annotated[int, Field(ge=1, description=STEPS_DESCRIPTION)]
