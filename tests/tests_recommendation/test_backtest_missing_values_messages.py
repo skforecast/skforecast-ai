@@ -1,5 +1,6 @@
 # Unit test backtest_missing_values_messages recommendation/missing_values
 
+from skforecast_ai.mcp._runtime import MAX_NOTICE_CHARS
 from skforecast_ai.recommendation.missing_values import (
     BacktestMissingValues,
     backtest_missing_values_messages,
@@ -29,17 +30,15 @@ def test_backtest_missing_values_messages_output_when_target_and_exog():
     )
 
     assert backtest_missing_values_messages(missing_values, plan_h2o_exog_ridge) == [
-        "The target has missing values, and `backtest()` of this plan checks "
-        "every test fold before running: it raises, naming the dates, when a "
-        "test fold holds one, since the metrics cannot be computed on it "
-        "whatever the estimator; and when a test fold is predicted from one, "
-        "since ForecasterRecursive with Ridge cannot predict from a missing "
-        "value. `dropna_from_series` only drops the training rows that read "
-        "one, and a training window left without rows raises too. An "
-        "estimator that accepts missing values (such as "
-        "'RandomForestRegressor') avoids the error of a test fold predicted "
-        "from a missing value, not that of a test fold that holds one. Impute "
-        "the target to backtest every fold.",
+        "The target has missing values, and `backtest()` checks every test fold "
+        "before running: it raises, naming the dates, when a test fold holds one, "
+        "whatever the estimator, since no metric is computed on it; and when a test "
+        "fold is predicted from one, since ForecasterRecursive with Ridge cannot "
+        "predict from a missing value. `dropna_from_series` only drops the training "
+        "rows that read one, and a training window left without rows raises too. An "
+        "estimator that accepts missing values (such as 'RandomForestRegressor') "
+        "avoids the error of a fold predicted from a missing value, not of a fold "
+        "that holds one. Impute the target to backtest every fold.",
         "The exogenous columns 'promo', 'price' have missing values, and "
         "ForecasterRecursive with Ridge cannot predict from them: `backtest()` fails on a test fold whose "
         "rows have one, and `dropna_from_series` only drops them from the "
@@ -48,3 +47,31 @@ def test_backtest_missing_values_messages_output_when_target_and_exog():
         "the data, after asking the user, or leave them out of `exog_columns` "
         "when profiling.",
     ]
+
+
+def test_backtest_missing_values_messages_fit_in_a_notice_of_the_mcp_server():
+    """
+    Test that the longest message of the target (missing values and missing
+    timestamps of daily data, the longest name of an estimator that does
+    not accept them, the differentiation, and the estimator of the rules
+    for small data) fits in a notice of the MCP server, which cuts the text
+    after `MAX_NOTICE_CHARS` and would lose the last remedy.
+    """
+    missing_values = BacktestMissingValues(
+        values         = True,
+        gaps           = True,
+        closed_days    = True,
+        cannot_predict = (
+            "ForecasterRecursive with GradientBoostingRegressor cannot predict "
+            "from a missing value"
+        ),
+        order          = 2,
+        exog           = [],
+        estimator      = "RandomForestRegressor",
+    )
+
+    messages = backtest_missing_values_messages(missing_values, plan_h2o_exog_ridge)
+
+    assert len(messages) == 1
+    assert len(messages[0]) <= MAX_NOTICE_CHARS
+    assert messages[0].endswith("otherwise, impute the target to backtest every fold.")

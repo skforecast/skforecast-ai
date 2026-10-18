@@ -1342,7 +1342,7 @@ def test_validate_last_window_DataContentError_names_closed_days():
         "the target never has a value. ForecasterRecursive with Ridge cannot "
         "use them, so its predictions would be missing. If the business is "
         "closed on Sundays, fill them with 0 in the data, after asking the "
-        "user; otherwise, either they are filled in, or the plan uses an "
+        "user; otherwise, either they are imputed, or the plan uses an "
         "estimator that accepts missing values (such as "
         "'RandomForestRegressor')."
     )

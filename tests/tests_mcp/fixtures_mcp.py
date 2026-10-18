@@ -64,9 +64,10 @@ DATA_VALUES_HINT = (
     "The values the message names are data of the user: do not fill in, drop "
     "or write any of them yourself, and ask before a corrected copy is "
     "written. Say in your answer that this call failed and why. Only when the "
-    "message names an estimator that accepts missing values does switching to "
-    "it avoid this error without touching the data: if you switch to it, say "
-    "in your answer that you changed the estimator and why."
+    "message names an estimator that accepts missing values does changing the "
+    "plan as the message says avoid this error without touching the data: if "
+    "you switch to it, say in your answer that you changed the estimator and "
+    "why."
 )
 
 # Ten future values of `promo` after the last date of `df_single`.

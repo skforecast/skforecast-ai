@@ -181,13 +181,15 @@ SWITCH_ESTIMATOR_NOTE = (
 # and does not tell.
 # The estimator is the one the message names: the rules choose it for the
 # data (`select_nan_tolerant_estimator`), and a message names one only when
-# it avoids that error, never for a missing value inside a test fold.
+# it avoids that error, never for a missing value inside a test fold. With
+# the differentiation it avoids it only in a plan without it, which the
+# message says too.
 DATA_VALUES_HINT = (
     "The values the message names are data of the user: do not fill in, drop "
     "or write any of them yourself, and ask before a corrected copy is "
     "written. Say in your answer that this call failed and why. Only when the "
-    "message names an estimator that accepts missing values does switching to "
-    "it avoid this error without touching the data: "
+    "message names an estimator that accepts missing values does changing the "
+    "plan as the message says avoid this error without touching the data: "
     f"{SWITCH_ESTIMATOR_NOTE}."
 )
 

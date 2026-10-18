@@ -55,7 +55,7 @@ The main changes in this release are:
 
 + The error of [<code>ForecastingAssistant.plan()</code>][assistant] for dates without a regular frequency describes their spacing instead of asking for ISO 8601 dates that may already be, and the description of the profile that the LLM and the MCP server read lists the irregular spacing instead of "none detected" ([#96](https://github.com/skforecast/skforecast-ai/pull/96)).
 
-+ The errors and warnings about missing values name the estimator that the rules choose for the data (`RandomForestRegressor` below 250 observations, `LGBMRegressor` from 250) instead of always `LGBMRegressor`, and the errors of [<code>ForecastingAssistant.backtest()</code>][assistant] name the test folds that hold a missing value.
++ The errors and warnings about missing values name the estimator that the rules choose for the data (`RandomForestRegressor` below 250 observations, `LGBMRegressor` from 250) instead of always `LGBMRegressor`, put first the advice of a business closed on the missing weekdays, and, in [<code>ForecastingAssistant.backtest()</code>][assistant], name the test folds that hold a missing value.
 
 + In wide-format data, each series of `DataProfile.series_lengths` spans the dates from its first to its last value, as in long format, instead of the whole frame, so its `start`, `end` and `length` say where it starts. `n_total_observations`, which sizes the estimator, follows them, and the note on short series names the series in wide and long data ([#103](https://github.com/skforecast/skforecast-ai/pull/103)).
 

@@ -42,8 +42,8 @@ SWITCH = (
     "answer that you changed the estimator and why."
 )
 TARGET_SCOPE = (
-    "avoids the error of a test fold predicted from a missing value, not "
-    "that of a test fold that holds one"
+    "avoids the error of a fold predicted from a missing value, not of a fold "
+    "that holds one"
 )
 NO_BACKTEST = (
     " If you forecast without a backtest, say in your answer that the "

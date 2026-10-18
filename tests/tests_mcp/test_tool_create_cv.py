@@ -323,20 +323,19 @@ def test_tool_create_cv_missing_values_notice_with_the_warning_of_the_library(
             source   = "data",
             category = "MissingValuesNotice",
             message  = (
-                "The missing values of the target are data of the user: do "
-                "not fill in, drop or write any of them yourself, in their "
-                "file or in a copy of it, unless they asked for exactly that. "
-                "Ask before you do. `backtest` checks every test fold before "
-                "running anything and names the dates that make it fail: run "
-                "it before changing the plan or asking the user about the "
-                "values. Without touching the data, switching with "
-                "`refine_plan` and a new `create_cv` to an estimator that "
-                "accepts missing values (such as 'RandomForestRegressor') "
-                "avoids the error of a test fold predicted from a missing "
-                "value, not that of a test fold that holds one: if you switch "
-                "to it, say in your answer that you changed the estimator and "
-                "why. If you forecast without a backtest, say in your answer "
-                "that the forecast has no measure of error and why."
+                "The missing values of the target are data of the user: do not fill "
+                "in, drop or write any of them yourself, in their file or in a copy "
+                "of it, unless they asked for exactly that. Ask before you do. "
+                "`backtest` checks every test fold before running anything and names "
+                "the dates that make it fail: run it before changing the plan or "
+                "asking the user about the values. Without touching the data, "
+                "switching with `refine_plan` and a new `create_cv` to an estimator "
+                "that accepts missing values (such as 'RandomForestRegressor') "
+                "avoids the error of a fold predicted from a missing value, not of a "
+                "fold that holds one: if you switch to it, say in your answer that "
+                "you changed the estimator and why. If you forecast without a "
+                "backtest, say in your answer that the forecast has no measure of "
+                "error and why."
             ),
             count    = 1,
         ),
@@ -356,19 +355,17 @@ def test_tool_create_cv_missing_values_notice_with_the_warning_of_the_library(
             source   = "runtime",
             category = "UserWarning",
             message  = (
-                "The target has missing timestamps (asfreq() restores them "
-                "as missing values), and `backtest()` of this plan checks "
-                "every test fold before running: it raises, naming the dates, "
-                "when a test fold holds one, since the metrics cannot be "
-                "computed on it whatever the estimator; and when a test fold "
-                "is predicted from one, since ForecasterRecursive with Ridge "
-                "cannot predict from a missing value. `dropna_from_series` "
-                "only drops the training rows that read one, and a training "
-                "window left without rows raises too. An "
-                "estimator that accepts missing values (such as "
-                "'RandomForestRegressor') avoids the error of a test fold "
-                "predicted from a missing value, not that of a test fold that "
-                "holds one. Impute the target to backtest every fold."
+                "The target has missing timestamps (asfreq() restores them as "
+                "missing values), and `backtest()` checks every test fold before "
+                "running: it raises, naming the dates, when a test fold holds one, "
+                "whatever the estimator, since no metric is computed on it; and when "
+                "a test fold is predicted from one, since ForecasterRecursive with "
+                "Ridge cannot predict from a missing value. `dropna_from_series` "
+                "only drops the training rows that read one, and a training window "
+                "left without rows raises too. An estimator that accepts missing "
+                "values (such as 'RandomForestRegressor') avoids the error of a fold "
+                "predicted from a missing value, not of a fold that holds one. "
+                "Impute the target to backtest every fold."
             ),
             count    = 1,
         ),
@@ -413,12 +410,11 @@ def test_tool_create_cv_missing_values_notice_without_estimator_when_estimator_a
             source   = "runtime",
             category = "UserWarning",
             message  = (
-                "The target has missing timestamps (asfreq() restores them "
-                "as missing values), and `backtest()` of this plan checks "
-                "every test fold before running: it raises, naming the dates, "
-                "when a test fold holds one, since the metrics cannot be "
-                "computed on it whatever the estimator. Impute the target to "
-                "backtest every fold."
+                "The target has missing timestamps (asfreq() restores them as "
+                "missing values), and `backtest()` checks every test fold before "
+                "running: it raises, naming the dates, when a test fold holds one, "
+                "whatever the estimator, since no metric is computed on it. Impute "
+                "the target to backtest every fold."
             ),
             count    = 1,
         ),

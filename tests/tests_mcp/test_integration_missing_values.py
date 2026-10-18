@@ -143,10 +143,10 @@ def test_server_workflow_when_target_and_exog_have_missing_values(tmp_path):
         + RUN + " Without touching the data, switching with `refine_plan` and "
         "a new `create_cv` to an estimator that accepts missing values (such "
         "as 'RandomForestRegressor') lets the plan predict from the missing "
-        "exogenous values and, for the target, avoids the error of a test fold "
-        "predicted from a missing value, not that of a test fold that holds "
-        "one: if you switch to it, say in your answer that you changed the "
-        "estimator and why." + NO_BACKTEST
+        "exogenous values and, for the target, avoids the error of a fold "
+        "predicted from a missing value, not of a fold that holds one: if you "
+        "switch to it, say in your answer that you changed the estimator and "
+        "why." + NO_BACKTEST
     ]
     assert [message[:44] for message in notices["UserWarning"]] == [
         "The target has missing values, and `backtest",
@@ -165,11 +165,10 @@ def test_server_workflow_when_target_and_exog_have_missing_values(tmp_path):
         ),
         (
             "UserWarning",
-            "The target has missing values, and `backtest()` of this plan "
-            "checks every test fold before running: it raises, naming the "
-            "dates, when a test fold holds one, since the metrics cannot be "
-            "computed on it whatever the estimator. Impute the target to "
-            "backtest every fold.",
+            "The target has missing values, and `backtest()` checks every test "
+            "fold before running: it raises, naming the dates, when a test fold "
+            "holds one, whatever the estimator, since no metric is computed on "
+            "it. Impute the target to backtest every fold.",
         ),
     ]
     assert backtest_refined["message"] == IN_TEST_FOLD

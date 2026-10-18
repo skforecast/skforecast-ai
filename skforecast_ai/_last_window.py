@@ -333,6 +333,10 @@ def _check_long(
         >= predicted["min"].to_numpy()[:, None]
     )
     missing, closed = {}, {}
+    # The dates with a value of each series, grouped once: filtering them per
+    # series was quadratic with thousands of series.
+    value_dates = pd.DatetimeIndex(with_value["date"])
+    positions_by_code = None
     for row, code in enumerate(predicted.index):
         window_present = is_present[row][in_series[row]]
         if window_present.all():
@@ -348,9 +352,10 @@ def _check_long(
             missing[_plain(names[code])] = (
                 window_dates[np.asarray(read) - 1], by_differentiation
             )
+            if positions_by_code is None:
+                positions_by_code = with_value.groupby("code").indices
             closed[_plain(names[code])] = closed_weekdays(
-                pd.DatetimeIndex(with_value.loc[with_value["code"] == code, "date"]),
-                profile.frequency,
+                value_dates[positions_by_code[code]], profile.frequency
             )
 
     _report(missing, plan, profile, order, by_series=True, closed=closed)
@@ -576,10 +581,14 @@ def _report(
         message += f" All of them are on {days}, when {owner} a value."
 
     def remedy(fill: str) -> str:
-        """Put the advice of a business closed on those days first."""
+        """
+        Put the advice of a business closed on those days first, and then
+        `fill`, which says "imputed" there instead of "filled in".
+        """
         if days is None:
             return fill[:1].upper() + fill[1:]
-        return f"{closed_days_remedy(days)}; otherwise, {fill}"
+        imputed = fill.replace("filled in", "imputed")
+        return f"{closed_days_remedy(days)}; otherwise, {imputed}"
 
     if plan.forecaster == "ForecasterEquivalentDate":
         raise DataContentError(
@@ -1187,11 +1196,12 @@ def _report_missing_last_windows(
             f"a plan without the differentiation and with {estimator} predicts "
             f"from them"
         )
-    fill = "fill them in the data, after asking the user, or remove those series"
     remedy = (
-        f"{closed_days_remedy(days)}; otherwise, {works}, or {fill}."
+        f"{closed_days_remedy(days)}; otherwise, {works}, or impute them, or "
+        f"remove those series."
         if days is not None else
-        f"{works[:1].upper()}{works[1:]}; otherwise, {fill}."
+        f"{works[:1].upper()}{works[1:]}; otherwise, fill them in the data, "
+        f"after asking the user, or remove those series."
     )
     raise DataContentError(
         f"Some series cannot be forecast in any fold of the backtest: the "
@@ -1670,16 +1680,13 @@ def _check_training_rows(
             {0: (dates, False)}, {0: _closed_weekdays_of(index, ~absent, profile)}
         )
         estimator = tolerant_estimator_phrase(nan_tolerant_estimator(plan, profile))
-        fill = (
-            "use shorter lags and window features, which read fewer values, or "
-            "fill in the missing values"
-        )
+        shorter = "use shorter lags and window features, which read fewer values"
         remedy = (
             f"{closed_days_remedy(days)}; otherwise, {estimator} trains on "
-            f"them, or {fill}."
+            f"them, or {shorter}, or impute them."
             if days is not None else
             f"{estimator[:1].upper()}{estimator[1:]} trains on them; otherwise, "
-            f"{fill}, after asking the user."
+            f"{shorter}, or fill in the missing values, after asking the user."
         )
         span = (
             f"{_fmt_timestamp(index[start])} to {_fmt_timestamp(index[end - 1])}"

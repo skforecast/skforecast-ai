@@ -3,6 +3,7 @@
 import re
 
 import pytest
+from skforecast.model_selection import TimeSeriesFold
 
 from skforecast_ai._last_window import validate_backtest_windows
 from skforecast_ai.exceptions import DataContentError, InvalidInputError
@@ -12,6 +13,7 @@ from tests.fixtures_last_window import (
     data_h2o,
     data_h2o_gaps,
     data_h2o_no_training_row,
+    data_single_closed_sundays,
     data_wide,
     plan_h2o_baseline,
     plan_h2o_direct,
@@ -19,12 +21,14 @@ from tests.fixtures_last_window import (
     plan_h2o_no_training_row_lgbm,
     plan_h2o_no_training_row_ridge,
     plan_h2o_ridge,
+    plan_single_closed_ridge,
     plan_wide_ridge,
     plans_h2o_without_lags,
     profile_h2o,
     profile_h2o_gaps,
     profile_h2o_no_training_row,
     profile_of,
+    profile_single_closed,
     profile_wide,
     with_missing,
     without_months,
@@ -278,3 +282,41 @@ def test_validate_backtest_windows_no_error_when_training_rows_are_left(plan, cv
     validate_backtest_windows(
         data_h2o_no_training_row, profile_h2o_no_training_row, plan, cv
     )
+
+
+def test_validate_backtest_windows_DataContentError_names_closed_days_of_training_rows():
+    """
+    Test that, when the missing values that leave no training row are days
+    the target never has a value on (daily data without Sundays, a rolling
+    mean of 7 that always holds one), the advice of the closed days comes
+    first (D9).
+    """
+    plan = plan_single_closed_ridge.model_copy(
+        update={
+            "forecaster_kwargs": {
+                **plan_single_closed_ridge.forecaster_kwargs,
+                "window_features": [{"stats": ["mean"], "window_size": 7}],
+            }
+        },
+        deep=True,
+    )
+
+    err_msg = re.escape(
+        "Every training row of the backtest from 2023-01-02 to 2023-02-10 "
+        "reads a missing value of the target (5 value(s), such as "
+        "'2023-01-08', '2023-01-15', '2023-01-22', '2023-01-29', '2023-02-05'): "
+        "ForecasterRecursive with Ridge drops the rows whose lags, window "
+        "features or target read one (`dropna_from_series`), so skforecast "
+        "would have no row to train on. If the business is closed on Sundays, "
+        "fill them with 0 in the data, after asking the user; otherwise, an "
+        "estimator that accepts missing values (such as "
+        "'RandomForestRegressor') trains on them, or use shorter lags and "
+        "window features, which read fewer values, or impute them."
+    )
+    with pytest.raises(DataContentError, match=err_msg):
+        validate_backtest_windows(
+            data_single_closed_sundays,
+            profile_single_closed,
+            plan,
+            TimeSeriesFold(steps=3, initial_train_size=40, verbose=False),
+        )

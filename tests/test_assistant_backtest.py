@@ -498,7 +498,7 @@ def test_backtest_InvalidInputError_when_lag_reads_missing_timestamp():
     """
     profile = assistant.profile(data=data_h2o_gaps, target="x")
     plan = assistant.plan(profile, steps=12)
-    warn_msg = re.escape("`backtest()` of this plan checks every test fold")
+    warn_msg = re.escape("`backtest()` checks every test fold")
     with pytest.warns(UserWarning, match=warn_msg):
         cv = assistant.create_cv(profile, plan, initial_train_size=84, refit=False)
 

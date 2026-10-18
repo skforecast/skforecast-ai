@@ -643,8 +643,7 @@ def test_validate_series_lengths_DataContentError_names_closed_days_of_last_wind
             "If the business is closed on Sundays, fill them with 0 in the "
             "data, after asking the user; otherwise, an estimator that accepts "
             "missing values (such as 'LGBMRegressor') predicts from them, or "
-            "fill them in the data, after asking the user, or remove those "
-            "series."
+            "impute them, or remove those series."
         ),
         found  = (
             "'item_1': 6 value(s), such as '2012-03-18', '2012-03-25', "

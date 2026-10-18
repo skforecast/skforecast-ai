@@ -35,15 +35,15 @@ plan_h2o_lgbm_differenced = plan_h2o_lgbm.model_copy(
 
 GAPS = "missing timestamps (asfreq() restores them as missing values)"
 HOLDS = (
-    "a test fold holds one, since the metrics cannot be computed on it "
-    "whatever the estimator"
+    "a test fold holds one, whatever the estimator, since no metric is "
+    "computed on it"
 )
 TRAINING_ROWS = (
     " `dropna_from_series` only drops the training rows that read one, and "
     "a training window left without rows raises too. "
     "An estimator that accepts missing values (such as "
-    "'RandomForestRegressor') avoids the error of a test fold predicted from "
-    "a missing value, not that of a test fold that holds one."
+    "'RandomForestRegressor') avoids the error of a fold predicted from a "
+    "missing value, not of a fold that holds one."
 )
 IMPUTE = " Impute the target to backtest every fold."
 EXOG = (
@@ -59,8 +59,8 @@ EXOG = (
 
 def _target(what, when):
     return (
-        f"The target has {what}, and `backtest()` of this plan checks every "
-        f"test fold before running: it raises, naming the dates, when {when}."
+        f"The target has {what}, and `backtest()` checks every test fold "
+        f"before running: it raises, naming the dates, when {when}."
     )
 
 
@@ -122,8 +122,8 @@ def _create_strategy(plan, profile):
             _target(
                 GAPS,
                 f"{HOLDS}; and when one of the last 1 value(s) before a test "
-                f"fold is missing, since the inverse of the differentiation "
-                f"starts from them whatever the estimator",
+                f"fold is missing, whatever the estimator, since the inverse of "
+                f"the differentiation starts from them",
             ) + IMPUTE,
         ),
         (
@@ -154,9 +154,9 @@ def _create_strategy(plan, profile):
                 f"value",
             )
             + TRAINING_ROWS
-            + " If the business is closed on the days of the missing "
-              "timestamps, fill them with 0 in the data, after asking the "
-              "user; otherwise, impute the target to backtest every fold.",
+            + " If the business is closed on the missing dates, fill them "
+              "with 0 in the data, after asking the user; otherwise, impute "
+              "the target to backtest every fold.",
         ),
     ],
     ids=[

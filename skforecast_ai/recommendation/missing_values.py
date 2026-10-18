@@ -21,8 +21,8 @@ from .forecaster_selection import (
 # it let every fold run, and a missing value inside a test fold fails with
 # any estimator.
 TOLERANT_ESTIMATOR_SCOPE = (
-    "avoids the error of a test fold predicted from a missing value, not that "
-    "of a test fold that holds one"
+    "avoids the error of a fold predicted from a missing value, not of a fold "
+    "that holds one"
 )
 
 # Columns an exogenous advice names before "(first 5 of N)".
@@ -107,8 +107,19 @@ def nan_tolerant_estimator(
 def tolerant_estimator_phrase(estimator: str | None) -> str:
     """
     Name an estimator that accepts missing values, the one of the rules when
-    there is one: `"an estimator that accepts missing values (such as
-    'LGBMRegressor')"`.
+    there is one.
+
+    Parameters
+    ----------
+    estimator : str, None
+        Estimator of the rules (see `nan_tolerant_estimator`), or None.
+
+    Returns
+    -------
+    phrase : str
+        `"an estimator that accepts missing values (such as
+        'LGBMRegressor')"`, without the parenthesis when `estimator` is
+        None.
     """
     such_as = f" (such as {estimator!r})" if estimator is not None else ""
 
@@ -123,9 +134,21 @@ def _capitalized(text: str) -> str:
 def closed_days_remedy(days: str) -> str:
     """
     Return the advice for missing values that all fall on days of the week
-    without any value (a shop closed on `days`), which nothing fills in
-    without the user: `"If the business is closed on Sundays, fill them
-    with 0 in the data, after asking the user"`.
+    without any value (a shop closed on them), which nothing fills in
+    without the user (D9 of the roadmap of 0.5.0).
+
+    Parameters
+    ----------
+    days : str
+        The days, as the message names them (`'Sundays'`, see
+        `weekday_names`).
+
+    Returns
+    -------
+    remedy : str
+        `"If the business is closed on Sundays, fill them with 0 in the
+        data, after asking the user"`, without a final stop so that the
+        message can go on.
     """
 
     return (
@@ -314,8 +337,8 @@ def backtest_missing_values_messages(
     sentences = []
     if missing_values.target:
         when = [
-            "a test fold holds one, since the metrics cannot be computed on it "
-            "whatever the estimator"
+            "a test fold holds one, whatever the estimator, since no metric is "
+            "computed on it"
         ]
         if missing_values.cannot_predict is not None:
             when.append(
@@ -325,8 +348,8 @@ def backtest_missing_values_messages(
         if missing_values.order:
             when.append(
                 f"one of the last {missing_values.order} value(s) before a test "
-                f"fold is missing, since the inverse of the differentiation "
-                f"starts from them whatever the estimator"
+                f"fold is missing, whatever the estimator, since the inverse of "
+                f"the differentiation starts from them"
             )
         listed = (
             when[0] if len(when) == 1
@@ -334,9 +357,8 @@ def backtest_missing_values_messages(
         )
         what = _target_missing_phrase(missing_values.values, missing_values.gaps)
         sentences.append(
-            f"The target has {what}, and `backtest()` of this plan checks every "
-            f"test fold before running: it raises, naming the dates, when "
-            f"{listed}."
+            f"The target has {what}, and `backtest()` checks every test fold "
+            f"before running: it raises, naming the dates, when {listed}."
         )
         if missing_values.cannot_predict is not None and missing_values.estimator:
             sentences.append(
@@ -348,8 +370,7 @@ def backtest_missing_values_messages(
         impute = "impute the target to backtest every fold."
         if missing_values.closed_days:
             sentences.append(
-                f"{closed_days_remedy('the days of the missing timestamps')}; "
-                f"otherwise, {impute}"
+                f"{closed_days_remedy('the missing dates')}; otherwise, {impute}"
             )
         else:
             sentences.append(_capitalized(impute))
