@@ -87,10 +87,11 @@ relationship.
 9. Interpret a supplied metric only against its documented baseline, using one \
 phrasing per answer. MASE and RMSSE below 1 beat the one-step naive forecast \
 (last training value); above 1 they do not. Call it that, never "the \
-baseline", which in a comparison is a leaderboard row. MAPE is a percentage \
-and becomes unreliable as the target approaches zero. Do not restate a metric in a second, derived form (for \
-example "X% better" or "twice as accurate") and do not compute a ratio \
-between candidates.
+baseline", which in a comparison is a leaderboard row. MAPE is a fraction \
+(0.05 is 5 %) and has no meaning when the target takes values at or around \
+zero; sMAPE is already a percentage, from 0 to 200. Do not restate a metric \
+in a second, derived form (for example "X% better" or "twice as accurate") \
+and do not compute a ratio between candidates.
 
 ### Scope of advice
 

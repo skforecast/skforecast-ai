@@ -2,10 +2,7 @@
 """Tests for the select_metric recommendation function."""
 
 
-from skforecast_ai.recommendation.metric_selection import (
-    select_metric,
-    _target_has_zeros_or_near_zero,
-)
+from skforecast_ai.recommendation.metric_selection import select_metric
 from skforecast_ai.schemas import DataProfile
 
 
@@ -48,6 +45,36 @@ profile_multi_series = DataProfile(
         "series_1": {"min": 10.0, "max": 200.0, "mean": 100.0, "std": 30.0},
         "series_2": {"min": 5.0, "max": 50.0, "mean": 25.0, "std": 8.0},
         "series_3": {"min": 1.0, "max": 500.0, "mean": 200.0, "std": 80.0},
+    },
+)
+
+profile_single_crossing_zero = DataProfile(
+    n_series       = 1,
+    series_lengths = {"y": 365},
+    target         = "y",
+    index_type     = "datetime",
+    frequency      = "D",
+    target_stats   = {"y": {"min": -10.0, "max": 10.0, "mean": 0.0, "std": 7.3}},
+)
+
+profile_single_negative = DataProfile(
+    n_series       = 1,
+    series_lengths = {"y": 365},
+    target         = "y",
+    index_type     = "datetime",
+    frequency      = "D",
+    target_stats   = {"y": {"min": -80.0, "max": -2.5, "mean": -40.0, "std": 9.0}},
+)
+
+profile_multi_series_crossing_zero = DataProfile(
+    n_series       = 2,
+    series_lengths = {"series_1": 300, "series_2": 300},
+    target         = "value",
+    index_type     = "datetime",
+    frequency      = "D",
+    target_stats   = {
+        "series_1": {"min": 10.0, "max": 200.0, "mean": 100.0, "std": 30.0},
+        "series_2": {"min": -5.0, "max": 50.0, "mean": 25.0, "std": 8.0},
     },
 )
 
@@ -102,12 +129,39 @@ class TestSelectMetricSingleSeries:
         _, _, metrics = select_metric(profile_single_near_zero)
         assert "mean_absolute_percentage_error" not in metrics
 
+    def test_single_series_crossing_zero_excludes_mape(self):
+        """
+        Test that a target that crosses zero (negative minimum, positive
+        maximum) excludes MAPE, which the minimum alone did not see.
+        """
+        metric, _, metrics = select_metric(profile_single_crossing_zero)
+        assert metric == "mean_absolute_error"
+        assert metrics == [
+            "mean_absolute_error",
+            "mean_squared_error",
+            "mean_absolute_scaled_error",
+        ]
+
+    def test_single_series_negative_includes_mape(self):
+        """
+        Test that a target with only negative values, away from zero, keeps
+        MAPE: no actual value is near zero.
+        """
+        _, _, metrics = select_metric(profile_single_negative)
+        assert "mean_absolute_percentage_error" in metrics
+
     def test_single_series_no_zeros_includes_mape(self):
         """
-        Test that when target has no zeros, MAPE is included.
+        Test that a positive target away from zero keeps the whole default
+        panel, MAPE included.
         """
         _, _, metrics = select_metric(profile_single_no_zeros)
-        assert "mean_absolute_percentage_error" in metrics
+        assert metrics == [
+            "mean_absolute_error",
+            "mean_squared_error",
+            "mean_absolute_scaled_error",
+            "mean_absolute_percentage_error",
+        ]
 
     def test_single_series_always_includes_core_metrics(self):
         """
@@ -137,6 +191,19 @@ class TestSelectMetricMultiSeries:
         _, _, metrics = select_metric(profile_multi_series_with_zeros)
         assert "mean_absolute_percentage_error" not in metrics
 
+    def test_multi_series_one_crossing_zero_excludes_mape(self):
+        """
+        Test that one series crossing zero excludes MAPE for the whole panel,
+        even when the other series are positive.
+        """
+        metric, _, metrics = select_metric(profile_multi_series_crossing_zero)
+        assert metric == "mean_absolute_scaled_error"
+        assert metrics == [
+            "mean_absolute_error",
+            "mean_squared_error",
+            "mean_absolute_scaled_error",
+        ]
+
     def test_multi_series_no_zeros_includes_mape(self):
         """
         Test that multi-series without zeros includes MAPE.
@@ -155,49 +222,3 @@ class TestSelectMetricNoStats:
         """
         _, _, metrics = select_metric(profile_no_stats)
         assert "mean_absolute_percentage_error" in metrics
-
-
-# --- Tests for _target_has_zeros_or_near_zero ---
-
-class TestTargetHasZeros:
-    """Tests for the zero/near-zero detection helper."""
-
-    def test_exact_zero(self):
-        """
-        Test that min=0.0 is detected as zero.
-        """
-        assert _target_has_zeros_or_near_zero(profile_single_with_zeros) is True
-
-    def test_near_zero(self):
-        """
-        Test that min=0.005 (abs <= 0.01) is detected as near-zero.
-        """
-        assert _target_has_zeros_or_near_zero(profile_single_near_zero) is True
-
-    def test_no_zeros(self):
-        """
-        Test that min=5.2 is not detected as zero.
-        """
-        assert _target_has_zeros_or_near_zero(profile_single_no_zeros) is False
-
-    def test_negative_near_zero(self):
-        """
-        Test that a slightly negative minimum (abs <= 0.01) is detected.
-        """
-        profile = DataProfile(
-            n_series       = 1,
-            series_lengths = {"y": 100},
-            target         = "y",
-            index_type     = "datetime",
-            frequency      = "D",
-            target_stats   = {"y": {"min": -0.005, "max": 100.0, "mean": 50.0, "std": 10.0}},
-        )
-        assert _target_has_zeros_or_near_zero(profile) is True
-
-    def test_empty_stats(self):
-        """
-        Test that empty target_stats returns False.
-        """
-        assert _target_has_zeros_or_near_zero(profile_no_stats) is False
-
-

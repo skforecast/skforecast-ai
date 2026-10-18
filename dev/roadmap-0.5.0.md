@@ -801,6 +801,29 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     faltantes intermedios de las últimas ventanas, a 3a; `create_cv` no
     avisa, porque el error del backtest ya salta antes de ejecutar nada. El
     caso límite de `window_size` es un bug de skforecast (#1410).
+- **D?. 3c-i: MAPE en objetivos que tocan o cruzan el cero, y la unidad de
+  MAPE y sMAPE** (2026-10-17). V10 y V20; RMSE y V05 esperan a D4:
+  - Una serie está cerca del cero si `min <= 0.01` y `max >= -0.01`
+    (`series_near_zero`, en `metric_selection.py`). Basta una serie para
+    dejar MAPE fuera del panel por defecto de todas: el panel es uno para
+    el plan. Una serie solo negativa, lejos del cero, conserva MAPE. Cambia
+    el script de esos objetivos; ningún golden de renderizado cambia
+    (sus fixtures ya empezaban en 0).
+  - MAPE pedido a mano (primaria o en la lista) con un objetivo así: se
+    calcula, con un `UserWarning` que va también a `plan.warnings` (en el
+    MCP, un notice del `plan` con source `plan`). El texto da el rango del
+    objetivo o, con varias series, las nombra con su rango, hasta 5. Solo
+    MAPE: sMAPE y MSLE no avisan (preguntas en la PR).
+  - MCP: con un objetivo así, MAPE recibe un `MetricUndefinedNotice` (no
+    lo reportes ni lo conviertas; usa una métrica que no divida por el
+    valor real) en vez del de unidad. Lo decide el perfil, no el valor de
+    la métrica, igual que el panel. El `MetricUnitNotice` es uno solo con
+    la unidad de cada métrica presente: MAPE fracción, sMAPE ya en
+    porcentaje (0 a 200), sin multiplicar.
+  - La regla 9 del prompt de `ask()` decía "MAPE is a percentage": ahora
+    dice fracción, que no tiene sentido cerca del cero y que sMAPE ya es
+    un porcentaje. Pendiente el check de pago de `check_ask_context.py`
+    (fase 7).
 
 ## Decisiones abiertas
 
