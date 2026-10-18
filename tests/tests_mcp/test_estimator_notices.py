@@ -11,15 +11,11 @@ from ..fixtures_last_window import (
     plan_h2o_baseline,
     plan_h2o_forest,
     plan_h2o_lgbm,
+    plan_h2o_lgbm_not_recorded,
     plan_h2o_ridge,
     plans_h2o_without_lags,
     profile_h2o,
     profile_h2o_gaps,
-)
-
-# The plan of a candidate of `compare()` does not record the estimator.
-plan_h2o_lgbm_not_recorded = plan_h2o_lgbm.model_copy(
-    update={"overridden_fields": []}
 )
 
 ASK = (
