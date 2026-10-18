@@ -490,7 +490,10 @@ def _estimator_notices(plan: Any, profile: Any, run: str) -> list[ToolNotice]:
     if change is None:
         return []
     if change.chosen_by_user:
-        origin = "It was passed to `plan` or `refine_plan`"
+        origin = (
+            "It was passed to `plan`, `refine_plan` or the `candidates` of "
+            "`compare`"
+        )
         if change.missing_values:
             origin += (
                 ", and it is the estimator that accepts missing values that "
@@ -498,8 +501,8 @@ def _estimator_notices(plan: Any, profile: Any, run: str) -> list[ToolNotice]:
             )
     else:
         origin = (
-            "It was not passed to `plan` or `refine_plan`: it is the plan of a "
-            "candidate of `compare`"
+            "It was not passed to `plan`, `refine_plan` or `candidates`: it is "
+            "the plan of a candidate of `compare`"
         )
     message = (
         f"This {run} ran the estimator {change.estimator!r}, not the one the "

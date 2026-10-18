@@ -1054,9 +1054,10 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
   - MCP: un `EstimatorNotRecommendedNotice` (source `plan`) del servidor en
     `backtest` y `forecast`, que sustituye al warning de la librería
     (`build_notices` lo deja fuera, como `CandidateFailedWarning`). Nombra
-    los dos estimadores y el origen, y pide decir en la respuesta que el
-    estimador no es el recomendado, cuál lo es y por qué se cambió. El paso
-    3 del SKILL.md lo nombra.
+    los dos estimadores y el origen (pasado a `plan`, `refine_plan` o los
+    `candidates` de `compare`, o un candidato de `compare` sin ellos), y
+    pide decir en la respuesta que el estimador no es el recomendado, cuál
+    lo es y por qué se cambió. El paso 3 del SKILL.md lo nombra.
 
 ## Decisiones abiertas
 

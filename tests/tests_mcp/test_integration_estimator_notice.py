@@ -11,8 +11,9 @@ from .fixtures_mcp import content_of, df_h2o_csv, write_csv
 NOTICE_MESSAGE = (
     "This {run} ran the estimator 'RandomForestRegressor', not the one the "
     "rules recommend for ForecasterRecursive on these data ('Ridge'). It was "
-    "passed to `plan` or `refine_plan`, and it is the estimator that accepts "
-    "missing values that the advice on the missing values of the data names. "
+    "passed to `plan`, `refine_plan` or the `candidates` of `compare`, and it "
+    "is the estimator that accepts missing values that the advice on the "
+    "missing values of the data names. "
     "Say in your answer that the estimator is not the recommended one, which "
     "one the rules recommend and why it was changed."
 )

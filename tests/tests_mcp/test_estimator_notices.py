@@ -32,22 +32,23 @@ ASK = (
             plan_h2o_lgbm,
             profile_h2o,
             "LGBMRegressor",
-            "It was passed to `plan` or `refine_plan`.",
+            "It was passed to `plan`, `refine_plan` or the `candidates` of "
+            "`compare`.",
         ),
         (
             plan_h2o_forest,
             profile_h2o_gaps,
             "RandomForestRegressor",
-            "It was passed to `plan` or `refine_plan`, and it is the estimator "
-            "that accepts missing values that the advice on the missing values "
-            "of the data names.",
+            "It was passed to `plan`, `refine_plan` or the `candidates` of "
+            "`compare`, and it is the estimator that accepts missing values "
+            "that the advice on the missing values of the data names.",
         ),
         (
             plan_h2o_lgbm_not_recorded,
             profile_h2o,
             "LGBMRegressor",
-            "It was not passed to `plan` or `refine_plan`: it is the plan of a "
-            "candidate of `compare`.",
+            "It was not passed to `plan`, `refine_plan` or `candidates`: it is "
+            "the plan of a candidate of `compare`.",
         ),
     ],
     ids=["chosen_by_user", "chosen_by_user_missing_values", "not_passed"],
@@ -92,9 +93,9 @@ def test_estimator_notices_message_when_chosen_by_user():
     assert [notice.message for notice in notices] == [
         "This backtest ran the estimator 'LGBMRegressor', not the one the rules "
         "recommend for ForecasterRecursive on these data ('Ridge'). It was "
-        "passed to `plan` or `refine_plan`. Say in your answer that the "
-        "estimator is not the recommended one, which one the rules recommend "
-        "and why it was changed."
+        "passed to `plan`, `refine_plan` or the `candidates` of `compare`. Say "
+        "in your answer that the estimator is not the recommended one, which "
+        "one the rules recommend and why it was changed."
     ]
 
 
