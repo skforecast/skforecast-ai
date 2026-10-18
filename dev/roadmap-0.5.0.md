@@ -376,9 +376,10 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
    con cotas iguales y lo cuenta (pendiente desde `96f4cdc`).
 3. Comprobaciones a mano (abajo).
 4. skforecast 0.27.0 publicado con todo lo de "Dependencia de skforecast
-   0.27.0" resuelto: `skforecast>=0.27.0` en `pyproject.toml`,
-   `/sync-skforecast-assets` (lo lanzas tú) y la suite contra la 0.27.0 de
-   PyPI.
+   0.27.0" resuelto, `/sync-skforecast-assets` (lo lanzas tú) y la suite
+   contra la 0.27.0 de PyPI. `pyproject.toml` pide ya `skforecast>=0.27.0`
+   (2026-10-18): hasta que esté en PyPI, las sesiones en la nube instalan
+   skforecast de su rama `0.27.x` y el entorno local también.
 5. `/release-note consolidate`, bump de versión (`/release-bump`) y
    publicación.
 6. Tras publicar: Deploy y Make Release en Glama y apuntar el TDQS nuevo
