@@ -77,8 +77,9 @@ def test_tool_forecast_evaluation_plan_is_not_registered(tmp_path):
     """
     Test that the plan of an evaluation, which holds the split of the test
     set, is never registered as a plan, and that only the evaluation carries
-    the notice that its dates are already in the data, and only the forecast
-    of the future the one that its plan was never measured.
+    the notice that its dates are already in the data. The evaluation
+    measures the plan, so the forecast of the future that follows carries no
+    notice at all.
     """
     server, path = h2o_server(tmp_path)
     _, plan_id = profile_and_plan(server, path)
@@ -96,9 +97,7 @@ def test_tool_forecast_evaluation_plan_is_not_registered(tmp_path):
     assert "2007-07-01 00:00:00 to 2008-06-01 00:00:00" in (
         evaluation["notices"][0]["message"]
     )
-    assert [notice["category"] for notice in future["notices"]] == [
-        "UnmeasuredPlanNotice"
-    ]
+    assert future["notices"] == []
 
 
 def test_tool_forecast_with_future_exog(tmp_path):
@@ -617,9 +616,10 @@ def test_tool_forecast_notice_of_undefined_mape_when_target_crosses_zero(tmp_pat
 
 
 UNMEASURED_MESSAGE = (
-    "No `backtest` or `compare` in this session measured this plan (the same "
-    "decisions, with or without an interval), so this forecast has no measure "
-    "of accuracy. Say so, and before presenting it as reliable measure it: "
+    "No `backtest`, `compare` or `forecast` with `test_size` in this session "
+    "measured this plan (the same decisions, with any interval or metric), so "
+    "this forecast has no measure of accuracy. Say so, and before presenting "
+    "it as reliable measure it: "
     "`create_cv` with this `plan_id`, then `backtest` or `compare`. Never give "
     "the accuracy of another plan as that of this forecast."
 )
@@ -819,9 +819,10 @@ def test_tool_forecast_evaluation_says_it_is_a_holdout_without_unmeasured_notice
 ):
     """
     Test that a forecast with `test_size` of a plan never measured gets no
-    `UnmeasuredPlanNotice` (it is a measure itself), and that its summary,
-    the context `ask()` reads, says in words that it is a hold-out
-    evaluation on dates already in the data and not the future.
+    `UnmeasuredPlanNotice` (it is a measure itself), that its summary, the
+    context `ask()` reads, says in words that it is a hold-out evaluation on
+    dates already in the data and not the future, and that it measures the
+    plan for the forecast of the future that follows.
     """
     server, path = h2o_server(tmp_path)
     _, plan_id = profile_and_plan(server, path)
@@ -829,6 +830,7 @@ def test_tool_forecast_evaluation_says_it_is_a_holdout_without_unmeasured_notice
     result = content_of(
         call(server, "forecast", {"plan_id": plan_id, "test_size": 12})
     )
+    future = content_of(call(server, "forecast", {"plan_id": plan_id}))
 
     assert _categories(result) == [
         "HoldoutEvaluationNotice", "MetricReferenceNotice", "MetricUnitNotice",
@@ -840,3 +842,60 @@ def test_tool_forecast_evaluation_says_it_is_a_holdout_without_unmeasured_notice
         "whose dates are already in the data. These metrics score those "
         "predictions against the observed values.\n"
     ) in result["summary"]
+    assert future["notices"] == []
+
+
+def test_tool_forecast_no_unmeasured_notice_when_plan_refined_with_another_metric(
+    tmp_path,
+):
+    """
+    Test that a backtested plan refined with another metric counts as
+    measured (the metric does not change the predictions), and that a plan
+    measured only by a forecast with `test_size` of another plan does not.
+    """
+    server, path = h2o_server(tmp_path)
+
+    async def steps(client):
+        profile = content_of(
+            await client.call_tool("profile", {"data_path": path, "target": "x"})
+        )
+        plan = content_of(
+            await client.call_tool("plan", {"profile_id": profile["id"], "steps": 12})
+        )
+        cv = content_of(await client.call_tool("create_cv", {"plan_id": plan["id"]}))
+        content_of(await client.call_tool("backtest", {"cv_id": cv["id"]}))
+        refined = content_of(
+            await client.call_tool(
+                "refine_plan",
+                {
+                    "plan_id": plan["id"],
+                    "overrides": {"metric": "mean_squared_error"},
+                },
+            )
+        )
+        other_metric = content_of(
+            await client.call_tool("forecast", {"plan_id": refined["id"]})
+        )
+        other = content_of(
+            await client.call_tool("plan", {"profile_id": profile["id"], "steps": 6})
+        )
+        content_of(
+            await client.call_tool(
+                "forecast", {"plan_id": other["id"], "test_size": 6}
+            )
+        )
+        other_horizon = content_of(
+            await client.call_tool(
+                "plan", {"profile_id": profile["id"], "steps": 3}
+            )
+        )
+        unmeasured = content_of(
+            await client.call_tool("forecast", {"plan_id": other_horizon["id"]})
+        )
+        return refined, other_metric, unmeasured
+
+    refined, other_metric, unmeasured = run_session(server, steps)
+
+    assert "- Primary metric: mean_squared_error" in refined["summary"]
+    assert other_metric["notices"] == []
+    assert _categories(unmeasured) == ["UnmeasuredPlanNotice"]

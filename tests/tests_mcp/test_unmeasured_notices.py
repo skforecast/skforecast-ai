@@ -13,6 +13,7 @@ profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
 plan = assistant.plan(profile, steps=5)
 plan_interval = assistant.plan(profile, steps=5, interval=[0.1, 0.9])
 plan_estimator = assistant.plan(profile, steps=5, estimator="RandomForestRegressor")
+plan_metric = assistant.plan(profile, steps=5, metric="mean_squared_error")
 
 
 def test_unmeasured_notices_when_no_plan_was_measured():
@@ -28,9 +29,10 @@ def test_unmeasured_notices_when_no_plan_was_measured():
             source   = "runtime",
             category = "UnmeasuredPlanNotice",
             message  = (
-                "No `backtest` or `compare` in this session measured this "
-                "plan (the same decisions, with or without an interval), so "
-                "this forecast has no measure of accuracy. Say so, and "
+                "No `backtest`, `compare` or `forecast` with `test_size` in "
+                "this session measured this plan (the same decisions, with "
+                "any interval or metric), so this forecast has no measure of "
+                "accuracy. Say so, and "
                 "before presenting it as reliable measure it: `create_cv` "
                 "with this `plan_id`, then `backtest` or `compare`. Never "
                 "give the accuracy of another plan as that of this forecast."
@@ -42,14 +44,18 @@ def test_unmeasured_notices_when_no_plan_was_measured():
 
 @pytest.mark.parametrize(
     "measured_plan, forecast_plan",
-    [(plan, plan), (plan, plan_interval), (plan_interval, plan)],
-    ids=["same plan", "measured without interval", "measured with interval"],
+    [(plan, plan), (plan, plan_interval), (plan_interval, plan), (plan, plan_metric)],
+    ids=[
+        "same plan", "measured without interval", "measured with interval",
+        "measured with another metric",
+    ],
 )
 def test_unmeasured_notices_empty_when_the_plan_was_measured(
     measured_plan, forecast_plan
 ):
     """
-    Test that the plan measured, with or without an interval, gets no notice.
+    Test that the plan measured, with or without an interval or with another
+    metric, gets no notice.
     """
     measured = {_measured_key("profile-1", measured_plan)}
 

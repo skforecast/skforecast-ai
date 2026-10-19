@@ -1077,13 +1077,13 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     para las mismas decisiones. Se comparan planes, no ids, así que no
     repite el falso aviso del `WARN` de H11 con un plan reconstruido con un
     intervalo ni con el ganador de `compare` que ya era el plan del agente.
-    La métrica cuenta como decisión (pregunta en la PR).
+    La métrica no cuenta (revisión, abajo).
   - Lo medido vive en el estado del servidor (`measured_plans`, una clave
     SHA-256 por plan), no en el store: sigue valiendo cuando el store
     expulsa el backtest o la comparación. "La sesión" es la vida del
     servidor, como los ids.
-  - Un forecast con `test_size` no lleva el aviso (es una medida), pero no
-    cuenta como medida del forecast del futuro (pregunta en la PR).
+  - Un forecast con `test_size` no lleva el aviso (es una medida) y cuenta
+    como medida del forecast del futuro de ese plan (revisión, abajo).
   - Solo en el servidor: la API de Python y la CLI no tienen sesión ni
     guardan lo que se midió, y quien llama es una persona que tiene el
     backtest a la vista. `ask()` sobre un forecast del futuro ya recibe

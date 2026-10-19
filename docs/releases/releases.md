@@ -69,7 +69,7 @@ The main changes in this release are:
 
 + The `MetricUnitNotice` of the MCP server gives the unit of sMAPE, already a percentage from 0 to 200, as it does for MAPE, a fraction, and [<code>ForecastingAssistant.ask()</code>][assistant] no longer describes MAPE as a percentage ([#104](https://github.com/skforecast/skforecast-ai/pull/104)).
 
-+ The `forecast` tool of the MCP server adds an `UnmeasuredPlanNotice` to a forecast of the future when no `backtest` or `compare` of the server measured its plan (the same plan with another interval counts as measured), so an agent does not present it as reliable or give it the accuracy of another plan ([#109](https://github.com/skforecast/skforecast-ai/pull/109)).
++ The `forecast` tool of the MCP server adds an `UnmeasuredPlanNotice` to a forecast of the future when no `backtest`, `compare` or `forecast` with `test_size` of the server measured its plan (the same plan with another interval or metric counts as measured), so an agent does not present it as reliable or give it the accuracy of another plan ([#109](https://github.com/skforecast/skforecast-ai/pull/109)).
 
 + The description of a forecast run with `test_size`, in `describe()` and in the context of [<code>ForecastingAssistant.ask()</code>][assistant], says that its metrics come from a hold-out evaluation on dates already in the data, not from a forecast of the future ([#109](https://github.com/skforecast/skforecast-ai/pull/109)).
 
