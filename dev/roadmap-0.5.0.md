@@ -1025,7 +1025,7 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
   (2026-10-18) para que coincidan con las del backtest (nombres de
   skforecast y `levels`), con una línea en "Before upgrading". Va en 3c-ii,
   junto con RMSE como métrica del servidor.
-- **D?. 3d: aviso cuando el estimador no es el recomendado** (2026-10-19),
+- **D20. 3d: aviso cuando el estimador no es el recomendado** (2026-10-19),
   en [#110](https://github.com/skforecast/skforecast-ai/pull/110). Solo en
   el servidor MCP:
   - El recomendado es el primero de `select_estimator_and_candidates` para
