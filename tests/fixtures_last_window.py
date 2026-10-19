@@ -264,6 +264,14 @@ plan_h2o_ridge = _assistant.plan(_profile_h2o, steps=12)
 plan_h2o_lgbm = _assistant.plan(
     _profile_h2o, steps=12, estimator="LGBMRegressor"
 )
+plan_h2o_forest = _assistant.plan(
+    _profile_h2o, steps=12, estimator="RandomForestRegressor"
+)
+# The plan of the winner of a `compare()` without `candidates` does not record
+# the estimator as a decision of the user.
+plan_h2o_lgbm_not_recorded = plan_h2o_lgbm.model_copy(
+    update={"overridden_fields": []}
+)
 plan_h2o_direct = _assistant.plan(
     _profile_h2o, steps=12, forecaster="ForecasterDirect"
 )

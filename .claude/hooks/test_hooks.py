@@ -305,6 +305,85 @@ def test_session_start_branch_note(
     assert env_file.read_text() == "export SKFORECAST_AI_DOCS_PRIVACY=false\n"
 
 
+def make_clone_behind(tmp_path: Path, branch: str, behind: int) -> Path:
+    """
+    A clone of a bare `origin` on `branch`, after another clone pushed
+    `behind` more commits to that branch.
+    """
+
+    origin = tmp_path / "origin.git"
+    seed = make_repo(tmp_path / "seed", branch)
+    git(tmp_path, "clone", "-q", "--bare", str(seed), str(origin))
+    git(tmp_path, "clone", "-q", "-b", branch, str(origin), "clone")
+    git(tmp_path, "clone", "-q", "-b", branch, str(origin), "other")
+    for i in range(behind):
+        git(tmp_path / "other", "commit", "-q", "--allow-empty", "-m", f"c{i}")
+    git(tmp_path / "other", "push", "-q", "origin", branch)
+    return tmp_path / "clone"
+
+
+def head(repo: Path, ref: str = "HEAD") -> str:
+    return subprocess.run(
+        ["git", "rev-parse", ref], cwd=repo, capture_output=True, text=True,
+        check=True,
+    ).stdout.strip()
+
+
+@pytest.mark.parametrize(
+    "branch, behind, dirty, moved, expected",
+    [
+        ("0.5.x", 2, False, True, "was 2 commits behind origin/0.5.x; fast-forwarded"),
+        ("0.5.x", 0, False, False, "'0.5.x' is up to date with origin/0.5.x"),
+        ("0.5.x", 2, True, False, "it has local changes or commits"),
+        ("fix/x", 1, False, False, "only protected branches are updated"),
+    ],
+)
+def test_session_start_syncs_branch_with_origin(
+    session_start, monkeypatch, capsys, tmp_path, branch, behind, dirty, moved,
+    expected,
+):
+    """
+    Test that the SessionStart hook fetches the branch from origin,
+    fast-forwards a clean protected branch that is behind it, and only warns
+    when the branch has local changes or is not protected.
+    """
+
+    repo = make_clone_behind(tmp_path, branch, behind)
+    if dirty:
+        (repo / "notes.md").write_text("x\n")
+        git(repo, "add", "notes.md")
+    before = head(repo)
+    monkeypatch.setenv("CLAUDE_CODE_REMOTE", "true")
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
+
+    assert session_start.main() == 0
+    out = capsys.readouterr().out
+
+    assert expected in out
+    assert (head(repo) == head(repo, f"origin/{branch}")) is (moved or behind == 0)
+    assert (head(repo) != before) is moved
+
+
+def test_session_start_skips_sync_for_branch_not_on_origin(
+    session_start, monkeypatch, capsys, tmp_path
+):
+    """
+    Test that the SessionStart hook prints no sync status for a branch that
+    was not pushed yet.
+    """
+
+    repo = make_clone_behind(tmp_path, "0.5.x", 1)
+    git(repo, "checkout", "-q", "-b", "fix/new")
+    monkeypatch.setenv("CLAUDE_CODE_REMOTE", "true")
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
+
+    assert session_start.main() == 0
+    out = capsys.readouterr().out
+
+    assert "origin/fix/new" not in out
+    assert "WARNING" not in out
+
+
 def test_session_start_silent_in_local_session(session_start, monkeypatch, capsys):
     """Test that the SessionStart hook prints nothing outside the cloud."""
 

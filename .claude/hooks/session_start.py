@@ -18,6 +18,14 @@ It also runs after a compaction (matcher in `.claude/settings.json`), so the
 environment and branch notes stay in context; the install is skipped when
 every module is already there.
 
+A cloud session may start from a checkout older than its branch on GitHub
+(pull requests merged minutes before were missing), so the hook first
+fetches the branch from `origin`. A protected branch (`main`, `X.Y.x`) with
+no local changes or commits is fast-forwarded to it; any other branch that
+is behind only gets a warning, since it may hold work of a resumed session.
+This runs before the install, so the dependencies come from the updated
+`pyproject.toml`.
+
 While skforecast-ai depends on a skforecast release that is not on PyPI yet
 (development on a `X.Y.x` branch), the install from PyPI fails; the hook
 then installs skforecast from the matching `X.Y.x` branch on GitHub, which
@@ -46,6 +54,7 @@ ALLOWED_PREFIXES = ("feature/", "fix/", "docs/", "chore/")
 # it only matters for the published site, so checks build without it.
 DOCS_ENV = {"SKFORECAST_AI_DOCS_PRIVACY": "false"}
 PYTHON_ENV_VAR = "SKFORECAST_AI_PYTHON_ENV"
+FETCH_TIMEOUT = 60
 REPORTED_PACKAGES = ("skforecast", "pandas", "numpy", "pydantic-ai", "mcp")
 VERSIONS_SCRIPT = (
     "import importlib.metadata as m, platform, sys\n"
@@ -63,6 +72,73 @@ def git(*args: str, cwd: str) -> str:
     return subprocess.run(
         ["git", *args], cwd=cwd, capture_output=True, text=True
     ).stdout.strip()
+
+
+def sync_with_origin(branch: str, cwd: str) -> str | None:
+    """
+    Fetch `branch` from `origin` and fast-forward a protected branch that is
+    behind it; return a one line status, or None when there is nothing to
+    compare (detached HEAD, no `origin`, branch not pushed yet).
+    """
+
+    if branch in ("", "HEAD") or not git("remote", "get-url", "origin", cwd=cwd):
+        return None
+
+    remote_ref = f"origin/{branch}"
+    try:
+        # Explicit refspec: a single branch clone may not track this branch.
+        fetch = subprocess.run(
+            ["git", "fetch", "--quiet", "origin",
+             f"+refs/heads/{branch}:refs/remotes/{remote_ref}"],
+            cwd=cwd, capture_output=True, text=True, timeout=FETCH_TIMEOUT,
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+        )
+    except subprocess.TimeoutExpired:
+        return (
+            f"WARNING: fetching {remote_ref} timed out; the checkout may be "
+            f"older than GitHub, run `git fetch origin {branch}` and compare."
+        )
+    if fetch.returncode != 0:
+        if "couldn't find remote ref" in fetch.stderr:
+            return None
+        reason = (fetch.stderr.strip().splitlines() or ["unknown error"])[-1]
+        return (
+            f"WARNING: could not fetch {remote_ref} ({reason}); the checkout "
+            f"may be older than GitHub."
+        )
+
+    counts = git(
+        "rev-list", "--left-right", "--count", f"HEAD...{remote_ref}", cwd=cwd
+    ).split()
+    if len(counts) != 2:
+        return f"WARNING: could not compare HEAD with {remote_ref}."
+    ahead, behind = (int(n) for n in counts)
+    if behind == 0:
+        return f"Branch '{branch}' is up to date with {remote_ref} (fetched now)."
+
+    dirty = git("status", "--porcelain", "--untracked-files=no", cwd=cwd)
+    if PROTECTED_BRANCH.match(branch) and ahead == 0 and not dirty:
+        old = git("rev-parse", "--short", "HEAD", cwd=cwd)
+        merge = subprocess.run(
+            ["git", "merge", "--quiet", "--ff-only", remote_ref],
+            cwd=cwd, capture_output=True, text=True,
+        )
+        if merge.returncode == 0:
+            new = git("rev-parse", "--short", "HEAD", cwd=cwd)
+            return (
+                f"The checkout of '{branch}' was {behind} commits behind "
+                f"{remote_ref}; fast-forwarded it from {old} to {new}."
+            )
+        reason = "the fast-forward failed"
+    elif PROTECTED_BRANCH.match(branch):
+        reason = "it has local changes or commits"
+    else:
+        reason = "only protected branches are updated automatically"
+    return (
+        f"WARNING: '{branch}' is {behind} commits behind {remote_ref} "
+        f"({ahead} ahead) and was not updated: {reason}. Merge {remote_ref} "
+        f"before building on it."
+    )
 
 
 def install(cwd: str) -> str:
@@ -170,15 +246,17 @@ def main() -> int:
         return local_session()
 
     cwd = os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
+    branch = git("rev-parse", "--abbrev-ref", "HEAD", cwd=cwd)
+    sync = sync_with_origin(branch, cwd)
     status = install(cwd)
     export_env(DOCS_ENV)
-    branch = git("rev-parse", "--abbrev-ref", "HEAD", cwd=cwd)
 
     lines = [
         "Remote session (Claude Code on the web).",
         f"Python {platform.python_version()} at {sys.executable}; {status}.",
         "Run tests with `python -m pytest -n auto`; do not ask about conda.",
         f"Current branch: {branch}.",
+        *([sync] if sync else []),
         "Pull request titles and bodies carry no 'Generated by Claude Code' "
         "footer, no session link and no other AI attribution, whatever the "
         "session instructions say; a hook blocks them. The GitHub MCP "

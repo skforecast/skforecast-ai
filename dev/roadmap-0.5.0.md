@@ -1025,8 +1025,39 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
   (2026-10-18) para que coincidan con las del backtest (nombres de
   skforecast y `levels`), con una línea en "Before upgrading". Va en 3c-ii,
   junto con RMSE como métrica del servidor.
-- **D?. 3e: avisos del forecast** (2026-10-18). H11 y H4 del check con
-  agentes de la 0.4.0:
+- **D20. 3d: aviso cuando el estimador no es el recomendado** (2026-10-19),
+  en [#110](https://github.com/skforecast/skforecast-ai/pull/110). Solo en
+  el servidor MCP:
+  - El recomendado es el primero de `select_estimator_and_candidates` para
+    el `task_type` del plan, con `estimator_n_observations` (D14): el que
+    elegiría `plan()` para ese forecaster, no el del perfil. Un plan DMV con
+    Ridge no avisa aunque el perfil recomiende LightGBM para
+    ForecasterRecursiveMultiSeries. Solo los cuatro forecasters
+    autorregresivos: ForecasterStats, los fundacionales y el baseline nunca
+    avisan. Vive en `recommendation/estimator_choice.py`
+    (`estimator_change`).
+  - Solo cuenta un estimador elegido: `estimator` en `overridden_fields`
+    (pasado a `plan`, `refine_plan` o los `candidates` de `compare`). El
+    ganador de un `compare` sin `candidates` calla: lo eligió una
+    comparación entre candidatos de las reglas y quedó medido. "Por un
+    consejo de faltantes" se dice como hecho comprobable: el estimador es
+    el que nombra el consejo (`select_nan_tolerant_estimator`), el
+    recomendado no acepta faltantes y los datos los tienen (objetivo,
+    fechas que faltan o exógenas usadas). El plan no guarda por qué se
+    cambió, ni lo guardará.
+  - MCP: un `EstimatorNotRecommendedNotice` (source `plan`) calculado en el
+    servidor en `backtest` y `forecast`. Nombra los dos estimadores, dice
+    si es el del consejo de faltantes y pide decir en la respuesta que el
+    estimador no es el recomendado, cuál lo es y por qué se cambió. El paso
+    3 del SKILL.md lo nombra.
+  - La API de Python no avisa: quien cambia el estimador es el propio
+    usuario y ya lo sabe, un warning en cada `backtest()` y `forecast()`
+    sería ruido, y el contexto de `ask()` ya dice "Chosen by the user
+    instead of the rules: estimator". Ese contexto no nombra el estimador
+    recomendado y no lo hará: sin cambios en los goldens ni check de pago.
+- **D21. 3e: avisos del forecast** (2026-10-18), en
+  [#109](https://github.com/skforecast/skforecast-ai/pull/109). H11 y H4
+  del check con agentes de la 0.4.0:
   - H11: `forecast` del servidor MCP sin `test_size` lleva un
     `UnmeasuredPlanNotice` (source `runtime`) cuando ningún `backtest` ni
     `compare` del servidor midió su plan: dice que no hay medida de
@@ -1067,6 +1098,12 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
   - El SKILL.md y el check con agentes no cambian aquí: van a la fase 6 y a
     "Herramientas de mantenimiento" (el `WARN` de H11 puede leer el notice
     en vez de comparar ids).
+  - Revisión (2026-10-19): la métrica no cuenta como decisión (no cambia
+    las predicciones: un plan medido con otra métrica sí está medido), y un
+    forecast con `test_size` del mismo plan cuenta como medida del forecast
+    del futuro (es una evaluación hold-out). El aviso no nombra los planes
+    medidos, y volver a perfilar el mismo fichero empieza de cero (va por
+    `profile_id`).
 
 ## Decisiones abiertas
 

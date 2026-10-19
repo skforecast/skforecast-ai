@@ -719,7 +719,9 @@ def test_tool_forecast_unmeasured_notice_when_another_plan_was_measured(tmp_path
     """
     Test that a backtest of one plan does not count for another: a plan
     refined with another estimator, and the same decisions on another
-    profile of the data, still carry the `UnmeasuredPlanNotice`.
+    profile of the data, still carry the `UnmeasuredPlanNotice`. The plan
+    with the estimator chosen by the user also carries the
+    `EstimatorNotRecommendedNotice`.
     """
     server, path = h2o_server(tmp_path)
 
@@ -759,7 +761,10 @@ def test_tool_forecast_unmeasured_notice_when_another_plan_was_measured(tmp_path
 
     other_estimator, other_data = run_session(server, steps)
 
-    assert _categories(other_estimator) == ["UnmeasuredPlanNotice"]
+    assert sorted(_categories(other_estimator)) == [
+        "EstimatorNotRecommendedNotice",
+        "UnmeasuredPlanNotice",
+    ]
     assert _categories(other_data) == ["UnmeasuredPlanNotice"]
 
 
