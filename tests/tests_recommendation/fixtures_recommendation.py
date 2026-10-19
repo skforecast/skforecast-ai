@@ -1,7 +1,7 @@
 """Fixtures for recommendation tests."""
 
 from skforecast_ai import ForecastingAssistant
-from skforecast_ai.schemas import DataProfile
+from skforecast_ai.schemas import DataProfile, ForecastPlan
 
 from tests.fixtures_datasets import df_h2o, df_h2o_long
 
@@ -170,3 +170,105 @@ profile_h2o_wide_staggered = _profile_h2o_wide_staggered.data_profile
 plan_h2o_wide_staggered_interval = _assistant.plan(
     _profile_h2o_wide_staggered, steps=1, interval=_interval
 )
+
+
+# =============================================================================
+# Estimator choice: monthly profiles and plans that carry an estimator
+# =============================================================================
+def _monthly_profile(length, n_series=1, **kwargs):
+    """
+    Return the profile of a monthly series of `length` observations, or of
+    `n_series` series that share them side by side.
+    """
+    names = ["y"] if n_series == 1 else [f"s{number}" for number in range(n_series)]
+    return DataProfile(
+        data_format          = "single" if n_series == 1 else "wide",
+        n_series             = n_series,
+        series_lengths       = {name: length for name in names},
+        span_index_length    = length,
+        n_total_observations = length * n_series,
+        target               = names[0] if n_series == 1 else names,
+        index_type           = "datetime",
+        frequency            = "MS",
+        **kwargs,
+    )
+
+
+profile_monthly_120 = _monthly_profile(120)
+profile_monthly_249 = _monthly_profile(249)
+profile_monthly_250 = _monthly_profile(250)
+profile_monthly_120_missing_target = _monthly_profile(120, missing_target={"y": 3})
+profile_monthly_249_missing_target = _monthly_profile(249, missing_target={"y": 3})
+profile_monthly_250_missing_target = _monthly_profile(250, missing_target={"y": 3})
+profile_monthly_120_gaps = _monthly_profile(120, has_gaps=True)
+profile_monthly_120_missing_exog = _monthly_profile(
+    120, exog_columns=["promo"], missing_exog={"promo": 2}
+)
+# Three series of 120 dates: 360 observations pooled, 120 dates shared.
+profile_monthly_3x120 = _monthly_profile(120, n_series=3)
+profile_monthly_3x120_missing_target = _monthly_profile(
+    120, n_series=3, missing_target={"s0": 3}
+)
+
+
+def _plan(task_type, forecaster, estimator, overridden_fields=(), use_exog=False):
+    """
+    Return a plan of `forecaster` with `estimator` that records
+    `overridden_fields` as the decisions of the user. The forecasters that
+    are not autoregressive take no lags.
+    """
+    autoregressive = task_type in ("single_series", "multi_series", "multivariate")
+    return ForecastPlan(
+        task_type         = task_type,
+        forecaster        = forecaster,
+        forecaster_kwargs = {"lags": 3} if autoregressive else {},
+        estimator         = estimator,
+        steps             = 6,
+        frequency         = "MS",
+        use_exog          = use_exog,
+        overridden_fields = list(overridden_fields),
+        explanation       = "Plan with the estimator under test.",
+    )
+
+
+# Plans that record the estimator as a decision of the user.
+plan_recursive_ridge_user = _plan(
+    "single_series", "ForecasterRecursive", "Ridge", ["estimator"]
+)
+plan_recursive_lgbm_user = _plan(
+    "single_series", "ForecasterRecursive", "LGBMRegressor", ["estimator"]
+)
+plan_recursive_forest_user = _plan(
+    "single_series", "ForecasterRecursive", "RandomForestRegressor", ["estimator"]
+)
+plan_recursive_forest_exog_user = _plan(
+    "single_series", "ForecasterRecursive", "RandomForestRegressor", ["estimator"],
+    use_exog=True,
+)
+plan_direct_lgbm_user = _plan(
+    "single_series", "ForecasterDirect", "LGBMRegressor", ["estimator"]
+)
+plan_multiseries_ridge_user = _plan(
+    "multi_series", "ForecasterRecursiveMultiSeries", "Ridge", ["estimator"]
+)
+plan_multivariate_ridge_user = _plan(
+    "multivariate", "ForecasterDirectMultiVariate", "Ridge", ["estimator"]
+)
+plan_multivariate_lgbm_user = _plan(
+    "multivariate", "ForecasterDirectMultiVariate", "LGBMRegressor", ["estimator"]
+)
+
+# Plans that do not record it: the rules chose it, or a plan edited by hand or
+# a candidate of `compare()`.
+plan_recursive_ridge = _plan("single_series", "ForecasterRecursive", "Ridge")
+plan_recursive_lgbm = _plan("single_series", "ForecasterRecursive", "LGBMRegressor")
+plan_multiseries_lgbm = _plan(
+    "multi_series", "ForecasterRecursiveMultiSeries", "LGBMRegressor"
+)
+
+# Forecasters without an estimator to choose.
+plan_stats = _plan("statistical", "ForecasterStats", "Arima", ["estimator"])
+plan_foundation = _plan(
+    "foundation", "ForecasterFoundation", "autogluon/chronos-2-small", ["estimator"]
+)
+plan_baseline = _plan("baseline", "ForecasterEquivalentDate", None)
