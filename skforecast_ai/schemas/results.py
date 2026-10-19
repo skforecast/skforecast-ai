@@ -384,6 +384,9 @@ class SingleRunResult(
                               self.metrics,
                               has_predictions = self.predictions is not None,
                               for_describe    = for_describe,
+                              plan            = (
+                                  self.plan if cv_config is None else None
+                              ),
                           ),
                           render_predictions_section(
                               self.predictions, send_data=send_data

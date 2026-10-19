@@ -10,6 +10,7 @@ import ast
 import copy
 import errno
 import functools
+import hashlib
 import inspect
 import json
 import logging
@@ -686,6 +687,105 @@ def _holdout_notices(predictions: Any, test_size: Any) -> list[ToolNotice]:
     ]
 
 
+# Fields of a plan left out when telling whether a plan was measured: the
+# interval and the metrics, which do not change the point predictions, and
+# the text that describes them (`explanation`), plus where the decisions came
+# from (who chose them, what `plan()` warned about, what the LLM refined),
+# which a candidate of `compare` records differently for the same decisions.
+_UNMEASURED_FIELDS = frozenset({
+    "interval",
+    "interval_method",
+    "metric",
+    "metrics_to_compute",
+    "explanation",
+    "warnings",
+    "llm_refined_fields",
+    "overridden_fields",
+})
+
+
+def _measured_key(profile_id: str, plan: Any) -> str:
+    """
+    Key of a plan of a profile in the plans measured in the session: equal
+    for the same plan built again with another interval or other metrics,
+    and for a candidate of `compare` with the same decisions.
+
+    Parameters
+    ----------
+    profile_id : str
+        Id of the profile the plan was built from: the same decisions on
+        another profile (other data, another target) are another plan.
+    plan : ForecastPlan
+        Plan to key.
+
+    Returns
+    -------
+    key : str
+        SHA-256 of the profile id and the decisions of the plan.
+    """
+
+    decisions = plan.model_dump(mode="json", exclude=set(_UNMEASURED_FIELDS))
+    text = json.dumps([profile_id, decisions], sort_keys=True, default=str)
+
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _unmeasured_notices(
+    measured: set[str],
+    profile_id: str,
+    plan: Any,
+    test_size: Any,
+) -> list[ToolNotice]:
+    """
+    Notice of a forecast of the future whose plan no `backtest`, `compare`
+    or `forecast` with `test_size` of the session measured, so it has no
+    measure of accuracy.
+
+    Agents presented such a forecast as reliable, or gave it the accuracy
+    of another plan they had measured (H11 of the check with agents of
+    0.4.0).
+
+    Parameters
+    ----------
+    measured : set of str
+        Keys (`_measured_key`) of the plans that a backtest, a candidate of
+        a comparison or a forecast with `test_size` ran in the session.
+    profile_id : str
+        Id of the profile of the plan.
+    plan : ForecastPlan
+        Plan of the forecast.
+    test_size : int, float, str, None
+        Argument of the tool. An evaluation (not None) is its own measure
+        and gets no notice.
+
+    Returns
+    -------
+    notices : list of ToolNotice
+        One notice (source `'runtime'`) when the plan was not measured,
+        else empty.
+    """
+
+    if test_size is not None or _measured_key(profile_id, plan) in measured:
+        return []
+
+    return [
+        ToolNotice(
+            source   = "runtime",
+            category = "UnmeasuredPlanNotice",
+            message  = (
+                "No `backtest`, `compare` or `forecast` with `test_size` in "
+                "this session measured this plan (the same decisions, with "
+                "any interval or metric), so this forecast has no measure of "
+                "accuracy. Say so, and "
+                "before presenting it as reliable measure it: `create_cv` "
+                "with this `plan_id`, then `backtest` or `compare`. Never "
+                "give the accuracy of another plan as that of this forecast."
+            ),
+            count    = 1,
+        )
+    ]
+
+
 def _metric_notices(
     metrics: Any,
     data_profile: Any = None,
@@ -1134,6 +1234,11 @@ class _ServerState:
         announced.
     max_file_bytes : int
         Largest CSV file the server reads, in bytes; 0 for no limit.
+    measured_plans : set of str
+        Keys (`_measured_key`) of the plans a backtest, a candidate of a
+        comparison or a forecast with `test_size` ran, kept for the life of the server (also when their
+        objects are removed from the store), so `forecast` can tell a plan
+        that was never measured.
     """
 
     allowed: AllowedDir
@@ -1141,6 +1246,7 @@ class _ServerState:
     store: Store
     models: ModelPolicy = field(default_factory=ModelPolicy)
     max_file_bytes: int = DEFAULT_MAX_FILE_MB * 1024 * 1024
+    measured_plans: set[str] = field(default_factory=set)
     failures: OrderedDict[str, tuple[str, str | None]] = field(
         default_factory=OrderedDict
     )
@@ -2461,6 +2567,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             "profile_id": cv_entry.profile_id, "plan_id": plan_link, "cv_id": cv_id,
         }
         cost = _cost(result.cv_config, result.plan.forecaster, result.plan.steps)
+        state.measured_plans.add(_measured_key(cv_entry.profile_id, result.plan))
 
         return _register(
             state,
@@ -2662,6 +2769,13 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         ) = outcome.value
         best = result.best_candidate
         best_plan_id, best_summary, best_code = best_plan
+        # Every candidate that ran is measured, not only the winner: a plan
+        # built again with its decisions forecasts what the leaderboard
+        # scored.
+        state.measured_plans.update(
+            _measured_key(cv_entry.profile_id, candidate.plan)
+            for candidate in result.candidates.values()
+        )
         plan_warnings = [
             text for candidate in result.candidates.values()
             for text in candidate.plan.warnings
@@ -2818,6 +2932,17 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             label  = plan_entry.obj.forecaster,
         )
         result, object_id, files, summary, code_file, nbytes = outcome.value
+        # The notice is built first: an evaluation measures its plan for the
+        # forecasts of the future that follow, not for itself.
+        unmeasured = _unmeasured_notices(
+            state.measured_plans, plan_entry.profile_id, plan_entry.obj, test_size
+        )
+        if test_size is not None:
+            # Keyed by the plan it was given, without the `end_train` of the
+            # split, so the forecast of the future of that plan finds it.
+            state.measured_plans.add(
+                _measured_key(plan_entry.profile_id, plan_entry.obj)
+            )
 
         # The plan of an evaluation (with `end_train`) is never registered as
         # a plan: the forecast links the plan it was given.
@@ -2837,6 +2962,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                                     result.plan, plan_entry.profile, "forecast"
                                 ),
                                 *_holdout_notices(result.predictions, test_size),
+                                *unmeasured,
                                 *_metric_notices(
                                     result.metrics, plan_entry.profile.data_profile
                                 ),

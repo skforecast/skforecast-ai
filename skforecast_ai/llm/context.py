@@ -1049,6 +1049,7 @@ def render_metrics_section(
     metrics: Any,
     has_predictions: bool = False,
     for_describe: bool = False,
+    plan: ForecastPlan | None = None,
 ) -> str:
     """
     Render the `<evaluation_metrics>` section.
@@ -1067,6 +1068,12 @@ def render_metrics_section(
         rows of the first `MAX_STATS_SERIES` series plus the aggregated
         rows (`average`, `weighted_average`, `pooling`) and says how many
         series there are.
+    plan : ForecastPlan, default None
+        Plan of a forecast run. When its `end_train` is set (`forecast()`
+        with `test_size`), the section says above the metrics that they
+        come from a hold-out evaluation on dates already in the data, not
+        from a forecast of the future. None for a backtest, whose strategy
+        has its own section.
 
     Returns
     -------
@@ -1079,6 +1086,18 @@ def render_metrics_section(
             body = _first_series_metrics(metrics)
         else:
             body = metrics.to_string(index=False)
+        if plan is not None and plan.end_train is not None:
+            # Agents presented the predictions of such a run as the next
+            # periods (H4 of the 0.4.0 check): nothing in the context said
+            # that their dates are already in the data.
+            body = (
+                f"Hold-out evaluation, not a forecast of the future: the "
+                f"model was trained on the data up to {plan.end_train} and "
+                f"predicted the next {plan.steps} step"
+                f"{'s' if plan.steps != 1 else ''}, whose dates are already "
+                f"in the data. These metrics score those predictions against "
+                f"the observed values.\n{body}"
+            )
         return _tag("evaluation_metrics", body)
 
     if has_predictions:
@@ -1479,6 +1498,7 @@ def build_context_message(
             metrics,
             has_predictions = predictions is not None,
             for_describe    = for_describe,
+            plan            = plan if cv_config is None else None,
         ),
         render_predictions_section(predictions, send_data=send_data),
     ])
