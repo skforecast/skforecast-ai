@@ -48,7 +48,6 @@ from .exceptions import (
     AllCandidatesFailedError,
     CandidateFailedWarning,
     DataSentToLLMWarning,
-    EstimatorNotRecommendedWarning,
     InvalidInputError,
     InvalidInputTypeError,
     LLMCallError,
@@ -132,7 +131,6 @@ from .recommendation import (
     select_transformer_exog,
     select_transformer_series,
     select_window_features,
-    warn_estimator_not_recommended,
     warn_first_window,
     warn_interval_residuals,
 )
@@ -2572,15 +2570,6 @@ class ForecastingAssistant:
             prediction mode (`test_size=None`), where there is no ground
             truth to evaluate against.
 
-        Warns
-        -----
-        EstimatorNotRecommendedWarning
-            Before the forecast runs, when the estimator of the plan is not the
-            one the rules of `plan()` choose for its forecaster on these
-            data. It names both estimators and who chose the one of the
-            plan. Not warned for `ForecasterStats`, `ForecasterFoundation`
-            and the baseline.
-
         Notes
         -----
         This method executes the same code that `forecast_code()`
@@ -2673,7 +2662,6 @@ class ForecastingAssistant:
         )
 
         check_estimator_installed(plan.estimator, plan.task_type)
-        warn_estimator_not_recommended(plan, profile.data_profile)
 
         result = run_forecast(
             data             = data_df,
@@ -3396,15 +3384,6 @@ class ForecastingAssistant:
             - cv_defaults_explanation: why the strategy parameters that
             were not passed have their value, and which ones were passed.
 
-        Warns
-        -----
-        EstimatorNotRecommendedWarning
-            Before the backtest runs, when the estimator of the plan is not the
-            one the rules of `plan()` choose for its forecaster on these
-            data. It names both estimators and who chose the one of the
-            plan. Not warned for `ForecasterStats`, `ForecasterFoundation`
-            and the baseline.
-
         Notes
         -----
         The `data` DataFrame must include exogenous columns if the plan
@@ -3521,7 +3500,6 @@ class ForecastingAssistant:
         )
 
         check_estimator_installed(plan.estimator, plan.task_type)
-        warn_estimator_not_recommended(plan, profile.data_profile)
 
         result = run_backtest(
             data           = data_df,
@@ -4030,12 +4008,6 @@ class ForecastingAssistant:
 
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore", category=LongTrainingWarning)
-                    # Comparing estimators is the point of the comparison:
-                    # a candidate is not warned for not being the one of
-                    # the rules.
-                    warnings.simplefilter(
-                        "ignore", category=EstimatorNotRecommendedWarning
-                    )
                     # The candidate runs on the DataFrame already read;
                     # its script loads the file the comparison read.
                     with _data_path_of_run(run_data_path):

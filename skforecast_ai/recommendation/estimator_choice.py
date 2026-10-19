@@ -6,10 +6,8 @@
 ################################################################################
 
 from __future__ import annotations
-import warnings
 from typing import NamedTuple
 from .._constants import AUTOREG_FORECASTERS, NAN_TOLERANT_ESTIMATORS
-from ..exceptions import EstimatorNotRecommendedWarning
 from ..schemas import DataProfile, ForecastPlan
 from .forecaster_selection import (
     estimator_n_observations,
@@ -20,8 +18,8 @@ from .missing_values import select_nan_tolerant_estimator
 
 class EstimatorChange(NamedTuple):
     """
-    Estimator of a plan that is not the one the rules recommend for its
-    forecaster (see `estimator_change`).
+    Estimator of a plan, chosen by the user, that is not the one the rules
+    recommend for its forecaster (see `estimator_change`).
 
     Attributes
     ----------
@@ -32,10 +30,6 @@ class EstimatorChange(NamedTuple):
         size of the data.
     forecaster : str
         Forecaster of the plan.
-    chosen_by_user : bool
-        Whether the plan records the estimator as a decision of the user
-        (`ForecastPlan.overridden_fields`): passed to `plan()` or to
-        `refine_plan()`, or listed in the `candidates` of `compare()`.
     missing_values : bool
         Whether the estimator is the one that accepts missing values that
         the advice on the missing values of the data names
@@ -46,7 +40,6 @@ class EstimatorChange(NamedTuple):
     estimator: str
     recommended: str
     forecaster: str
-    chosen_by_user: bool
     missing_values: bool
 
 
@@ -108,9 +101,15 @@ def estimator_change(
     profile: DataProfile,
 ) -> EstimatorChange | None:
     """
-    Find whether a plan runs an estimator other than the one the rules
-    recommend for its forecaster (see `recommended_estimator`), and who
-    chose it.
+    Find whether a plan runs an estimator that the user chose instead of the
+    one the rules recommend for its forecaster (see
+    `recommended_estimator`).
+
+    The user chose it when the plan records it in
+    `ForecastPlan.overridden_fields`: passed to `plan()` or to
+    `refine_plan()`, or listed in the `candidates` of `compare()`. The plan
+    of a candidate of `compare()` without `candidates` does not record it:
+    a comparison among candidates of the rules chose it, and measured it.
 
     Parameters
     ----------
@@ -122,12 +121,17 @@ def estimator_change(
     Returns
     -------
     change : EstimatorChange, None
-        None when the estimator is the one of the rules, and for the
-        forecasters without an estimator to choose.
+        None when the estimator is the one of the rules or was not chosen
+        by the user, and for the forecasters without an estimator to
+        choose.
     """
 
     recommended = recommended_estimator(plan, profile)
-    if recommended is None or plan.estimator in (None, recommended):
+    if (
+        recommended is None
+        or plan.estimator in (None, recommended)
+        or "estimator" not in plan.overridden_fields
+    ):
         return None
     tolerant = select_nan_tolerant_estimator(
         task_type      = plan.task_type,
@@ -138,75 +142,9 @@ def estimator_change(
         estimator      = plan.estimator,
         recommended    = recommended,
         forecaster     = plan.forecaster,
-        chosen_by_user = "estimator" in plan.overridden_fields,
         missing_values = (
             plan.estimator == tolerant
             and recommended not in NAN_TOLERANT_ESTIMATORS
             and _has_missing_values(plan, profile)
         ),
     )
-
-
-def estimator_change_message(change: EstimatorChange) -> str:
-    """
-    Text of the `EstimatorNotRecommendedWarning` of an estimator change.
-
-    Parameters
-    ----------
-    change : EstimatorChange
-        Estimator change found by `estimator_change`.
-
-    Returns
-    -------
-    message : str
-        The estimator of the plan, who chose it and the estimator the rules
-        recommend.
-    """
-
-    origin = (
-        "chosen by the user" if change.chosen_by_user else
-        "not recorded in `overridden_fields`: a candidate of `compare()`, or a "
-        "plan edited by hand"
-    )
-    message = (
-        f"The estimator of the plan, {change.estimator!r} ({origin}), is not "
-        f"the one the rules recommend for {change.forecaster} on these data: "
-        f"{change.recommended!r}."
-    )
-    if change.missing_values:
-        message += (
-            f" {change.estimator!r} is the estimator that accepts missing "
-            f"values that the advice on the missing values of the data names."
-        )
-
-    return message
-
-
-def warn_estimator_not_recommended(
-    plan: ForecastPlan,
-    profile: DataProfile,
-) -> None:
-    """
-    Warn with `EstimatorNotRecommendedWarning` when a plan runs an estimator
-    other than the one the rules recommend for its forecaster (see
-    `estimator_change`).
-
-    Parameters
-    ----------
-    plan : ForecastPlan
-        Plan that runs.
-    profile : DataProfile
-        Profile of the data.
-
-    Returns
-    -------
-    None
-    """
-
-    change = estimator_change(plan, profile)
-    if change is not None:
-        warnings.warn(
-            estimator_change_message(change),
-            EstimatorNotRecommendedWarning,
-            stacklevel=3,
-        )

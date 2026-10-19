@@ -26,7 +26,6 @@ PUBLIC_NAMES = {
     "DataNotFoundError": "skforecast_ai.exceptions",
     "DataProfile": "skforecast_ai.schemas",
     "DataSentToLLMWarning": "skforecast_ai.exceptions",
-    "EstimatorNotRecommendedWarning": "skforecast_ai.exceptions",
     "ExplainableResult": "skforecast_ai.schemas",
     "ForecastExecutionError": "skforecast_ai.exceptions",
     "ForecastingProfile": "skforecast_ai.schemas",

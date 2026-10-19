@@ -32,7 +32,6 @@ from .calendar import (
 from .estimator_choice import (
     estimator_change,
     recommended_estimator,
-    warn_estimator_not_recommended,
 )
 from .explanation import (
     _build_profile_explanation,
@@ -106,7 +105,6 @@ __all__ = [
     "select_transformer_series",
     "select_window_features",
     "series_near_zero",
-    "warn_estimator_not_recommended",
     "warn_first_window",
     "warn_interval_residuals",
 ]

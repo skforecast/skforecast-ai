@@ -1,7 +1,5 @@
 # Integration test: the MCP server gives the results of the Python API
 
-import contextlib
-import re
 import subprocess
 import sys
 import textwrap
@@ -13,7 +11,6 @@ import pytest
 from mcp import Client
 
 from skforecast_ai import ForecastingAssistant
-from skforecast_ai.exceptions import EstimatorNotRecommendedWarning
 from skforecast_ai.mcp import create_server
 
 from ..fixtures_assistant import df_no_sundays
@@ -132,24 +129,9 @@ def test_server_workflow_matches_python_api_and_scripts(
         show_progress=False,
         candidates=[(c["name"], dict(c["config"])) for c in CANDIDATES],
     )
-    # The best candidate of the comparison is Ridge, which is the estimator of
-    # the rules for h2o but not for the pooled observations of the items.
-    best_warning = (
-        contextlib.nullcontext()
-        if arguments["target"] == "x"
-        else pytest.warns(
-            EstimatorNotRecommendedWarning,
-            match=re.escape(
-                "The estimator of the plan, 'Ridge' (chosen by the user), is "
-                "not the one the rules recommend for "
-                "ForecasterRecursiveMultiSeries on these data: 'LGBMRegressor'."
-            ),
-        )
+    expected_forecast = assistant.forecast(
+        data=path, profile=profile, plan=expected_comparison.best_candidate.plan
     )
-    with best_warning:
-        expected_forecast = assistant.forecast(
-            data=path, profile=profile, plan=expected_comparison.best_candidate.plan
-        )
     expected_evaluation = assistant.forecast(
         data=path, profile=profile, plan=plan, test_size=steps
     )

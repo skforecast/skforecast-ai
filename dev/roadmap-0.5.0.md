@@ -1025,7 +1025,9 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
   (2026-10-18) para que coincidan con las del backtest (nombres de
   skforecast y `levels`), con una línea en "Before upgrading". Va en 3c-ii,
   junto con RMSE como métrica del servidor.
-- **D?. 3d: aviso cuando el estimador no es el recomendado** (2026-10-18):
+- **D?. 3d: aviso cuando el estimador no es el recomendado** (2026-10-19),
+  en [#110](https://github.com/skforecast/skforecast-ai/pull/110). Solo en
+  el servidor MCP:
   - El recomendado es el primero de `select_estimator_and_candidates` para
     el `task_type` del plan, con `estimator_n_observations` (D14): el que
     elegiría `plan()` para ese forecaster, no el del perfil. Un plan DMV con
@@ -1034,30 +1036,25 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     autorregresivos: ForecasterStats, los fundacionales y el baseline nunca
     avisan. Vive en `recommendation/estimator_choice.py`
     (`estimator_change`).
-  - API de Python: un `EstimatorNotRecommendedWarning` propio (público, en
-    `skforecast_ai.exceptions`) en `backtest()` y `forecast()`, después de
-    las comprobaciones y antes de ejecutar, como `LongTrainingWarning`. No
-    va a `plan.warnings` ni al resultado: el contexto del LLM ya dice
-    "Chosen by the user instead of the rules: estimator" y no cambia (sin
-    goldens ni check de pago). `compare()` no lo emite para sus candidatos:
-    comparar estimadores es su objetivo. Avisa también cuando el usuario
-    pasó el estimador en la misma llamada, como
-    `UnrecommendedForecasterWarning` en `plan()`.
-  - Quién lo eligió sale del plan, no se adivina: `estimator` en
-    `overridden_fields` es del usuario (`plan`, `refine_plan` o candidatos
-    explícitos de `compare`); si no está, viene de un candidato de
-    `compare` sin `candidates` o de un plan editado a mano. "Por un consejo
-    de faltantes" se dice como hecho comprobable: el estimador es el que
-    nombra el consejo (`select_nan_tolerant_estimator`), el recomendado no
-    acepta faltantes y los datos los tienen (objetivo, fechas que faltan o
-    exógenas usadas). El plan no guarda por qué se cambió.
-  - MCP: un `EstimatorNotRecommendedNotice` (source `plan`) del servidor en
-    `backtest` y `forecast`, que sustituye al warning de la librería
-    (`build_notices` lo deja fuera, como `CandidateFailedWarning`). Nombra
-    los dos estimadores y el origen (pasado a `plan`, `refine_plan` o los
-    `candidates` de `compare`, o un candidato de `compare` sin ellos), y
-    pide decir en la respuesta que el estimador no es el recomendado, cuál
-    lo es y por qué se cambió. El paso 3 del SKILL.md lo nombra.
+  - Solo cuenta un estimador elegido: `estimator` en `overridden_fields`
+    (pasado a `plan`, `refine_plan` o los `candidates` de `compare`). El
+    ganador de un `compare` sin `candidates` calla: lo eligió una
+    comparación entre candidatos de las reglas y quedó medido. "Por un
+    consejo de faltantes" se dice como hecho comprobable: el estimador es
+    el que nombra el consejo (`select_nan_tolerant_estimator`), el
+    recomendado no acepta faltantes y los datos los tienen (objetivo,
+    fechas que faltan o exógenas usadas). El plan no guarda por qué se
+    cambió, ni lo guardará.
+  - MCP: un `EstimatorNotRecommendedNotice` (source `plan`) calculado en el
+    servidor en `backtest` y `forecast`. Nombra los dos estimadores, dice
+    si es el del consejo de faltantes y pide decir en la respuesta que el
+    estimador no es el recomendado, cuál lo es y por qué se cambió. El paso
+    3 del SKILL.md lo nombra.
+  - La API de Python no avisa: quien cambia el estimador es el propio
+    usuario y ya lo sabe, un warning en cada `backtest()` y `forecast()`
+    sería ruido, y el contexto de `ask()` ya dice "Chosen by the user
+    instead of the rules: estimator". Ese contexto no nombra el estimador
+    recomendado y no lo hará: sin cambios en los goldens ni check de pago.
 
 ## Decisiones abiertas
 

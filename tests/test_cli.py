@@ -25,10 +25,7 @@ from skforecast_ai.cli import (
     _report_error,
     _showwarning_to_stderr,
 )
-from skforecast_ai.exceptions import (
-    EstimatorNotRecommendedWarning,
-    ForecastExecutionError,
-)
+from skforecast_ai.exceptions import ForecastExecutionError
 from skforecast_ai.assistant import ForecastingAssistant
 
 from .fixtures_csv_dialect import (
@@ -711,20 +708,13 @@ class TestForecast:
         Forecast with --estimator-kwargs passes hyperparameters through.
         """
         csv_path = _write_csv(tmp_path, df_single)
-        warn_msg = re.escape(
-            "The estimator of the plan, 'RandomForestRegressor' (chosen by the "
-            "user), is not the one the rules recommend for ForecasterRecursive "
-            "on these data: 'Ridge'."
+        result = runner.invoke(
+            app,
+            ["forecast", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--test-size", "5", "--estimator", "RandomForestRegressor",
+             "--estimator-kwargs", '{"n_estimators": 150, "random_state": 123}',
+             "--format", "json", "--quiet"],
         )
-        with pytest.warns(EstimatorNotRecommendedWarning, match=warn_msg):
-            result = runner.invoke(
-                app,
-                ["forecast", csv_path, "--target", "sales", "--date-column",
-                 "date", "--steps", "5", "--test-size", "5", "--estimator",
-                 "RandomForestRegressor", "--estimator-kwargs",
-                 '{"n_estimators": 150, "random_state": 123}',
-                 "--format", "json", "--quiet"],
-            )
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["plan"]["estimator_kwargs"]["n_estimators"] == 150

@@ -267,7 +267,7 @@ plan_h2o_lgbm = _assistant.plan(
 plan_h2o_forest = _assistant.plan(
     _profile_h2o, steps=12, estimator="RandomForestRegressor"
 )
-# The plan of a candidate of `compare()` without `candidates` does not record
+# The plan of the winner of a `compare()` without `candidates` does not record
 # the estimator as a decision of the user.
 plan_h2o_lgbm_not_recorded = plan_h2o_lgbm.model_copy(
     update={"overridden_fields": []}

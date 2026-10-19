@@ -17,7 +17,6 @@ from skforecast.model_selection import TimeSeriesFold
 from skforecast_ai import BacktestResult, ForecastingAssistant
 from skforecast_ai.exceptions import (
     DataContentError,
-    EstimatorNotRecommendedWarning,
     InvalidInputError,
     InvalidInputTypeError,
 )
@@ -42,13 +41,6 @@ assistant = ForecastingAssistant()
 # Distinctive part of the warning of `create_cv()` for a short first training
 # window with intervals (the series of 100 observations leaves few residuals).
 INTERVAL_WARNING = re.escape("so the prediction intervals are estimated from")
-
-# Warning of backtest() for a Ridge chosen by the user on the multi-series data.
-RIDGE_MULTISERIES_WARNING = re.escape(
-    "The estimator of the plan, 'Ridge' (chosen by the user), is not the one "
-    "the rules recommend for ForecasterRecursiveMultiSeries on these data: "
-    "'LGBMRegressor'."
-)
 
 
 # =============================================================================
@@ -922,18 +914,15 @@ def test_backtest_output_when_long_format_multiindex(with_profile):
     and metrics. Before, the executed script did not find the date column
     (KeyError: 'date').
     """
-    with pytest.warns(
-        EstimatorNotRecommendedWarning, match=RIDGE_MULTISERIES_WARNING
-    ):
-        expected = assistant.backtest(
-            data             = _ITEMS_LONG,
-            target           = "value",
-            date_column      = "date",
-            series_id_column = "series",
-            cv               = _long_cv(),
-            estimator        = "Ridge",
-            show_progress    = False,
-        )
+    expected = assistant.backtest(
+        data             = _ITEMS_LONG,
+        target           = "value",
+        date_column      = "date",
+        series_id_column = "series",
+        cv               = _long_cv(),
+        estimator        = "Ridge",
+        show_progress    = False,
+    )
     data = _ITEMS_LONG.set_index(["series", "date"])
     if with_profile:
         profile = assistant.profile(data=data, target="value")
@@ -942,12 +931,9 @@ def test_backtest_output_when_long_format_multiindex(with_profile):
     else:
         kwargs = {"target": "value", "estimator": "Ridge"}
 
-    with pytest.warns(
-        EstimatorNotRecommendedWarning, match=RIDGE_MULTISERIES_WARNING
-    ):
-        result = assistant.backtest(
-            data=data, cv=_long_cv(), show_progress=False, **kwargs
-        )
+    result = assistant.backtest(
+        data=data, cv=_long_cv(), show_progress=False, **kwargs
+    )
 
     assert result.code == expected.code
     pd.testing.assert_frame_equal(result.predictions, expected.predictions)
@@ -1052,19 +1038,13 @@ def test_backtest_output_when_cv_result_without_plan_keeps_its_plan():
     with pytest.warns(UserWarning, match=INTERVAL_WARNING):
         cv_result = assistant.create_cv(profile, plan, initial_train_size=60)
 
-    warn_msg = re.escape(
-        "The estimator of the plan, 'LGBMRegressor' (chosen by the user), is "
-        "not the one the rules recommend for ForecasterRecursive on these "
-        "data: 'Ridge'."
+    result = assistant.backtest(
+        data=df_single,
+        target="sales",
+        date_column="date",
+        cv=cv_result,
+        show_progress=False,
     )
-    with pytest.warns(EstimatorNotRecommendedWarning, match=warn_msg):
-        result = assistant.backtest(
-            data=df_single,
-            target="sales",
-            date_column="date",
-            cv=cv_result,
-            show_progress=False,
-        )
 
     assert result.plan == cv_result.plan
     assert result.plan.estimator == "LGBMRegressor"
@@ -1809,62 +1789,3 @@ def test_backtest_output_when_csv_has_semicolon_and_decimal_comma(tmp_path):
     assert result.profile.data_profile.csv_decimal == ","
     pd.testing.assert_frame_equal(result.metrics, expected.metrics)
     pd.testing.assert_frame_equal(result.predictions, expected.predictions)
-
-
-# =============================================================================
-# Tests: estimator that is not the one of the rules
-# =============================================================================
-def test_backtest_EstimatorNotRecommendedWarning_when_plan_refined_to_another_estimator():
-    """
-    Test that backtest() of a plan refined to LGBMRegressor, when the rules
-    recommend Ridge for the 100 observations of the series, warns
-    EstimatorNotRecommendedWarning once, with the text that names both
-    estimators and says that the user chose it, and still runs that plan. The
-    warning points at the call of the user.
-    """
-    profile = assistant.profile(data=df_single, target="sales", date_column="date")
-    plan = assistant.refine_plan(
-        profile, assistant.plan(profile, steps=5), estimator="LGBMRegressor"
-    )
-    cv = TimeSeriesFold(steps=5, initial_train_size=70, verbose=False)
-
-    warn_msg = re.escape(
-        "The estimator of the plan, 'LGBMRegressor' (chosen by the user), is "
-        "not the one the rules recommend for ForecasterRecursive on these "
-        "data: 'Ridge'."
-    )
-    with pytest.warns(EstimatorNotRecommendedWarning, match=warn_msg) as record:
-        result = assistant.backtest(
-            data=df_single, cv=cv, profile=profile, plan=plan, show_progress=False
-        )
-
-    filenames = [
-        warning.filename for warning in record
-        if issubclass(warning.category, EstimatorNotRecommendedWarning)
-    ]
-    assert filenames == [__file__]
-    assert result.plan.estimator == "LGBMRegressor"
-
-
-def test_backtest_does_not_warn_EstimatorNotRecommendedWarning_when_plan_of_the_rules():
-    """
-    Test that backtest() of the plan of the rules (Ridge for 100
-    observations), and of the same plan refined to the same estimator, does
-    not warn EstimatorNotRecommendedWarning.
-    """
-    profile = assistant.profile(data=df_single, target="sales", date_column="date")
-    plan = assistant.plan(profile, steps=5)
-    same_estimator = assistant.refine_plan(profile, plan, estimator="Ridge")
-    cv = TimeSeriesFold(steps=5, initial_train_size=70, verbose=False)
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", category=EstimatorNotRecommendedWarning)
-        results = [
-            assistant.backtest(
-                data=df_single, cv=cv, profile=profile, plan=one_plan,
-                show_progress=False,
-            )
-            for one_plan in (plan, same_estimator)
-        ]
-
-    assert [result.plan.estimator for result in results] == ["Ridge", "Ridge"]

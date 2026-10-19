@@ -36,8 +36,7 @@ def test_server_estimator_notice_when_plan_refined_to_the_estimator_of_the_missi
     values, `backtest` and `forecast` of the plan of the rules carry no
     EstimatorNotRecommendedNotice, and after `refine_plan` to that estimator
     `backtest`, `forecast` and `forecast` with `test_size` carry exactly one,
-    that names both estimators and the missing values, and none carries the
-    EstimatorNotRecommendedWarning (which `build_notices` leaves out).
+    that names both estimators and the missing values.
     """
     data = df_h2o_csv.iloc[-120:].reset_index(drop=True)
     data.loc[20, "x"] = np.nan
@@ -83,7 +82,6 @@ def test_server_estimator_notice_when_plan_refined_to_the_estimator_of_the_missi
     for run in ("backtest", "forecast"):
         categories = [notice["category"] for notice in original[run]["notices"]]
         assert "EstimatorNotRecommendedNotice" not in categories
-        assert "EstimatorNotRecommendedWarning" not in categories
 
     for key, run in (
         ("backtest", "backtest"), ("forecast", "forecast"), ("evaluation", "forecast")
@@ -96,4 +94,3 @@ def test_server_estimator_notice_when_plan_refined_to_the_estimator_of_the_missi
                 "count": 1,
             }
         ]
-        assert _notices_of(refined[key], "EstimatorNotRecommendedWarning") == []

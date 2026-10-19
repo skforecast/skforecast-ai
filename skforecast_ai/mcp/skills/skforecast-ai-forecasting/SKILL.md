@@ -55,8 +55,8 @@ candidates).
    estimator; the `differentiation`, `calendar_features` and
    `target_transformer` with `ForecasterStats`, a foundation model or the
    baseline): tell the user. A `backtest` or `forecast` of a plan whose
-   estimator is not the one the rules recommend for its forecaster (one
-   you switched after a `MissingValuesNotice`, say) carries an
+   estimator you chose instead of the one the rules recommend for its
+   forecaster (after a `MissingValuesNotice`, say) carries an
    `EstimatorNotRecommendedNotice`: say in your answer which estimator
    ran, which one the rules recommend and why it was changed.
 4. `create_cv(plan_id, ...)`: the backtesting strategy. Read `cost` before

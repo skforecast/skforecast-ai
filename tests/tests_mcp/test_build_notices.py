@@ -6,7 +6,6 @@ from skforecast.exceptions import LongTrainingWarning, MissingValuesWarning
 
 from skforecast_ai.exceptions import (
     CandidateFailedWarning,
-    EstimatorNotRecommendedWarning,
     UnrecommendedForecasterWarning,
 )
 from skforecast_ai.mcp._runtime import build_notices
@@ -94,26 +93,6 @@ def test_build_notices_leaves_out_candidate_failures_and_logs_deprecations(caplo
         "DeprecationWarning: Old API.",
         "PendingDeprecationWarning: Soon old.",
     ]
-
-
-def test_build_notices_leaves_out_estimator_not_recommended_warning():
-    """
-    Test that `EstimatorNotRecommendedWarning` is left out: `backtest` and
-    `forecast` give an `EstimatorNotRecommendedNotice` of their own instead.
-    """
-    records = _records(
-        (EstimatorNotRecommendedWarning, "Estimator 'LGBMRegressor' not advised."),
-        (UserWarning, "Dates skipped."),
-    )
-
-    notices, omitted = build_notices(records)
-
-    assert notices == [
-        ToolNotice(
-            source="runtime", category="UserWarning", message="Dates skipped.", count=1
-        ),
-    ]
-    assert omitted == 0
 
 
 def test_build_notices_limits_count_and_length():

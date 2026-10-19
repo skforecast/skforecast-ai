@@ -1,7 +1,6 @@
 # Tests for plan save/load and pipe composition (Phase 5)
 
 import json
-import re
 from io import StringIO
 from unittest.mock import patch
 
@@ -9,10 +8,7 @@ import pytest
 from typer.testing import CliRunner
 
 from skforecast_ai.cli import app, _read_json_input
-from skforecast_ai.exceptions import (
-    EstimatorNotRecommendedWarning,
-    PlanEditsDiscardedWarning,
-)
+from skforecast_ai.exceptions import PlanEditsDiscardedWarning
 from tests.fixtures_assistant import df_single
 
 runner = CliRunner()
@@ -365,21 +361,12 @@ class TestForecastFromPlan:
         plan_file = tmp_path / "plan.json"
         plan_file.write_text(json.dumps(MOCK_BUNDLE))
 
-        # The saved plan runs LGBMRegressor without recording it as a decision
-        # of the user, and 100 observations get Ridge from the rules.
-        warn_msg = re.escape(
-            "The estimator of the plan, 'LGBMRegressor' (not recorded in "
-            "`overridden_fields`: a candidate of `compare()`, or a plan edited "
-            "by hand), is not the one the rules recommend for "
-            "ForecasterRecursive on these data: 'Ridge'."
-        )
-        with pytest.warns(EstimatorNotRecommendedWarning, match=warn_msg):
-            result = runner.invoke(app, [
-                "forecast", str(csv_file),
-                "--from-plan", str(plan_file),
-                "--test-size", "10",
-                "--format", "json", "--quiet",
-            ])
+        result = runner.invoke(app, [
+            "forecast", str(csv_file),
+            "--from-plan", str(plan_file),
+            "--test-size", "10",
+            "--format", "json", "--quiet",
+        ])
         assert result.exit_code == 0, result.output
         output = json.loads(result.output)
         assert "predictions" in output
@@ -445,19 +432,13 @@ class TestForecastFromPlan:
         plan_file.write_text(json.dumps(bundle))
 
         # Forecast from the saved plan, overriding the estimator.
-        warn_msg = re.escape(
-            "The estimator of the plan, 'LGBMRegressor' (chosen by the user), "
-            "is not the one the rules recommend for ForecasterRecursive on "
-            "these data: 'Ridge'."
-        )
-        with pytest.warns(EstimatorNotRecommendedWarning, match=warn_msg):
-            result = runner.invoke(app, [
-                "forecast", str(csv_file),
-                "--from-plan", str(plan_file),
-                "--estimator", "LGBMRegressor",
-                "--test-size", "5",
-                "--format", "json", "--quiet",
-            ])
+        result = runner.invoke(app, [
+            "forecast", str(csv_file),
+            "--from-plan", str(plan_file),
+            "--estimator", "LGBMRegressor",
+            "--test-size", "5",
+            "--format", "json", "--quiet",
+        ])
         assert result.exit_code == 0, result.output
         output = json.loads(result.output)
         assert "LGBMRegressor" in output["code"]
@@ -671,18 +652,12 @@ class TestBacktestFromPlan:
         plan_file = tmp_path / "plan.json"
         plan_file.write_text(json.dumps(bundle))
 
-        warn_msg = re.escape(
-            "The estimator of the plan, 'LGBMRegressor' (chosen by the user), "
-            "is not the one the rules recommend for ForecasterRecursive on "
-            "these data: 'Ridge'."
-        )
-        with pytest.warns(EstimatorNotRecommendedWarning, match=warn_msg):
-            result = runner.invoke(app, [
-                "backtest", str(csv_file),
-                "--from-plan", str(plan_file),
-                "--estimator", "LGBMRegressor",
-                "--format", "json", "--quiet",
-            ])
+        result = runner.invoke(app, [
+            "backtest", str(csv_file),
+            "--from-plan", str(plan_file),
+            "--estimator", "LGBMRegressor",
+            "--format", "json", "--quiet",
+        ])
         assert result.exit_code == 0, result.output
         output = json.loads(result.output)
         assert "LGBMRegressor" in output["code"]

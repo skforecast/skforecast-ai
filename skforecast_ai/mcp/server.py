@@ -462,11 +462,12 @@ def _missing_values_notices(plan: Any, profile: Any) -> list[ToolNotice]:
 
 def _estimator_notices(plan: Any, profile: Any, run: str) -> list[ToolNotice]:
     """
-    Notice of `backtest` and `forecast` for a plan whose estimator is not the
-    one the rules recommend for its forecaster (see `estimator_change`). An
-    agent that switches the estimator, after a `MissingValuesNotice` for
-    example, reports the result as that of the recommended plan: the user
-    is not told.
+    Notice of `backtest` and `forecast` for a plan whose estimator was chosen
+    instead of the one the rules recommend for its forecaster (see
+    `estimator_change`). An agent that switches the estimator, after a
+    `MissingValuesNotice` for example, reports the result as that of the
+    recommended plan: the user is not told. The library does not warn
+    about it: there, the user who chose the estimator knows it.
 
     Parameters
     ----------
@@ -481,7 +482,8 @@ def _estimator_notices(plan: Any, profile: Any, run: str) -> list[ToolNotice]:
     -------
     notices : list of ToolNotice
         One notice (source `'plan'`), or none when the estimator is the one
-        of the rules or the forecaster has none to choose.
+        of the rules, was not chosen (the winner of a `compare` without
+        `candidates`) or the forecaster has none to choose.
     """
 
     from ..recommendation import estimator_change
@@ -489,20 +491,14 @@ def _estimator_notices(plan: Any, profile: Any, run: str) -> list[ToolNotice]:
     change = estimator_change(plan, profile.data_profile)
     if change is None:
         return []
-    if change.chosen_by_user:
-        origin = (
-            "It was passed to `plan`, `refine_plan` or the `candidates` of "
-            "`compare`"
-        )
-        if change.missing_values:
-            origin += (
-                ", and it is the estimator that accepts missing values that "
-                "the advice on the missing values of the data names"
-            )
-    else:
-        origin = (
-            "It was not passed to `plan`, `refine_plan` or `candidates`: it is "
-            "the plan of a candidate of `compare`"
+    origin = (
+        "It was passed to `plan`, `refine_plan` or the `candidates` of "
+        "`compare`"
+    )
+    if change.missing_values:
+        origin += (
+            ", and it is the estimator that accepts missing values that the "
+            "advice on the missing values of the data names"
         )
     message = (
         f"This {run} ran the estimator {change.estimator!r}, not the one the "

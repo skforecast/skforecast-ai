@@ -83,7 +83,6 @@ def test_estimator_change_None_when_forecaster_has_no_estimator_to_choose(plan):
                 estimator      = "LGBMRegressor",
                 recommended    = "Ridge",
                 forecaster     = "ForecasterRecursive",
-                chosen_by_user = True,
                 missing_values = False,
             ),
         ),
@@ -94,7 +93,6 @@ def test_estimator_change_None_when_forecaster_has_no_estimator_to_choose(plan):
                 estimator      = "Ridge",
                 recommended    = "LGBMRegressor",
                 forecaster     = "ForecasterRecursive",
-                chosen_by_user = True,
                 missing_values = False,
             ),
         ),
@@ -105,7 +103,6 @@ def test_estimator_change_None_when_forecaster_has_no_estimator_to_choose(plan):
                 estimator      = "LGBMRegressor",
                 recommended    = "Ridge",
                 forecaster     = "ForecasterDirect",
-                chosen_by_user = True,
                 missing_values = False,
             ),
         ),
@@ -116,7 +113,6 @@ def test_estimator_change_None_when_forecaster_has_no_estimator_to_choose(plan):
                 estimator      = "Ridge",
                 recommended    = "LGBMRegressor",
                 forecaster     = "ForecasterRecursiveMultiSeries",
-                chosen_by_user = True,
                 missing_values = False,
             ),
         ),
@@ -127,7 +123,6 @@ def test_estimator_change_None_when_forecaster_has_no_estimator_to_choose(plan):
                 estimator      = "LGBMRegressor",
                 recommended    = "Ridge",
                 forecaster     = "ForecasterDirectMultiVariate",
-                chosen_by_user = True,
                 missing_values = False,
             ),
         ),
@@ -151,21 +146,13 @@ def test_estimator_change_output_when_user_chose_another_estimator(
     assert estimator_change(plan, profile) == expected
 
 
-def test_estimator_change_chosen_by_user_False_when_estimator_not_in_overridden_fields():
+def test_estimator_change_None_when_estimator_not_in_overridden_fields():
     """
     Test that a plan that does not record the estimator in `overridden_fields`
-    (a candidate of `compare()`, a plan edited by hand) gives
-    `chosen_by_user=False`.
+    gives None: the winner of a `compare()` without `candidates` was chosen
+    and measured among candidates of the rules.
     """
-    expected = EstimatorChange(
-        estimator      = "LGBMRegressor",
-        recommended    = "Ridge",
-        forecaster     = "ForecasterRecursive",
-        chosen_by_user = False,
-        missing_values = False,
-    )
-
-    assert estimator_change(plan_recursive_lgbm, profile_monthly_120) == expected
+    assert estimator_change(plan_recursive_lgbm, profile_monthly_120) is None
 
 
 @pytest.mark.parametrize(
@@ -186,7 +173,6 @@ def test_estimator_change_missing_values_True_when_tolerant_estimator_and_target
         estimator      = "RandomForestRegressor",
         recommended    = "Ridge",
         forecaster     = "ForecasterRecursive",
-        chosen_by_user = True,
         missing_values = True,
     )
 
@@ -219,7 +205,6 @@ def test_estimator_change_missing_values_False_when_data_complete():
         estimator      = "RandomForestRegressor",
         recommended    = "Ridge",
         forecaster     = "ForecasterRecursive",
-        chosen_by_user = True,
         missing_values = False,
     )
 
