@@ -87,11 +87,12 @@ def sync_with_origin(branch: str, cwd: str) -> str | None:
     remote_ref = f"origin/{branch}"
     try:
         # Explicit refspec: a single branch clone may not track this branch.
+        # LC_ALL=C keeps the stderr in English, which the check below matches.
         fetch = subprocess.run(
             ["git", "fetch", "--quiet", "origin",
              f"+refs/heads/{branch}:refs/remotes/{remote_ref}"],
             cwd=cwd, capture_output=True, text=True, timeout=FETCH_TIMEOUT,
-            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"},
         )
     except subprocess.TimeoutExpired:
         return (
