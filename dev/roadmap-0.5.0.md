@@ -288,8 +288,13 @@ cuenta al usuario.
     removed" es menos frecuente.
   - Una serie cuya última ventana tiene un faltante solo en algunos folds
     se queda fuera de esos folds sin decirlo, y sus métricas y la media usan
-    menos folds: un aviso en el resumen del backtest (y en skforecast, el
-    comentario de #1406).
+    menos folds: un aviso en el resumen del backtest. skforecast 0.27 ya lo
+    avisa ([#1415](https://github.com/skforecast/skforecast/pull/1415)): un
+    `MissingValuesWarning` que nombra los niveles que no se pronostican en
+    folds donde tienen valores, pero solo con `suppress_warnings=False`, y
+    los scripts corren con `True`. En vez de calcularlo aquí, el runner del
+    backtest puede capturar ese aviso concreto (sin dejar pasar los demás
+    avisos de skforecast) y convertirlo en el aviso del resumen.
   - Guardar en el perfil los días de cierre que ya calcula para su nota
     (por ejemplo `DataProfile.closed_weekdays`), para que `create_cv` dé el
     consejo exacto en vez de uno condicional. Cambia el esquema del perfil.
@@ -1122,7 +1127,7 @@ arranque de las sesiones en la nube instala skforecast desde su rama
 | Issue | Qué pide | Qué hace skforecast-ai cuando llegue | Estado |
 |:--|:--|:--|:--|
 | [#1357](https://github.com/skforecast/skforecast/issues/1357) | Nombres de serie enteros (G02) | Nada que quitar: los ids como texto de 1b se quedan, porque conservan los ceros (`001`) | Resuelto en `0.27.x` ([#1412](https://github.com/skforecast/skforecast/pull/1412), 2026-10-18) |
-| [#1406](https://github.com/skforecast/skforecast/issues/1406) | Avisar de una serie que no se pronostica en ningún fold (G03), y, por un comentario de 2026-10-18 (D17), también de la que se descarta de un fold por un faltante en su última ventana | 2b se queda en la comprobación previa y el aviso del perfil: los scripts corren con `suppress_warnings=True` y fallar antes de ejecutar es mejor para un agente | Abierto |
+| [#1406](https://github.com/skforecast/skforecast/issues/1406) | Avisar de una serie que no se pronostica en ningún fold (G03), y, por un comentario de 2026-10-18 (D17), también de la que se descarta de un fold por un faltante en su última ventana | 2b se queda en la comprobación previa y el aviso del perfil: los scripts corren con `suppress_warnings=True` y fallar antes de ejecutar es mejor para un agente. Lo que no cubre la comprobación previa (una serie que falta solo en algunos folds) puede leerse del `MissingValuesWarning` nuevo de skforecast (ver 3f) | Resuelto en `0.27.x` ([#1415](https://github.com/skforecast/skforecast/pull/1415), 2026-10-19) |
 | [#1410](https://github.com/skforecast/skforecast/issues/1410) | Una serie con exactamente `window_size` observaciones en la ventana de entrenamiento de un fold multiserie (2b) | Nada: el backtest falla dentro del script con "must be greater than the maximum window size"; con el arreglo, la serie se descarta de ese fold como las más cortas, que es lo que ya supone la comprobación de 2b | Abierto |
 | [#1409](https://github.com/skforecast/skforecast/issues/1409) | Cobertura y anchura del intervalo en las métricas del backtesting (D11) | 2c-ii las lee de la salida del backtesting, sin cálculo propio en el script | Abierto |
 | [#1411](https://github.com/skforecast/skforecast/issues/1411) | El error "All samples have been removed due to NaNs" aconseja `dropna_from_series = False`, que falla con un estimador que no acepta faltantes (D17, #105) | Nada: la comprobación previa de 3a ya da el consejo que funciona antes de ejecutar; con el arreglo, el error de skforecast dentro de un script también lo dirá | Abierto |
