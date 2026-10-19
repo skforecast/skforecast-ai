@@ -15,8 +15,10 @@ Claude Code harness in `.claude/`.
   of `.claude/settings.local.json` makes the SessionStart hook put it on
   `PATH` and export `PYTHONPATH=.`, so commands need no `conda run` and
   no prefix; the edit hook takes ruff from there too.
-- Cloud session (`CLAUDE_CODE_REMOTE=true`): the SessionStart hook has
-  already installed the package with `[test,llm,docs]` and ruff, and exports
+- Cloud session (`CLAUDE_CODE_REMOTE=true`): the checkout may start older
+  than GitHub, so the SessionStart hook fetches the branch first; it
+  fast-forwards a clean protected branch and warns otherwise (act on the
+  warning before building on the branch). It has also already installed the package with `[test,llm,docs]` and ruff, and exports
   `SKFORECAST_AI_DOCS_PRIVACY=false` so the docs build without the privacy
   plugin (its downloads are blocked by the default network policy). Use
   `python -m pytest` directly; there is no conda and nobody to ask.
