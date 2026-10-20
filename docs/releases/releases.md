@@ -54,7 +54,7 @@ The main changes in this release are:
 
 + New `IntervalCoverageWarning` of [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` when the prediction interval covers clearly less than its nominal level in a series (more than two binomial standard errors and 5 points below it), naming the series or the candidates; an `IntervalCoverageNotice` in the MCP server. See [Exceptions][exceptions] ([#112](https://github.com/skforecast/skforecast-ai/pull/112)).
 
-+ New metric `root_mean_squared_error` (RMSE, in the units of the target) for `metric` of [<code>ForecastingAssistant.plan()</code>][assistant], `refine_plan()`, `forecast()` and `compare()`, `--metric` in the CLI and the MCP server, whose `MetricUnitNotice` gives its unit. The backtesting scripts pass the function of scikit-learn, since skforecast does not take it by name.
++ New metric `root_mean_squared_error` (RMSE, in the units of the target) for `metric` of [<code>ForecastingAssistant.plan()</code>][assistant], `refine_plan()`, `forecast()` and `compare()`, `--metric` in the CLI and the MCP server, whose `MetricUnitNotice` gives its unit. The backtesting scripts pass the function of scikit-learn, since skforecast does not take it by name ([#114](https://github.com/skforecast/skforecast-ai/pull/114)).
 
 + New option `--exog` of the `forecast-code` command of the [CLI][cli], so the script reads the future exogenous values from that file, as `forecast --exog` does, instead of `exog_future.csv`. See the [CLI guide][cli-guide] ([#99](https://github.com/skforecast/skforecast-ai/pull/99)).
 
@@ -89,7 +89,7 @@ The main changes in this release are:
 
 + The description of a forecast run with `test_size`, in `describe()` and in the context of [<code>ForecastingAssistant.ask()</code>][assistant], says that its metrics come from a hold-out evaluation on dates already in the data, not from a forecast of the future ([#109](https://github.com/skforecast/skforecast-ai/pull/109)).
 
-+ The metrics of [<code>ForecastingAssistant.forecast()</code>][assistant] with `test_size` have the columns of those of `backtest()`, in [<code>ForecastResult</code>][results], the CLI and the MCP server: the names of the metrics (`mean_absolute_error` instead of `MAE`...) and `levels` instead of `series`, which a single series no longer has. The scripts of several series print the table with those columns.
++ The metrics of [<code>ForecastingAssistant.forecast()</code>][assistant] with `test_size` have the columns of those of `backtest()`, in [<code>ForecastResult</code>][results], the CLI and the MCP server: the names of the metrics (`mean_absolute_error` instead of `MAE`...) and `levels` instead of `series`, which a single series no longer has. The scripts of several series print the table with those columns ([#114](https://github.com/skforecast/skforecast-ai/pull/114)).
 
 
 **Fixed**

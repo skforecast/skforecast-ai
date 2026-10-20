@@ -1217,7 +1217,8 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     ajuste de un ARIMA se comparan con `rtol=1e-4` (la anchura difiere un
     4.7e-5 relativo en macOS arm).
 - **D?. 3c-ii: RMSE como métrica y las columnas de las métricas del
-  forecast (V05)** (2026-10-20). Concreta D4:
+  forecast (V05)** (2026-10-20), en
+  [#114](https://github.com/skforecast/skforecast-ai/pull/114). Concreta D4:
   - `root_mean_squared_error` entra en `ALLOWED_METRICS`, detrás de los ocho
     nombres que acepta el backtesting de skforecast: `metric` de `plan`,
     `refine_plan`, `forecast` y `compare`, `--metric` de la CLI y el enum
