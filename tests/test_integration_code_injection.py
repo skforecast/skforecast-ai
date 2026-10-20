@@ -507,10 +507,9 @@ def test_run_backtest_ValueError_when_plan_value_outside_closed_set(
         ("gap", f"1 if {PAYLOAD} is None else 1", "`gap` must be an integer"),
         ("fold_stride", f"5 if {PAYLOAD} is None else 5", "`fold_stride` must be an integer"),
         ("skip_folds", f"[1] if {PAYLOAD} is None else [1]", "`skip_folds` must be an integer"),
-        ("differentiation", f"1 if {PAYLOAD} is None else 1", "`differentiation` must be an integer"),
         ("refit", f"True if {PAYLOAD} is None else True", "`refit` must be an integer"),
     ],
-    ids=["gap", "fold_stride", "skip_folds", "differentiation", "refit"],
+    ids=["gap", "fold_stride", "skip_folds", "refit"],
 )
 def test_run_backtest_ValueError_when_cv_attribute_assigned_after_creation(
     monkeypatch, tmp_path, attribute, value, err_msg
@@ -533,6 +532,33 @@ def test_run_backtest_ValueError_when_cv_attribute_assigned_after_creation(
             cv_explanation = cv_explanation_single,
             show_progress  = False,
         )
+    assert not (tmp_path / MARKER).exists()
+
+
+def test_run_backtest_output_when_cv_differentiation_assigned_after_creation(
+    monkeypatch, tmp_path
+):
+    """
+    Test that a payload assigned to the `differentiation` of a
+    TimeSeriesFold after it was created never reaches the script: the
+    strategy is written without the order, which skforecast 0.27 takes from
+    the window of the forecaster, so the payload is not run.
+    """
+    monkeypatch.chdir(tmp_path)
+    cv = copy.deepcopy(cv_single)
+    cv.differentiation = f"1 if {PAYLOAD} is None else 1"
+
+    result = run_backtest(
+        data           = df_single,
+        profile        = profile_single,
+        plan           = plan_single,
+        cv             = cv,
+        cv_explanation = cv_explanation_single,
+        show_progress  = False,
+    )
+
+    strategy = result["rendered_code"].full_script.split("cv = TimeSeriesFold(")[1]
+    assert "differentiation" not in strategy.split(")")[0]
     assert not (tmp_path / MARKER).exists()
 
 

@@ -288,9 +288,6 @@ def configure_cv_with_llm(
                 "fold_stride": cv_params.fold_stride,
                 "skip_folds": cv_params.skip_folds,
                 "allow_incomplete_fold": cv_params.allow_incomplete_fold,
-                "differentiation": plan.forecaster_kwargs.get(
-                    "differentiation"
-                ),
                 "_reasoning": cv_params.reasoning,
             }
 

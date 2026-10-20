@@ -1572,6 +1572,10 @@ def test_backtest_ValueError_when_use_exog_differs_from_plan():
         )
 
 
+# The `FutureWarning` of skforecast 0.27 for `TimeSeriesFold(differentiation=...)`.
+DEPRECATED_DIFFERENTIATION = re.escape("`differentiation` is deprecated")
+
+
 def test_backtest_output_when_cv_without_differentiation_and_plan_with_it():
     """
     Test that a strategy without a differentiation order backtests a plan
@@ -1587,7 +1591,7 @@ def test_backtest_output_when_cv_without_differentiation_and_plan_with_it():
         "data": df_single, "target": "sales", "date_column": "date",
         "profile": profile, "plan": plan, "show_progress": False,
     }
-    with pytest.warns(FutureWarning, match=re.escape("`differentiation` is deprecated")):
+    with pytest.warns(FutureWarning, match=DEPRECATED_DIFFERENTIATION):
         cv_with_order = TimeSeriesFold(
             steps=5, initial_train_size=60, differentiation=2
         )
@@ -1644,7 +1648,7 @@ def test_backtest_output_when_stats_ignores_cv_differentiation():
     `FutureWarning`), which it never read.
     """
     assistant = ForecastingAssistant()
-    with pytest.warns(FutureWarning, match=re.escape("`differentiation` is deprecated")):
+    with pytest.warns(FutureWarning, match=DEPRECATED_DIFFERENTIATION):
         cv = TimeSeriesFold(steps=12, initial_train_size=150, differentiation=1)
 
     result = assistant.backtest(
