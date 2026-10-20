@@ -117,6 +117,14 @@ def run_forecast(
         `'rendered_code'`. In prediction mode `'metrics'` is None. When
         prediction intervals are requested, the interval columns are
         included in `'predictions'`.
+
+    Notes
+    -----
+    `'metrics'` has the columns of the metrics of a backtest of the same
+    plan: one per metric, named as the metric, and `levels` with several
+    series and with ForecasterDirectMultiVariate. The script of several
+    series builds that table (`metrics_df`); with one series, the script
+    computes one variable per metric and the table is built from them.
     """
     rendered = render_forecast_script(profile, plan, exog_file)
     if exog is not None:
@@ -141,20 +149,22 @@ def run_forecast(
         # to compare against, so no metrics are produced.
         metrics = None
     else:
-        # Build unified metrics DataFrame
+        # The columns are those of the metrics of a backtest of the same
+        # plan, so a reader of one reads the other.
         metrics_df = namespace.get("metrics_df")
         if metrics_df is not None:
-            # Multi-series: metrics_df already has dynamic columns
             metrics = metrics_df
         else:
-            # Single series: extract scalar variables by metric var name
-            target_name = profile.target
-            if isinstance(target_name, list):
-                target_name = target_name[0]
-            row: dict[str, object] = {"series": target_name}
+            # The backtesting of ForecasterDirectMultiVariate names its one
+            # level in `levels`; that of a single series has no such column.
+            row: dict[str, object] = {}
+            if plan.task_type == "multivariate":
+                target_name = profile.target
+                if isinstance(target_name, list):
+                    target_name = target_name[0]
+                row["levels"] = target_name
             for m in plan.metrics_to_compute:
-                info = _metric_info(m)
-                row[info["label"]] = namespace.get(info["var"])
+                row[m] = namespace.get(_metric_info(m)["var"])
             metrics = pd.DataFrame([row])
 
     # Ensure predictions is a DataFrame

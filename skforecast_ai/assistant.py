@@ -2588,9 +2588,11 @@ class ForecastingAssistant:
             - code: generated Python script equivalent to the execution.
             - predictions: forecasted values for the requested steps,
             including the interval columns when `interval` is set.
-            - metrics: evaluation metrics, one row per series. None in
-            prediction mode (`test_size=None`), where there is no ground
-            truth to evaluate against.
+            - metrics: evaluation metrics, with the columns of the
+            metrics of `backtest()`: one per metric, named as the metric,
+            and `levels` with several series. None in prediction mode
+            (`test_size=None`), where there is no ground truth to evaluate
+            against.
 
         Notes
         -----

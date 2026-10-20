@@ -197,6 +197,16 @@ plan_single_metric_override = plan_single_recursive_no_exog.model_copy(
     }
 )
 
+# `plan(metric=[...])` with `root_mean_squared_error`, which skforecast's
+# backtesting does not take by name.
+plan_single_rmse = plan_single_recursive_no_exog.model_copy(
+    update={
+        "metric": "root_mean_squared_error",
+        "metrics_to_compute": ["root_mean_squared_error", "mean_absolute_error"],
+        "overridden_fields": ["metric"],
+    }
+)
+
 # `plan(use_exog=False)` on data with exogenous columns.
 plan_single_without_exog = plan_single_recursive.model_copy(
     update={"use_exog": False, "overridden_fields": ["use_exog"]}

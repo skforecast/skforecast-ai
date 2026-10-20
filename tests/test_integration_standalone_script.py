@@ -45,7 +45,9 @@ from tests.fixtures_datasets import df_h2o, df_items_sales_long
 from tests.fixtures_future_exog import data_long, exog_long
 
 
-def _run_standalone(script: str, workdir) -> pd.DataFrame:
+def _run_standalone(
+    script: str, workdir, variable: str = "predictions"
+) -> pd.DataFrame:
     """
     Run a generated script in a fresh interpreter and collect `predictions`.
 
@@ -60,22 +62,26 @@ def _run_standalone(script: str, workdir) -> pd.DataFrame:
         Full standalone script (`result.code`).
     workdir : Path
         Directory holding the CSV files the script reads.
+    variable : str, default 'predictions'
+        Variable of the script to export, such as `'metrics'` of a
+        backtesting script.
 
     Returns
     -------
     predictions : pandas DataFrame
         Predictions produced by the script, index parsed back to datetime.
+        With another `variable`, that variable, read back as written.
     """
 
     script_path = workdir / "script.py"
     script_path.write_text(script)
-    export_path = workdir / "predictions.csv"
+    export_path = workdir / f"{variable}.csv"
     wrapper = workdir / "run.py"
     wrapper.write_text(textwrap.dedent(f"""
         import runpy
         import pandas as pd
         namespace = runpy.run_path({str(script_path)!r})
-        pd.DataFrame(namespace["predictions"]).to_csv({str(export_path)!r})
+        pd.DataFrame(namespace[{variable!r}]).to_csv({str(export_path)!r})
     """))
 
     proc = subprocess.run(
@@ -83,6 +89,9 @@ def _run_standalone(script: str, workdir) -> pd.DataFrame:
         cwd=workdir, capture_output=True, text=True, timeout=600,
     )
     assert proc.returncode == 0, proc.stderr[-3000:]
+
+    if variable != "predictions":
+        return pd.read_csv(export_path, index_col=0)
 
     # The series names are text, as the script names them ('001').
     predictions = pd.read_csv(export_path, index_col=0, dtype={"level": str})
@@ -968,13 +977,80 @@ def test_standalone_scripts_match_forecast_and_backtest_when_metric_override(
 
     assert forecast_code == forecast.code
     assert backtest_code == backtest.code
-    assert list(forecast.metrics.columns) == ["series", "MSE", "MedAE"]
+    assert list(forecast.metrics.columns) == metric
     assert list(backtest.metrics.columns) == metric
     _assert_same_predictions(_run_standalone(forecast_code, tmp_path), forecast.predictions)
     np.testing.assert_allclose(
         _run_standalone(backtest_code, tmp_path)["pred"].to_numpy(),
         backtest.predictions["pred"].to_numpy(),
         rtol=1e-6,
+    )
+
+
+@pytest.mark.parametrize(
+    "frame, target, levels",
+    [
+        (df_single, "sales", None),
+        (df_multi_wide, ["series_a", "series_b"], ["series_a", "series_b"]),
+    ],
+    ids=["single series", "multi series"],
+)
+def test_standalone_scripts_match_forecast_and_backtest_when_metric_is_rmse(
+    tmp_path, frame, target, levels
+):
+    """
+    Test that `root_mean_squared_error` runs in the scripts of
+    forecast_code() (evaluation mode, the function of scikit-learn) and
+    backtest_code() (by name, as the other metrics) as files: the backtest
+    script gives the metrics of backtest(), the metrics of forecast() have
+    the columns of those of backtest() (`levels` with several series, the
+    table the forecast script builds then), and the RMSE is the square root
+    of the MSE, in the units of the target.
+    """
+    csv_path = tmp_path / "data.csv"
+    frame.to_csv(csv_path, index=False)
+    assistant = ForecastingAssistant()
+    metric = ["root_mean_squared_error", "mean_squared_error"]
+    cv = TimeSeriesFold(steps=5, initial_train_size=60, refit=False)
+    inputs = {"data": csv_path, "target": target, "date_column": "date"}
+
+    forecast_code = assistant.forecast_code(
+        **inputs, steps=5, test_size=5, metric=metric
+    ).code
+    forecast = assistant.forecast(**inputs, steps=5, test_size=5, metric=metric)
+    backtest_code = assistant.backtest_code(**inputs, cv=cv, metric=metric).code
+    backtest = assistant.backtest(**inputs, cv=cv, metric=metric, show_progress=False)
+
+    assert forecast_code == forecast.code
+    assert backtest_code == backtest.code
+    assert (
+        "from sklearn.metrics import root_mean_squared_error, mean_squared_error\n"
+        in forecast_code
+    )
+    assert "sklearn.metrics" not in backtest_code
+    assert (
+        "metric            = ['root_mean_squared_error', 'mean_squared_error'],"
+        in backtest_code
+    )
+    columns = metric if levels is None else ["levels", *metric]
+    assert list(forecast.metrics.columns) == columns
+    assert list(backtest.metrics.columns) == columns
+    if levels is not None:
+        assert list(forecast.metrics["levels"]) == levels
+    np.testing.assert_allclose(
+        forecast.metrics["root_mean_squared_error"].to_numpy(),
+        np.sqrt(forecast.metrics["mean_squared_error"].to_numpy()),
+    )
+    _assert_same_predictions(_run_standalone(forecast_code, tmp_path), forecast.predictions)
+    if levels is not None:
+        # With several series the forecast script builds the table itself.
+        pd.testing.assert_frame_equal(
+            _run_standalone(forecast_code, tmp_path, variable="metrics_df"),
+            forecast.metrics,
+        )
+    pd.testing.assert_frame_equal(
+        _run_standalone(backtest_code, tmp_path, variable="metrics"),
+        backtest.metrics,
     )
 
 
@@ -1002,12 +1078,12 @@ def test_standalone_scripts_match_forecast_and_backtest_when_target_crosses_zero
     assert backtest_code == backtest.code
     assert "mean_absolute_percentage_error" not in forecast_code
     assert "mean_absolute_percentage_error" not in backtest_code
-    assert list(forecast.metrics.columns) == ["series", "MAE", "MSE", "MASE"]
-    assert list(backtest.metrics.columns) == [
+    assert list(forecast.metrics.columns) == [
         "mean_absolute_error",
         "mean_squared_error",
         "mean_absolute_scaled_error",
     ]
+    assert list(backtest.metrics.columns) == list(forecast.metrics.columns)
     _assert_same_predictions(_run_standalone(forecast_code, tmp_path), forecast.predictions)
     np.testing.assert_allclose(
         _run_standalone(backtest_code, tmp_path)["pred"].to_numpy(),
@@ -1434,7 +1510,7 @@ def test_standalone_script_matches_forecast_when_series_ids_are_numbers(
         in code
     )
     assert sorted(executed.predictions["level"].unique()) == levels
-    assert sorted(executed.metrics["series"]) == levels
+    assert sorted(executed.metrics["levels"]) == levels
     standalone = _run_standalone(code, tmp_path)
     assert list(standalone["level"]) == list(executed.predictions["level"])
     np.testing.assert_allclose(

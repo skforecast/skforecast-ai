@@ -42,7 +42,7 @@ plan_categorical = assistant.plan(profile_categorical, steps=5)
 # `11.5` is an interior value: not the minimum, the maximum, or the mean,
 # so it can only reach the context through a row-level rendering.
 predictions = pd.DataFrame({"pred": [10.0, 11.5, 15.0]})
-metrics = pd.DataFrame({"series": ["sales"], "MAE": [1.5]})
+metrics = pd.DataFrame({"mean_absolute_error": [1.5]})
 cv_config = {"steps": 5, "initial_train_size": 80, "n_folds": 4}
 
 
@@ -511,7 +511,7 @@ def test_render_metrics_section_output_when_plan_is_a_holdout_evaluation(
     `describe()`, as a hold-out evaluation on dates already in the data and
     not a forecast of the future, with the end of training and the steps.
     """
-    metrics = pd.DataFrame({"series": ["sales"], "MAE": [2.5]})
+    metrics = pd.DataFrame({"mean_absolute_error": [2.5]})
     holdout = plan.model_copy(update={"end_train": "2023-04-05"})
     one_step = plan.model_copy(update={"end_train": "2023-04-09", "steps": 1})
 
@@ -525,8 +525,8 @@ def test_render_metrics_section_output_when_plan_is_a_holdout_evaluation(
         "trained on the data up to 2023-04-05 and predicted the next 5 steps, "
         "whose dates are already in the data. These metrics score those "
         "predictions against the observed values.\n"
-        "series  MAE\n"
-        " sales  2.5\n"
+        " mean_absolute_error\n"
+        "                 2.5\n"
         "</evaluation_metrics>"
     )
     assert "predicted the next 1 step, whose" in render_metrics_section(
@@ -540,7 +540,7 @@ def test_render_metrics_section_output_without_holdout_text_when_no_end_train():
     future) adds nothing to the metrics, and that without metrics the
     hold-out text is never given.
     """
-    metrics = pd.DataFrame({"series": ["sales"], "MAE": [2.5]})
+    metrics = pd.DataFrame({"mean_absolute_error": [2.5]})
     holdout = plan.model_copy(update={"end_train": "2023-04-05"})
 
     assert render_metrics_section(metrics, plan=plan) == (
@@ -765,12 +765,12 @@ def _profile_with(**fields):
 def test_render_metrics_section_output_when_for_describe_and_forecast_metrics():
     """
     Test that with `for_describe=True` the per-series metrics of a forecast
-    (a `series` column, no aggregated rows) keep the rows of the first 5
+    (a `levels` column, no aggregated rows) keep the rows of the first 5
     series and say so without mentioning aggregated rows.
     """
     metrics = pd.DataFrame({
-        "series": [f"s{i}" for i in range(8)],
-        "MAE":    [float(i) for i in range(8)],
+        "levels":              [f"s{i}" for i in range(8)],
+        "mean_absolute_error": [float(i) for i in range(8)],
     })
 
     section = render_metrics_section(metrics, for_describe=True)
@@ -778,12 +778,12 @@ def test_render_metrics_section_output_when_for_describe_and_forecast_metrics():
     expected = (
         "<evaluation_metrics>\n"
         "Rows shown (first 5 of 8 series).\n"
-        "series  MAE\n"
-        "    s0  0.0\n"
-        "    s1  1.0\n"
-        "    s2  2.0\n"
-        "    s3  3.0\n"
-        "    s4  4.0\n"
+        "levels  mean_absolute_error\n"
+        "    s0                  0.0\n"
+        "    s1                  1.0\n"
+        "    s2                  2.0\n"
+        "    s3                  3.0\n"
+        "    s4                  4.0\n"
         "</evaluation_metrics>"
     )
     assert section == expected
@@ -809,7 +809,7 @@ def test_render_metrics_section_output_when_for_describe_keeps_whole_table(
 ):
     """
     Test that with `for_describe=True` a table of at most 5 series, or one
-    without a `levels` or `series` column, is rendered whole.
+    without a `levels` column, is rendered whole.
     """
     section = render_metrics_section(metrics, for_describe=True)
 

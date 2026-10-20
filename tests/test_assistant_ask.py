@@ -367,9 +367,11 @@ def test_ask_output_when_forecast_result_provided(monkeypatch):
     plan = assistant.plan(profile, steps=5)
 
     predictions = pd.DataFrame({"pred": [10.0, 11.0, 12.0, 13.0, 14.0]})
-    metrics = pd.DataFrame(
-        {"series": ["sales"], "MAE": [1.5], "MSE": [3.2], "MASE": [0.8]}
-    )
+    metrics = pd.DataFrame({
+        "mean_absolute_error":        [1.5],
+        "mean_squared_error":         [3.2],
+        "mean_absolute_scaled_error": [0.8],
+    })
     mock_forecast_result = ForecastResult(
         profile=profile,
         plan=plan,
@@ -394,7 +396,7 @@ def test_ask_output_when_forecast_result_provided(monkeypatch):
     # Context message carries the results sections and metric values.
     assert "<predictions>" in capture["message"]
     assert "<evaluation_metrics>" in capture["message"]
-    assert "MAE" in capture["message"]
+    assert "mean_absolute_error" in capture["message"]
 
     assert result.profile is profile
     assert result.plan is plan
@@ -468,7 +470,11 @@ def test_ask_output_when_forecast_result_with_intervals(monkeypatch):
         "lower_bound": [8.0, 9.0, 10.0, 11.0, 12.0],
         "upper_bound": [12.0, 13.0, 14.0, 15.0, 16.0],
     })
-    metrics = pd.DataFrame({"series": ["sales"], "MAE": [1.5], "MSE": [3.2], "MASE": [0.8]})
+    metrics = pd.DataFrame({
+        "mean_absolute_error":        [1.5],
+        "mean_squared_error":         [3.2],
+        "mean_absolute_scaled_error": [0.8],
+    })
     mock_forecast_result = ForecastResult(
         profile=profile,
         plan=plan,
@@ -568,7 +574,11 @@ def test_ask_output_when_large_predictions_truncated(monkeypatch):
     plan = assistant.plan(profile, steps=5)
 
     predictions = pd.DataFrame({"pred": np.arange(50, dtype=float)})
-    metrics = pd.DataFrame({"series": ["sales"], "MAE": [2.0], "MSE": [4.0], "MASE": [1.0]})
+    metrics = pd.DataFrame({
+        "mean_absolute_error":        [2.0],
+        "mean_squared_error":         [4.0],
+        "mean_absolute_scaled_error": [1.0],
+    })
     mock_forecast_result = ForecastResult(
         profile=profile,
         plan=plan,
@@ -690,9 +700,11 @@ def test_ask_output_when_backtest_result_provided(monkeypatch):
     plan = assistant.plan(profile, steps=5)
 
     predictions = pd.DataFrame({"pred": [10.0, 11.0, 12.0, 13.0, 14.0]})
-    metrics = pd.DataFrame(
-        {"series": ["sales"], "MAE": [1.5], "MSE": [3.2], "MASE": [0.8]}
-    )
+    metrics = pd.DataFrame({
+        "mean_absolute_error":        [1.5],
+        "mean_squared_error":         [3.2],
+        "mean_absolute_scaled_error": [0.8],
+    })
     cv_config = {
         "steps": 5,
         "initial_train_size": 80,
@@ -728,7 +740,7 @@ def test_ask_output_when_backtest_result_provided(monkeypatch):
     assert "initial_train_size" in capture["message"]
     assert "- n_folds: 4" in capture["message"]
     assert "<evaluation_metrics>" in capture["message"]
-    assert "MAE" in capture["message"]
+    assert "mean_absolute_error" in capture["message"]
 
     # The deterministic explanation is forwarded so the LLM does not have
     # to re-derive facts that were already computed.

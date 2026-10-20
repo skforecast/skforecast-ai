@@ -245,6 +245,7 @@ PASSTHROUGH_KWARGS_ESTIMATORS: set[str] = {"LGBMRegressor", "XGBRegressor"}
 # classification scores, which are higher is better and never apply here.
 ALLOWED_METRICS: tuple[str, ...] = (
     "mean_squared_error",
+    "root_mean_squared_error",
     "mean_absolute_error",
     "mean_absolute_percentage_error",
     "mean_squared_log_error",

@@ -1635,8 +1635,14 @@ def test_plan_output_overridden_fields_record_the_arguments_given():
             "Primary metric: median_absolute_error, as requested; also "
             "computed: mean_absolute_error.",
         ),
+        (
+            "root_mean_squared_error",
+            "root_mean_squared_error",
+            ["root_mean_squared_error"],
+            "Metric: root_mean_squared_error, as requested.",
+        ),
     ],
-    ids=["one metric", "list"],
+    ids=["one metric", "list", "root mean squared error"],
 )
 def test_plan_output_when_metric_given(
     metric, expected_metric, expected_metrics, sentence

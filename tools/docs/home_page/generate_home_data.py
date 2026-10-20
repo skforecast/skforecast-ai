@@ -243,7 +243,7 @@ def write_animation_data(
         data=data, test_size=STEPS, profile=profile, plan=refined
     )
     metrics = result.metrics.iloc[0]
-    mase = float(metrics["MASE"])
+    mase = float(metrics["mean_absolute_scaled_error"])
 
     lags = lags_list(refined.forecaster_kwargs["lags"])
     rejected = lags + [REJECTED_EXTRA_LAG]
@@ -274,7 +274,7 @@ def write_animation_data(
         "lo": rounded(predictions["lower_bound"]),
         "hi": rounded(predictions["upper_bound"]),
         "metrics": {
-            "mae": round(float(metrics["MAE"]), 1),
+            "mae": round(float(metrics["mean_absolute_error"]), 1),
             "mase": round(mase, 2),
         },
         "profile": [
@@ -321,7 +321,10 @@ def write_animation_data(
         encoding="utf-8",
     )
     print(f"Wrote {ANIMATION_OUTPUT.relative_to(REPO_ROOT)}")
-    print(f"Refined: lags {lags}, MAE {metrics['MAE']:.4f}, MASE {mase:.6f}")
+    print(
+        f"Refined: lags {lags}, MAE {metrics['mean_absolute_error']:.4f}, "
+        f"MASE {mase:.6f}"
+    )
 
 
 def scenario_cv(assistant: ForecastingAssistant, profile, plan) -> tuple:
@@ -623,8 +626,12 @@ def check_quoted_numbers(result, cv_result, comparison, plan) -> None:
         "gap to the baseline (%)": r"beats (?:the baseline .*?|it) by ([\d.]+)%",
     }
     actual = {
-        "forecast MAE": round(float(result.metrics.iloc[0]["MAE"]), 1),
-        "forecast MASE": round(float(result.metrics.iloc[0]["MASE"]), 2),
+        "forecast MAE": round(
+            float(result.metrics.iloc[0]["mean_absolute_error"]), 1
+        ),
+        "forecast MASE": round(
+            float(result.metrics.iloc[0]["mean_absolute_scaled_error"]), 2
+        ),
         "backtest MAE": round(float(winner["mean_absolute_error"]), 1),
         "backtest MASE": round(float(winner["mean_absolute_scaled_error"]), 2),
         "backtest folds": int(cv_result.cv_config["n_folds"]),
@@ -678,7 +685,7 @@ def main() -> None:
     )
 
     metrics = result.metrics.iloc[0]
-    mase = float(metrics["MASE"])
+    mase = float(metrics["mean_absolute_scaled_error"])
     check_quoted_numbers(result, cv_result, comparison, plan)
     leaderboard = comparison.results
 
@@ -725,9 +732,9 @@ def main() -> None:
             "metric": plan.metric,
         },
         "metrics": {
-            "mae": round(float(metrics["MAE"]), 1),
+            "mae": round(float(metrics["mean_absolute_error"]), 1),
             "mase": round(mase, 2),
-            "mape": round(float(metrics["MAPE"]), 2),
+            "mape": round(float(metrics["mean_absolute_percentage_error"]), 2),
         },
         "code": result.code,
         "compare": {
@@ -748,7 +755,7 @@ def main() -> None:
 
     OUTPUT.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
     print(f"Wrote {OUTPUT.relative_to(REPO_ROOT)}")
-    print(f"MAE {metrics['MAE']:.4f}, MASE {mase:.6f}")
+    print(f"MAE {metrics['mean_absolute_error']:.4f}, MASE {mase:.6f}")
     print(comparison.explanation)
 
     write_animation_data(assistant, data, profile, plan)

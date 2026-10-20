@@ -1,23 +1,28 @@
 # Unit test tool forecast
 
+import numpy as np
 import pandas as pd
 import pytest
 
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai._utils import load_exog
 from skforecast_ai.mcp import create_server
+from skforecast_ai.mcp.models import ToolNotice
 
-from ..fixtures_assistant import df_crossing_zero, df_single
+from ..fixtures_assistant import df_crossing_zero, df_multi_wide, df_single
 from ..fixtures_csv_dialect import df_dialect, write_dialect
 from ..fixtures_datasets import df_items_sales_long
 from .fixtures_mcp import (
     DATA_VALUES_HINT,
+    MSE_UNIT,
+    RMSE_UNIT,
     call,
     df_numeric_ids_exog,
     df_numeric_ids_future_exog,
     df_single_future_exog,
     content_of,
     csv_of,
+    cv_of,
     error_of,
     h2o_server,
     profile_and_plan,
@@ -98,6 +103,112 @@ def test_tool_forecast_evaluation_plan_is_not_registered(tmp_path):
         evaluation["notices"][0]["message"]
     )
     assert future["notices"] == []
+
+
+@pytest.mark.parametrize(
+    "frame, target, columns",
+    [
+        (
+            df_single,
+            "sales",
+            [
+                "mean_absolute_error",
+                "mean_squared_error",
+                "mean_absolute_scaled_error",
+            ],
+        ),
+        (
+            df_multi_wide,
+            ["series_a", "series_b"],
+            [
+                "levels",
+                "mean_absolute_error",
+                "mean_squared_error",
+                "mean_absolute_scaled_error",
+            ],
+        ),
+    ],
+    ids=["single series", "multi series"],
+)
+def test_tool_forecast_metrics_csv_has_the_columns_of_the_backtest(
+    tmp_path, frame, target, columns
+):
+    """
+    Test that the CSV of metrics of a `forecast` with `test_size` has the
+    columns of the CSV of metrics of a `backtest` of the same plan (V05 of
+    the audit): one per metric, named as the metric, which is the name the
+    `MetricReferenceNotice` of the same response uses, and `levels` with
+    the series when there are several, as skforecast's backtesting.
+    """
+    path = write_csv(tmp_path, "data.csv", frame)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, plan_id, cv_id = cv_of(
+        server, path, target=target, steps=5,
+        cv_arguments={"initial_train_size": 60},
+    )
+
+    forecast = content_of(
+        call(server, "forecast", {"plan_id": plan_id, "test_size": 5})
+    )
+    backtest = content_of(call(server, "backtest", {"cv_id": cv_id}))
+    forecast_metrics = pd.read_csv(forecast["files"]["metrics"], index_col=0)
+    backtest_metrics = pd.read_csv(backtest["files"]["metrics"], index_col=0)
+    reference = [
+        notice["message"] for notice in forecast["notices"]
+        if notice["category"] == "MetricReferenceNotice"
+    ]
+
+    assert list(forecast_metrics.columns) == columns
+    assert list(backtest_metrics.columns) == columns
+    if "levels" in columns:
+        assert list(forecast_metrics["levels"]) == target
+    assert reference[0].startswith("`mean_absolute_scaled_error` divides")
+
+
+def test_tool_forecast_output_when_metric_is_root_mean_squared_error(tmp_path):
+    """
+    Test that a plan whose `metric` is `root_mean_squared_error` computes
+    it in a `forecast` with `test_size` as the Python API does, in a column
+    of that name next to the MSE whose square root it is, and that the
+    response gives the units of both, squared and that of the target, in a
+    `MetricUnitNotice`.
+    """
+    path = write_csv(tmp_path, "sales.csv", df_single)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    metric = ["root_mean_squared_error", "mean_squared_error"]
+    _, plan_id = profile_and_plan(
+        server, path, target="sales", steps=5, metric=metric
+    )
+
+    result = content_of(
+        call(server, "forecast", {"plan_id": plan_id, "test_size": 5})
+    )
+    metrics = pd.read_csv(result["files"]["metrics"], index_col=0)
+
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(path, target="sales")
+    expected = assistant.forecast(
+        data=path,
+        profile=profile,
+        plan=assistant.plan(profile=profile, steps=5, metric=metric),
+        test_size=5,
+    )
+
+    assert text_of(result["files"]["metrics"]) == csv_of(expected.metrics)
+    assert list(metrics.columns) == metric
+    np.testing.assert_almost_equal(
+        metrics["root_mean_squared_error"].iloc[0],
+        np.sqrt(metrics["mean_squared_error"].iloc[0]),
+    )
+    assert result["notices"][0]["category"] == "HoldoutEvaluationNotice"
+    assert [ToolNotice(**n) for n in result["notices"][1:]] == [
+        ToolNotice(
+            source   = "runtime",
+            category = "MetricUnitNotice",
+            message  = f"{MSE_UNIT} {RMSE_UNIT}",
+            count    = 1,
+        )
+    ]
 
 
 def test_tool_forecast_with_future_exog(tmp_path):

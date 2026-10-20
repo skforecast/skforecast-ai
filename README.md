@@ -66,8 +66,11 @@ result.predictions.head()
 # 2007-11-01  1.110845
 
 result.metrics
-#   series       MAE       MSE      MASE      MAPE
-# 0      y  0.078442  0.008933  0.802828  0.088608
+#    mean_absolute_error  mean_squared_error  mean_absolute_scaled_error  \
+# 0             0.078442            0.008933                    0.802828
+#
+#    mean_absolute_percentage_error
+# 0                        0.088608
 
 print(result.code)  # the skforecast script that produced this result
 ```

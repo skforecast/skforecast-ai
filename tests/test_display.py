@@ -244,7 +244,7 @@ def test_render_dataframe_truncation_and_row_count_share_boundary(n_rows, trunca
 
 def test_render_metrics_with_series_column_and_nan():
     """
-    Test that render_metrics renders the 'Series' header for the series/levels
+    Test that render_metrics renders the 'Series' header for the `levels`
     column, formats metric floats, and shows NaN metrics as 'N/A'.
     """
     metrics = pd.DataFrame({"levels": ["a", "b"], "mae": [1.23456, np.nan]})
@@ -258,8 +258,8 @@ def test_render_metrics_with_series_column_and_nan():
 
 def test_render_metrics_metric_only_layout():
     """
-    Test that render_metrics omits the 'Series' column when no series/levels
-    column is present and formats every metric value.
+    Test that render_metrics omits the 'Series' column when no `levels`
+    column is present (one series) and formats every metric value.
     """
     metrics = pd.DataFrame({"mae": [1.5], "rmse": [2.5]})
     text = _render_to_text(render_metrics(metrics))

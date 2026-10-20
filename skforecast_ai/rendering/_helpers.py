@@ -148,6 +148,13 @@ _METRIC_REGISTRY: dict[str, dict[str, str | bool]] = {
         ),
         "requires_y_train": True,
     },
+    "root_mean_squared_error": {
+        "import": "from sklearn.metrics import root_mean_squared_error",
+        "var": "rmse",
+        "label": "RMSE",
+        "call": "root_mean_squared_error(actual, {pred_expr})",
+        "requires_y_train": False,
+    },
 }
 
 
@@ -937,7 +944,11 @@ def _emit_metrics_section_multiseries(
     pred_var: str,
     metrics_to_compute: list[str] | None = None,
 ) -> None:
-    """Append per-series evaluation metrics as a DataFrame."""
+    """
+    Append per-series evaluation metrics as a DataFrame with the columns of
+    the metrics of a multi-series backtest: `levels` and the names of the
+    metrics.
+    """
     if metrics_to_compute is None:
         metrics_to_compute = [
             "mean_absolute_error",
@@ -958,19 +969,19 @@ def _emit_metrics_section_multiseries(
         f"    pred = {pred_var}.loc[mask, 'pred'].values"
     )
     lines.append("    metrics_list.append({")
-    lines.append('        "series": series_name,')
+    lines.append('        "levels": series_name,')
     for m in metrics_to_compute:
         info = _metric_info(m)
         func_name = info["import"].split("import ")[-1]
         if info["requires_y_train"]:
-            lines.append(f'        "{info["label"]}": {func_name}(')
+            lines.append(f'        "{m}": {func_name}(')
             lines.append(
                 f"            actual, pred, y_train={train_dict_var}[series_name]"
             )
             lines.append("        ),")
         else:
             lines.append(
-                f'        "{info["label"]}": {func_name}(actual, pred),'
+                f'        "{m}": {func_name}(actual, pred),'
             )
     lines.append("    })")
     lines.append("metrics_df = pd.DataFrame(metrics_list)")
@@ -984,7 +995,11 @@ def _emit_metrics_section_foundation(
     train_var: str,
     metrics_to_compute: list[str] | None = None,
 ) -> None:
-    """Append evaluation metrics for ForecasterFoundation output."""
+    """
+    Append evaluation metrics for ForecasterFoundation output. With several
+    series, a DataFrame with the columns of the metrics of its backtest:
+    `levels` and the names of the metrics.
+    """
     if metrics_to_compute is None:
         metrics_to_compute = [
             "mean_absolute_error",
@@ -1005,19 +1020,19 @@ def _emit_metrics_section_foundation(
             f"    actual = {test_var}[level].iloc[:steps]"
         )
         lines.append("    metrics_list.append({")
-        lines.append('        "series": level,')
+        lines.append('        "levels": level,')
         for m in metrics_to_compute:
             info = _metric_info(m)
             func_name = info["import"].split("import ")[-1]
             if info["requires_y_train"]:
-                lines.append(f'        "{info["label"]}": {func_name}(')
+                lines.append(f'        "{m}": {func_name}(')
                 lines.append(
                     f"            actual, pred, y_train={train_var}[level]"
                 )
                 lines.append("        ),")
             else:
                 lines.append(
-                    f'        "{info["label"]}": {func_name}(actual, pred),'
+                    f'        "{m}": {func_name}(actual, pred),'
                 )
         lines.append("    })")
         lines.append("metrics_df = pd.DataFrame(metrics_list)")

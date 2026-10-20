@@ -26,8 +26,8 @@ A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 100 ob
 - Plan: ForecasterRecursive + Ridge. Lags: [1, 2, 3, 4, 5, 7]. Window features: ['mean(window=3)', 'std(window=3)', 'mean(window=7)', 'mean(window=21)']. Calendar features: ['day_of_week', 'weekend', 'month'] (cyclical encoding). MAE is interpretable, robust to outliers, and works at any scale.
 </forecast_plan>
 <evaluation_metrics>
-series  MAE  MSE  MASE
- sales  2.5 9.25   0.8
+ mean_absolute_error  mean_squared_error  mean_absolute_scaled_error
+                 2.5                9.25                         0.8
 </evaluation_metrics>
 <predictions>
 Shape: 5 rows x 1 columns

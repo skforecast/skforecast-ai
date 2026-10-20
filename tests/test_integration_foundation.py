@@ -58,8 +58,8 @@ def test_forecast_foundation_multi_series(data, inputs, series):
     ]
     assert sorted(result.predictions["level"].unique()) == series
     assert len(result.predictions) == 5 * len(series)
-    assert sorted(result.metrics["series"]) == series
-    assert np.isfinite(result.metrics["MAE"]).all()
+    assert sorted(result.metrics["levels"]) == series
+    assert np.isfinite(result.metrics["mean_absolute_error"]).all()
 
 
 # =============================================================================
@@ -128,7 +128,7 @@ def test_forecast_foundation_evaluation_with_missing_last_training_value():
         )
 
     actual = data.set_index(["series_id", "date"])["value"]
-    metrics = result.metrics.set_index("series")["MAE"]
+    metrics = result.metrics.set_index("levels")["mean_absolute_error"]
     assert sorted(metrics.index) == sorted(data["series_id"].unique())
     for series, predictions in result.predictions.groupby("level"):
         assert list(predictions.index) == list(dates[-5:])

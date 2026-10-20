@@ -576,6 +576,37 @@ def test_compare_output_when_metric_list_ranks_by_first():
     assert "metric" in result.best_candidate.plan.overridden_fields
 
 
+def test_compare_output_when_metric_is_rmse():
+    """
+    Test that `root_mean_squared_error` ranks the table and is the square
+    root of the MSE of every candidate.
+    """
+    result = assistant.compare(
+        data=df_single,
+        cv=_single_cv(),
+        target="sales",
+        date_column="date",
+        candidates=_LIGHT_CANDIDATES,
+        metric=["root_mean_squared_error", "mean_squared_error"],
+        show_progress=False,
+    )
+
+    assert result.ranking_metric == "root_mean_squared_error"
+    assert list(result.results.columns) == [
+        "rank",
+        "name",
+        "forecaster",
+        "estimator",
+        "root_mean_squared_error",
+        "mean_squared_error",
+    ]
+    ranking_values = result.results["root_mean_squared_error"].to_numpy()
+    assert np.all(np.diff(ranking_values) >= 0)
+    np.testing.assert_allclose(
+        ranking_values, np.sqrt(result.results["mean_squared_error"].to_numpy())
+    )
+
+
 # =============================================================================
 # Tests: interval and multi-series
 # =============================================================================
