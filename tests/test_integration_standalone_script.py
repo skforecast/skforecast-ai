@@ -1004,8 +1004,9 @@ def test_standalone_scripts_match_forecast_and_backtest_when_metric_is_rmse(
     (evaluation mode, the function of scikit-learn) and backtest_code()
     (the function passed in `metric`) as files: the backtest script gives
     the metrics of backtest(), the metrics of forecast() have the columns
-    of those of backtest() (`levels` with several series), and the RMSE is
-    the square root of the MSE, in the units of the target.
+    of those of backtest() (`levels` with several series, the table the
+    forecast script builds then), and the RMSE is the square root of the
+    MSE, in the units of the target.
     """
     csv_path = tmp_path / "data.csv"
     frame.to_csv(csv_path, index=False)
@@ -1037,6 +1038,12 @@ def test_standalone_scripts_match_forecast_and_backtest_when_metric_is_rmse(
         np.sqrt(forecast.metrics["mean_squared_error"].to_numpy()),
     )
     _assert_same_predictions(_run_standalone(forecast_code, tmp_path), forecast.predictions)
+    if levels is not None:
+        # With several series the forecast script builds the table itself.
+        pd.testing.assert_frame_equal(
+            _run_standalone(forecast_code, tmp_path, variable="metrics_df"),
+            forecast.metrics,
+        )
     pd.testing.assert_frame_equal(
         _run_standalone(backtest_code, tmp_path, variable="metrics"),
         backtest.metrics,

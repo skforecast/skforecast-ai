@@ -70,6 +70,13 @@ DATA_VALUES_HINT = (
     "why."
 )
 
+# Unit of RMSE in the `MetricUnitNotice` of a result that computes it.
+RMSE_UNIT = (
+    "`root_mean_squared_error` is in the units of the target (the square "
+    "root of `mean_squared_error`, which is in squared units): report it as "
+    "it is."
+)
+
 # Ten future values of `promo` after the last date of `df_single`.
 df_single_future_exog = pd.DataFrame(
     {

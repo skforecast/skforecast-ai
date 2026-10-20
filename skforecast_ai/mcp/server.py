@@ -908,7 +908,7 @@ def _unit_notices(
     would multiply by 100 next to it. On a target at or around zero, MAPE
     divides by values near zero: telling the agent to multiply its 3e13 by
     100 invited a 3e15 %. RMSE is in the units of the target, unlike MSE,
-    whose square root agents took by hand before the server computed RMSE.
+    in squared units, whose square root agents would otherwise take by hand.
 
     Parameters
     ----------

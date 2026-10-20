@@ -7,6 +7,8 @@ from skforecast_ai.mcp.models import ToolNotice
 from skforecast_ai.mcp.server import _metric_notices, _unit_notices
 from skforecast_ai.schemas import DataProfile
 
+from .fixtures_mcp import RMSE_UNIT
+
 MAPE_NOTICE = ToolNotice(
     source   = "runtime",
     category = "MetricUnitNotice",
@@ -22,12 +24,6 @@ SMAPE_UNIT = (
     "`symmetric_mean_absolute_percentage_error` is already a percentage, "
     "from 0 to 200: 1.245 is 1.245 %. Write it with a % sign as it is, "
     "without multiplying it by 100."
-)
-
-RMSE_UNIT = (
-    "`root_mean_squared_error` is in the units of the target (the square "
-    "root of `mean_squared_error`, which is in squared units): report it as "
-    "it is."
 )
 
 

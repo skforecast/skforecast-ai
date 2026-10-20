@@ -200,14 +200,14 @@ def test_build_context_message_with_predictions_and_metrics():
     when send_data=True.
     """
     predictions = pd.DataFrame({"pred": [10.0, 11.0, 12.0]})
-    metrics = pd.DataFrame({"series": ["target"], "MAE": [1.5]})
+    metrics = pd.DataFrame({"mean_absolute_error": [1.5]})
 
     result = build_context_message(
         predictions=predictions, metrics=metrics, send_data=True
     )
 
     assert "<evaluation_metrics>" in result
-    assert "MAE" in result
+    assert "mean_absolute_error" in result
     assert "1.5" in result
     assert "<predictions>" in result
     assert "10.0" in result
@@ -223,7 +223,7 @@ def test_build_context_message_with_intervals():
         "lower_bound": [8.0, 9.0],
         "upper_bound": [12.0, 13.0],
     })
-    metrics = pd.DataFrame({"series": ["target"], "MAE": [1.0]})
+    metrics = pd.DataFrame({"mean_absolute_error": [1.0]})
 
     result = build_context_message(
         predictions=predictions,
@@ -344,7 +344,7 @@ def test_build_context_message_results_only_no_profile():
     Test that results can be shown without a profile or plan.
     """
     predictions = pd.DataFrame({"pred": [5.0, 6.0]})
-    metrics = pd.DataFrame({"series": ["target"], "MAE": [0.5]})
+    metrics = pd.DataFrame({"mean_absolute_error": [0.5]})
 
     result = build_context_message(predictions=predictions, metrics=metrics)
 
@@ -369,7 +369,7 @@ def test_build_context_message_send_data_false_excludes_raw_rows():
         "lower_bound": [8.0, 9.0, 10.0],
         "upper_bound": [13.0, 14.0, 15.0],
     })
-    metrics = pd.DataFrame({"series": ["target"], "MAE": [1.5]})
+    metrics = pd.DataFrame({"mean_absolute_error": [1.5]})
 
     result = build_context_message(
         predictions=predictions,
@@ -378,7 +378,7 @@ def test_build_context_message_send_data_false_excludes_raw_rows():
     )
 
     # Metrics are always included (aggregate)
-    assert "MAE" in result
+    assert "mean_absolute_error" in result
     assert "1.5" in result
     # Predictions section uses summary format
     assert "<predictions>" in result
@@ -394,7 +394,7 @@ def test_build_context_message_send_data_true_includes_raw_rows():
     Test that raw prediction values are included when send_data=True.
     """
     predictions = pd.DataFrame({"pred": [10.5, 11.2, 12.8]})
-    metrics = pd.DataFrame({"series": ["target"], "MAE": [1.5]})
+    metrics = pd.DataFrame({"mean_absolute_error": [1.5]})
 
     result = build_context_message(
         predictions=predictions,
@@ -412,14 +412,16 @@ def test_build_context_message_metrics_always_included_regardless_of_flag():
     Test that metrics (aggregate values) are always included whether
     send_data is True or False.
     """
-    metrics = pd.DataFrame({"series": ["target"], "MAE": [2.3], "RMSE": [3.1]})
+    metrics = pd.DataFrame(
+        {"mean_absolute_error": [2.3], "root_mean_squared_error": [3.1]}
+    )
 
     result_false = build_context_message(metrics=metrics, send_data=False)
     result_true = build_context_message(metrics=metrics, send_data=True)
 
-    assert "MAE" in result_false
+    assert "mean_absolute_error" in result_false
     assert "2.3" in result_false
-    assert "MAE" in result_true
+    assert "mean_absolute_error" in result_true
     assert "2.3" in result_true
 
 
@@ -532,7 +534,7 @@ def test_build_context_message_no_deterministic_summary_no_section():
     Test that no deterministic summary section is rendered when no
     explanation is supplied.
     """
-    result = build_context_message(metrics=pd.DataFrame({"MAE": [1.0]}))
+    result = build_context_message(metrics=pd.DataFrame({"mean_absolute_error": [1.0]}))
     assert "deterministic_summary" not in result
 
 
@@ -547,7 +549,7 @@ def test_build_context_message_wraps_sections_in_forecast_context():
     confused with the skills or with the answer the LLM produces.
     """
     predictions = pd.DataFrame({"pred": [1.0, 2.0]})
-    metrics = pd.DataFrame({"series": ["target"], "MAE": [1.0]})
+    metrics = pd.DataFrame({"mean_absolute_error": [1.0]})
 
     result = build_context_message(
         predictions = predictions,
@@ -574,7 +576,7 @@ def test_build_context_message_no_markdown_headings():
     collide with the skills and with the expected answer format.
     """
     predictions = pd.DataFrame({"pred": [1.0, 2.0]})
-    metrics = pd.DataFrame({"series": ["target"], "MAE": [1.0]})
+    metrics = pd.DataFrame({"mean_absolute_error": [1.0]})
 
     result = build_context_message(
         predictions=predictions, metrics=metrics, send_data=True

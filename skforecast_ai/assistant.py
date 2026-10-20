@@ -1029,9 +1029,10 @@ class ForecastingAssistant:
         metric : str, list of str, default None
             Metric(s) the plan computes, among the regression metrics of
             skforecast (`'mean_absolute_error'`, `'mean_squared_error'`,
-            ...), with the semantics of `compare()`: the first one is the
-            primary metric (`plan.metric`) and only the ones given are
-            computed (`plan.metrics_to_compute`). MAPE on a target that
+            ...) plus `'root_mean_squared_error'`, with the semantics of
+            `compare()`: the first one is the primary metric
+            (`plan.metric`) and only the ones given are computed
+            (`plan.metrics_to_compute`). MAPE on a target that
             takes values at or around zero is computed, with a
             `UserWarning` whose text also goes to `plan.warnings`: it
             divides by the actual value, so its value means nothing there.
@@ -1105,7 +1106,7 @@ class ForecastingAssistant:
             supported by skforecast, if `estimator_kwargs` contains
             `'model_id'`, or if the model cannot predict `interval`. Also if
             `metric` is empty, repeats a metric or names one outside the
-            regression metrics of skforecast.
+            regression metrics of skforecast and `'root_mean_squared_error'`.
         TypeError
             If `metric` is not a str or a list of str.
         """
@@ -2588,9 +2589,11 @@ class ForecastingAssistant:
             - code: generated Python script equivalent to the execution.
             - predictions: forecasted values for the requested steps,
             including the interval columns when `interval` is set.
-            - metrics: evaluation metrics, one row per series. None in
-            prediction mode (`test_size=None`), where there is no ground
-            truth to evaluate against.
+            - metrics: evaluation metrics, with the columns of the
+            metrics of `backtest()`: one per metric, named as the metric,
+            and `levels` with several series. None in prediction mode
+            (`test_size=None`), where there is no ground truth to evaluate
+            against.
 
         Notes
         -----

@@ -89,7 +89,7 @@ The main changes in this release are:
 
 + The description of a forecast run with `test_size`, in `describe()` and in the context of [<code>ForecastingAssistant.ask()</code>][assistant], says that its metrics come from a hold-out evaluation on dates already in the data, not from a forecast of the future ([#109](https://github.com/skforecast/skforecast-ai/pull/109)).
 
-+ The metrics of [<code>ForecastingAssistant.forecast()</code>][assistant] with `test_size` have the columns of those of `backtest()`, in [<code>ForecastResult</code>][results], the CLI and the MCP server: the names of the metrics (`mean_absolute_error` instead of `MAE`...) and `levels` instead of `series`, which a single series no longer has. The scripts of several series build that table.
++ The metrics of [<code>ForecastingAssistant.forecast()</code>][assistant] with `test_size` have the columns of those of `backtest()`, in [<code>ForecastResult</code>][results], the CLI and the MCP server: the names of the metrics (`mean_absolute_error` instead of `MAE`...) and `levels` instead of `series`, which a single series no longer has. The scripts of several series print the table with those columns.
 
 
 **Fixed**

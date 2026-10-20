@@ -18,6 +18,7 @@ from ..fixtures_assistant import (
 from ..fixtures_datasets import df_items_sales_long, df_items_sales_wide
 from .fixtures_mcp import (
     DATA_VALUES_HINT,
+    RMSE_UNIT,
     call,
     content_of,
     csv_of,
@@ -579,11 +580,7 @@ def test_tool_backtest_output_when_metric_is_root_mean_squared_error(tmp_path):
         ToolNotice(
             source   = "runtime",
             category = "MetricUnitNotice",
-            message  = (
-                "`root_mean_squared_error` is in the units of the target (the "
-                "square root of `mean_squared_error`, which is in squared "
-                "units): report it as it is."
-            ),
+            message  = RMSE_UNIT,
             count    = 1,
         )
     ]

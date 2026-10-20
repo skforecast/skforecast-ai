@@ -14,6 +14,7 @@ from ..fixtures_csv_dialect import df_dialect, write_dialect
 from ..fixtures_datasets import df_items_sales_long
 from .fixtures_mcp import (
     DATA_VALUES_HINT,
+    RMSE_UNIT,
     call,
     df_numeric_ids_exog,
     df_numeric_ids_future_exog,
@@ -101,13 +102,6 @@ def test_tool_forecast_evaluation_plan_is_not_registered(tmp_path):
         evaluation["notices"][0]["message"]
     )
     assert future["notices"] == []
-
-
-RMSE_UNIT = (
-    "`root_mean_squared_error` is in the units of the target (the square "
-    "root of `mean_squared_error`, which is in squared units): report it as "
-    "it is."
-)
 
 
 @pytest.mark.parametrize(
