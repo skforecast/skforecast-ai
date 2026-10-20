@@ -40,6 +40,7 @@ from ._validation import (
     validate_calendar_override,
     validate_estimator,
     validate_estimator_kwargs,
+    validate_confirm_cost,
     validate_interval,
     resolve_metric_override,
     validate_steps,
@@ -113,8 +114,6 @@ from .recommendation import (
     check_exog_usage,
     check_first_window,
     compute_series_pacf,
-    count_estimator_fits,
-    count_inference_windows,
     cv_as_executed,
     derive_cv_defaults,
     derive_preprocessing_steps,
@@ -210,9 +209,8 @@ from ._utils import (
     plan_override_value,
     recorded_data_path,
     structure_differences,
-    warn_long_comparison,
-    warn_long_inference,
-    warn_long_training,
+    check_backtest_cost,
+    check_comparison_cost,
 )
 
 
@@ -425,6 +423,24 @@ def _chosen_calendar_features(
             )
 
     return {"features": features, "encoding": encoding}
+
+
+def _candidate_failed(name: str, exc: Exception) -> CandidateFailure:
+    """
+    Record the failure of a candidate of `compare()`, whether its plan or
+    its backtest failed, and warn about it (`CandidateFailedWarning`).
+    """
+
+    failure = CandidateFailure.from_exception(exc)
+    warnings.warn(
+        f"Candidate '{name}' failed and is ranked last: "
+        f"{failure.summary()}. The full traceback is available in "
+        f"`ComparisonResult.failures['{name}'].traceback`.",
+        CandidateFailedWarning,
+        stacklevel=3,
+    )
+
+    return failure
 
 
 def _check_frequency_known(forecaster: str, data_profile: DataProfile) -> None:
@@ -3245,6 +3261,7 @@ class ForecastingAssistant:
         calendar_features: list[str] | None = None,
         target_transformer: str | None = None,
         dropna_from_series: bool | None = None,
+        confirm_cost: bool | int = False,
     ) -> BacktestResult:
         """
         Execute backtesting with a pre-configured time series cross-validation 
@@ -3363,6 +3380,19 @@ class ForecastingAssistant:
         dropna_from_series : bool, default None
             Whether to drop the training rows with missing values, as in
             `plan()`. With `plan`, these three must match the plan.
+        confirm_cost : bool, int, default False
+            Confirmation of an expensive run: a backtest that fits more than
+            50 estimators (a direct forecaster fits one per step in every
+            training) or, for a foundation model, forecasts more than 2000
+            inference windows (one per series and fold) raises
+            `CostNotConfirmedError` before anything runs, with its cost and
+            the changes that lower it, unless it is confirmed: pass True to
+            run it once you have read that cost. An integer confirms it only
+            when it is the figure of its cost (`CostNotConfirmedError.figure`:
+            the estimator fits, or the inference windows of a foundation
+            model), so it no longer runs once the strategy or the plan
+            change that cost; it is the form the MCP server asks of an
+            agent. Below those thresholds it is not read.
 
         Returns
         -------
@@ -3394,6 +3424,13 @@ class ForecastingAssistant:
             - cv_defaults_explanation: why the strategy parameters that
             were not passed have their value, and which ones were passed.
 
+        Raises
+        ------
+        CostNotConfirmedError
+            If the backtest is above the thresholds of an expensive run and
+            `confirm_cost` does not confirm it (see `confirm_cost`). Raised
+            after every other check, before anything runs.
+
         Notes
         -----
         The `data` DataFrame must include exogenous columns if the plan
@@ -3421,6 +3458,7 @@ class ForecastingAssistant:
         
         """
 
+        validate_confirm_cost(confirm_cost)
         cv_result = cv if isinstance(cv, CVResult) else None
         cv = _unwrap_cv(cv)
 
@@ -3492,29 +3530,16 @@ class ForecastingAssistant:
             trains     = plan.task_type != "foundation",
             forecaster = plan.forecaster,
         )
-        warn_long_training(
-            estimator_fits = count_estimator_fits(
-                                 n_fits     = cv_config["n_fits"],
-                                 forecaster = plan.forecaster,
-                                 steps      = plan.steps,
-                             ),
-            n_fits         = cv_config["n_fits"],
-            forecaster     = plan.forecaster,
-            steps          = plan.steps,
-        )
-        # A foundation model fits nothing: its cost is the inference of
-        # each series in each fold.
-        warn_long_inference(
-            inference_windows = count_inference_windows(
-                                    n_folds    = cv_config["n_folds"],
-                                    n_series   = profile.data_profile.n_series,
-                                    forecaster = plan.forecaster,
-                                ),
-            n_series          = profile.data_profile.n_series,
-            n_folds           = cv_config["n_folds"],
-        )
-
         check_estimator_installed(plan.estimator, plan.task_type)
+        # Last of the checks, so a run that would fail does not ask first for
+        # a confirmation of its cost.
+        check_backtest_cost(
+            confirm_cost = confirm_cost,
+            cv_config    = cv_config,
+            forecaster   = plan.forecaster,
+            steps        = plan.steps,
+            n_series     = profile.data_profile.n_series,
+        )
 
         result = run_backtest(
             data           = data_df,
@@ -3559,6 +3584,7 @@ class ForecastingAssistant:
         show_progress: bool = True,
         baseline: bool = True,
         progress_callback: Callable[[CompareProgress], None] | None = None,
+        confirm_cost: bool | int = False,
     ) -> ComparisonResult:
         """
         Compare several forecaster configurations on the same data.
@@ -3679,6 +3705,20 @@ class ForecastingAssistant:
             a candidate failure: it stops the comparison and propagates
             to the caller, so raising from it cancels the remaining
             candidates. When None, no events are sent.
+        confirm_cost : bool, int, default False
+            Confirmation of an expensive run: a comparison whose candidates
+            together (the baseline included) fit more than 50 estimators,
+            or whose `ForecasterFoundation` candidates forecast more than
+            2000 inference windows, raises `CostNotConfirmedError` before
+            any candidate runs, with the total, what each candidate adds and
+            the changes that lower it, unless it is confirmed: pass True to
+            run it once you have read that cost. An integer confirms it only
+            when it is the figure of its cost (`CostNotConfirmedError.figure`:
+            the estimator fits of all the candidates, or their inference
+            windows when only those are above), so it no longer runs once
+            the strategy or the candidates change that cost; it is the form
+            the MCP server asks of an agent. Below those thresholds it is not
+            read.
 
         Returns
         -------
@@ -3712,7 +3752,8 @@ class ForecastingAssistant:
             - strategy_plan_name: name of the row that runs the plan of
             the `CVResult`, or None.
             - cost: cost of every candidate on the shared strategy and the
-            totals, counted before any candidate runs.
+            totals, counted before any candidate runs, without the
+            candidates whose plan cannot be built (they run nothing).
             - best_name: name of the top-ranked candidate.
             - best_candidate: top-ranked candidate as a `BacktestResult`.
 
@@ -3721,6 +3762,11 @@ class ForecastingAssistant:
         AllCandidatesFailedError
             If every candidate fails to run. The individual failures are
             available on the `failures` attribute of the raised error.
+        CostNotConfirmedError
+            If the candidates together are above the thresholds of an
+            expensive run and `confirm_cost` does not confirm it (see
+            `confirm_cost`). Raised after the plans of the candidates are
+            built, before any of them runs.
         TypeError
             If `progress_callback` is not callable.
         ValueError
@@ -3748,11 +3794,8 @@ class ForecastingAssistant:
             foundation model is not installed, so `ForecasterFoundation`
             is left out of the comparison.
         LongTrainingWarning
-            Before any candidate runs, when all the candidates together
-            (the baseline included) fit more than 50 estimators, or the
-            `ForecasterFoundation` candidates forecast more than 2000
-            inference windows; and when `candidates` is None and an
-            automatic candidate is left out for exceeding the fit budget.
+            When `candidates` is None and an automatic candidate is left out
+            for exceeding the fit budget.
 
         Notes
         -----
@@ -3762,6 +3805,14 @@ class ForecastingAssistant:
         code is kept in `failures`. One bad configuration therefore never
         aborts the whole comparison. Ties keep input order, so the table
         is deterministic.
+
+        The plans of all the candidates are built before any of them runs,
+        so their warnings come first, then the cost is counted and
+        checked, and then the candidates run. A candidate whose plan cannot
+        be built fails at that point, with its `CandidateFailedWarning`
+        before any candidate runs: it is not counted in `cost` and runs
+        nothing, and its two `progress_callback` events are sent at its
+        turn, in the order of the candidates.
 
         The winning configuration, `best_candidate`, is a full
         `BacktestResult` carrying both a `profile` and a `plan`, which can
@@ -3775,6 +3826,7 @@ class ForecastingAssistant:
                 f"{type(progress_callback).__name__}.",
                 field = "progress_callback",
             )
+        validate_confirm_cost(confirm_cost)
 
         cv_result = cv if isinstance(cv, CVResult) else None
         cv = _unwrap_cv(cv)
@@ -3907,29 +3959,82 @@ class ForecastingAssistant:
                 add_baseline_candidate(candidate_configs, profile, interval)
             )
 
+        # Every plan is built before anything runs, so the cost counts only
+        # the candidates that run: one whose plan cannot be built fails here,
+        # ranked last, and runs nothing.
+        plans: dict[str, ForecastPlan] = {}
+        failures: dict[str, CandidateFailure] = {}
+        for name, config in candidate_configs:
+            try:
+                # The metric of the comparison is a decision of each plan,
+                # so it is validated and carried over like any override.
+                cand_plan = self.plan(
+                    profile            = profile,
+                    steps              = steps,
+                    forecaster         = config.get("forecaster"),
+                    estimator          = config.get("estimator"),
+                    estimator_kwargs   = config.get("estimator_kwargs"),
+                    lags               = config.get("lags"),
+                    window_features    = config.get("window_features"),
+                    use_exog           = config.get("use_exog"),
+                    differentiation    = config.get("differentiation"),
+                    calendar_features  = config.get("calendar_features"),
+                    target_transformer = config.get("target_transformer"),
+                    dropna_from_series = config.get("dropna_from_series"),
+                    interval           = interval,
+                    metric             = metric_override,
+                )
+            except Exception as exc:
+                failures[name] = _candidate_failed(name, exc)
+                continue
+            # `plan()` records every argument it receives as a decision of
+            # the user. The forecaster and the estimator of an automatic
+            # candidate and of the baseline are chosen here, by the rules:
+            # only the metric of the comparison is the user's.
+            # The row of the plan of the strategy keeps the decisions the
+            # user made in that plan, and the metric of the comparison.
+            if name == strategy_row and name != baseline_name:
+                cand_plan.overridden_fields = [
+                    field for field in cand_plan.overridden_fields
+                    if field == "metric" or field in strategy_plan.overridden_fields
+                ]
+                cand_plan.llm_refined_fields = [
+                    field for field in strategy_plan.llm_refined_fields
+                    if cand_plan.forecaster_kwargs.get(field)
+                    == strategy_plan.forecaster_kwargs.get(field)
+                ]
+            elif candidates is None or name == baseline_name:
+                cand_plan.overridden_fields = [
+                    field for field in cand_plan.overridden_fields
+                    if field == "metric"
+                ]
+            plans[name] = cand_plan
+
         # The candidates run one after another, so the thresholds of an
         # expensive run apply to their total, counted once here before
         # anything runs (cheap candidates can add up to an expensive run);
-        # the warning of each backtest() call is silenced in the loop. The
-        # inference windows of the foundation candidates add up likewise.
+        # the inference windows of the foundation candidates add up likewise.
+        # Each backtest() below runs confirmed: its cost is part of this one.
         n_series = profile.data_profile.n_series
         cost = count_comparison_cost(
-                   candidate_configs = candidate_configs,
+                   candidate_configs = [
+                                           (name, config)
+                                           for name, config in candidate_configs
+                                           if name in plans
+                                       ],
                    preferred         = profile.forecaster,
                    steps             = steps,
                    n_fits            = n_fits,
                    n_folds           = cv_config["n_folds"],
                    n_series          = n_series,
                )
-        warn_long_comparison(cost=cost, n_fits=n_fits, steps=steps)
-        warn_long_inference(
-            inference_windows = cost.inference_windows,
-            n_series          = n_series,
-            n_folds           = cv_config["n_folds"],
-            n_candidates      = sum(
-                                    candidate.inference_windows > 0
-                                    for candidate in cost.candidates.values()
-                                ),
+        check_comparison_cost(
+            confirm_cost = confirm_cost,
+            cost         = cost,
+            n_fits       = n_fits,
+            steps        = steps,
+            n_series     = n_series,
+            not_counted  = list(failures),
         )
 
         iterator: Any = candidate_configs
@@ -3941,7 +4046,6 @@ class ForecastingAssistant:
         rows: list[tuple[dict, float]] = []
         ranked: list[tuple[str, BacktestResult, float]] = []
         own_differentiation: dict[str, int | None] = {}
-        failures: dict[str, CandidateFailure] = {}
         n_candidates = len(candidate_configs)
 
         def notify(event: CompareProgress) -> None:
@@ -3957,6 +4061,7 @@ class ForecastingAssistant:
         for position, (name, config) in enumerate(iterator):
             # Called outside the `try` below: an exception raised by the
             # callback cancels the comparison instead of failing a candidate.
+            # A candidate whose plan failed has its two events at its turn.
             if progress_callback is not None:
                 notify(
                     CompareProgress(
@@ -3977,104 +4082,63 @@ class ForecastingAssistant:
                 row[col] = float("nan")
             ranking_value = float("nan")
 
-            try:
-                # The metric of the comparison is a decision of each plan,
-                # so it is validated and carried over like any override.
-                cand_plan = self.plan(
-                    profile            = profile,
-                    steps              = steps,
-                    forecaster         = config.get("forecaster"),
-                    estimator          = config.get("estimator"),
-                    estimator_kwargs   = config.get("estimator_kwargs"),
-                    lags               = config.get("lags"),
-                    window_features    = config.get("window_features"),
-                    use_exog           = config.get("use_exog"),
-                    differentiation    = config.get("differentiation"),
-                    calendar_features  = config.get("calendar_features"),
-                    target_transformer = config.get("target_transformer"),
-                    dropna_from_series = config.get("dropna_from_series"),
-                    interval           = interval,
-                    metric             = metric_override,
-                )
-                # `plan()` records every argument it receives as a decision of
-                # the user. The forecaster and the estimator of an automatic
-                # candidate and of the baseline are chosen here, by the rules:
-                # only the metric of the comparison is the user's.
-                # The row of the plan of the strategy keeps the decisions the
-                # user made in that plan, and the metric of the comparison.
-                if name == strategy_row and name != baseline_name:
-                    cand_plan.overridden_fields = [
-                        field for field in cand_plan.overridden_fields
-                        if field == "metric" or field in strategy_plan.overridden_fields
-                    ]
-                    cand_plan.llm_refined_fields = [
-                        field for field in strategy_plan.llm_refined_fields
-                        if cand_plan.forecaster_kwargs.get(field)
-                        == strategy_plan.forecaster_kwargs.get(field)
-                    ]
-                elif candidates is None or name == baseline_name:
-                    cand_plan.overridden_fields = [
-                        field for field in cand_plan.overridden_fields
-                        if field == "metric"
-                    ]
-                # Each candidate runs with its own differentiation order: the
-                # shared strategy is copied with it when they differ (10.4).
-                candidate_cv = cv
-                cand_differentiation = cand_plan.forecaster_kwargs.get(
-                    "differentiation"
-                )
-                # The baseline has no order of its own: it runs without one.
-                if (
-                    cand_plan.forecaster in _DIFFERENTIATION_FORECASTERS
-                    and cand_differentiation != cv.differentiation
-                ):
-                    candidate_cv = copy.deepcopy(cv)
-                    candidate_cv.set_params(
-                        {"differentiation": cand_differentiation}
+            if name in failures:
+                row["error"] = failures[name].summary()
+            else:
+                cand_plan = plans[name]
+                try:
+                    # Each candidate runs with its own differentiation order:
+                    # the shared strategy is copied with it when they differ
+                    # (10.4).
+                    candidate_cv = cv
+                    cand_differentiation = cand_plan.forecaster_kwargs.get(
+                        "differentiation"
                     )
-                    if cand_plan.forecaster not in BASELINE_FORECASTERS:
-                        own_differentiation[name] = cand_differentiation
+                    # The baseline has no order of its own: it runs without
+                    # one.
+                    if (
+                        cand_plan.forecaster in _DIFFERENTIATION_FORECASTERS
+                        and cand_differentiation != cv.differentiation
+                    ):
+                        candidate_cv = copy.deepcopy(cv)
+                        candidate_cv.set_params(
+                            {"differentiation": cand_differentiation}
+                        )
+                        if cand_plan.forecaster not in BASELINE_FORECASTERS:
+                            own_differentiation[name] = cand_differentiation
 
-                row["forecaster"] = cand_plan.forecaster
-                row["estimator"] = cand_plan.estimator
+                    row["forecaster"] = cand_plan.forecaster
+                    row["estimator"] = cand_plan.estimator
 
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore", category=LongTrainingWarning)
                     # One warning after the loop names the candidates whose
                     # interval covers too little; the one of each backtest
                     # would not say which candidate it is about.
-                    warnings.simplefilter(
-                        "ignore", category=IntervalCoverageWarning
-                    )
-                    # The candidate runs on the DataFrame already read;
-                    # its script loads the file the comparison read.
-                    with _data_path_of_run(run_data_path):
-                        bt = self.backtest(
-                            data             = data_df,
-                            cv               = candidate_cv,
-                            target           = target,
-                            date_column      = date_column,
-                            series_id_column = series_id_column,
-                            profile          = profile,
-                            plan             = cand_plan,
-                            show_progress    = False,
+                    with warnings.catch_warnings():
+                        warnings.simplefilter(
+                            "ignore", category=IntervalCoverageWarning
                         )
-                agg = aggregate_metrics(bt.metrics)
-                for col in table_columns:
-                    row[col] = agg.get(col, float("nan"))
-                ranking_value = agg.get(ranking_metric, float("nan"))
-                ranked.append((name, bt, ranking_value))
-            except Exception as exc:
-                failure = CandidateFailure.from_exception(exc)
-                failures[name] = failure
-                row["error"] = failure.summary()
-                warnings.warn(
-                    f"Candidate '{name}' failed and is ranked last: "
-                    f"{failure.summary()}. The full traceback is available in "
-                    f"`ComparisonResult.failures['{name}'].traceback`.",
-                    CandidateFailedWarning,
-                    stacklevel=2,
-                )
+                        # The candidate runs on the DataFrame already read;
+                        # its script loads the file the comparison read.
+                        with _data_path_of_run(run_data_path):
+                            bt = self.backtest(
+                                data             = data_df,
+                                cv               = candidate_cv,
+                                target           = target,
+                                date_column      = date_column,
+                                series_id_column = series_id_column,
+                                profile          = profile,
+                                plan             = cand_plan,
+                                show_progress    = False,
+                                confirm_cost     = True,
+                            )
+                    agg = aggregate_metrics(bt.metrics)
+                    for col in table_columns:
+                        row[col] = agg.get(col, float("nan"))
+                    ranking_value = agg.get(ranking_metric, float("nan"))
+                    ranked.append((name, bt, ranking_value))
+                except Exception as exc:
+                    failures[name] = _candidate_failed(name, exc)
+                    row["error"] = failures[name].summary()
 
             rows.append((row, ranking_value))
 
@@ -4089,6 +4153,10 @@ class ForecastingAssistant:
                     )
                 )
 
+        # In the order of the candidates, whether the plan or the run failed.
+        failures = {
+            name: failures[name] for name, _ in candidate_configs if name in failures
+        }
         results = build_comparison_table(
             rows           = rows,
             metric_columns = table_columns,

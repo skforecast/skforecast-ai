@@ -3,6 +3,7 @@
 import sys
 import threading
 import time
+import warnings
 import anyio
 
 from skforecast_ai import ForecastingAssistant
@@ -11,6 +12,7 @@ from skforecast_ai.mcp import create_server
 from .fixtures_mcp import (
     DATA_MISSING_EXOG_WARNING,
     DATA_WARNING,
+    call,
     content_of,
     cv_of,
     df_data_warning,
@@ -83,9 +85,10 @@ def test_concurrent_executions_never_overlap_and_keep_their_own_notices(
 ):
     """
     Test that concurrent backtests and forecasts run their scripts one at a
-    time, that only the backtest that trains many estimators reports
-    `LongTrainingWarning`, and that `sys.stdout` (which the scripts
-    redirect) is the original one afterwards.
+    time, that only the backtests of the strategy that trains many
+    estimators (confirmed with `confirm_cost`) report the warning their
+    core call emits, and that `sys.stdout` (which the scripts redirect) is
+    the original one afterwards.
     """
     server, path = h2o_server(tmp_path)
     _, _, long_cv = cv_of(
@@ -96,6 +99,9 @@ def test_concurrent_executions_never_overlap_and_keep_their_own_notices(
         cv_arguments={"refit": True},
     )
     _, plan_id, short_cv = cv_of(server, path)
+    fits = content_of(
+        call(server, "describe_object", {"object_id": long_cv})
+    )["cost"]["estimator_fits"]
     stdout = sys.stdout
     running = []
     overlaps = []
@@ -108,6 +114,10 @@ def test_concurrent_executions_never_overlap_and_keep_their_own_notices(
                 if len(running) > 1:
                     overlaps.append(len(running))
             try:
+                # A warning of the confirmed backtests only, which must not
+                # reach the notices of the other calls.
+                if kwargs.get("confirm_cost"):
+                    warnings.warn("A confirmed run.", UserWarning)
                 return method(self, *args, **kwargs)
             finally:
                 with lock:
@@ -122,10 +132,10 @@ def test_concurrent_executions_never_overlap_and_keep_their_own_notices(
         ForecastingAssistant, "forecast", tracked(ForecastingAssistant.forecast)
     )
     calls = [
-        ("backtest", {"cv_id": long_cv}),
+        ("backtest", {"cv_id": long_cv, "confirm_cost": fits}),
         ("backtest", {"cv_id": short_cv}),
         ("forecast", {"plan_id": plan_id}),
-        ("backtest", {"cv_id": long_cv}),
+        ("backtest", {"cv_id": long_cv, "confirm_cost": fits}),
         ("forecast", {"plan_id": plan_id, "test_size": 12}),
         ("backtest", {"cv_id": short_cv}),
     ]
@@ -156,5 +166,5 @@ def test_concurrent_executions_never_overlap_and_keep_their_own_notices(
         if name == "forecast" and not future:
             expected.insert(0, "HoldoutEvaluationNotice")
         if arguments.get("cv_id") == long_cv:
-            expected.append("LongTrainingWarning")
+            expected.append("UserWarning")
         assert categories == expected, (i, categories)

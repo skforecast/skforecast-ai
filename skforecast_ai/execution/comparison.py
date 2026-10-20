@@ -792,6 +792,45 @@ def exclude_costly_candidates(
     return kept, note
 
 
+def buildable_candidates(
+    candidate_configs: list[tuple[str, CandidateConfig]],
+    build_plan: Callable[[CandidateConfig], ForecastPlan],
+) -> list[tuple[str, CandidateConfig]]:
+    """
+    Keep the candidates whose plan can be built.
+
+    `compare()` builds the plan of every candidate before any of them runs,
+    and one whose plan cannot be built fails there and runs nothing, so it
+    is not counted in the cost. This is that filter for a count made
+    without `compare()` (the cost the MCP server announces in `create_cv`),
+    so the two counts agree.
+
+    Parameters
+    ----------
+    candidate_configs : list of tuple of (str, CandidateConfig)
+        Candidates as `(name, config)` pairs.
+    build_plan : Callable
+        Function that builds the plan of a candidate configuration as the
+        comparison does, see `add_strategy_candidate()`. Its warnings are
+        the caller's to silence.
+
+    Returns
+    -------
+    candidates : list of tuple of (str, CandidateConfig)
+        The candidates whose plan can be built, in input order.
+    """
+
+    kept = []
+    for name, config in candidate_configs:
+        try:
+            build_plan(config)
+        except Exception:
+            continue
+        kept.append((name, config))
+
+    return kept
+
+
 def count_comparison_cost(
     candidate_configs: list[tuple[str, CandidateConfig]],
     preferred: str,
@@ -814,8 +853,10 @@ def count_comparison_cost(
     Parameters
     ----------
     candidate_configs : list of tuple of (str, CandidateConfig)
-        Candidates as `(name, config)` pairs, the baseline included when
-        the comparison runs it, in the order they run.
+        Candidates whose plan can be built, as `(name, config)` pairs,
+        the baseline included when the comparison runs it, in the order
+        they run. A candidate whose plan cannot be built runs nothing, so
+        it is left out (see `buildable_candidates()`).
     preferred : str
         Recommended forecaster of the profile, the one of a candidate
         whose config does not name one.

@@ -665,6 +665,44 @@ def validate_steps(steps: object) -> int:
     return int(steps)
 
 
+def validate_confirm_cost(confirm_cost: object) -> None:
+    """
+    Check the confirmation of an expensive run passed to `backtest()` or
+    `compare()`.
+
+    Parameters
+    ----------
+    confirm_cost : bool, int
+        True, False, or the figure of the cost of the run (an integer
+        greater than or equal to 0).
+
+    Returns
+    -------
+    None
+
+    Notes
+    -----
+    A `TypeError` is raised for a value that is neither a bool nor an
+    integer, and a `ValueError` for a negative integer. Checked before
+    anything runs, whatever the cost.
+    """
+
+    if isinstance(confirm_cost, bool):
+        return
+    if not isinstance(confirm_cost, numbers.Integral):
+        raise InvalidInputTypeError(
+            f"`confirm_cost` must be True, False or the integer figure of the "
+            f"cost, got {type(confirm_cost).__name__}.",
+            field = "confirm_cost",
+        )
+    if confirm_cost < 0:
+        raise InvalidInputError(
+            f"`confirm_cost` must be True, False or the integer figure of the "
+            f"cost (0 or more), got {confirm_cost}.",
+            field = "confirm_cost",
+        )
+
+
 def validate_forecaster(forecaster: str, task_type: str) -> None:
     """
     Check the forecaster of a plan against the supported forecasters.

@@ -14,7 +14,7 @@ from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 import numpy as np
 import pandas as pd
 from pydantic import BaseModel
@@ -48,6 +48,7 @@ from ._dates import (
     row_dates,
     training_end,
 )
+from .recommendation.backtesting import count_estimator_fits, count_inference_windows
 from .recommendation.missing_values import closed_days_remedy
 from .profiling.data_profile import (
     COMPACT_DATE_FORMAT,
@@ -93,6 +94,7 @@ from .schemas import (
     OVERRIDE_NAMES,
 )
 from .exceptions import (
+    CostNotConfirmedError,
     DataContentError,
     DataNotFoundError,
     InvalidInputError,
@@ -2677,8 +2679,10 @@ def warn_long_training(
     Warn before a backtest that fits the estimator many times.
 
     skforecast emits `LongTrainingWarning` from the same threshold, but the
-    generated scripts pass `suppress_warnings=True`, so the assistant warns
-    itself, before anything runs.
+    generated scripts pass `suppress_warnings=True`. `backtest()` refuses
+    such a run until it is confirmed (`check_backtest_cost`); the
+    `create_cv` tool of the MCP server warns with this text when the
+    strategy is built, while it can still change.
 
     Parameters
     ----------
@@ -2776,6 +2780,9 @@ def warn_long_inference(
     each series in each fold. Above `LONG_INFERENCE_WINDOWS` windows the
     backtest can take a minute or more on a CPU with few cores (seconds on
     a GPU, and a larger model takes several times longer per window).
+    `backtest()` refuses such a run until it is confirmed
+    (`check_backtest_cost`); the `create_cv` tool of the MCP server warns
+    with this text when the strategy is built.
 
     Parameters
     ----------
@@ -2911,38 +2918,25 @@ def join_remedies(remedies: list[str]) -> str:
     return f"{', '.join(remedies[:-1])} or {remedies[-1]}"
 
 
-def warn_long_comparison(
-    cost: ComparisonCost,
-    n_fits: int,
-    steps: int,
-) -> None:
+def long_comparison_message(cost: ComparisonCost, steps: int) -> str:
     """
-    Warn before a comparison whose candidates fit many estimators in all.
-
-    The threshold of `warn_long_training` applies to the total of the
-    comparison, not to each candidate: candidates that are cheap one by
-    one can add up to an expensive run. The warning states the total and
+    Describe the cost of a comparison in estimator fits: the total and
     what each candidate adds to it.
 
     Parameters
     ----------
     cost : ComparisonCost
         Cost of the comparison, see `count_comparison_cost`.
-    n_fits : int
-        Number of folds in which a forecaster is trained under the shared
-        strategy, see `count_cv_fits`.
     steps : int
         Forecast horizon of each fold.
 
     Returns
     -------
-    None
+    message : str
+        Sentence with the total, each candidate with its fits and the
+        direct ones broken down into trainings and estimators.
     """
 
-    if cost.estimator_fits <= LONG_TRAINING_FITS:
-        return
-
-    candidates = cost.candidates.values()
     # A direct forecaster fits one estimator per step, which is what makes
     # it costly: its share says so.
     shown = ", ".join(
@@ -2953,17 +2947,338 @@ def warn_long_comparison(
         )
         for name, candidate in cost.candidates.items()
     )
-    remedies = cost_remedies(
-        forecasters = [c.forecaster for c in candidates if c.estimator_fits],
+
+    return f"The comparison will fit {cost.estimator_fits} estimators in all ({shown})"
+
+
+def comparison_remedies(
+    cost: ComparisonCost,
+    n_fits: int,
+    steps: int,
+    false: str = "False",
+) -> list[str]:
+    """
+    Name the changes of the strategy that lower the cost of a comparison
+    above the thresholds of an expensive run.
+
+    They are those of `cost_remedies` for the forecasters whose cost puts
+    the comparison above them: the candidates that fit estimators when the
+    fits are above `LONG_TRAINING_FITS`, and `ForecasterFoundation` when
+    the inference windows are above `LONG_INFERENCE_WINDOWS`.
+
+    Parameters
+    ----------
+    cost : ComparisonCost
+        Cost of the comparison, see `count_comparison_cost`.
+    n_fits : int
+        Number of folds in which a forecaster is trained under the shared
+        strategy, see `count_cv_fits`.
+    steps : int
+        Forecast horizon of each fold.
+    false : str, default 'False'
+        How the text writes `refit=False`, see `cost_remedies`.
+
+    Returns
+    -------
+    remedies : list of str
+        One phrase per change, see `cost_remedies`.
+    """
+
+    candidates = cost.candidates.values()
+    costly = set()
+    if cost.estimator_fits > LONG_TRAINING_FITS:
+        costly |= {c.forecaster for c in candidates if c.estimator_fits}
+    if cost.inference_windows > LONG_INFERENCE_WINDOWS:
+        costly.add("ForecasterFoundation")
+
+    return cost_remedies(
+        forecasters = costly,
         n_fits      = n_fits,
         steps       = steps,
         skip_folds  = all(c.forecaster != "ForecasterStats" for c in candidates),
+        false       = false,
     )
-    warnings.warn(
-        f"The comparison will fit {cost.estimator_fits} estimators in all "
-        f"({shown}). This can take substantial amounts of time. If not "
-        f"feasible, compare fewer candidates or use "
-        f"{join_remedies(remedies)}.",
-        LongTrainingWarning,
-        stacklevel=3,
+
+
+def expensive_run_figure(estimator_fits: int, inference_windows: int) -> int | None:
+    """
+    Number that confirms a run above the thresholds of an expensive run.
+
+    Parameters
+    ----------
+    estimator_fits : int
+        Estimator fits of the run (all its candidates, for a comparison).
+    inference_windows : int
+        Inference windows of the run (all its candidates, for a
+        comparison).
+
+    Returns
+    -------
+    figure : int, None
+        `estimator_fits` when above `LONG_TRAINING_FITS`, else
+        `inference_windows` when above `LONG_INFERENCE_WINDOWS` (the cost
+        of a foundation model, which fits no estimator), else None: the
+        run needs no confirmation.
+    """
+
+    if estimator_fits > LONG_TRAINING_FITS:
+        return estimator_fits
+    if inference_windows > LONG_INFERENCE_WINDOWS:
+        return inference_windows
+
+    return None
+
+
+def changed_since(run: Literal["backtest", "comparison"]) -> str:
+    """
+    Name what changes the cost of a run, for the message of a confirmation
+    given for another cost.
+
+    Parameters
+    ----------
+    run : {'backtest', 'comparison'}
+        What runs.
+
+    Returns
+    -------
+    text : str
+        `'the strategy or the plan'` of a backtest, `'the strategy or the
+        candidates'` of a comparison.
+    """
+
+    return "the strategy or the candidates" if run == "comparison" else (
+        "the strategy or the plan"
+    )
+
+
+def check_cost_confirmed(
+    confirm_cost: bool | int,
+    run: Literal["backtest", "comparison"],
+    cost: dict[str, int],
+    description: str,
+    remedies: str,
+    comparison_cost: ComparisonCost | None = None,
+) -> None:
+    """
+    Stop a run above the thresholds of an expensive run that `confirm_cost`
+    does not confirm, before anything runs.
+
+    A warning arrives once the run has started and does not stop it, so a
+    run above the thresholds needs a confirmation: `True`, or the figure of
+    its cost (see `expensive_run_figure`), which no longer confirms it once
+    the strategy, the plan or the candidates change its cost. Below the
+    thresholds `confirm_cost` is not read.
+
+    Parameters
+    ----------
+    confirm_cost : bool, int
+        Confirmation passed by the caller, see `validate_confirm_cost`.
+    run : {'backtest', 'comparison'}
+        What runs, as the message names it.
+    cost : dict
+        `n_folds`, `n_fits`, `estimator_fits` and `inference_windows` of
+        the run.
+    description : str
+        Sentences stating the cost and what makes it, with a final period.
+    remedies : str
+        What lowers the cost, completing "If not feasible, " (such as
+        `'use `refit=False` (train once)'`). Empty when nothing does.
+    comparison_cost : ComparisonCost, default None
+        Cost of each candidate of a comparison.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    CostNotConfirmedError
+        If the run is above the thresholds and `confirm_cost` is neither
+        True nor the figure of its cost.
+    """
+
+    figure = expensive_run_figure(cost["estimator_fits"], cost["inference_windows"])
+    if figure is None or confirm_cost is True:
+        return
+    given = not isinstance(confirm_cost, bool)
+    if given and confirm_cost == figure:
+        return
+
+    message = (
+        f"This {run} is above the threshold of an expensive run "
+        f"({LONG_TRAINING_FITS} estimator fits or {LONG_INFERENCE_WINDOWS} "
+        f"inference windows), so it needs a confirmation and nothing ran. "
+        f"{description} It can take substantial amounts of time."
+    )
+    if remedies:
+        message += f" If not feasible, {remedies}."
+    if given:
+        message += (
+            f" `confirm_cost={confirm_cost}` does not confirm it: the figure of "
+            f"this cost is {figure}, so {changed_since(run)} changed since "
+            f"that number was given."
+        )
+    raise CostNotConfirmedError(
+        message,
+        figure          = figure,
+        cost            = cost,
+        description     = description,
+        comparison_cost = comparison_cost,
+        hint            = "Pass `confirm_cost=True` to run it as it is.",
+    )
+
+
+def check_backtest_cost(
+    confirm_cost: bool | int,
+    cv_config: dict,
+    forecaster: str,
+    steps: int,
+    n_series: int,
+) -> None:
+    """
+    Stop a backtest above the thresholds of an expensive run that
+    `confirm_cost` does not confirm, see `check_cost_confirmed`.
+
+    Parameters
+    ----------
+    confirm_cost : bool, int
+        Confirmation passed to `backtest()`.
+    cv_config : dict
+        Resolved strategy of the backtest, with `n_folds` and `n_fits` as
+        the forecaster runs it (see `resolve_cv_config`).
+    forecaster : str
+        Name of the skforecast forecaster class.
+    steps : int
+        Forecast horizon of each fold.
+    n_series : int
+        Number of series of the data.
+
+    Returns
+    -------
+    None
+    """
+
+    n_fits, n_folds = cv_config["n_fits"], cv_config["n_folds"]
+    cost = {
+        "n_folds": n_folds,
+        "n_fits": n_fits,
+        "estimator_fits": count_estimator_fits(
+                              n_fits     = n_fits,
+                              forecaster = forecaster,
+                              steps      = steps,
+                          ),
+        # A foundation model fits nothing: its cost is the inference of
+        # each series in each fold.
+        "inference_windows": count_inference_windows(
+                                 n_folds    = n_folds,
+                                 n_series   = n_series,
+                                 forecaster = forecaster,
+                             ),
+    }
+    if expensive_run_figure(cost["estimator_fits"], cost["inference_windows"]) is None:
+        return
+    if cost["estimator_fits"] > LONG_TRAINING_FITS:
+        description = long_training_message(
+            cost["estimator_fits"], n_fits, forecaster, steps
+        )
+    else:
+        description = long_inference_message(
+            cost["inference_windows"], n_series, n_folds
+        )
+    remedies = cost_remedies(forecasters=[forecaster], n_fits=n_fits, steps=steps)
+    check_cost_confirmed(
+        confirm_cost = confirm_cost,
+        run          = "backtest",
+        cost         = cost,
+        description  = f"{description}.",
+        remedies     = f"use {join_remedies(remedies)}" if remedies else "",
+    )
+
+
+def check_comparison_cost(
+    confirm_cost: bool | int,
+    cost: ComparisonCost,
+    n_fits: int,
+    steps: int,
+    n_series: int,
+    not_counted: list[str] | None = None,
+) -> None:
+    """
+    Stop a comparison above the thresholds of an expensive run that
+    `confirm_cost` does not confirm, see `check_cost_confirmed`.
+
+    The thresholds apply to the total of the comparison, not to each
+    candidate: candidates that are cheap one by one can add up to an
+    expensive run. The message states the total and what each candidate
+    adds to it.
+
+    Parameters
+    ----------
+    confirm_cost : bool, int
+        Confirmation passed to `compare()`.
+    cost : ComparisonCost
+        Cost of the comparison, see `count_comparison_cost`.
+    n_fits : int
+        Number of folds in which a forecaster is trained under the shared
+        strategy, see `count_cv_fits`.
+    steps : int
+        Forecast horizon of each fold.
+    n_series : int
+        Number of series of the data.
+    not_counted : list of str, default None
+        Names of the candidates whose plan cannot be built, which run
+        nothing and are not in `cost`.
+
+    Returns
+    -------
+    None
+    """
+
+    if expensive_run_figure(cost.estimator_fits, cost.inference_windows) is None:
+        return
+    parts = []
+    if cost.estimator_fits > LONG_TRAINING_FITS:
+        parts.append(long_comparison_message(cost, steps))
+    if cost.inference_windows > LONG_INFERENCE_WINDOWS:
+        parts.append(
+            long_inference_message(
+                inference_windows = cost.inference_windows,
+                n_series          = n_series,
+                n_folds           = cost.n_folds,
+                n_candidates      = sum(
+                                        candidate.inference_windows > 0
+                                        for candidate in cost.candidates.values()
+                                    ),
+            )
+        )
+    description = f"{' and '.join(parts)}."
+    if not_counted:
+        names = [f"'{name}'" for name in not_counted]
+        if len(names) == 1:
+            description += (
+                f" {names[0]} is not counted: its plan cannot be built, so it "
+                f"runs nothing."
+            )
+        else:
+            description += (
+                f" {', '.join(names[:-1])} and {names[-1]} are not counted: "
+                f"their plans cannot be built, so they run nothing."
+            )
+    remedies = comparison_remedies(cost, n_fits=n_fits, steps=steps)
+    check_cost_confirmed(
+        confirm_cost    = confirm_cost,
+        run             = "comparison",
+        cost            = {
+                              "n_folds": cost.n_folds,
+                              "n_fits": cost.n_fits,
+                              "estimator_fits": cost.estimator_fits,
+                              "inference_windows": cost.inference_windows,
+                          },
+        description     = description,
+        remedies        = (
+                              f"compare fewer candidates or use "
+                              f"{join_remedies(remedies)}"
+                              if remedies else "compare fewer candidates"
+                          ),
+        comparison_cost = cost,
     )

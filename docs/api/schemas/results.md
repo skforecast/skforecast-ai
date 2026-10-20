@@ -14,7 +14,7 @@ What the methods that generate code, run it or call the LLM return:
 
 Every result renders itself in a notebook and serializes to JSON, and all of them except `AskResult` and `LLMCheckResult` can be the `context` of `ask()`. Every result that `ask()` accepts, plus `ForecastingProfile`, also describes itself in plain text with [`describe()`][skforecast_ai.schemas.explainable.ExplainableResult.describe], without an LLM: the text is the context `ask()` sends about it, with the predictions summarized instead of listed row by row, without the instructions addressed to the LLM and with its lists cut when there are many series.
 
-`compare()` also sends a [`CompareProgress`][skforecast_ai.schemas.results.CompareProgress] to its `progress_callback` when each candidate starts and ends. Its result keeps the cost of the comparison, counted before any candidate runs, in a [`ComparisonCost`][skforecast_ai.schemas.results.ComparisonCost] with a [`CandidateCost`][skforecast_ai.schemas.results.CandidateCost] per candidate.
+`compare()` also sends a [`CompareProgress`][skforecast_ai.schemas.results.CompareProgress] to its `progress_callback` when each candidate starts and ends. Its result keeps the cost of the comparison, counted once the plans of the candidates are built and before any of them runs (a candidate whose plan cannot be built runs nothing and is not counted), in a [`ComparisonCost`][skforecast_ai.schemas.results.ComparisonCost] with a [`CandidateCost`][skforecast_ai.schemas.results.CandidateCost] per candidate; above the thresholds of an expensive run, `compare()` raises `CostNotConfirmedError` with that cost unless `confirm_cost` confirms it.
 
 ::: skforecast_ai.schemas.results
 

@@ -195,7 +195,7 @@ You ask, for example, *"Forecast the next 12 months of `/path/to/data/h2o.csv` a
 
 1. `profile(data_path="/path/to/data/h2o.csv", target="x")`: the frequency, the series, the exogenous columns and the recommended forecaster, as a profile id. Every column other than the target, the date and the series ids is an exogenous variable, unless `exog_columns` names the ones to use.
 2. `plan(profile_id=..., steps=12)`: lags, window features, metric and preprocessing, as a plan id.
-3. `create_cv(plan_id=...)`: the cross-validation strategy, with its cost (estimator fits, or inference windows for a foundation model, which is never trained). A notice warns when the backtest will be long.
+3. `create_cv(plan_id=...)`: the cross-validation strategy, with its cost (estimator fits, or inference windows for a foundation model, which is never trained). A notice warns when the backtest will be long: the agent then tells you the cost and the cheaper strategies, and `backtest` and `compare` run such a strategy only with `confirm_cost`, the number of its cost, which the agent passes once you chose it.
 4. `backtest(cv_id=...)` and, to compare configurations, `compare(cv_id=...)`. Without `candidates`, `compare` ranks the configurations the profile recommends, a seasonal naive baseline and, when the strategy was created for another plan (one from `refine_plan`), that plan as the row `Strategy plan`.
 5. `forecast(plan_id=...)`: the forecast of the next 12 months.
 
@@ -328,7 +328,7 @@ To see why a server does not start, run its command in a terminal: it prints the
 
 ## Errors
 
-A failed call returns an error whose text is `Error executing tool <name>: ` followed by a JSON object with `code`, `message`, `field`, `hint` and `details`. `code` is stable, so the agent can act on it: the [error codes](../api/mcp.md#errors) are those of the Python API plus the ones of the server (`unknown_id`, `inconsistent_ids`, `invalid_path`, `path_not_allowed`, `url_not_allowed`, `data_changed`, `model_not_allowed`, `file_too_large`). When a script fails, `details.failure_id` names its traceback and code, which `get_failure` returns.
+A failed call returns an error whose text is `Error executing tool <name>: ` followed by a JSON object with `code`, `message`, `field`, `hint` and `details`. `code` is stable, so the agent can act on it: the [error codes](../api/mcp.md#errors) are those of the Python API plus the ones of the server (`unknown_id`, `inconsistent_ids`, `invalid_path`, `path_not_allowed`, `url_not_allowed`, `data_changed`, `model_not_allowed`, `file_too_large`, `cost_not_confirmed`). When a script fails, `details.failure_id` names its traceback and code, which `get_failure` returns.
 
 ---
 

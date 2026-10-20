@@ -21,6 +21,7 @@ from rich.table import Table
 from pydantic import ValidationError
 
 from . import __version__
+from ._constants import LONG_INFERENCE_WINDOWS, LONG_TRAINING_FITS
 from .config import (
     CONFIG_FILE,
     VALID_KEYS,
@@ -30,6 +31,7 @@ from .config import (
 )
 from .exceptions import (
     AllCandidatesFailedError,
+    CostNotConfirmedError,
     DataNotFoundError,
     ForecastExecutionError,
     InvalidInputError,
@@ -91,6 +93,7 @@ ApiKeyOption = Annotated[str | None, typer.Option("--api-key", help="API key for
 OutputOption = Annotated[Path | None, typer.Option("--output", "-o", help="Write output to file.")]
 OutputPredictionsOption = Annotated[Path | None, typer.Option("--output-predictions", help="Save predictions as CSV.")]
 QuietOption = Annotated[bool, typer.Option("--quiet", "-q", help="Suppress spinners.")]
+ConfirmCostOption = Annotated[bool, typer.Option("--confirm-cost", help=f"Run it although it is an expensive run: above {LONG_TRAINING_FITS} estimator fits, or {LONG_INFERENCE_WINDOWS} inference windows of a foundation model (for compare, all the candidates together). Without it, such a run stops with its cost before anything runs.")]
 TableFormatOption = Annotated[Literal["table", "json"], typer.Option("--format", help="Output format: table or json.")]
 CodeFormatOption = Annotated[Literal["code", "json"], typer.Option("--format", help="Output format: code or json.")]
 TextFormatOption = Annotated[Literal["text", "json"], typer.Option("--format", help="Output format: text or json.")]
@@ -836,6 +839,7 @@ EXECUTION_TIP = (
     "script that failed."
 )
 VALIDATION_TIP = "Use --format json with the source command to produce valid input."
+CONFIRM_COST_TIP = "Pass --confirm-cost to run it as it is."
 NO_LLM_MESSAGE = (
     "No LLM configured. Set the SKFORECAST_AI_LLM environment variable or "
     "use the --llm flag."
@@ -871,6 +875,9 @@ def _report_error(exc: Exception, json_errors: bool) -> None:
         tip = tip or EXECUTION_TIP
     elif isinstance(exc, AllCandidatesFailedError):
         label = "Comparison Error"
+    elif isinstance(exc, CostNotConfirmedError):
+        # The hint of the Python API names its argument.
+        tip = CONFIRM_COST_TIP
     elif isinstance(exc, ValidationError):
         details = "; ".join(
             f"{err['loc'][0]}: {err['msg']}" if err.get("loc") else err["msg"]
@@ -887,7 +894,7 @@ def _report_error(exc: Exception, json_errors: bool) -> None:
         update = {}
         if isinstance(exc, LLMRequiredError):
             update["message"] = message
-        if info.hint is None and tip is not None:
+        if (info.hint is None or isinstance(exc, CostNotConfirmedError)) and tip:
             update["hint"] = tip
         if update:
             info = info.model_copy(update=update)
@@ -1906,6 +1913,7 @@ def backtest(
     from_plan: FromPlanOption = None,
     output_predictions: OutputPredictionsOption = None,
     output_code: Annotated[Path | None, typer.Option("--output-code", help="Save generated script to file.")] = None,
+    confirm_cost: ConfirmCostOption = False,
     format: TableFormatOption = "table",
     quiet: QuietOption = False,
 ) -> None:
@@ -2026,6 +2034,7 @@ def backtest(
                 profile=prof,
                 plan=plan_obj,
                 show_progress=(not quiet and format != "json"),
+                confirm_cost=confirm_cost,
             )
 
         if output_predictions is not None:
@@ -2125,6 +2134,7 @@ def compare(
     allow_incomplete_fold: AllowIncompleteFoldOption = None,
     from_profile: FromProfileOption = None,
     output_code: Annotated[Path | None, typer.Option("--output-code", help="Save the winning configuration's script to file.")] = None,
+    confirm_cost: ConfirmCostOption = False,
     format: TableFormatOption = "table",
     quiet: QuietOption = False,
 ) -> None:
@@ -2208,6 +2218,7 @@ def compare(
                 profile=prof,
                 show_progress=(not quiet and format != "json"),
                 baseline=baseline,
+                confirm_cost=confirm_cost,
             )
 
         if output_code is not None:

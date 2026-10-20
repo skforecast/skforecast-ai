@@ -15,6 +15,8 @@ All significant changes to this project are documented in this release file.
 
 The main changes in this release are:
 
++ <span class="badge text-bg-api-change">API Change</span> [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` stop before an expensive run (above 50 estimator fits, or 2000 inference windows of a foundation model) with a `CostNotConfirmedError` that states its cost, until `confirm_cost=True` (`--confirm-cost` in the CLI) confirms it. The MCP server asks agents for the number of that cost ([#113](https://github.com/skforecast/skforecast-ai/pull/113)).
+
 !!! warning "Before upgrading"
 
     Some results change with this version, without any change in your code:
@@ -27,10 +29,11 @@ The main changes in this release are:
     + `plan()` of wide-format data whose series start or end with missing values may choose another estimator: `DataProfile.n_total_observations` no longer counts those values. See **Changed**.
     + [<code>ForecastingAssistant.backtest()</code>][assistant] of ForecasterRecursiveMultiSeries raises `insufficient_data` for a series that no fold forecasts, which it left out before, and `invalid_argument` when its missing values are the cause. See **Fixed**.
     + `plan()` of a target that takes values at or around zero, also one that crosses it with negative values, leaves MAPE out of the default metrics and so of the generated script. Pass it in `metric` to compute it anyway. See **Fixed**.
-    + The `compare` tool of the MCP server reports in `cost.n_fits` the trainings of all its candidates instead of those of the shared strategy, and its `cost` counts the candidates that fail too. See **Fixed**.
+    + The `compare` tool of the MCP server reports in `cost.n_fits` the trainings of all its candidates instead of those of the shared strategy, and its `cost` counts the candidates that fail while running too. See **Fixed**.
 
     And some code needs to be updated:
 
+    + [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` of an expensive run (above 50 estimator fits, as a direct forecaster with `refit=True`, or 2000 inference windows) raise `CostNotConfirmedError` before running instead of warning with `LongTrainingWarning`. Pass `confirm_cost=True` (`--confirm-cost` in the CLI) to run it; the `backtest` and `compare` tools of the MCP server take the number of its cost in `confirm_cost`. See **Changed**.
     + [<code>ForecastingAssistant.profile()</code>][assistant] of a file separated by `;` or tabulators raises `data_unreadable` instead of reading `.` as decimal mark when its only numbers with a `.` have three decimals (`1.870`), or when a column mixes them with whole numbers (`3`, `1.375`) next to other decimals (`0.75`). Pass `decimal='.'` to read them as before. See **Fixed**.
     + `profile()` of a DataFrame indexed by a MultiIndex with a level without a name raises `InvalidInputError` instead of naming it (`'datetime'`), a column the generated script did not have. Name the levels: `data.rename_axis(['series_id', 'date'])`. See **Fixed**.
     + `profile()` of dates that read both day first and month first and whose regularity does not tell the order either (a year or less of monthly data on the first of each month, or dates without a regular frequency) raises `data_unreadable` instead of reading them month first. Pass `dayfirst=False` to read them as before. See **Fixed**.
@@ -42,7 +45,9 @@ The main changes in this release are:
 
 + New argument `dayfirst` of [<code>ForecastingAssistant.profile()</code>][assistant] (`--dayfirst` or `--monthfirst` in the CLI, `dayfirst` in the `profile` tool of the MCP server) for text dates that read both day first and month first, in a CSV file or the `date_column` of a DataFrame; with dates already parsed, an `IgnoredArgumentWarning` says it does not apply. The profile records the format of the dates as `DataProfile.date_format`. See the [CLI guide][cli-guide] ([#96](https://github.com/skforecast/skforecast-ai/pull/96)).
 
-+ New attribute `cost` of the [<code>ComparisonResult</code>][results] of [<code>ForecastingAssistant.compare()</code>][assistant]: the trainings, estimator fits and inference windows of each candidate and of all of them together, the baseline included, counted before any candidate runs ([#108](https://github.com/skforecast/skforecast-ai/pull/108)).
++ New attribute `cost` of the [<code>ComparisonResult</code>][results] of [<code>ForecastingAssistant.compare()</code>][assistant]: the trainings, estimator fits and inference windows of each candidate and of all of them together, the baseline included, counted before any candidate runs and without the candidates whose plan cannot be built, which run nothing ([#108](https://github.com/skforecast/skforecast-ai/pull/108), [#113](https://github.com/skforecast/skforecast-ai/pull/113)).
+
++ New argument `confirm_cost` of [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` (`--confirm-cost` in the CLI, `confirm_cost` in the `backtest` and `compare` tools of the MCP server) and new error `CostNotConfirmedError` (`cost_not_confirmed` in the MCP server), raised before an expensive run that it does not confirm. See **Changed** and the [MCP server reference][mcp] ([#113](https://github.com/skforecast/skforecast-ai/pull/113)).
 
 + The `backtest` and `forecast` tools of the MCP server carry an `EstimatorNotRecommendedNotice` when the estimator of the plan was chosen instead of the one the rules recommend for its forecaster (after a `MissingValuesNotice`, say). It names both and asks the agent to tell the user. See [MCP server][mcp] ([#110](https://github.com/skforecast/skforecast-ai/pull/110)).
 
@@ -72,6 +77,10 @@ The main changes in this release are:
 + The `MetricUnitNotice` of the MCP server gives the unit of sMAPE, already a percentage from 0 to 200, as it does for MAPE, a fraction, and [<code>ForecastingAssistant.ask()</code>][assistant] no longer describes MAPE as a percentage ([#104](https://github.com/skforecast/skforecast-ai/pull/104)).
 
 + The `forecast` tool of the MCP server adds an `UnmeasuredPlanNotice` to a forecast of the future when no `backtest`, `compare` or `forecast` with `test_size` of the server measured its plan (the same plan with another interval or metric counts as measured), so an agent does not present it as reliable or give it the accuracy of another plan ([#109](https://github.com/skforecast/skforecast-ai/pull/109)).
+
++ [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` raise `CostNotConfirmedError` before an expensive run (above 50 estimator fits, or 2000 inference windows; for `compare()`, all its candidates together) instead of warning once it started; the error states the cost and the changes that lower it. Pass `confirm_cost=True` to run it. The MCP server takes only the number of the cost, which `create_cv` and the error give. See the [CLI guide][cli-guide] ([#113](https://github.com/skforecast/skforecast-ai/pull/113)).
+
++ [<code>ForecastingAssistant.compare()</code>][assistant] builds the plans of all the candidates before any of them runs: their warnings come first, and a candidate whose plan cannot be built fails then, before the others run ([#113](https://github.com/skforecast/skforecast-ai/pull/113)).
 
 + With a prediction interval, the summary of [<code>ForecastingAssistant.backtest()</code>][assistant] (and what `ask()` and the MCP server read) gives, by series, the coverage and the mean width that skforecast measures (`coverage`, `interval_width`) next to the nominal coverage, and the table of `compare()` adds both columns without changing the ranking ([#112](https://github.com/skforecast/skforecast-ai/pull/112)).
 
@@ -110,7 +119,7 @@ The main changes in this release are:
 
 + [<code>ForecastingAssistant.backtest()</code>][assistant] of a single series failed inside the script with "All samples have been removed due to NaNs" when every training row of a fold read a missing value. It now raises `DataContentError` before running, with what avoids it ([#105](https://github.com/skforecast/skforecast-ai/pull/105)).
 
-+ [<code>ForecastingAssistant.compare()</code>][assistant] applied the threshold of a long training (50 estimator fits) to each candidate, so candidates cheap one by one ran 78 fits without a warning. It now applies it to all the candidates together and warns once, before running, with the total and what each candidate adds ([#108](https://github.com/skforecast/skforecast-ai/pull/108)).
++ [<code>ForecastingAssistant.compare()</code>][assistant] applied the threshold of a long training (50 estimator fits) to each candidate, so candidates cheap one by one ran 78 fits without a warning. It now applies it to all the candidates together, before any of them runs, and states the total and what each candidate adds ([#108](https://github.com/skforecast/skforecast-ai/pull/108), [#113](https://github.com/skforecast/skforecast-ai/pull/113)).
 
 + In the MCP server, `cost.n_fits` of `compare` was the trainings of the shared strategy, not of the comparison; it is now the total, like `estimator_fits`. The `CostNotice` of `create_cv` offered `refit` also where it lowers nothing (ForecasterStats, foundation models, a strategy that trains once); it now names only the changes that lower the cost. See the [MCP server reference][mcp] ([#108](https://github.com/skforecast/skforecast-ai/pull/108)).
 

@@ -89,12 +89,12 @@ def test_tool_compare_output_matches_python_api(tmp_path):
     assert text_of(result["files"]["leaderboard"]) == csv_of(expected.results)
     assert text_of(result["files"]["best_predictions"]) == csv_of(best.predictions)
     assert text_of(result["files"]["best_metrics"]) == csv_of(best.metrics)
-    # Counted before running, the candidate that failed included: one
-    # training each (the baseline too), and estimator fits Ridge 1, the
-    # failed candidate 1, the direct forecaster one per step (12) and the
-    # baseline 0; no foundation model ran.
+    # Counted before running, without the candidate whose plan cannot be
+    # built (it runs nothing): one training each (the baseline too), and
+    # estimator fits Ridge 1, the direct forecaster one per step (12) and
+    # the baseline 0; no foundation model ran.
     assert result["cost"] == {
-        "n_folds": 6, "n_fits": 4, "estimator_fits": 14, "inference_windows": 0
+        "n_folds": 6, "n_fits": 3, "estimator_fits": 13, "inference_windows": 0
     }
     # The leaderboard has MAPE, whose unit the server states.
     assert [n["category"] for n in result["notices"]] == ["MetricUnitNotice"]
@@ -112,10 +112,12 @@ def test_tool_compare_cost_of_candidates_above_the_threshold_only_in_total(
     """
     Test that `compare` with explicit candidates, each at most 50 estimator
     fits (two ForecasterDirect of 8 trainings x 6 estimators, 48 each) but
-    104 together, carries the `LongTrainingWarning` of the total, counted
-    before they run, with what each candidate adds, the baseline included;
-    and that its `cost` has the totals: trainings 8 per candidate, the
-    baseline too, and the folds of the shared strategy.
+    104 together, is refused before running without `confirm_cost`: the
+    error states the total, counted once every plan is built, with what each
+    candidate adds (the baseline included, without the candidate whose plan
+    cannot be built), the cheaper strategies and the number to repeat; with
+    another number it is refused the same way; with that number it runs,
+    without a `LongTrainingWarning`, and its `cost` has the totals.
     """
     server, path = h2o_server(tmp_path)
     _, plan_id = profile_and_plan(server, path, steps=6)
@@ -129,32 +131,75 @@ def test_tool_compare_cost_of_candidates_above_the_threshold_only_in_total(
         {"name": "direct_a", "config": {"forecaster": "ForecasterDirect", "lags": 3}},
         {"name": "direct_b", "config": {"forecaster": "ForecasterDirect", "lags": 6}},
         {"name": "rec", "config": {}},
+        {"name": "bad", "config": {"estimator": "NoSuchEstimator"}},
     ]
+    arguments = {"cv_id": cv["id"], "candidates": candidates}
 
-    result = content_of(
-        call(server, "compare", {"cv_id": cv["id"], "candidates": candidates})
+    missing = error_of(call(server, "compare", arguments), "compare")
+    another = error_of(
+        call(server, "compare", {**arguments, "confirm_cost": 56}), "compare"
     )
+    result = content_of(call(server, "compare", {**arguments, "confirm_cost": 104}))
 
+    description = (
+        "The comparison will fit 104 estimators in all ('direct_a': 48 (8 "
+        "trainings x 6 estimators), 'direct_b': 48 (8 trainings x 6 "
+        "estimators), 'rec': 8, 'Baseline (seasonal naive)': 0). 'bad' is not "
+        "counted: its plan cannot be built, so it runs nothing."
+    )
+    assert missing == {
+        "code": "cost_not_confirmed",
+        "message": (
+            "Expensive run not confirmed, so nothing ran. This comparison is "
+            "above the threshold of an expensive run (50 estimator fits or 2000 "
+            f"inference windows). {description}"
+        ),
+        "field": "confirm_cost",
+        "hint": (
+            "Do not call `compare` again until the user answers: tell them these "
+            "numbers and the cheaper strategies (fewer `candidates`, an integer "
+            "`refit` (retrain every n folds), fewer folds (a later "
+            "`initial_train_size`, a larger `fold_stride` or `skip_folds`) or "
+            "`refit=false` (train once)), and ask whether to run it. Only if "
+            "they choose to run it as it is, call `compare` again with the same "
+            "arguments and `confirm_cost: 104`. Asking to retrain the model, or "
+            "to evaluate it as in production, is not that choice."
+        ),
+        "details": {
+            "confirm_cost": 104,
+            "cost": {
+                "n_folds": 8, "n_fits": 32, "estimator_fits": 104,
+                "inference_windows": 0,
+            },
+            "candidates": {
+                "direct_a": {
+                    "forecaster": "ForecasterDirect", "n_fits": 8,
+                    "estimator_fits": 48, "inference_windows": 0,
+                },
+                "direct_b": {
+                    "forecaster": "ForecasterDirect", "n_fits": 8,
+                    "estimator_fits": 48, "inference_windows": 0,
+                },
+                "rec": {
+                    "forecaster": "ForecasterRecursive", "n_fits": 8,
+                    "estimator_fits": 8, "inference_windows": 0,
+                },
+                "Baseline (seasonal naive)": {
+                    "forecaster": "ForecasterEquivalentDate", "n_fits": 8,
+                    "estimator_fits": 0, "inference_windows": 0,
+                },
+            },
+        },
+    }
+    assert another["message"].endswith(
+        "`confirm_cost` is 56, not 104: the strategy or the candidates changed "
+        "since that number was given."
+    )
+    assert another["details"] == missing["details"]
     assert result["cost"] == {
         "n_folds": 8, "n_fits": 32, "estimator_fits": 104, "inference_windows": 0
     }
-    assert [n["category"] for n in result["notices"]] == [
-        "MetricUnitNotice", "LongTrainingWarning",
-    ]
-    assert result["notices"][1] == {
-        "source": "runtime",
-        "category": "LongTrainingWarning",
-        "message": (
-            "The comparison will fit 104 estimators in all ('direct_a': 48 "
-            "(8 trainings x 6 estimators), 'direct_b': 48 (8 trainings x 6 "
-            "estimators), 'rec': 8, 'Baseline (seasonal naive)': 0). This can "
-            "take substantial amounts of time. If not feasible, compare fewer "
-            "candidates or use an integer `refit` (retrain every n folds), "
-            "fewer folds (a later `initial_train_size`, a larger `fold_stride` "
-            "or `skip_folds`) or `refit=False` (train once)."
-        ),
-        "count": 1,
-    }
+    assert [n["category"] for n in result["notices"]] == ["MetricUnitNotice"]
 
 
 def test_tool_compare_code_and_failures_of_the_candidates(tmp_path):
@@ -622,8 +667,13 @@ def test_tool_compare_summary_names_the_arguments_passed_to_the_strategy(tmp_pat
     _, _, cv_id = cv_of(server, path, cv_arguments={"refit": True})
     _, _, default_cv_id = cv_of(server, path)
 
+    # 78 estimator fits: the direct candidate fits 12 estimators in each of
+    # the 6 folds.
     chosen = content_of(
-        call(server, "compare", {"cv_id": cv_id, "candidates": COMPARE_CANDIDATES})
+        call(
+            server, "compare",
+            {"cv_id": cv_id, "candidates": COMPARE_CANDIDATES, "confirm_cost": 78},
+        )
     )
     default = content_of(
         call(
@@ -891,6 +941,57 @@ def test_tool_compare_notice_of_undefined_mape_when_target_crosses_zero(tmp_path
     assert result["notices"][0]["message"].startswith(
         "`mean_absolute_percentage_error` has no meaning on this data"
     )
+
+
+def test_tool_compare_without_candidates_confirmed_with_the_cost_of_create_cv(
+    tmp_path, monkeypatch
+):
+    """
+    Test that `compare` without candidates on a strategy whose backtest is
+    cheap (7 fits) but whose comparison is not (98, with ForecasterDirect
+    refitted in every fold) is refused without `confirm_cost`, that the
+    number of the error is `compare_estimator_fits` of `create_cv`, which
+    its `CostNotice` names, and that the hint offers a list of
+    `candidates`; with that number it runs and its `cost` has it.
+    """
+    monkeypatch.setattr(
+        "skforecast_ai.execution.comparison.foundation_backend_installed",
+        lambda info: False,
+    )
+    server, path = h2o_server(tmp_path)
+    _, plan_id = profile_and_plan(server, path, steps=12)
+    cv = content_of(
+        call(
+            server, "create_cv",
+            {"plan_id": plan_id, "initial_train_size": 120, "refit": True},
+        )
+    )
+
+    refused = error_of(call(server, "compare", {"cv_id": cv["id"]}), "compare")
+    result = content_of(
+        call(
+            server, "compare",
+            {"cv_id": cv["id"], "confirm_cost": cv["cost"]["compare_estimator_fits"]},
+        )
+    )
+
+    assert cv["cost"]["estimator_fits"] == 7
+    assert cv["cost"]["compare_estimator_fits"] == 98
+    assert (
+        "passing `confirm_cost: 98` to `compare` without `candidates`"
+        in cv["notices"][0]["message"]
+    )
+    assert refused["details"]["confirm_cost"] == 98
+    assert list(refused["details"]["candidates"]) == [
+        "ForecasterRecursive", "ForecasterDirect", "ForecasterStats",
+        "Baseline (seasonal naive)",
+    ]
+    assert refused["code"] == "cost_not_confirmed"
+    assert refused["hint"].startswith(
+        "Do not call `compare` again until the user answers: tell them these "
+        "numbers and the cheaper strategies (a list of `candidates`, "
+    )
+    assert result["cost"]["estimator_fits"] == 98
 
 
 def test_tool_compare_output_when_interval_adds_coverage_without_changing_ranking(

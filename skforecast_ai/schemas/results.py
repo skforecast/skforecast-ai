@@ -949,9 +949,11 @@ class ComparisonCost(BaseModel):
     baseline included, counted from the plan and the strategy before
     anything runs (`count_comparison_cost`).
 
-    `compare()` applies the thresholds of an expensive run
-    (`LongTrainingWarning`) to these totals. A candidate that fails is
-    counted all the same: the count is made before it runs.
+    `compare()` applies the thresholds of an expensive run to these totals
+    (`confirm_cost`). The count is made once the plans of the candidates
+    are built and before any of them runs: a candidate whose plan cannot be
+    built runs nothing and is not counted, and one that fails while it runs
+    is counted all the same.
 
     Attributes
     ----------

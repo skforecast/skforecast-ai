@@ -20,6 +20,7 @@ import typing as _typing
 from .exceptions import (
     AllCandidatesFailedError,
     CandidateFailedWarning,
+    CostNotConfirmedError,
     DataContentError,
     DataNotFoundError,
     DataSentToLLMWarning,
@@ -108,6 +109,7 @@ __all__ = [
     "CandidateFailure",
     "CompareProgress",
     "ComparisonResult",
+    "CostNotConfirmedError",
     "CVResult",
     "DataContentError",
     "DataNotFoundError",

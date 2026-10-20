@@ -529,6 +529,138 @@ def test_tool_backtest_notice_of_undefined_mape_when_target_crosses_zero(tmp_pat
     )
 
 
+def test_tool_backtest_confirm_cost_of_an_expensive_run(tmp_path):
+    """
+    Test that a backtest above 50 estimator fits (a ForecasterDirect of 6
+    steps refitted in each of 14 folds: 84) is refused before running
+    without `confirm_cost`, with its cost, the cheaper strategies and the
+    number to repeat, that `create_cv` gives that number and its
+    `CostNotice` names it, that another number is refused saying the
+    strategy or the plan changed, that `true` is not a number, and that the
+    number runs it.
+    """
+    server, path = h2o_server(tmp_path)
+    _, _, cv_id = cv_of(
+        server,
+        path,
+        steps=6,
+        forecaster="ForecasterDirect",
+        cv_arguments={"initial_train_size": 120, "refit": True},
+    )
+    cv = content_of(call(server, "describe_object", {"object_id": cv_id}))
+
+    missing = error_of(call(server, "backtest", {"cv_id": cv_id}), "backtest")
+    another = error_of(
+        call(server, "backtest", {"cv_id": cv_id, "confirm_cost": 83}), "backtest"
+    )
+    true = error_of(
+        call(server, "backtest", {"cv_id": cv_id, "confirm_cost": True}), "backtest"
+    )
+    result = content_of(
+        call(server, "backtest", {"cv_id": cv_id, "confirm_cost": 84})
+    )
+
+    assert cv["cost"]["estimator_fits"] == 84
+    assert "passing `confirm_cost: 84` to `backtest`" in cv["notices"][0]["message"]
+    assert missing == {
+        "code": "cost_not_confirmed",
+        "message": (
+            "Expensive run not confirmed, so nothing ran. This backtest is above "
+            "the threshold of an expensive run (50 estimator fits or 2000 "
+            "inference windows). ForecasterDirect will be fit 84 times (14 "
+            "trainings x 6 estimators)."
+        ),
+        "field": "confirm_cost",
+        "hint": (
+            "Do not call `backtest` again until the user answers: tell them "
+            "these numbers and the cheaper strategies (an integer `refit` "
+            "(retrain every n folds), fewer folds (a later `initial_train_size`, "
+            "a larger `fold_stride` or `skip_folds`) or `refit=false` (train "
+            "once)), and ask whether to run it. Only if they choose to run it as "
+            "it is, call `backtest` again with the same arguments and "
+            "`confirm_cost: 84`. Asking to retrain the model, or to evaluate it "
+            "as in production, is not that choice."
+        ),
+        "details": {
+            "confirm_cost": 84,
+            "cost": {
+                "n_folds": 14, "n_fits": 14, "estimator_fits": 84,
+                "inference_windows": 0,
+            },
+        },
+    }
+    assert another["message"] == (
+        f"{missing['message']} `confirm_cost` is 83, not 84: the strategy or the "
+        f"plan changed since that number was given."
+    )
+    assert true["field"] == "confirm_cost"
+    assert true["details"] is None
+    assert result["cost"] == {
+        "n_folds": 14, "n_fits": 14, "estimator_fits": 84, "inference_windows": 0
+    }
+    assert [n["category"] for n in result["notices"]] == [
+        "MetricReferenceNotice", "MetricUnitNotice",
+    ]
+
+
+def test_tool_backtest_confirm_cost_of_another_plan_on_the_strategy(tmp_path):
+    """
+    Test that the number to confirm is the cost of the plan that runs: a
+    strategy built for a ForecasterRecursive plan (14 fits, below the
+    threshold) needs no confirmation for it, while `plan_id` of a
+    ForecasterDirect plan on it (84 fits) is refused until that number is
+    given.
+    """
+    server, path = h2o_server(tmp_path)
+    profile_id, _, cv_id = cv_of(
+        server,
+        path,
+        steps=6,
+        cv_arguments={"initial_train_size": 120, "refit": True},
+    )
+    direct = content_of(
+        call(
+            server, "plan",
+            {"profile_id": profile_id, "steps": 6, "forecaster": "ForecasterDirect"},
+        )
+    )
+
+    own = content_of(call(server, "backtest", {"cv_id": cv_id}))
+    refused = error_of(
+        call(server, "backtest", {"cv_id": cv_id, "plan_id": direct["id"]}),
+        "backtest",
+    )
+    confirmed = content_of(
+        call(
+            server, "backtest",
+            {"cv_id": cv_id, "plan_id": direct["id"], "confirm_cost": 84},
+        )
+    )
+
+    assert own["cost"]["estimator_fits"] == 14
+    assert refused["details"]["confirm_cost"] == 84
+    assert confirmed["cost"]["estimator_fits"] == 84
+
+
+def test_tool_backtest_below_the_threshold_ignores_confirm_cost(tmp_path):
+    """
+    Test that a backtest at or below 50 estimator fits needs no
+    `confirm_cost` and ignores one that is not its cost: the same response
+    without it and with 999.
+    """
+    server, path = h2o_server(tmp_path)
+    _, _, cv_id = cv_of(server, path)
+
+    without = content_of(call(server, "backtest", {"cv_id": cv_id}))
+    ignored = content_of(
+        call(server, "backtest", {"cv_id": cv_id, "confirm_cost": 999})
+    )
+
+    assert without["cost"] == ignored["cost"]
+    assert without["cost"]["estimator_fits"] <= 50
+    assert text_of(without["files"]["metrics"]) == text_of(ignored["files"]["metrics"])
+
+
 _COVERAGE_NOTICE_END = (
     "(more than 2 binomial standard errors for the number of predictions, "
     "and at least 5 percentage points, below 80 %). Do not present the "
