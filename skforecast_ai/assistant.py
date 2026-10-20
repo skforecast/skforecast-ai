@@ -3386,12 +3386,13 @@ class ForecastingAssistant:
             training) or, for a foundation model, forecasts more than 2000
             inference windows (one per series and fold) raises
             `CostNotConfirmedError` before anything runs, with its cost and
-            the changes that lower it, unless it is confirmed. True confirms
-            it whatever its cost; an integer confirms it only when it is
-            the figure of its cost (`CostNotConfirmedError.figure`: the
-            estimator fits, or the inference windows of a foundation
+            the changes that lower it, unless it is confirmed: pass True to
+            run it once you have read that cost. An integer confirms it only
+            when it is the figure of its cost (`CostNotConfirmedError.figure`:
+            the estimator fits, or the inference windows of a foundation
             model), so it no longer runs once the strategy or the plan
-            change that cost. Below those thresholds it is not read.
+            change that cost; it is the form the MCP server asks of an
+            agent. Below those thresholds it is not read.
 
         Returns
         -------
@@ -3710,13 +3711,14 @@ class ForecastingAssistant:
             or whose `ForecasterFoundation` candidates forecast more than
             2000 inference windows, raises `CostNotConfirmedError` before
             any candidate runs, with the total, what each candidate adds and
-            the changes that lower it, unless it is confirmed. True confirms
-            it whatever its cost; an integer confirms it only when it is
-            the figure of its cost (`CostNotConfirmedError.figure`: the
-            estimator fits of all the candidates, or their inference
+            the changes that lower it, unless it is confirmed: pass True to
+            run it once you have read that cost. An integer confirms it only
+            when it is the figure of its cost (`CostNotConfirmedError.figure`:
+            the estimator fits of all the candidates, or their inference
             windows when only those are above), so it no longer runs once
-            the strategy or the candidates change that cost. Below those
-            thresholds it is not read.
+            the strategy or the candidates change that cost; it is the form
+            the MCP server asks of an agent. Below those thresholds it is not
+            read.
 
         Returns
         -------

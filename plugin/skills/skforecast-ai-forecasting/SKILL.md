@@ -188,7 +188,7 @@ inference windows when only those are above). `create_cv` gives that
 number for its plan and for a `compare` without `candidates`, in `cost`
 and in its `CostNotice`. With `candidates`, call `compare` without
 `confirm_cost`: below the thresholds it runs, and above them its error
-(`invalid_argument` on `confirm_cost`) gives the total, what each
+(`cost_not_confirmed`) gives the total, what each
 candidate adds and the number (a candidate whose plan cannot be built
 runs nothing and is not counted). A number given for another strategy,
 plan or candidates is refused the same way, with the new one. Before an
@@ -331,11 +331,12 @@ and follow `hint` when there is one:
 
 | code | What to do |
 |---|---|
-| `invalid_argument` | Fix the argument named in `field`, as the message says. On `confirm_cost` nothing is wrong: the run is expensive, so ask the user first (see Cost). |
+| `invalid_argument` | Fix the argument named in `field`, as the message says. |
 | `insufficient_data` | Ask for less, as the message says: a shorter horizon, fewer lags, or a first training set that leaves room for the folds (smaller) or for the window of the forecaster (a later `initial_train_size`). A target column without any value, or a series too short for the forecaster (the message names it), is also reported this way. |
 | `data_not_found`, `invalid_path`, `url_not_allowed` | Pass the absolute path of a CSV file (`.csv`, `.tsv`, `.csv.gz` or `.tsv.gz`) inside the allowed directory. |
 | `path_not_allowed` | The file is outside the allowed directory (`details.allowed_dir`). Do not copy or move it yourself: tell the user, who can copy it there or restart the server with another `--allow-dir`. |
 | `data_unreadable` | The file is not a CSV the server can read (empty, binary, not UTF-8, rows with more fields than the header, or a column without name and values): tell the user, as for the data problems above. When the message says the separator, the decimal mark or the thousands separator cannot be told, or that the file holds `.` between thousands and in other values, call `profile` again with `sep`, `decimal` or `thousands` as the hint says, asking the user if you do not know them. When it says the dates read both day first and month first, ask the user in which order they are written and call `profile` again with `dayfirst`. |
+| `cost_not_confirmed` | Nothing is wrong: the run is expensive. Do not call the tool again until the user answers: tell them the cost and the cheaper strategies of the message and the hint, and pass `confirm_cost` with the number of `details.confirm_cost` only if they choose that run (see Cost). |
 | `file_too_large` | The file is larger than the server reads (`--max-file-mb`, 256 MB by default): pass a smaller file, or ask the user to raise the limit. |
 | `data_changed` | The file changed: call `profile` again (or the tool again for an exogenous file). |
 | `unknown_id` | Use an id from `list_objects`, or create the object again. |

@@ -148,7 +148,7 @@ def test_tool_compare_cost_of_candidates_above_the_threshold_only_in_total(
         "counted: its plan cannot be built, so it runs nothing."
     )
     assert missing == {
-        "code": "invalid_argument",
+        "code": "cost_not_confirmed",
         "message": (
             "Expensive run not confirmed, so nothing ran. This comparison is "
             "above the threshold of an expensive run (50 estimator fits or 2000 "
@@ -156,14 +156,14 @@ def test_tool_compare_cost_of_candidates_above_the_threshold_only_in_total(
         ),
         "field": "confirm_cost",
         "hint": (
-            "Stop here and do not run it: tell the user these numbers and the "
-            "cheaper strategies (fewer `candidates`, an integer `refit` "
-            "(retrain every n folds), fewer folds (a later `initial_train_size`, "
-            "a larger `fold_stride` or `skip_folds`) or `refit=false` (train "
-            "once)), and ask them. Only if they choose to run it as it is, call "
-            "`compare` again with the same arguments and `confirm_cost: 104`. "
-            "Asking to retrain the model, or to evaluate it as in production, "
-            "is not that choice."
+            "Do not call `compare` again until the user answers: tell them these "
+            "numbers and the cheaper strategies (fewer `candidates`, an integer "
+            "`refit` (retrain every n folds), fewer folds (a later "
+            "`initial_train_size`, a larger `fold_stride` or `skip_folds`) or "
+            "`refit=false` (train once)), and ask whether to run it. Only if "
+            "they choose to run it as it is, call `compare` again with the same "
+            "arguments and `confirm_cost: 104`. Asking to retrain the model, or "
+            "to evaluate it as in production, is not that choice."
         ),
         "details": {
             "confirm_cost": 104,
@@ -986,9 +986,10 @@ def test_tool_compare_without_candidates_confirmed_with_the_cost_of_create_cv(
         "ForecasterRecursive", "ForecasterDirect", "ForecasterStats",
         "Baseline (seasonal naive)",
     ]
+    assert refused["code"] == "cost_not_confirmed"
     assert refused["hint"].startswith(
-        "Stop here and do not run it: tell the user these numbers and the "
-        "cheaper strategies (a list of `candidates`, "
+        "Do not call `compare` again until the user answers: tell them these "
+        "numbers and the cheaper strategies (a list of `candidates`, "
     )
     assert result["cost"]["estimator_fits"] == 98
 

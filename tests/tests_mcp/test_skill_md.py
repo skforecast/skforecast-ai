@@ -245,6 +245,7 @@ def test_skill_md_covers_what_agents_get_wrong(phrase):
         "cheaper strategies",
         "asking to retrain regularly is not that choice",
         "never pass `confirm_cost` before you asked",
+        "Do not call the tool again until the user answers",
         "`backtest` and `compare` refuse it, before anything runs, unless "
         "`confirm_cost` is the number of its cost",
         "Report what was measured, never why",

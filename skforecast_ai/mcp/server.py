@@ -1911,8 +1911,10 @@ def _cost_not_confirmed(
     tool takes only the number of the cost, so the agent has to read it,
     and a strategy or candidates with another cost refuse the old number.
     The error states the cost, what makes it and the cheaper strategies,
-    and tells the agent to ask the user before calling again with that
-    number.
+    and tells the agent not to call again until the user answers. Its
+    code is the server's own, `cost_not_confirmed`: `invalid_argument`
+    asks an agent to correct the argument and call again, which it would
+    do at once with the number the error gives, without asking.
 
     Parameters
     ----------
@@ -1929,7 +1931,7 @@ def _cost_not_confirmed(
     Returns
     -------
     error : ServerError
-        Error with the code `'invalid_argument'` and the field
+        Error with the code `'cost_not_confirmed'` and the field
         `'confirm_cost'`.
     """
 
@@ -1951,11 +1953,11 @@ def _cost_not_confirmed(
         f" and the cheaper strategies ({join_remedies(remedies)})" if remedies else ""
     )
     hint = (
-        f"Stop here and do not run it: tell the user these numbers{cheaper}, "
-        f"and ask them. Only if they choose to run it as it is, call `{tool}` "
-        f"again with the same arguments and `confirm_cost: {exc.figure}`. "
-        f"Asking to retrain the model, or to evaluate it as in production, is "
-        f"not that choice."
+        f"Do not call `{tool}` again until the user answers: tell them these "
+        f"numbers{cheaper}, and ask whether to run it. Only if they choose to "
+        f"run it as it is, call `{tool}` again with the same arguments and "
+        f"`confirm_cost: {exc.figure}`. Asking to retrain the model, or to "
+        f"evaluate it as in production, is not that choice."
     )
     details: dict[str, Any] = {"confirm_cost": exc.figure, "cost": dict(exc.cost)}
     if exc.comparison_cost is not None:
@@ -1966,7 +1968,7 @@ def _cost_not_confirmed(
 
     return ServerError(
         message,
-        code    = "invalid_argument",
+        code    = "cost_not_confirmed",
         field   = "confirm_cost",
         hint    = hint,
         details = details,
