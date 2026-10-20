@@ -254,13 +254,13 @@ that is for the user to ask once they know.
   (`initial_train_size` of `create_cv`, `test_size` of `forecast`). A count
   is a number, never text: `"12"` is rejected.
 - Arguments are strict: an unknown argument or a wrong type is an error,
-  never ignored. Metrics are the names of their functions in scikit-learn
-  and skforecast: `mean_absolute_error`, `mean_squared_error`,
-  `root_mean_squared_error` (in the units of the target, like
-  `mean_absolute_error`), `mean_absolute_scaled_error`, and the others the
-  schema lists. The CSV of metrics of a `backtest` and of a `forecast` with
-  `test_size` name their columns that way, with a column `levels` for the
-  series when there are several.
+  never ignored. Metrics are the names of skforecast:
+  `mean_absolute_error`, `mean_squared_error` (in the squared units of the
+  target), `root_mean_squared_error` (in its units),
+  `mean_absolute_scaled_error`, and the others the schema lists. The CSV
+  of metrics of a `backtest` and of a `forecast` with `test_size` name
+  their columns that way, with a column `levels` for the series when there
+  are several.
 - Messages of the library name the arguments of its Python API: `data` is
   `data_path`, `exog` is `exog_path`, `profile`, `plan` and `cv` are the
   ids `profile_id`, `plan_id` and `cv_id`, and `forecast()` or

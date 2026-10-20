@@ -578,9 +578,8 @@ def test_compare_output_when_metric_list_ranks_by_first():
 
 def test_compare_output_when_metric_is_rmse():
     """
-    Test that `root_mean_squared_error`, which skforecast's backtesting does
-    not take by name, ranks the table and is the square root of the MSE of
-    every candidate.
+    Test that `root_mean_squared_error` ranks the table and is the square
+    root of the MSE of every candidate.
     """
     result = assistant.compare(
         data=df_single,

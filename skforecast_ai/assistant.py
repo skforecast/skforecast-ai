@@ -1029,10 +1029,9 @@ class ForecastingAssistant:
         metric : str, list of str, default None
             Metric(s) the plan computes, among the regression metrics of
             skforecast (`'mean_absolute_error'`, `'mean_squared_error'`,
-            ...) plus `'root_mean_squared_error'`, with the semantics of
-            `compare()`: the first one is the primary metric
-            (`plan.metric`) and only the ones given are computed
-            (`plan.metrics_to_compute`). MAPE on a target that
+            ...), with the semantics of `compare()`: the first one is the
+            primary metric (`plan.metric`) and only the ones given are
+            computed (`plan.metrics_to_compute`). MAPE on a target that
             takes values at or around zero is computed, with a
             `UserWarning` whose text also goes to `plan.warnings`: it
             divides by the actual value, so its value means nothing there.
@@ -1106,7 +1105,7 @@ class ForecastingAssistant:
             supported by skforecast, if `estimator_kwargs` contains
             `'model_id'`, or if the model cannot predict `interval`. Also if
             `metric` is empty, repeats a metric or names one outside the
-            regression metrics of skforecast and `'root_mean_squared_error'`.
+            regression metrics of skforecast.
         TypeError
             If `metric` is not a str or a list of str.
         """

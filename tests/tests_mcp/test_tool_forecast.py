@@ -14,6 +14,7 @@ from ..fixtures_csv_dialect import df_dialect, write_dialect
 from ..fixtures_datasets import df_items_sales_long
 from .fixtures_mcp import (
     DATA_VALUES_HINT,
+    MSE_UNIT,
     RMSE_UNIT,
     call,
     df_numeric_ids_exog,
@@ -169,7 +170,8 @@ def test_tool_forecast_output_when_metric_is_root_mean_squared_error(tmp_path):
     Test that a plan whose `metric` is `root_mean_squared_error` computes
     it in a `forecast` with `test_size` as the Python API does, in a column
     of that name next to the MSE whose square root it is, and that the
-    response gives its unit, that of the target, in a `MetricUnitNotice`.
+    response gives the units of both, squared and that of the target, in a
+    `MetricUnitNotice`.
     """
     path = write_csv(tmp_path, "sales.csv", df_single)
     server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
@@ -201,7 +203,10 @@ def test_tool_forecast_output_when_metric_is_root_mean_squared_error(tmp_path):
     assert result["notices"][0]["category"] == "HoldoutEvaluationNotice"
     assert [ToolNotice(**n) for n in result["notices"][1:]] == [
         ToolNotice(
-            source="runtime", category="MetricUnitNotice", message=RMSE_UNIT, count=1
+            source   = "runtime",
+            category = "MetricUnitNotice",
+            message  = f"{MSE_UNIT} {RMSE_UNIT}",
+            count    = 1,
         )
     ]
 

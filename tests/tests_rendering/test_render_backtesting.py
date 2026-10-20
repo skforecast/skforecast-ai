@@ -1100,9 +1100,8 @@ def test_render_backtesting_single_series_output_when_metric_override():
 
 def test_render_backtesting_single_series_output_when_metric_is_rmse():
     """
-    Test that the backtest of a plan with `root_mean_squared_error`, which
-    skforecast's backtesting does not take by name, imports the function of
-    scikit-learn and passes it in `metric`, the other metrics by name.
+    Test that the backtest of a plan with `root_mean_squared_error` passes
+    it to skforecast by name, as the other metrics, without importing it.
     """
     result = render_backtesting_single_series(
         plan_single_rmse, profile_single_no_exog, cv_basic
@@ -1110,7 +1109,6 @@ def test_render_backtesting_single_series_output_when_metric_is_rmse():
 
     expected = (
         "import pandas as pd\n"
-        "from sklearn.metrics import root_mean_squared_error\n"
         "from lightgbm import LGBMRegressor\n"
         "from skforecast.recursive import ForecasterRecursive\n"
         "from skforecast.model_selection import TimeSeriesFold, backtesting_forecaster\n"
@@ -1141,7 +1139,7 @@ def test_render_backtesting_single_series_output_when_metric_is_rmse():
         "    forecaster        = forecaster,\n"
         "    y                 = data['sales'],\n"
         "    cv                = cv,\n"
-        "    metric            = [root_mean_squared_error, 'mean_absolute_error'],\n"
+        "    metric            = ['root_mean_squared_error', 'mean_absolute_error'],\n"
         "    n_jobs            = 'auto',\n"
         "    verbose           = False,\n"
         "    show_progress     = True,\n"
@@ -1153,81 +1151,6 @@ def test_render_backtesting_single_series_output_when_metric_is_rmse():
     )
 
     assert result.full_script == expected
-
-
-@pytest.mark.parametrize(
-    "render, plan, profile, imports",
-    [
-        (
-            render_backtesting_multi_series,
-            plan_multi_series,
-            profile_multi_wide,
-            "from lightgbm import LGBMRegressor\n"
-            "from skforecast.recursive import ForecasterRecursiveMultiSeries\n"
-            "from skforecast.model_selection import TimeSeriesFold, "
-            "backtesting_forecaster_multiseries\n",
-        ),
-        (
-            render_backtesting_multivariate,
-            plan_multivariate,
-            profile_multi_wide,
-            "from lightgbm import LGBMRegressor\n"
-            "from skforecast.direct import ForecasterDirectMultiVariate\n"
-            "from skforecast.model_selection import TimeSeriesFold, "
-            "backtesting_forecaster_multiseries\n",
-        ),
-        (
-            render_backtesting_foundation,
-            plan_foundation,
-            profile_single_no_exog,
-            "from skforecast.foundation import FoundationModel, "
-            "ForecasterFoundation\n"
-            "from skforecast.model_selection import TimeSeriesFold, "
-            "backtesting_foundation\n",
-        ),
-        (
-            render_backtesting_statistical,
-            plan_statistical,
-            profile_single_no_exog,
-            "from skforecast.stats import Arima\n"
-            "from skforecast.recursive import ForecasterStats\n"
-            "from skforecast.model_selection import TimeSeriesFold, "
-            "backtesting_stats\n",
-        ),
-        (
-            render_backtesting_baseline,
-            plan_baseline,
-            profile_single_no_exog,
-            "from skforecast.recursive import ForecasterEquivalentDate\n"
-            "from skforecast.model_selection import TimeSeriesFold, "
-            "backtesting_forecaster\n",
-        ),
-    ],
-    ids=["multi series", "multivariate", "foundation", "statistical", "baseline"],
-)
-def test_render_backtesting_output_when_metric_is_rmse(render, plan, profile, imports):
-    """
-    Test that the backtest of every other family of forecasters with
-    `root_mean_squared_error`, which skforecast's backtesting does not take
-    by name, imports the function of scikit-learn and passes it in
-    `metric`, the other metrics by name.
-    """
-    plan = plan.model_copy(update={
-        "metric":             "root_mean_squared_error",
-        "metrics_to_compute": ["root_mean_squared_error", "mean_absolute_error"],
-    })
-
-    result = render(plan, profile, cv_basic)
-
-    assert result.imports == (
-        "import pandas as pd\n"
-        "from sklearn.metrics import root_mean_squared_error\n"
-        f"{imports}"
-    )
-    assert (
-        "    metric            = [root_mean_squared_error, 'mean_absolute_error'],\n"
-        in result.core
-    )
 
 
 def test_render_backtesting_single_series_output_when_differentiation():

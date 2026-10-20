@@ -7,7 +7,7 @@ from skforecast_ai.mcp.models import ToolNotice
 from skforecast_ai.mcp.server import _metric_notices, _unit_notices
 from skforecast_ai.schemas import DataProfile
 
-from .fixtures_mcp import RMSE_UNIT
+from .fixtures_mcp import MSE_UNIT, RMSE_UNIT
 
 MAPE_NOTICE = ToolNotice(
     source   = "runtime",
@@ -77,16 +77,16 @@ def test_unit_notices_unit_of_mape(columns):
         None,
         pd.DataFrame({
             "mean_absolute_error": [0.5],
-            "mean_squared_error": [0.4],
+            "median_absolute_error": [0.4],
             "mean_absolute_scaled_error": [0.1],
         }),
     ],
-    ids=["no metrics", "no MAPE, sMAPE nor RMSE"],
+    ids=["no metrics", "no MAPE, sMAPE, MSE nor RMSE"],
 )
-def test_unit_notices_empty_without_mape_smape_nor_rmse(metrics):
+def test_unit_notices_empty_without_mape_smape_mse_nor_rmse(metrics):
     """
-    Test that a result without metrics, or without MAPE, sMAPE and RMSE,
-    gets no notice.
+    Test that a result without metrics, or without MAPE, sMAPE, MSE and
+    RMSE, gets no notice.
     """
     assert _unit_notices(metrics) == []
 
@@ -141,20 +141,28 @@ def test_unit_notices_unit_of_smape(columns):
 
 
 @pytest.mark.parametrize(
-    "columns",
+    "columns, message",
     [
-        ["mean_squared_error", "root_mean_squared_error"],
-        ["levels", "root_mean_squared_error"],
-        ["rank", "name", "root_mean_squared_error"],
+        (["mean_absolute_error", "mean_squared_error"], MSE_UNIT),
+        (["levels", "mean_squared_error"], MSE_UNIT),
+        (["rank", "name", "mean_squared_error"], MSE_UNIT),
+        (["mean_absolute_error", "root_mean_squared_error"], RMSE_UNIT),
+        (["levels", "root_mean_squared_error"], RMSE_UNIT),
+        (["rank", "name", "root_mean_squared_error"], RMSE_UNIT),
+        (
+            ["root_mean_squared_error", "mean_squared_error"],
+            f"{MSE_UNIT} {RMSE_UNIT}",
+        ),
     ],
-    ids=lambda dt: f"columns: {dt}",
+    ids=lambda dt: f"{dt}" if isinstance(dt, list) else "",
 )
-def test_unit_notices_unit_of_rmse(columns):
+def test_unit_notices_unit_of_mse_and_rmse(columns, message):
     """
     Test that the metrics of a backtest or a forecast, one series or several
-    (`levels`), or the leaderboard of a comparison with RMSE get one notice
-    saying that it is in the units of the target, unlike MSE, also on a
-    target at or around zero.
+    (`levels`), or the leaderboard of a comparison with MSE or RMSE get one
+    notice saying that MSE is in the squared units of the target and RMSE in
+    its units (MSE first when both are computed), also on a target at or
+    around zero.
     """
     metrics = pd.DataFrame([[1.245] * len(columns)], columns=columns)
 
@@ -162,7 +170,7 @@ def test_unit_notices_unit_of_rmse(columns):
         ToolNotice(
             source   = "runtime",
             category = "MetricUnitNotice",
-            message  = RMSE_UNIT,
+            message  = message,
             count    = 1,
         )
     ]
@@ -190,14 +198,16 @@ def test_unit_notices_unit_of_mape_and_smape_in_one_notice():
     ]
 
 
-def test_unit_notices_unit_of_rmse_after_mape_and_smape_in_one_notice():
+def test_unit_notices_unit_of_mse_and_rmse_after_mape_and_smape_in_one_notice():
     """
-    Test that a result with MAPE, sMAPE and RMSE gets a single unit notice
-    that gives the unit of each one, RMSE last, and that on a target at or
-    around zero RMSE keeps its unit next to the notice of an undefined MAPE.
+    Test that a result with MAPE, sMAPE, MSE and RMSE gets a single unit
+    notice that gives the unit of each one, in that order, and that on a
+    target at or around zero MSE and RMSE keep their units next to the
+    notice of an undefined MAPE.
     """
     metrics = pd.DataFrame({
         "root_mean_squared_error": [2.5],
+        "mean_squared_error": [6.25],
         "mean_absolute_percentage_error": [0.011278],
         "symmetric_mean_absolute_percentage_error": [1.136376],
     })
@@ -206,7 +216,9 @@ def test_unit_notices_unit_of_rmse_after_mape_and_smape_in_one_notice():
         ToolNotice(
             source   = "runtime",
             category = "MetricUnitNotice",
-            message  = f"{MAPE_NOTICE.message} {SMAPE_UNIT} {RMSE_UNIT}",
+            message  = (
+                f"{MAPE_NOTICE.message} {SMAPE_UNIT} {MSE_UNIT} {RMSE_UNIT}"
+            ),
             count    = 1,
         )
     ]
@@ -214,7 +226,7 @@ def test_unit_notices_unit_of_rmse_after_mape_and_smape_in_one_notice():
     assert [notice.category for notice in notices] == [
         "MetricUnitNotice", "MetricUndefinedNotice",
     ]
-    assert notices[0].message == f"{SMAPE_UNIT} {RMSE_UNIT}"
+    assert notices[0].message == f"{SMAPE_UNIT} {MSE_UNIT} {RMSE_UNIT}"
 
 
 def test_unit_notices_positive_target_keeps_the_unit_of_mape():

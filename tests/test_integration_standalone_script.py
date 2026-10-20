@@ -999,14 +999,13 @@ def test_standalone_scripts_match_forecast_and_backtest_when_metric_is_rmse(
     tmp_path, frame, target, levels
 ):
     """
-    Test that `root_mean_squared_error`, which skforecast's backtesting
-    does not take by name, runs in the scripts of forecast_code()
-    (evaluation mode, the function of scikit-learn) and backtest_code()
-    (the function passed in `metric`) as files: the backtest script gives
-    the metrics of backtest(), the metrics of forecast() have the columns
-    of those of backtest() (`levels` with several series, the table the
-    forecast script builds then), and the RMSE is the square root of the
-    MSE, in the units of the target.
+    Test that `root_mean_squared_error` runs in the scripts of
+    forecast_code() (evaluation mode, the function of scikit-learn) and
+    backtest_code() (by name, as the other metrics) as files: the backtest
+    script gives the metrics of backtest(), the metrics of forecast() have
+    the columns of those of backtest() (`levels` with several series, the
+    table the forecast script builds then), and the RMSE is the square root
+    of the MSE, in the units of the target.
     """
     csv_path = tmp_path / "data.csv"
     frame.to_csv(csv_path, index=False)
@@ -1024,9 +1023,14 @@ def test_standalone_scripts_match_forecast_and_backtest_when_metric_is_rmse(
 
     assert forecast_code == forecast.code
     assert backtest_code == backtest.code
-    assert "from sklearn.metrics import root_mean_squared_error\n" in backtest_code
-    assert "metric            = [root_mean_squared_error, 'mean_squared_error']," in (
-        backtest_code
+    assert (
+        "from sklearn.metrics import root_mean_squared_error, mean_squared_error\n"
+        in forecast_code
+    )
+    assert "sklearn.metrics" not in backtest_code
+    assert (
+        "metric            = ['root_mean_squared_error', 'mean_squared_error'],"
+        in backtest_code
     )
     columns = metric if levels is None else ["levels", *metric]
     assert list(forecast.metrics.columns) == columns

@@ -62,7 +62,10 @@ def test_metric_notices_names_both_scaled_metrics():
 
 @pytest.mark.parametrize(
     "metrics",
-    [None, pd.DataFrame({"mean_absolute_error": [0.5], "mean_squared_error": [0.1]})],
+    [
+        None,
+        pd.DataFrame({"mean_absolute_error": [0.5], "median_absolute_error": [0.1]}),
+    ],
     ids=["no metrics", "no scaled metric"],
 )
 def test_metric_notices_empty_without_scaled_metrics(metrics):

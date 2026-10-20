@@ -24,7 +24,6 @@ from ._helpers import (
     _emit_reshape_exog_long_to_dict,
     _emit_reshape_series_long_to_dict,
     _emit_series_dict,
-    _format_backtesting_metrics,
     _format_bool,
     _format_int,
     _get_interval_method_literal,
@@ -149,7 +148,7 @@ def _emit_backtesting_call(
     if plan.use_exog and exog_columns:
         bt_kwargs.append(("exog", "data[exog_features]"))
     bt_kwargs.append(("cv", "cv"))
-    bt_kwargs.append(("metric", _format_backtesting_metrics(plan.metrics_to_compute)))
+    bt_kwargs.append(("metric", repr(plan.metrics_to_compute)))
     if plan.interval is not None:
         bt_kwargs.append(("interval", repr(plan.interval)))
         if plan.interval_method not in (None, "bootstrapping"):
@@ -192,7 +191,7 @@ def _emit_backtesting_call_multiseries(
     if exog_expr is not None:
         bt_kwargs.append(("exog", exog_expr))
     bt_kwargs.append(("cv", "cv"))
-    bt_kwargs.append(("metric", _format_backtesting_metrics(plan.metrics_to_compute)))
+    bt_kwargs.append(("metric", repr(plan.metrics_to_compute)))
     if plan.interval is not None:
         bt_kwargs.append(("interval", repr(plan.interval)))
         if plan.interval_method not in (None, "conformal"):
@@ -459,7 +458,7 @@ def _emit_backtesting_call_foundation(
     bt_kwargs.append(("forecaster", "forecaster"))
     bt_kwargs.append(("series", series_expr))
     bt_kwargs.append(("cv", "cv"))
-    bt_kwargs.append(("metric", _format_backtesting_metrics(plan.metrics_to_compute)))
+    bt_kwargs.append(("metric", repr(plan.metrics_to_compute)))
     if exog_expr is not None:
         bt_kwargs.append(("exog", exog_expr))
     if quantiles is not None:
@@ -577,7 +576,7 @@ def _emit_backtesting_call_statistical(
     if plan.use_exog and exog_columns:
         bt_kwargs.append(("exog", "data[exog_features]"))
     bt_kwargs.append(("cv", "cv"))
-    bt_kwargs.append(("metric", _format_backtesting_metrics(plan.metrics_to_compute)))
+    bt_kwargs.append(("metric", repr(plan.metrics_to_compute)))
     if plan.interval is not None:
         bt_kwargs.append(("interval", repr(plan.interval)))
     bt_kwargs.append(("freeze_params", "True"))

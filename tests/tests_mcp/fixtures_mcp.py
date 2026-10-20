@@ -70,10 +70,14 @@ DATA_VALUES_HINT = (
     "why."
 )
 
-# Unit of RMSE in the `MetricUnitNotice` of a result that computes it.
+# Units of MSE and RMSE in the `MetricUnitNotice` of a result that
+# computes them.
+MSE_UNIT = (
+    "`mean_squared_error` is in the squared units of the target: do not "
+    "write it with the unit of the target."
+)
 RMSE_UNIT = (
-    "`root_mean_squared_error` is in the units of the target (the square "
-    "root of `mean_squared_error`, which is in squared units): report it as "
+    "`root_mean_squared_error` is in the units of the target: report it as "
     "it is."
 )
 

@@ -501,8 +501,7 @@ def validate_interval(
 
 def validate_metrics(metrics: list[str], field: str = "metric") -> None:
     """
-    Check metric names against the regression metrics the scripts compute:
-    those of skforecast plus `root_mean_squared_error`.
+    Check metric names against the regression metrics skforecast computes.
 
     Parameters
     ----------

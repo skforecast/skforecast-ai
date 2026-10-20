@@ -116,7 +116,7 @@ METRIC_DESCRIPTION = (
 Interval = Annotated[list[float], Field(min_length=2, max_length=2)]
 WindowFeatures = list[dict[str, list[str] | int]]
 MetricName = Literal[ALLOWED_METRICS]
-"""Regression metrics of skforecast plus RMSE (`ALLOWED_METRICS`)."""
+"""Regression metrics of skforecast (`ALLOWED_METRICS`)."""
 Metric = MetricName | Annotated[list[MetricName], Field(min_length=1)]
 CalendarFeatureName = Literal[_CALENDAR_FEATURES]
 """Calendar features of skforecast's `CalendarFeatures`."""

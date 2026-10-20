@@ -18,6 +18,7 @@ from ..fixtures_assistant import (
 from ..fixtures_datasets import df_items_sales_long, df_items_sales_wide
 from .fixtures_mcp import (
     DATA_VALUES_HINT,
+    MSE_UNIT,
     RMSE_UNIT,
     call,
     content_of,
@@ -140,7 +141,9 @@ def test_tool_backtest_does_not_repeat_the_warnings_of_the_profile(tmp_path):
 
     result = content_of(call(server, "backtest", {"cv_id": cv_id}))
 
-    assert [n["category"] for n in result["notices"]] == ["MetricReferenceNotice"]
+    assert [n["category"] for n in result["notices"]] == [
+        "MetricReferenceNotice", "MetricUnitNotice"
+    ]
 
 
 def test_tool_backtest_data_changed_since_profiled(tmp_path):
@@ -537,12 +540,11 @@ def test_tool_backtest_notice_of_undefined_mape_when_target_crosses_zero(tmp_pat
 
 def test_tool_backtest_output_when_metric_is_root_mean_squared_error(tmp_path):
     """
-    Test that a plan whose `metric` is `root_mean_squared_error`, which
-    skforecast's backtesting does not take by name, is backtested as the
-    Python API does: its script passes the function of scikit-learn, the
-    CSV of metrics has a column of that name, the square root of the MSE,
-    and the response gives its unit, that of the target, in a
-    `MetricUnitNotice`.
+    Test that a plan whose `metric` is `root_mean_squared_error` is
+    backtested as the Python API does: its script passes it by name, as the
+    other metrics, the CSV of metrics has a column of that name, the square
+    root of the MSE, and the response gives the units of both, squared and
+    that of the target, in a `MetricUnitNotice`.
     """
     path = write_csv(tmp_path, "sales.csv", df_single)
     server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
@@ -574,13 +576,13 @@ def test_tool_backtest_output_when_metric_is_root_mean_squared_error(tmp_path):
         np.sqrt(metrics["mean_squared_error"].iloc[0]),
     )
     assert code == expected.code
-    assert "from sklearn.metrics import root_mean_squared_error\n" in code
-    assert "[root_mean_squared_error, 'mean_squared_error']" in code
+    assert "sklearn.metrics" not in code
+    assert "['root_mean_squared_error', 'mean_squared_error']" in code
     assert [ToolNotice(**n) for n in result["notices"]] == [
         ToolNotice(
             source   = "runtime",
             category = "MetricUnitNotice",
-            message  = RMSE_UNIT,
+            message  = f"{MSE_UNIT} {RMSE_UNIT}",
             count    = 1,
         )
     ]

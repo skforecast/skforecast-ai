@@ -915,8 +915,8 @@ def test_forecast_output_when_baseline_plan():
 def test_forecast_and_backtest_output_when_baseline_plan_and_metric_is_rmse():
     """
     Test that `root_mean_squared_error` is computed in the units of the
-    target by forecast() and by backtest(), whose script passes the function
-    of scikit-learn: every prediction of the seasonal naive baseline on a
+    target by forecast() and by backtest(), whose script passes it to
+    skforecast by name: every prediction of the seasonal naive baseline on a
     linear series is off by exactly 7, so the RMSE is 7 and the MSE 49, in
     columns named as the metrics.
     """
@@ -942,8 +942,9 @@ def test_forecast_and_backtest_output_when_baseline_plan_and_metric_is_rmse():
     )
     pd.testing.assert_frame_equal(forecast.metrics, expected_metrics)
     pd.testing.assert_frame_equal(backtest.metrics, expected_metrics)
-    assert "metric            = [root_mean_squared_error, 'mean_squared_error']," in (
-        backtest.code
+    assert (
+        "metric            = ['root_mean_squared_error', 'mean_squared_error'],"
+        in backtest.code
     )
 
 
@@ -1103,6 +1104,7 @@ def test_forecast_output_when_every_supported_metric_requested():
 
     assert list(result.metrics.columns) == [
         "mean_squared_error",
+        "root_mean_squared_error",
         "mean_absolute_error",
         "mean_absolute_percentage_error",
         "mean_squared_log_error",
@@ -1110,7 +1112,6 @@ def test_forecast_output_when_every_supported_metric_requested():
         "root_mean_squared_scaled_error",
         "median_absolute_error",
         "symmetric_mean_absolute_percentage_error",
-        "root_mean_squared_error",
     ]
     assert np.isfinite(result.metrics.to_numpy()).all()
     np.testing.assert_almost_equal(

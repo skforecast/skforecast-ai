@@ -899,16 +899,17 @@ def _unit_notices(
     data_profile: Any = None,
 ) -> list[ToolNotice]:
     """
-    Notices with the unit of MAPE, sMAPE and RMSE among the metrics of a
-    result or the columns of a leaderboard, or saying that MAPE means
+    Notices with the unit of MAPE, sMAPE, MSE and RMSE among the metrics of
+    a result or the columns of a leaderboard, or saying that MAPE means
     nothing on the data.
 
     MAPE is a fraction, which agents report as a percentage as it is (1.245
     as "1.25 %", 100 times too small), and sMAPE a percentage, which they
     would multiply by 100 next to it. On a target at or around zero, MAPE
     divides by values near zero: telling the agent to multiply its 3e13 by
-    100 invited a 3e15 %. RMSE is in the units of the target, unlike MSE,
-    in squared units, whose square root agents would otherwise take by hand.
+    100 invited a 3e15 %. MSE is in squared units, which agents reported as
+    an RMSE, or turned into one by taking its square root; RMSE is in the
+    units of the target.
 
     Parameters
     ----------
@@ -923,7 +924,7 @@ def _unit_notices(
     -------
     notices : list of ToolNotice
         A `MetricUnitNotice` (source `'runtime'`) with the unit of each of
-        MAPE, sMAPE and RMSE that was computed, and a
+        MAPE, sMAPE, MSE and RMSE that was computed, and a
         `MetricUndefinedNotice` (source `'runtime'`) for MAPE on such a
         target; empty when none was computed.
     """
@@ -952,11 +953,15 @@ def _unit_notices(
             "percentage, from 0 to 200: 1.245 is 1.245 %. Write it with a % "
             "sign as it is, without multiplying it by 100."
         )
+    if "mean_squared_error" in metrics.columns:
+        units.append(
+            "`mean_squared_error` is in the squared units of the target: do "
+            "not write it with the unit of the target."
+        )
     if "root_mean_squared_error" in metrics.columns:
         units.append(
-            "`root_mean_squared_error` is in the units of the target (the "
-            "square root of `mean_squared_error`, which is in squared "
-            "units): report it as it is."
+            "`root_mean_squared_error` is in the units of the target: report "
+            "it as it is."
         )
     notices = []
     if units:
