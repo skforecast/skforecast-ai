@@ -79,9 +79,11 @@ def test_forecast_output_when_single_series():
     assert result.plan is not None
     assert result.code is not None
     assert isinstance(result.metrics, pd.DataFrame)
-    assert list(result.metrics.columns) == ["series", "MAE", "MSE", "MASE"]
+    assert list(result.metrics.columns) == [
+        "mean_absolute_error", "mean_squared_error", "mean_absolute_scaled_error"
+    ]
     assert len(result.metrics) == 1
-    assert result.metrics["MAE"].iloc[0] > 0
+    assert result.metrics["mean_absolute_error"].iloc[0] > 0
     assert result.predictions is not None
 
 
@@ -214,7 +216,7 @@ def test_forecast_output_when_exog_columns_named_like_calendar_features():
         "features": ["day_of_week"], "encoding": None
     }
     assert len(result.predictions) == 5
-    assert list(result.metrics["series"]) == ["sales"]
+    assert len(result.metrics) == 1
 
 
 @pytest.mark.slow
@@ -376,10 +378,10 @@ def test_forecast_metrics_are_finite():
         test_size=5,
     )
 
-    assert np.isfinite(result.metrics["MAE"].iloc[0])
-    assert np.isfinite(result.metrics["MSE"].iloc[0])
-    assert result.metrics["MAE"].iloc[0] > 0
-    assert result.metrics["MSE"].iloc[0] > 0
+    assert np.isfinite(result.metrics["mean_absolute_error"].iloc[0])
+    assert np.isfinite(result.metrics["mean_squared_error"].iloc[0])
+    assert result.metrics["mean_absolute_error"].iloc[0] > 0
+    assert result.metrics["mean_squared_error"].iloc[0] > 0
 
 
 # =============================================================================
@@ -528,7 +530,9 @@ def test_forecast_evaluation_mode_returns_metrics():
     )
 
     assert isinstance(result.metrics, pd.DataFrame)
-    assert list(result.metrics.columns) == ["series", "MAE", "MSE", "MASE"]
+    assert list(result.metrics.columns) == [
+        "mean_absolute_error", "mean_squared_error", "mean_absolute_scaled_error"
+    ]
     assert result.plan.end_train is not None
 
 
@@ -895,9 +899,11 @@ def test_forecast_output_when_baseline_plan():
         {"pred": [88.0, 89.0, 90.0, 91.0, 92.0]},
         index=pd.date_range("2023-04-06", periods=5, freq="D"),
     )
-    expected_metrics = pd.DataFrame(
-        {"series": ["sales"], "MAE": [7.0], "MSE": [49.0], "MASE": [7.0]}
-    )
+    expected_metrics = pd.DataFrame({
+        "mean_absolute_error":        [7.0],
+        "mean_squared_error":         [49.0],
+        "mean_absolute_scaled_error": [7.0],
+    })
     pd.testing.assert_frame_equal(
         result.predictions, expected_predictions, check_names=False, check_freq=False
     )
@@ -1046,7 +1052,9 @@ def test_forecast_output_when_every_supported_metric_requested():
     """
     Test that forecast() computes every supported regression metric in
     evaluation mode, the same set backtesting accepts, instead of leaving
-    out the ones it did not know.
+    out the ones it did not know, in columns named as the metrics, and that
+    `root_mean_squared_error` is the square root of `mean_squared_error`
+    (in the units of the target).
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
@@ -1058,10 +1066,12 @@ def test_forecast_output_when_every_supported_metric_requested():
         data=df_single, profile=profile, plan=plan, test_size=5
     )
 
-    assert list(result.metrics.columns) == [
-        "series", "MSE", "MAE", "MAPE", "MSLE", "MASE", "RMSSE", "MedAE", "SMAPE"
-    ]
-    assert np.isfinite(result.metrics.drop(columns="series").to_numpy()).all()
+    assert list(result.metrics.columns) == list(ALLOWED_METRICS)
+    assert np.isfinite(result.metrics.to_numpy()).all()
+    np.testing.assert_almost_equal(
+        result.metrics["root_mean_squared_error"].iloc[0],
+        np.sqrt(result.metrics["mean_squared_error"].iloc[0]),
+    )
 
 
 def test_forecast_ValueError_when_estimator_package_not_installed(monkeypatch):
@@ -2603,7 +2613,7 @@ def test_forecast_output_when_data_have_more_rows_than_profile_in_evaluation_mod
         np.array([0.6252326, 0.75429064, 0.85657171]),
     )
     np.testing.assert_almost_equal(
-        result.metrics["MAE"].iloc[0], 0.11968448815913664
+        result.metrics["mean_absolute_error"].iloc[0], 0.11968448815913664
     )
 
 
@@ -3030,7 +3040,7 @@ def test_forecast_output_when_metric_given_in_evaluation_mode():
 
     assert result.plan.metric == "median_absolute_error"
     assert result.plan.overridden_fields == ["metric"]
-    assert list(result.metrics.columns) == ["series", "MedAE"]
+    assert list(result.metrics.columns) == ["median_absolute_error"]
     with pytest.raises(InvalidInputError, match=re.escape("['metric']")):
         assistant.forecast(
             **inputs, test_size=5, plan=result.plan.model_copy(

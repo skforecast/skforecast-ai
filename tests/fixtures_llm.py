@@ -187,16 +187,23 @@ predictions_backtest_multi = pd.DataFrame(
 # ---------------------------------------------------------------------------
 # Metrics, cross-validation, and deterministic summaries
 # ---------------------------------------------------------------------------
+# The columns of the metrics of a backtest and of a forecast with
+# `test_size`: one per metric, named as the metric, and `levels` with
+# several series.
 metrics_single = pd.DataFrame(
-    {"series": ["sales"], "MAE": [2.5], "MSE": [9.25], "MASE": [0.8]}
+    {
+        "mean_absolute_error":        [2.5],
+        "mean_squared_error":         [9.25],
+        "mean_absolute_scaled_error": [0.8],
+    }
 )
 
 metrics_multi = pd.DataFrame(
     {
-        "series": ["store_a", "store_b"],
-        "MAE":    [2.5, 3.5],
-        "MSE":    [9.25, 16.5],
-        "MASE":   [0.8, 1.2],
+        "levels":                     ["store_a", "store_b"],
+        "mean_absolute_error":        [2.5, 3.5],
+        "mean_squared_error":         [9.25, 16.5],
+        "mean_absolute_scaled_error": [0.8, 1.2],
     }
 )
 

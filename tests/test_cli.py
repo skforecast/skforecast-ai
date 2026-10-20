@@ -604,7 +604,8 @@ class TestForecast:
 
     def test_forecast_basic(self, tmp_path):
         """
-        Forecast command prints metrics table with MAE, MSE, MASE.
+        Forecast command prints the metrics table, with the columns named
+        as the metrics, as in a backtest.
         """
         csv_path = _write_csv(tmp_path, df_single)
         result = runner.invoke(
@@ -613,8 +614,8 @@ class TestForecast:
              "--steps", "5", "--test-size", "5", "--quiet"],
         )
         assert result.exit_code == 0
-        assert "MAE" in result.output
-        assert "MSE" in result.output
+        assert "mean_absolute_error" in result.output
+        assert "mean_squared_error" in result.output
 
     def test_forecast_json_format(self, tmp_path):
         """
@@ -734,7 +735,7 @@ class TestForecast:
         data = json.loads(result.output)
         assert data["plan"]["end_train"] is not None
         assert len(data["metrics"]) == 1
-        assert "MAE" in data["metrics"][0]
+        assert "mean_absolute_error" in data["metrics"][0]
         assert len(data["predictions"]) == 5
 
     def test_forecast_with_exog(self, tmp_path):

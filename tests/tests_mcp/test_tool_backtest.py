@@ -2,6 +2,7 @@
 
 import time
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -9,7 +10,11 @@ from skforecast_ai import ForecastingAssistant
 from skforecast_ai.mcp import _runtime, create_server
 from skforecast_ai.mcp.models import ToolNotice
 
-from ..fixtures_assistant import df_crossing_zero, df_multi_long_numeric_ids
+from ..fixtures_assistant import (
+    df_crossing_zero,
+    df_multi_long_numeric_ids,
+    df_single,
+)
 from ..fixtures_datasets import df_items_sales_long, df_items_sales_wide
 from .fixtures_mcp import (
     DATA_VALUES_HINT,
@@ -527,6 +532,61 @@ def test_tool_backtest_notice_of_undefined_mape_when_target_crosses_zero(tmp_pat
     assert result["notices"][-1]["message"].startswith(
         "`mean_absolute_percentage_error` has no meaning on this data"
     )
+
+
+def test_tool_backtest_output_when_metric_is_root_mean_squared_error(tmp_path):
+    """
+    Test that a plan whose `metric` is `root_mean_squared_error`, which
+    skforecast's backtesting does not take by name, is backtested as the
+    Python API does: its script passes the function of scikit-learn, the
+    CSV of metrics has a column of that name, the square root of the MSE,
+    and the response gives its unit, that of the target, in a
+    `MetricUnitNotice`.
+    """
+    path = write_csv(tmp_path, "sales.csv", df_single)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    metric = ["root_mean_squared_error", "mean_squared_error"]
+    _, _, cv_id = cv_of(
+        server, path, target="sales", steps=5, metric=metric,
+        cv_arguments={"initial_train_size": 60},
+    )
+
+    result = content_of(call(server, "backtest", {"cv_id": cv_id}))
+    code = content_of(call(server, "get_code", {"object_id": result["id"]}))["code"]
+    metrics = pd.read_csv(result["files"]["metrics"], index_col=0)
+
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(path, target="sales")
+    plan = assistant.plan(profile=profile, steps=5, metric=metric)
+    expected = assistant.backtest(
+        data=path,
+        profile=profile,
+        plan=plan,
+        cv=assistant.create_cv(profile, plan, initial_train_size=60),
+        show_progress=False,
+    )
+
+    assert text_of(result["files"]["metrics"]) == csv_of(expected.metrics)
+    assert list(metrics.columns) == metric
+    np.testing.assert_almost_equal(
+        metrics["root_mean_squared_error"].iloc[0],
+        np.sqrt(metrics["mean_squared_error"].iloc[0]),
+    )
+    assert code == expected.code
+    assert "from sklearn.metrics import root_mean_squared_error\n" in code
+    assert "[root_mean_squared_error, 'mean_squared_error']" in code
+    assert [ToolNotice(**n) for n in result["notices"]] == [
+        ToolNotice(
+            source   = "runtime",
+            category = "MetricUnitNotice",
+            message  = (
+                "`root_mean_squared_error` is in the units of the target (the "
+                "square root of `mean_squared_error`, which is in squared "
+                "units): report it as it is."
+            ),
+            count    = 1,
+        )
+    ]
 
 
 def test_tool_backtest_confirm_cost_of_an_expensive_run(tmp_path):

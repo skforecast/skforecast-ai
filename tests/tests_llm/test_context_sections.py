@@ -765,12 +765,12 @@ def _profile_with(**fields):
 def test_render_metrics_section_output_when_for_describe_and_forecast_metrics():
     """
     Test that with `for_describe=True` the per-series metrics of a forecast
-    (a `series` column, no aggregated rows) keep the rows of the first 5
+    (a `levels` column, no aggregated rows) keep the rows of the first 5
     series and say so without mentioning aggregated rows.
     """
     metrics = pd.DataFrame({
-        "series": [f"s{i}" for i in range(8)],
-        "MAE":    [float(i) for i in range(8)],
+        "levels":              [f"s{i}" for i in range(8)],
+        "mean_absolute_error": [float(i) for i in range(8)],
     })
 
     section = render_metrics_section(metrics, for_describe=True)
@@ -778,12 +778,12 @@ def test_render_metrics_section_output_when_for_describe_and_forecast_metrics():
     expected = (
         "<evaluation_metrics>\n"
         "Rows shown (first 5 of 8 series).\n"
-        "series  MAE\n"
-        "    s0  0.0\n"
-        "    s1  1.0\n"
-        "    s2  2.0\n"
-        "    s3  3.0\n"
-        "    s4  4.0\n"
+        "levels  mean_absolute_error\n"
+        "    s0                  0.0\n"
+        "    s1                  1.0\n"
+        "    s2                  2.0\n"
+        "    s3                  3.0\n"
+        "    s4                  4.0\n"
         "</evaluation_metrics>"
     )
     assert section == expected

@@ -74,10 +74,10 @@ def test_render_forecast_multi_series_output_when_wide_format():
         "    mask = predictions['level'] == series_name\n"
         "    pred = predictions.loc[mask, 'pred'].values\n"
         "    metrics_list.append({\n"
-        '        "series": series_name,\n'
-        '        "MAE": mean_absolute_error(actual, pred),\n'
-        '        "MSE": mean_squared_error(actual, pred),\n'
-        '        "MASE": mean_absolute_scaled_error(\n'
+        '        "levels": series_name,\n'
+        '        "mean_absolute_error": mean_absolute_error(actual, pred),\n'
+        '        "mean_squared_error": mean_squared_error(actual, pred),\n'
+        '        "mean_absolute_scaled_error": mean_absolute_scaled_error(\n'
         "            actual, pred, y_train=series_dict_train[series_name]\n"
         "        ),\n"
         "    })\n"
@@ -151,10 +151,10 @@ def test_render_forecast_multi_series_output_when_long_format():
         "    mask = predictions['level'] == series_name\n"
         "    pred = predictions.loc[mask, 'pred'].values\n"
         "    metrics_list.append({\n"
-        '        "series": series_name,\n'
-        '        "MAE": mean_absolute_error(actual, pred),\n'
-        '        "MSE": mean_squared_error(actual, pred),\n'
-        '        "MASE": mean_absolute_scaled_error(\n'
+        '        "levels": series_name,\n'
+        '        "mean_absolute_error": mean_absolute_error(actual, pred),\n'
+        '        "mean_squared_error": mean_squared_error(actual, pred),\n'
+        '        "mean_absolute_scaled_error": mean_absolute_scaled_error(\n'
         "            actual, pred, y_train=series_dict_train[series_name]\n"
         "        ),\n"
         "    })\n"
@@ -296,10 +296,10 @@ def test_render_forecast_multi_series_output_when_wide_format_with_exog():
         "    mask = predictions['level'] == series_name\n"
         "    pred = predictions.loc[mask, 'pred'].values\n"
         "    metrics_list.append({\n"
-        '        "series": series_name,\n'
-        '        "MAE": mean_absolute_error(actual, pred),\n'
-        '        "MSE": mean_squared_error(actual, pred),\n'
-        '        "MASE": mean_absolute_scaled_error(\n'
+        '        "levels": series_name,\n'
+        '        "mean_absolute_error": mean_absolute_error(actual, pred),\n'
+        '        "mean_squared_error": mean_squared_error(actual, pred),\n'
+        '        "mean_absolute_scaled_error": mean_absolute_scaled_error(\n'
         "            actual, pred, y_train=series_dict_train[series_name]\n"
         "        ),\n"
         "    })\n"
@@ -380,10 +380,10 @@ def test_render_forecast_multi_series_output_when_long_format_with_exog():
         "    mask = predictions['level'] == series_name\n"
         "    pred = predictions.loc[mask, 'pred'].values\n"
         "    metrics_list.append({\n"
-        '        "series": series_name,\n'
-        '        "MAE": mean_absolute_error(actual, pred),\n'
-        '        "MSE": mean_squared_error(actual, pred),\n'
-        '        "MASE": mean_absolute_scaled_error(\n'
+        '        "levels": series_name,\n'
+        '        "mean_absolute_error": mean_absolute_error(actual, pred),\n'
+        '        "mean_squared_error": mean_squared_error(actual, pred),\n'
+        '        "mean_absolute_scaled_error": mean_absolute_scaled_error(\n'
         "            actual, pred, y_train=series_dict_train[series_name]\n"
         "        ),\n"
         "    })\n"

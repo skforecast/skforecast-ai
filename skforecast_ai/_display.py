@@ -330,9 +330,9 @@ def render_metrics(metrics: DataFrame, title: str = "Metrics") -> Table:
     """
     Render a metrics DataFrame as a Rich table.
 
-    Handles both the `forecast()` layout (a `'series'` column plus metric
-    columns) and the skforecast backtesting layout (metric columns only,
-    optionally with a `'levels'` column).
+    Handles the layout of skforecast's backtesting, which `forecast()`
+    follows too: metric columns only, plus a `'levels'` column with several
+    series.
 
     Parameters
     ----------
@@ -348,7 +348,7 @@ def render_metrics(metrics: DataFrame, title: str = "Metrics") -> Table:
     """
     table = Table(title=title, **_TABLE_KWARGS)
 
-    series_col = next((c for c in ("series", "levels") if c in metrics.columns), None)
+    series_col = "levels" if "levels" in metrics.columns else None
     metric_cols = [c for c in metrics.columns if c != series_col]
 
     if series_col is not None:

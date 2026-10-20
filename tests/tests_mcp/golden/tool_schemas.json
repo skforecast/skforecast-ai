@@ -515,7 +515,8 @@
             "mean_absolute_scaled_error",
             "root_mean_squared_scaled_error",
             "median_absolute_error",
-            "symmetric_mean_absolute_percentage_error"
+            "symmetric_mean_absolute_percentage_error",
+            "root_mean_squared_error"
           ],
           "type": "string"
         }
@@ -884,7 +885,8 @@
             "mean_absolute_scaled_error",
             "root_mean_squared_scaled_error",
             "median_absolute_error",
-            "symmetric_mean_absolute_percentage_error"
+            "symmetric_mean_absolute_percentage_error",
+            "root_mean_squared_error"
           ],
           "type": "string"
         }
@@ -1732,7 +1734,8 @@
             "mean_absolute_scaled_error",
             "root_mean_squared_scaled_error",
             "median_absolute_error",
-            "symmetric_mean_absolute_percentage_error"
+            "symmetric_mean_absolute_percentage_error",
+            "root_mean_squared_error"
           ],
           "type": "string"
         }

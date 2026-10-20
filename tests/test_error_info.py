@@ -264,7 +264,8 @@ def test_error_info_from_exception_serializes_to_json():
                     "'mean_absolute_percentage_error', 'mean_squared_log_error', "
                     "'mean_absolute_scaled_error', "
                     "'root_mean_squared_scaled_error', 'median_absolute_error', "
-                    "'symmetric_mean_absolute_percentage_error']."
+                    "'symmetric_mean_absolute_percentage_error', "
+                    "'root_mean_squared_error']."
                 ),
                 field   = "metrics_to_compute",
             ),

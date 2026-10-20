@@ -49,6 +49,7 @@ def _profiled(tmp_path):
             "window_features": [{"stats": ["mean"], "window_size": 6}],
         },
         {"steps": 12, "forecaster": "ForecasterStats"},
+        {"steps": 12, "metric": ["root_mean_squared_error", "mean_absolute_error"]},
     ],
     ids=lambda dt: f"{dt}",
 )
@@ -57,7 +58,8 @@ def test_tool_plan_output_matches_python_api(tmp_path, arguments):
     Test that `plan` registers the plan the Python API builds, described by
     its forecasting script, links it to its profile and lists the arguments
     of `refine_plan`; `get_code` returns that script and the packages it
-    imports.
+    imports. `metric` takes `root_mean_squared_error`, which is not a name
+    of skforecast's backtesting.
     """
     server, path, profile_id = _profiled(tmp_path)
 

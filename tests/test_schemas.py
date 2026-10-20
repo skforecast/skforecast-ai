@@ -807,7 +807,9 @@ def test_forecast_result_json_frames_are_records_with_index():
 
     assert dumped["predictions"][0]["pred"] == result.predictions["pred"].iloc[0]
     assert "index" in dumped["predictions"][0]
-    assert dumped["metrics"][0]["MAE"] == result.metrics["MAE"].iloc[0]
+    assert dumped["metrics"][0]["mean_absolute_error"] == (
+        result.metrics["mean_absolute_error"].iloc[0]
+    )
 
 
 def test_comparison_result_json_includes_best_name():

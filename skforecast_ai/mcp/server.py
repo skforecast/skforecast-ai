@@ -137,19 +137,12 @@ _MAX_DESCRIPTORS = 256
 Count = Annotated[int, Field(ge=1)]
 NonNegative = Annotated[int, Field(ge=0)]
 
-# Metrics scaled by the error of a naive forecast, as the metrics of a
-# backtest (the names of skforecast) and of a forecast (short names) call
-# them.
-SCALED_METRICS = {
-    "mean_absolute_scaled_error": "mean_absolute_scaled_error",
-    "root_mean_squared_scaled_error": "root_mean_squared_scaled_error",
-    "MASE": "mean_absolute_scaled_error",
-    "RMSSE": "root_mean_squared_scaled_error",
-}
-
-# MAPE and sMAPE, as the metrics of a backtest and of a forecast call them.
-MAPE_NAMES = frozenset({"mean_absolute_percentage_error", "MAPE"})
-SMAPE_NAMES = frozenset({"symmetric_mean_absolute_percentage_error", "SMAPE"})
+# Metrics scaled by the error of a naive forecast, as the columns of the
+# metrics of a backtest, a forecast and a leaderboard name them.
+SCALED_METRICS = frozenset({
+    "mean_absolute_scaled_error",
+    "root_mean_squared_scaled_error",
+})
 
 # Hint of an error of `profile` about the content of the file.
 DATA_PROBLEM_HINT = (
@@ -867,23 +860,20 @@ def _metric_notices(
         Metrics of the result, one column per metric.
     data_profile : DataProfile, default None
         Profile of the data the metrics were computed on, passed to
-        `_mape_notices`.
+        `_unit_notices`.
 
     Returns
     -------
     notices : list of ToolNotice
         One notice (source `'runtime'`) when a scaled metric was computed,
-        and those of `_mape_notices` when MAPE or sMAPE was.
+        and those of `_unit_notices` when MAPE, sMAPE or RMSE was.
     """
 
     if metrics is None:
         return []
-    names = list(dict.fromkeys(
-        SCALED_METRICS[column] for column in metrics.columns
-        if column in SCALED_METRICS
-    ))
+    names = [column for column in metrics.columns if column in SCALED_METRICS]
     if not names:
-        return _mape_notices(metrics, data_profile)
+        return _unit_notices(metrics, data_profile)
     shown = " and ".join(f"`{name}`" for name in names)
 
     return [
@@ -900,24 +890,25 @@ def _metric_notices(
             ),
             count    = 1,
         ),
-        *_mape_notices(metrics, data_profile),
+        *_unit_notices(metrics, data_profile),
     ]
 
 
-def _mape_notices(
+def _unit_notices(
     metrics: Any,
     data_profile: Any = None,
 ) -> list[ToolNotice]:
     """
-    Notices with the unit of MAPE and sMAPE among the metrics of a result or
-    the columns of a leaderboard, or saying that MAPE means nothing on the
-    data.
+    Notices with the unit of MAPE, sMAPE and RMSE among the metrics of a
+    result or the columns of a leaderboard, or saying that MAPE means
+    nothing on the data.
 
     MAPE is a fraction, which agents report as a percentage as it is (1.245
     as "1.25 %", 100 times too small), and sMAPE a percentage, which they
     would multiply by 100 next to it. On a target at or around zero, MAPE
     divides by values near zero: telling the agent to multiply its 3e13 by
-    100 invited a 3e15 %.
+    100 invited a 3e15 %. RMSE is in the units of the target, unlike MSE,
+    whose square root agents took by hand before the server computed RMSE.
 
     Parameters
     ----------
@@ -932,17 +923,17 @@ def _mape_notices(
     -------
     notices : list of ToolNotice
         A `MetricUnitNotice` (source `'runtime'`) with the unit of each of
-        MAPE and sMAPE that was computed, and a `MetricUndefinedNotice`
-        (source `'runtime'`) for MAPE on such a target; empty when neither
-        was computed.
+        MAPE, sMAPE and RMSE that was computed, and a
+        `MetricUndefinedNotice` (source `'runtime'`) for MAPE on such a
+        target; empty when none was computed.
     """
 
     from ..recommendation import describe_series_near_zero
 
     if metrics is None:
         return []
-    has_mape = bool(MAPE_NAMES.intersection(metrics.columns))
-    has_smape = bool(SMAPE_NAMES.intersection(metrics.columns))
+    has_mape = "mean_absolute_percentage_error" in metrics.columns
+    has_smape = "symmetric_mean_absolute_percentage_error" in metrics.columns
     near_zero = (
         describe_series_near_zero(data_profile)
         if has_mape and data_profile is not None else None
@@ -960,6 +951,12 @@ def _mape_notices(
             "`symmetric_mean_absolute_percentage_error` is already a "
             "percentage, from 0 to 200: 1.245 is 1.245 %. Write it with a % "
             "sign as it is, without multiplying it by 100."
+        )
+    if "root_mean_squared_error" in metrics.columns:
+        units.append(
+            "`root_mean_squared_error` is in the units of the target (the "
+            "square root of `mean_squared_error`, which is in squared "
+            "units): report it as it is."
         )
     notices = []
     if units:
@@ -3037,7 +3034,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                                                ran_models, uncached, ran=True
                                            ),
                                            *coverage_notices,
-                                           *_mape_notices(
+                                           *_unit_notices(
                                                result.results,
                                                cv_entry.profile.data_profile,
                                            ),

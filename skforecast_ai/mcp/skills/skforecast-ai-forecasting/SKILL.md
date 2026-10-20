@@ -12,7 +12,8 @@ and explain the results; the server decides and computes. Never invent a
 number: every figure you report must come from a response or one of its
 files. Do not derive one either: no percentage, difference or ratio that a
 response does not give ("45% better" from a metric, a margin between two
-candidates).
+candidates), nor a root mean squared error from `mean_squared_error`: pass
+`root_mean_squared_error` in `metric` of `plan` to have it computed.
 
 ## Workflow
 
@@ -253,9 +254,13 @@ that is for the user to ask once they know.
   (`initial_train_size` of `create_cv`, `test_size` of `forecast`). A count
   is a number, never text: `"12"` is rejected.
 - Arguments are strict: an unknown argument or a wrong type is an error,
-  never ignored. Metrics are the names of skforecast:
-  `mean_absolute_error`, `mean_squared_error`,
-  `mean_absolute_scaled_error`, and the others the schema lists.
+  never ignored. Metrics are the names of their functions in scikit-learn
+  and skforecast: `mean_absolute_error`, `mean_squared_error`,
+  `root_mean_squared_error` (in the units of the target, like
+  `mean_absolute_error`), `mean_absolute_scaled_error`, and the others the
+  schema lists. The CSV of metrics of a `backtest` and of a `forecast` with
+  `test_size` name their columns that way, with a column `levels` for the
+  series when there are several.
 - Messages of the library name the arguments of its Python API: `data` is
   `data_path`, `exog` is `exog_path`, `profile`, `plan` and `cv` are the
   ids `profile_id`, `plan_id` and `cv_id`, and `forecast()` or

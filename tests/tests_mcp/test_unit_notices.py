@@ -1,10 +1,10 @@
-# Unit test _mape_notices
+# Unit test _unit_notices
 
 import pandas as pd
 import pytest
 
 from skforecast_ai.mcp.models import ToolNotice
-from skforecast_ai.mcp.server import _mape_notices, _metric_notices
+from skforecast_ai.mcp.server import _metric_notices, _unit_notices
 from skforecast_ai.schemas import DataProfile
 
 MAPE_NOTICE = ToolNotice(
@@ -22,6 +22,12 @@ SMAPE_UNIT = (
     "`symmetric_mean_absolute_percentage_error` is already a percentage, "
     "from 0 to 200: 1.245 is 1.245 %. Write it with a % sign as it is, "
     "without multiplying it by 100."
+)
+
+RMSE_UNIT = (
+    "`root_mean_squared_error` is in the units of the target (the square "
+    "root of `mean_squared_error`, which is in squared units): report it as "
+    "it is."
 )
 
 
@@ -53,35 +59,43 @@ profile_multi_crossing_zero = _profile({
     "columns",
     [
         ["mean_absolute_error", "mean_absolute_percentage_error"],
-        ["series", "MAE", "MAPE"],
+        ["levels", "mean_absolute_error", "mean_absolute_percentage_error"],
         ["rank", "name", "mean_absolute_percentage_error"],
     ],
     ids=lambda dt: f"columns: {dt}",
 )
-def test_mape_notices_unit_of_mape(columns):
+def test_unit_notices_unit_of_mape(columns):
     """
-    Test that the metrics of a backtest (names of skforecast), of a forecast
-    (short names) or the leaderboard of a comparison with MAPE get one
-    notice saying that it is a fraction, not a percentage.
+    Test that the metrics of a backtest or a forecast, one series or several
+    (`levels`), or the leaderboard of a comparison with MAPE get one notice
+    saying that it is a fraction, not a percentage.
     """
     metrics = pd.DataFrame([[1.245] * len(columns)], columns=columns)
 
-    assert _mape_notices(metrics) == [MAPE_NOTICE]
+    assert _unit_notices(metrics) == [MAPE_NOTICE]
 
 
 @pytest.mark.parametrize(
     "metrics",
-    [None, pd.DataFrame({"mean_absolute_error": [0.5], "MASE": [0.1]})],
-    ids=["no metrics", "no MAPE"],
+    [
+        None,
+        pd.DataFrame({
+            "mean_absolute_error": [0.5],
+            "mean_squared_error": [0.4],
+            "mean_absolute_scaled_error": [0.1],
+        }),
+    ],
+    ids=["no metrics", "no MAPE, sMAPE nor RMSE"],
 )
-def test_mape_notices_empty_without_mape(metrics):
+def test_unit_notices_empty_without_mape_smape_nor_rmse(metrics):
     """
-    Test that a result without metrics or without MAPE gets no notice.
+    Test that a result without metrics, or without MAPE, sMAPE and RMSE,
+    gets no notice.
     """
-    assert _mape_notices(metrics) == []
+    assert _unit_notices(metrics) == []
 
 
-def test_mape_notices_follow_the_reference_of_the_scaled_metrics():
+def test_unit_notices_follow_the_reference_of_the_scaled_metrics():
     """
     Test that `_metric_notices` gives the notice of MAPE after the one of
     the scaled metrics, and alone when no scaled metric was computed, and
@@ -106,11 +120,11 @@ def test_mape_notices_follow_the_reference_of_the_scaled_metrics():
     "columns",
     [
         ["mean_absolute_error", "symmetric_mean_absolute_percentage_error"],
-        ["series", "MAE", "SMAPE"],
+        ["levels", "mean_absolute_error", "symmetric_mean_absolute_percentage_error"],
     ],
     ids=lambda dt: f"columns: {dt}",
 )
-def test_mape_notices_unit_of_smape(columns):
+def test_unit_notices_unit_of_smape(columns):
     """
     Test that the metrics of a backtest or of a forecast with sMAPE get one
     notice saying that it is already a percentage, not to multiply by 100,
@@ -126,11 +140,41 @@ def test_mape_notices_unit_of_smape(columns):
             count    = 1,
         )
     ]
-    assert _mape_notices(metrics) == expected
-    assert _mape_notices(metrics, profile_crossing_zero) == expected
+    assert _unit_notices(metrics) == expected
+    assert _unit_notices(metrics, profile_crossing_zero) == expected
 
 
-def test_mape_notices_unit_of_mape_and_smape_in_one_notice():
+@pytest.mark.parametrize(
+    "columns",
+    [
+        ["mean_squared_error", "root_mean_squared_error"],
+        ["levels", "root_mean_squared_error"],
+        ["rank", "name", "root_mean_squared_error"],
+    ],
+    ids=lambda dt: f"columns: {dt}",
+)
+def test_unit_notices_unit_of_rmse(columns):
+    """
+    Test that the metrics of a backtest or a forecast, one series or several
+    (`levels`), or the leaderboard of a comparison with RMSE get one notice
+    saying that it is in the units of the target, unlike MSE, also on a
+    target at or around zero.
+    """
+    metrics = pd.DataFrame([[1.245] * len(columns)], columns=columns)
+
+    expected = [
+        ToolNotice(
+            source   = "runtime",
+            category = "MetricUnitNotice",
+            message  = RMSE_UNIT,
+            count    = 1,
+        )
+    ]
+    assert _unit_notices(metrics) == expected
+    assert _unit_notices(metrics, profile_crossing_zero) == expected
+
+
+def test_unit_notices_unit_of_mape_and_smape_in_one_notice():
     """
     Test that a result with MAPE and sMAPE gets a single unit notice that
     gives the unit of each one: a fraction and a percentage.
@@ -140,7 +184,7 @@ def test_mape_notices_unit_of_mape_and_smape_in_one_notice():
         "symmetric_mean_absolute_percentage_error": [1.136376],
     })
 
-    assert _mape_notices(metrics, profile_positive) == [
+    assert _unit_notices(metrics, profile_positive) == [
         ToolNotice(
             source   = "runtime",
             category = "MetricUnitNotice",
@@ -150,17 +194,44 @@ def test_mape_notices_unit_of_mape_and_smape_in_one_notice():
     ]
 
 
-def test_mape_notices_positive_target_keeps_the_unit_of_mape():
+def test_unit_notices_unit_of_rmse_after_mape_and_smape_in_one_notice():
+    """
+    Test that a result with MAPE, sMAPE and RMSE gets a single unit notice
+    that gives the unit of each one, RMSE last, and that on a target at or
+    around zero RMSE keeps its unit next to the notice of an undefined MAPE.
+    """
+    metrics = pd.DataFrame({
+        "root_mean_squared_error": [2.5],
+        "mean_absolute_percentage_error": [0.011278],
+        "symmetric_mean_absolute_percentage_error": [1.136376],
+    })
+
+    assert _unit_notices(metrics, profile_positive) == [
+        ToolNotice(
+            source   = "runtime",
+            category = "MetricUnitNotice",
+            message  = f"{MAPE_NOTICE.message} {SMAPE_UNIT} {RMSE_UNIT}",
+            count    = 1,
+        )
+    ]
+    notices = _unit_notices(metrics, profile_crossing_zero)
+    assert [notice.category for notice in notices] == [
+        "MetricUnitNotice", "MetricUndefinedNotice",
+    ]
+    assert notices[0].message == f"{SMAPE_UNIT} {RMSE_UNIT}"
+
+
+def test_unit_notices_positive_target_keeps_the_unit_of_mape():
     """
     Test that the profile of a target away from zero changes nothing: MAPE
     gets its unit notice.
     """
     metrics = pd.DataFrame({"mean_absolute_percentage_error": [0.05]})
 
-    assert _mape_notices(metrics, profile_positive) == [MAPE_NOTICE]
+    assert _unit_notices(metrics, profile_positive) == [MAPE_NOTICE]
 
 
-def test_mape_notices_undefined_mape_on_target_crossing_zero():
+def test_unit_notices_undefined_mape_on_target_crossing_zero():
     """
     Test that MAPE on a target that crosses zero gets a notice saying that
     it has no meaning (with the range of the target), and never the one that
@@ -168,7 +239,7 @@ def test_mape_notices_undefined_mape_on_target_crossing_zero():
     """
     metrics = pd.DataFrame({"mean_absolute_percentage_error": [3.3e13]})
 
-    assert _mape_notices(metrics, profile_crossing_zero) == [
+    assert _unit_notices(metrics, profile_crossing_zero) == [
         ToolNotice(
             source   = "runtime",
             category = "MetricUndefinedNotice",
@@ -186,7 +257,7 @@ def test_mape_notices_undefined_mape_on_target_crossing_zero():
     ]
 
 
-def test_mape_notices_undefined_mape_names_the_series_and_keeps_smape():
+def test_unit_notices_undefined_mape_names_the_series_and_keeps_smape():
     """
     Test that, with several series, the notice of an undefined MAPE names
     the series at or around zero, and that sMAPE keeps its unit notice
@@ -198,7 +269,7 @@ def test_mape_notices_undefined_mape_names_the_series_and_keeps_smape():
         "symmetric_mean_absolute_percentage_error": [4.9, 80.2],
     })
 
-    notices = _mape_notices(metrics, profile_multi_crossing_zero)
+    notices = _unit_notices(metrics, profile_multi_crossing_zero)
 
     assert [notice.category for notice in notices] == [
         "MetricUnitNotice", "MetricUndefinedNotice",

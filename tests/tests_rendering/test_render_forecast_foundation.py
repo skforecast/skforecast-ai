@@ -407,10 +407,10 @@ def test_render_forecast_foundation_output_when_multi_series():
         "    pred = predictions.loc[mask, 'pred'].values\n"
         "    actual = series_dict_test[level].iloc[:steps]\n"
         "    metrics_list.append({\n"
-        '        "series": level,\n'
-        '        "MAE": mean_absolute_error(actual, pred),\n'
-        '        "MSE": mean_squared_error(actual, pred),\n'
-        '        "MASE": mean_absolute_scaled_error(\n'
+        '        "levels": level,\n'
+        '        "mean_absolute_error": mean_absolute_error(actual, pred),\n'
+        '        "mean_squared_error": mean_squared_error(actual, pred),\n'
+        '        "mean_absolute_scaled_error": mean_absolute_scaled_error(\n'
         "            actual, pred, y_train=series_dict_train[level]\n"
         "        ),\n"
         "    })\n"
@@ -483,10 +483,10 @@ def test_render_forecast_foundation_output_when_multi_series_long_format():
         "    pred = predictions.loc[mask, 'pred'].values\n"
         "    actual = series_dict_test[level].iloc[:steps]\n"
         "    metrics_list.append({\n"
-        '        "series": level,\n'
-        '        "MAE": mean_absolute_error(actual, pred),\n'
-        '        "MSE": mean_squared_error(actual, pred),\n'
-        '        "MASE": mean_absolute_scaled_error(\n'
+        '        "levels": level,\n'
+        '        "mean_absolute_error": mean_absolute_error(actual, pred),\n'
+        '        "mean_squared_error": mean_squared_error(actual, pred),\n'
+        '        "mean_absolute_scaled_error": mean_absolute_scaled_error(\n'
         "            actual, pred, y_train=series_dict_train[level]\n"
         "        ),\n"
         "    })\n"
@@ -568,10 +568,10 @@ def test_render_forecast_foundation_output_when_multi_series_long_format_with_ex
         "    pred = predictions.loc[mask, 'pred'].values\n"
         "    actual = series_dict_test[level].iloc[:steps]\n"
         "    metrics_list.append({\n"
-        '        "series": level,\n'
-        '        "MAE": mean_absolute_error(actual, pred),\n'
-        '        "MSE": mean_squared_error(actual, pred),\n'
-        '        "MASE": mean_absolute_scaled_error(\n'
+        '        "levels": level,\n'
+        '        "mean_absolute_error": mean_absolute_error(actual, pred),\n'
+        '        "mean_squared_error": mean_squared_error(actual, pred),\n'
+        '        "mean_absolute_scaled_error": mean_absolute_scaled_error(\n'
         "            actual, pred, y_train=series_dict_train[level]\n"
         "        ),\n"
         "    })\n"
@@ -715,10 +715,10 @@ def test_render_forecast_foundation_output_when_multi_series_excludes_categorica
         "    pred = predictions.loc[mask, 'pred'].values\n"
         "    actual = series_dict_test[level].iloc[:steps]\n"
         "    metrics_list.append({\n"
-        '        "series": level,\n'
-        '        "MAE": mean_absolute_error(actual, pred),\n'
-        '        "MSE": mean_squared_error(actual, pred),\n'
-        '        "MASE": mean_absolute_scaled_error(\n'
+        '        "levels": level,\n'
+        '        "mean_absolute_error": mean_absolute_error(actual, pred),\n'
+        '        "mean_squared_error": mean_squared_error(actual, pred),\n'
+        '        "mean_absolute_scaled_error": mean_absolute_scaled_error(\n'
         "            actual, pred, y_train=series_dict_train[level]\n"
         "        ),\n"
         "    })\n"

@@ -37,8 +37,8 @@ A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 100 ob
 Backtested with 6 folds of 5 steps each, starting from an initial training window of 70 observations, without refitting.
 </deterministic_summary>
 <evaluation_metrics>
-series  MAE  MSE  MASE
- sales  2.5 9.25   0.8
+ mean_absolute_error  mean_squared_error  mean_absolute_scaled_error
+                 2.5                9.25                         0.8
 </evaluation_metrics>
 <predictions>
 Shape: 40 rows x 1 columns

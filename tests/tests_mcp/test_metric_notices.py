@@ -11,16 +11,16 @@ from skforecast_ai.mcp.server import _metric_notices
     "columns",
     [
         ["mean_absolute_error", "mean_absolute_scaled_error"],
-        ["series", "MAE", "MASE"],
+        ["levels", "mean_absolute_error", "mean_absolute_scaled_error"],
     ],
     ids=lambda dt: f"columns: {dt}",
 )
 def test_metric_notices_reference_of_mase(columns):
     """
-    Test that the metrics of a backtest (names of skforecast) or of a
-    forecast (short names) with MASE get one notice saying that it is scaled
-    by the one-step naive forecast on the training data, not by a seasonal
-    naive forecast nor by the baseline of `compare`.
+    Test that the metrics of a backtest or a forecast, one series or several
+    (`levels`), with MASE get one notice saying that it is scaled by the
+    one-step naive forecast on the training data, not by a seasonal naive
+    forecast nor by the baseline of `compare`.
     """
     metrics = pd.DataFrame([[0.5] * len(columns)], columns=columns)
 

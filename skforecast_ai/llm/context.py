@@ -1117,8 +1117,8 @@ def _first_series_metrics(metrics: Any) -> str:
     Parameters
     ----------
     metrics : pandas DataFrame
-        Metrics with one row per series in a `levels` (backtest) or
-        `series` (forecast) column, and the aggregated rows of skforecast.
+        Metrics with one row per series in a `levels` column, and the
+        aggregated rows of skforecast (backtest).
 
     Returns
     -------
@@ -1128,18 +1128,15 @@ def _first_series_metrics(metrics: Any) -> str:
         that says so. Any other table is rendered whole.
     """
 
-    level_column = next(
-        (col for col in ("levels", "series") if col in metrics.columns), None
-    )
-    if level_column is None:
+    if "levels" not in metrics.columns:
         return metrics.to_string(index=False)
 
-    is_aggregated = metrics[level_column].isin(_AGGREGATED_METRIC_ROWS)
-    series = list(dict.fromkeys(metrics.loc[~is_aggregated, level_column]))
+    is_aggregated = metrics["levels"].isin(_AGGREGATED_METRIC_ROWS)
+    series = list(dict.fromkeys(metrics.loc[~is_aggregated, "levels"]))
     if len(series) <= MAX_STATS_SERIES:
         return metrics.to_string(index=False)
 
-    keep = is_aggregated | metrics[level_column].isin(series[:MAX_STATS_SERIES])
+    keep = is_aggregated | metrics["levels"].isin(series[:MAX_STATS_SERIES])
     aggregated = ", plus the aggregated rows" if is_aggregated.any() else ""
 
     return (

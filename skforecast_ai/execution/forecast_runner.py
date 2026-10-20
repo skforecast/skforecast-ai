@@ -141,20 +141,25 @@ def run_forecast(
         # to compare against, so no metrics are produced.
         metrics = None
     else:
-        # Build unified metrics DataFrame
+        # The columns are those of the metrics of a backtest of the same
+        # plan, so a reader of one reads the other: the names of the
+        # metrics, and `levels` when skforecast's backtesting gives it.
         metrics_df = namespace.get("metrics_df")
         if metrics_df is not None:
-            # Multi-series: metrics_df already has dynamic columns
+            # Multi-series: the script builds the table with `levels`.
             metrics = metrics_df
         else:
-            # Single series: extract scalar variables by metric var name
-            target_name = profile.target
-            if isinstance(target_name, list):
-                target_name = target_name[0]
-            row: dict[str, object] = {"series": target_name}
+            # One series: the script computes one variable per metric. The
+            # backtesting of ForecasterDirectMultiVariate names its level in
+            # `levels`; the single-series ones give no such column.
+            row: dict[str, object] = {}
+            if plan.task_type == "multivariate":
+                target_name = profile.target
+                if isinstance(target_name, list):
+                    target_name = target_name[0]
+                row["levels"] = target_name
             for m in plan.metrics_to_compute:
-                info = _metric_info(m)
-                row[info["label"]] = namespace.get(info["var"])
+                row[m] = namespace.get(_metric_info(m)["var"])
             metrics = pd.DataFrame([row])
 
     # Ensure predictions is a DataFrame

@@ -240,9 +240,12 @@ SUPPORTED_TRANSFORMERS: tuple[str, ...] = ("StandardScaler",)
 # so an unknown keyword argument is warned about rather than rejected.
 PASSTHROUGH_KWARGS_ESTIMATORS: set[str] = {"LGBMRegressor", "XGBRegressor"}
 
-# Regression metrics accepted by skforecast's backtesting, all of them lower
-# is better, which is the order `compare()` ranks by. skforecast also accepts
-# classification scores, which are higher is better and never apply here.
+# Regression metrics the scripts compute, all of them lower is better, which
+# is the order `compare()` ranks by. The first eight are the names skforecast's
+# backtesting accepts, in its order; it also accepts classification scores,
+# which are higher is better and never apply here. `root_mean_squared_error`
+# is not one of them: the backtesting scripts pass the function of
+# scikit-learn, whose name skforecast gives to the column of its metrics.
 ALLOWED_METRICS: tuple[str, ...] = (
     "mean_squared_error",
     "mean_absolute_error",
@@ -252,6 +255,7 @@ ALLOWED_METRICS: tuple[str, ...] = (
     "root_mean_squared_scaled_error",
     "median_absolute_error",
     "symmetric_mean_absolute_percentage_error",
+    "root_mean_squared_error",
 )
 
 # Blocking preprocessing steps a generated script can contain. Blocking

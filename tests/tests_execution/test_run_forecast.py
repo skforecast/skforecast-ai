@@ -44,19 +44,21 @@ def test_run_forecast_single_series_returns_predictions():
 
 def test_run_forecast_single_series_returns_metrics():
     """
-    Test that run_forecast returns a metrics DataFrame with MAE, MSE, and
-    MASE for a single-series task.
+    Test that run_forecast returns a metrics DataFrame for a single-series
+    task with the columns of the metrics of its backtest: one per metric,
+    named as the metric, and no column for the series.
     """
     result = run_forecast(data=df_single, profile=profile_single, plan=plan_single)
 
     metrics = result["metrics"]
     assert isinstance(metrics, pd.DataFrame)
-    assert list(metrics.columns) == ["series", "MAE", "MSE", "MASE"]
+    assert list(metrics.columns) == [
+        "mean_absolute_error", "mean_squared_error", "mean_absolute_scaled_error"
+    ]
     assert len(metrics) == 1
-    assert metrics["series"].iloc[0] == "sales"
-    assert metrics["MAE"].iloc[0] > 0
-    assert metrics["MSE"].iloc[0] > 0
-    assert metrics["MASE"].iloc[0] > 0
+    assert metrics["mean_absolute_error"].iloc[0] > 0
+    assert metrics["mean_squared_error"].iloc[0] > 0
+    assert metrics["mean_absolute_scaled_error"].iloc[0] > 0
 
 
 def test_run_forecast_single_series_with_intervals():
@@ -81,7 +83,8 @@ def test_run_forecast_single_series_with_intervals():
 def test_run_forecast_multi_series_returns_predictions():
     """
     Test that run_forecast works end-to-end for a multi-series task and
-    returns predictions.
+    returns predictions, and metrics with the columns of the metrics of its
+    backtest: `levels` and one per metric, named as the metric.
     """
     result = run_forecast(data=df_multi, profile=profile_multi, plan=plan_multi)
 
@@ -91,9 +94,14 @@ def test_run_forecast_multi_series_returns_predictions():
     assert len(result["predictions"]) == plan_multi.steps * n_series
     metrics = result["metrics"]
     assert isinstance(metrics, pd.DataFrame)
-    assert list(metrics.columns) == ["series", "MAE", "MSE", "MASE"]
+    assert list(metrics.columns) == [
+        "levels",
+        "mean_absolute_error",
+        "mean_squared_error",
+        "mean_absolute_scaled_error",
+    ]
     assert len(metrics) == n_series
-    assert (metrics["MAE"] > 0).all()
+    assert (metrics["mean_absolute_error"] > 0).all()
 
 
 # Tests: run_forecast: statistical
@@ -124,7 +132,7 @@ def test_run_forecast_statistical_returns_predictions():
     assert isinstance(result["predictions"], pd.DataFrame)
     assert len(result["predictions"]) == plan_stats.steps
     assert isinstance(result["metrics"], pd.DataFrame)
-    assert result["metrics"]["MAE"].iloc[0] > 0
+    assert result["metrics"]["mean_absolute_error"].iloc[0] > 0
     assert "lower_bound" in result["predictions"].columns
     assert "upper_bound" in result["predictions"].columns
 
@@ -146,7 +154,9 @@ def test_run_forecast_baseline_repeats_last_seasonal_period():
     predictions = result["predictions"]
     assert list(predictions.columns) == ["pred", "lower_bound", "upper_bound"]
     np.testing.assert_allclose(predictions["pred"].to_numpy(), expected_pred)
-    assert list(result["metrics"].columns) == ["series", "MAE", "MSE", "MASE"]
+    assert list(result["metrics"].columns) == [
+        "mean_absolute_error", "mean_squared_error", "mean_absolute_scaled_error"
+    ]
     assert "ForecasterEquivalentDate" in result["rendered_code"].imports
 
 
@@ -207,7 +217,7 @@ def test_run_forecast_single_series_with_custom_estimator_kwargs():
 
     assert isinstance(result["predictions"], pd.DataFrame)
     assert len(result["predictions"]) == plan_single_custom_kwargs.steps
-    assert result["metrics"]["MAE"].iloc[0] > 0
+    assert result["metrics"]["mean_absolute_error"].iloc[0] > 0
 
 
 # Tests: run_forecast: prediction mode (plan.end_train is None)

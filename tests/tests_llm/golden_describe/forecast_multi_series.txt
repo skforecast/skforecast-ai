@@ -29,9 +29,9 @@ The dataset contains 2 series, so a multi-series forecaster (ForecasterRecursive
 - Plan: ForecasterRecursiveMultiSeries + Ridge. Lags: [1, 2, 3, 4, 5, 7]. Window features: ['mean(window=3)', 'std(window=3)', 'mean(window=7)', 'mean(window=21)']. Calendar features: ['day_of_week', 'weekend', 'month'] (cyclical encoding). MASE is scale-independent, enabling fair comparison across differently-scaled series.
 </forecast_plan>
 <evaluation_metrics>
- series  MAE   MSE  MASE
-store_a  2.5  9.25   0.8
-store_b  3.5 16.50   1.2
+ levels  mean_absolute_error  mean_squared_error  mean_absolute_scaled_error
+store_a                  2.5                9.25                         0.8
+store_b                  3.5               16.50                         1.2
 </evaluation_metrics>
 <predictions>
 Shape: 6 rows x 2 columns

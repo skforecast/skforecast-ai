@@ -10,11 +10,13 @@ from skforecast_ai.rendering._helpers import (
     _emit_end_train,
     _emit_preprocessing_steps,
     _emit_window_features,
+    _format_backtesting_metrics,
     _format_lags,
     _get_estimator_constructor,
     _get_estimator_import,
     _get_forecaster_import,
     _get_interval_method_literal,
+    _get_backtesting_metric_imports,
     _get_interval_repr,
     _get_metric_imports,
     _get_seasonal_period,
@@ -473,6 +475,68 @@ def test_get_metric_imports_output_when_multiple_metrics():
     err_msg = re.escape("Metric 'unknown_metric' cannot be rendered.")
     with pytest.raises(ValueError, match=err_msg):
         _get_metric_imports(["mean_absolute_error", "unknown_metric"])
+
+
+# =============================================================================
+# Tests: _get_backtesting_metric_imports
+# =============================================================================
+@pytest.mark.parametrize(
+    "metrics, expected",
+    [
+        (
+            ["mean_absolute_error", "mean_absolute_scaled_error"],
+            [],
+        ),
+        (
+            ["mean_absolute_error", "root_mean_squared_error"],
+            ["from sklearn.metrics import root_mean_squared_error"],
+        ),
+    ],
+    ids=["metrics by name", "root mean squared error"],
+)
+def test_get_backtesting_metric_imports_output(metrics, expected):
+    """
+    Test that a backtesting script imports only the metrics it passes as a
+    function (`root_mean_squared_error`): the others go by name.
+    """
+    assert _get_backtesting_metric_imports(metrics) == expected
+
+
+# =============================================================================
+# Tests: _format_backtesting_metrics
+# =============================================================================
+@pytest.mark.parametrize(
+    "metrics, expected",
+    [
+        (
+            ["mean_absolute_error", "mean_squared_error"],
+            "['mean_absolute_error', 'mean_squared_error']",
+        ),
+        (
+            ["mean_squared_error", "root_mean_squared_error", "mean_absolute_error"],
+            "['mean_squared_error', root_mean_squared_error, 'mean_absolute_error']",
+        ),
+    ],
+    ids=["metrics by name", "root mean squared error"],
+)
+def test_format_backtesting_metrics_output(metrics, expected):
+    """
+    Test that the `metric` argument of a backtesting call writes each metric
+    by name, as `repr()` writes the list, except `root_mean_squared_error`,
+    which skforecast does not take by name: the function the script
+    imports, in its place in the list.
+    """
+    assert _format_backtesting_metrics(metrics) == expected
+
+
+def test_format_backtesting_metrics_ValueError_when_metric_unknown():
+    """
+    Test that a metric outside the registry raises instead of being written
+    into the script.
+    """
+    err_msg = re.escape("Metric 'unknown_metric' cannot be rendered.")
+    with pytest.raises(ValueError, match=err_msg):
+        _format_backtesting_metrics(["mean_absolute_error", "unknown_metric"])
 
 
 # =============================================================================

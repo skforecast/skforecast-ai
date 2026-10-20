@@ -148,7 +148,21 @@ _METRIC_REGISTRY: dict[str, dict[str, str | bool]] = {
         ),
         "requires_y_train": True,
     },
+    "root_mean_squared_error": {
+        "import": "from sklearn.metrics import root_mean_squared_error",
+        "var": "rmse",
+        "label": "RMSE",
+        "call": "root_mean_squared_error(actual, {pred_expr})",
+        "requires_y_train": False,
+    },
 }
+
+# Metrics skforecast's backtesting does not take by name: the backtesting
+# scripts pass the function, and skforecast names the column of its metrics
+# after it, so the column is the name of the metric as for the others.
+_BACKTESTING_FUNCTION_METRICS: frozenset[str] = frozenset({
+    "root_mean_squared_error",
+})
 
 
 def _metric_info(metric: str) -> dict[str, str | bool]:
@@ -901,6 +915,46 @@ def _get_metric_imports(metrics_to_compute: list[str]) -> list[str]:
     return lines
 
 
+def _get_backtesting_metric_imports(metrics_to_compute: list[str]) -> list[str]:
+    """
+    Build the import lines of the metrics a backtesting script passes as a
+    function (`_BACKTESTING_FUNCTION_METRICS`); the others go by name.
+    """
+    return _get_metric_imports([
+        m for m in metrics_to_compute if m in _BACKTESTING_FUNCTION_METRICS
+    ])
+
+
+def _format_backtesting_metrics(metrics_to_compute: list[str]) -> str:
+    """
+    Render the `metric` argument of a backtesting call.
+
+    Each metric is written by name with `repr()`, except those of
+    `_BACKTESTING_FUNCTION_METRICS`, written as the function the script
+    imports (`_get_backtesting_metric_imports`). A metric outside the
+    registry raises.
+
+    Parameters
+    ----------
+    metrics_to_compute : list of str
+        Metrics of the plan.
+
+    Returns
+    -------
+    literal : str
+        Code literal of the list, such as
+        `['mean_absolute_error', root_mean_squared_error]`.
+    """
+    items = []
+    for m in metrics_to_compute:
+        info = _metric_info(m)
+        if m in _BACKTESTING_FUNCTION_METRICS:
+            items.append(info["import"].split("import ")[-1])
+        else:
+            items.append(repr(m))
+    return f"[{', '.join(items)}]"
+
+
 def _emit_metrics_section(
     lines: list[str],
     actual_expr: str,
@@ -937,7 +991,11 @@ def _emit_metrics_section_multiseries(
     pred_var: str,
     metrics_to_compute: list[str] | None = None,
 ) -> None:
-    """Append per-series evaluation metrics as a DataFrame."""
+    """
+    Append per-series evaluation metrics as a DataFrame with the columns of
+    the metrics of a multi-series backtest: `levels` and the names of the
+    metrics.
+    """
     if metrics_to_compute is None:
         metrics_to_compute = [
             "mean_absolute_error",
@@ -958,19 +1016,19 @@ def _emit_metrics_section_multiseries(
         f"    pred = {pred_var}.loc[mask, 'pred'].values"
     )
     lines.append("    metrics_list.append({")
-    lines.append('        "series": series_name,')
+    lines.append('        "levels": series_name,')
     for m in metrics_to_compute:
         info = _metric_info(m)
         func_name = info["import"].split("import ")[-1]
         if info["requires_y_train"]:
-            lines.append(f'        "{info["label"]}": {func_name}(')
+            lines.append(f'        "{m}": {func_name}(')
             lines.append(
                 f"            actual, pred, y_train={train_dict_var}[series_name]"
             )
             lines.append("        ),")
         else:
             lines.append(
-                f'        "{info["label"]}": {func_name}(actual, pred),'
+                f'        "{m}": {func_name}(actual, pred),'
             )
     lines.append("    })")
     lines.append("metrics_df = pd.DataFrame(metrics_list)")
@@ -984,7 +1042,11 @@ def _emit_metrics_section_foundation(
     train_var: str,
     metrics_to_compute: list[str] | None = None,
 ) -> None:
-    """Append evaluation metrics for ForecasterFoundation output."""
+    """
+    Append evaluation metrics for ForecasterFoundation output. With several
+    series, a DataFrame with the columns of the metrics of its backtest:
+    `levels` and the names of the metrics.
+    """
     if metrics_to_compute is None:
         metrics_to_compute = [
             "mean_absolute_error",
@@ -1005,19 +1067,19 @@ def _emit_metrics_section_foundation(
             f"    actual = {test_var}[level].iloc[:steps]"
         )
         lines.append("    metrics_list.append({")
-        lines.append('        "series": level,')
+        lines.append('        "levels": level,')
         for m in metrics_to_compute:
             info = _metric_info(m)
             func_name = info["import"].split("import ")[-1]
             if info["requires_y_train"]:
-                lines.append(f'        "{info["label"]}": {func_name}(')
+                lines.append(f'        "{m}": {func_name}(')
                 lines.append(
                     f"            actual, pred, y_train={train_var}[level]"
                 )
                 lines.append("        ),")
             else:
                 lines.append(
-                    f'        "{info["label"]}": {func_name}(actual, pred),'
+                    f'        "{m}": {func_name}(actual, pred),'
                 )
         lines.append("    })")
         lines.append("metrics_df = pd.DataFrame(metrics_list)")
@@ -1059,7 +1121,8 @@ def _emit_imports_single_series(
         If True, include metric import lines based on `plan.metrics_to_compute`.
     include_backtesting : bool, default False
         If True, append `TimeSeriesFold, backtesting_forecaster` from
-        `skforecast.model_selection` as the last import.
+        `skforecast.model_selection` as the last import. The metrics the
+        backtesting call passes as a function are imported too.
 
     """
 
@@ -1081,6 +1144,8 @@ def _emit_imports_single_series(
         lines.append("from sklearn.compose import make_column_transformer")
     if include_metrics:
         lines.extend(_get_metric_imports(plan.metrics_to_compute))
+    elif include_backtesting:
+        lines.extend(_get_backtesting_metric_imports(plan.metrics_to_compute))
     lines.append(estimator_import)
     preprocessing_imports: list[str] = []
     if window_features:
@@ -1122,7 +1187,8 @@ def _emit_imports_multi_series(
         If True, include metric import lines based on `plan.metrics_to_compute`.
     include_backtesting : bool, default False
         If True, append `TimeSeriesFold, backtesting_forecaster_multiseries`
-        from `skforecast.model_selection` as the last import.
+        from `skforecast.model_selection` as the last import. The metrics the
+        backtesting call passes as a function are imported too.
 
     """
 
@@ -1146,6 +1212,8 @@ def _emit_imports_multi_series(
         lines.append("from sklearn.compose import make_column_transformer")
     if include_metrics:
         lines.extend(_get_metric_imports(plan.metrics_to_compute))
+    elif include_backtesting:
+        lines.extend(_get_backtesting_metric_imports(plan.metrics_to_compute))
     lines.append(estimator_import)
 
     preprocessing_imports: list[str] = []
@@ -1192,7 +1260,8 @@ def _emit_imports_foundation(
         If True, include metric import lines based on `plan.metrics_to_compute`.
     include_backtesting : bool, default False
         If True, append `TimeSeriesFold, backtesting_foundation` from
-        `skforecast.model_selection` as the last import.
+        `skforecast.model_selection` as the last import. The metrics the
+        backtesting call passes as a function are imported too.
     profile : DataProfile, default None
         Profiled dataset metadata. Long-format data imports the helpers
         that reshape it into one entry per series.
@@ -1205,6 +1274,8 @@ def _emit_imports_foundation(
     lines.append("import pandas as pd")
     if include_metrics:
         lines.extend(_get_metric_imports(plan.metrics_to_compute))
+    elif include_backtesting:
+        lines.extend(_get_backtesting_metric_imports(plan.metrics_to_compute))
     if profile is not None and profile.data_format == "long":
         reshape_imports = ["reshape_series_long_to_dict"]
         if use_exog:
@@ -1241,13 +1312,16 @@ def _emit_imports_statistical(
         If True, include metric import lines based on `plan.metrics_to_compute`.
     include_backtesting : bool, default False
         If True, append `TimeSeriesFold, backtesting_stats` from
-        `skforecast.model_selection` as the last import.
+        `skforecast.model_selection` as the last import. The metrics the
+        backtesting call passes as a function are imported too.
 
     """
 
     lines.append("import pandas as pd")
     if include_metrics:
         lines.extend(_get_metric_imports(plan.metrics_to_compute))
+    elif include_backtesting:
+        lines.extend(_get_backtesting_metric_imports(plan.metrics_to_compute))
     lines.append("from skforecast.stats import Arima")
     lines.append("from skforecast.recursive import ForecasterStats")
     if include_backtesting:
@@ -1276,13 +1350,16 @@ def _emit_imports_baseline(
         If True, include metric import lines based on `plan.metrics_to_compute`.
     include_backtesting : bool, default False
         If True, append `TimeSeriesFold, backtesting_forecaster` from
-        `skforecast.model_selection` as the last import.
+        `skforecast.model_selection` as the last import. The metrics the
+        backtesting call passes as a function are imported too.
 
     """
 
     lines.append("import pandas as pd")
     if include_metrics:
         lines.extend(_get_metric_imports(plan.metrics_to_compute))
+    elif include_backtesting:
+        lines.extend(_get_backtesting_metric_imports(plan.metrics_to_compute))
     lines.append("from skforecast.recursive import ForecasterEquivalentDate")
     if include_backtesting:
         lines.append(
