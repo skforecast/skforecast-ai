@@ -43,8 +43,8 @@ candidates), nor a root mean squared error from `mean_squared_error`: pass
    the metrics given are computed. `use_exog: false` leaves the
    exogenous columns out, so `forecast` needs no `exog_path`.
    `differentiation` (usually 1, for a series with a trend) differences
-   the target before training; build the strategy of `create_cv` from
-   that plan, since a backtest needs the same order in both.
+   the target before training; a strategy of `create_cv` serves plans
+   with any order, so candidates of `compare` that differ in it share it.
    `calendar_features` (an empty list for none), `target_transformer`
    (`StandardScaler` or `none`) and `dropna_from_series` replace the
    rules of the machine learning forecasters.

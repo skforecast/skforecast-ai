@@ -399,8 +399,8 @@ class CandidateConfig(TypedDict, total=False):
         Whether the candidate uses the exogenous variables, as in `plan()`.
         None uses them whenever the forecaster can.
     differentiation : int, None
-        Order of differencing of the target, as in `plan()`. The candidate
-        runs on a copy of the strategy with this order.
+        Order of differencing of the target, as in `plan()`. Candidates
+        with different orders share the strategy.
     calendar_features : list of str, None
         Calendar features to generate, as in `plan()`.
     target_transformer : str, None

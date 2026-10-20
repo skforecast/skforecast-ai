@@ -611,10 +611,11 @@ cv_basic = SimpleNamespace(
     fold_stride=None,
     skip_folds=None,
     allow_incomplete_fold=True,
-    differentiation=None,
 )
 
-# The strategy `create_cv()` builds for a plan with `differentiation=1`.
+# A strategy that still carries a differentiation order, as `create_cv()`
+# built it for a plan with `differentiation=1` before skforecast 0.27 (a
+# result saved then, or a `TimeSeriesFold` built by hand).
 cv_differentiation = SimpleNamespace(**{**vars(cv_basic), "differentiation": 1})
 
 # Foundation plan in prediction mode with exogenous variables.

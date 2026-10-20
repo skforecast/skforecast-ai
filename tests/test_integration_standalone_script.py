@@ -1137,36 +1137,47 @@ def test_standalone_scripts_match_forecast_and_backtest_when_exog_not_used(
 
 
 def test_standalone_scripts_match_forecast_and_backtest_when_differentiation(
-    tmp_path,
+    tmp_path, monkeypatch
 ):
     """
     Test that, with `differentiation=1`, the scripts of forecast_code()
-    and backtest_code() (with the strategy of create_cv(), which carries
-    the order) run as files and give the predictions of forecast() and
-    backtest().
+    and backtest_code() run as files and give the predictions and metrics
+    of forecast() and backtest(). The backtesting script writes the order in
+    the forecaster only: skforecast 0.27 takes it from its window and
+    deprecates it in `TimeSeriesFold`, whose `FutureWarning` fails the
+    script here. The strategy is created from a plan without the order.
     """
     csv_path = tmp_path / "h2o.csv"
     df_h2o.reset_index().to_csv(csv_path, index=False)
+    monkeypatch.setenv(
+        "PYTHONWARNINGS", "error:`differentiation` is deprecated:FutureWarning"
+    )
     assistant = ForecastingAssistant()
     profile = assistant.profile(csv_path, target="x")
     plan = assistant.plan(profile, steps=12, differentiation=1)
-    cv = assistant.create_cv(profile, plan)
+    cv = assistant.create_cv(profile, assistant.plan(profile, steps=12))
 
     forecast = assistant.forecast(csv_path, profile=profile, plan=plan)
     backtest = assistant.backtest(
-        csv_path, cv=cv, profile=profile, show_progress=False
+        csv_path, cv=cv, profile=profile, plan=plan, show_progress=False
     )
 
     assert forecast.code == assistant.forecast_code(profile=profile, plan=plan).code
     assert backtest.code == assistant.backtest_code(
-        csv_path, cv=cv, profile=profile
+        csv_path, cv=cv, profile=profile, plan=plan
     ).code
-    assert "    differentiation    = 1,\n" in backtest.code
+    forecaster, strategy = backtest.code.split("cv = TimeSeriesFold(")
+    assert re.findall(r"\n    differentiation\s+= (\d+),\n", forecaster) == ["1"]
+    assert "differentiation" not in strategy
     _assert_same_predictions(_run_standalone(forecast.code, tmp_path), forecast.predictions)
     np.testing.assert_allclose(
         _run_standalone(backtest.code, tmp_path)["pred"].to_numpy(),
         backtest.predictions["pred"].to_numpy(),
         rtol=1e-6,
+    )
+    pd.testing.assert_frame_equal(
+        _run_standalone(backtest.code, tmp_path, variable="metrics"),
+        backtest.metrics,
     )
 
 

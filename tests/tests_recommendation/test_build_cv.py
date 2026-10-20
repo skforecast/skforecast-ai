@@ -25,7 +25,6 @@ def _make_cv_params(initial_train_size, steps: int = 10) -> dict:
         "fold_stride": None,
         "skip_folds": None,
         "allow_incomplete_fold": True,
-        "differentiation": None,
     }
 
 
@@ -68,7 +67,7 @@ def test_build_cv_ValueError_when_fewer_than_min_folds():
         "are required. Resolved parameters: {'steps': 10, "
         "'initial_train_size': 95, 'refit': True, 'fixed_train_size': False, "
         "'gap': 0, 'fold_stride': None, 'skip_folds': None, "
-        "'allow_incomplete_fold': True, 'differentiation': None}."
+        "'allow_incomplete_fold': True}."
     )
     with pytest.raises(ValueError, match=err_msg):
         build_cv(cv_params, profile_single_daily_100)

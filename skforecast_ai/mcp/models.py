@@ -272,8 +272,8 @@ class CandidateArgs(TypedDict, total=False):
     differentiation: Annotated[
         Annotated[int, Field(ge=1)] | None,
         Field(description=(
-            f"{DIFFERENTIATION_DESCRIPTION} The candidate runs on a copy of "
-            f"the strategy with this order."
+            f"{DIFFERENTIATION_DESCRIPTION} Candidates with different orders "
+            f"share the strategy."
         )),
     ]
     calendar_features: Annotated[

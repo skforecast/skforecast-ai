@@ -59,7 +59,6 @@ def derive_cv_defaults(
         "fold_stride": None,
         "skip_folds": None,
         "allow_incomplete_fold": True,
-        "differentiation": plan.forecaster_kwargs.get("differentiation"),
     }
 
 
@@ -584,10 +583,6 @@ def build_cv_explanation(
     if gap > 0:
         parts.append(f"gap of {gap} observations")
 
-    differentiation = cv_params.get("differentiation")
-    if differentiation is not None:
-        parts.append(f"differentiation order {differentiation}")
-
     explanation = ", ".join(parts) + "."
     if forecaster == "ForecasterStats":
         explanation += (
@@ -1029,10 +1024,9 @@ def build_cv(
     cv_params : dict
         Resolved `TimeSeriesFold` parameters with keys `'steps'`,
         `'initial_train_size'`, `'refit'`, `'fixed_train_size'`, `'gap'`,
-        `'fold_stride'`, `'skip_folds'`, `'allow_incomplete_fold'` and
-        `'differentiation'`. Keys starting with an underscore (such as the
-        LLM `'_reasoning'`) are ignored. `'initial_train_size'` is
-        normalised in place.
+        `'fold_stride'`, `'skip_folds'` and `'allow_incomplete_fold'`. Keys
+        starting with an underscore (such as the LLM `'_reasoning'`) are
+        ignored. `'initial_train_size'` is normalised in place.
     data_profile : DataProfile
         Profile of the dataset the splitter is applied to.
     min_folds : int, default 2
@@ -1059,7 +1053,6 @@ def build_cv(
             fold_stride           = cv_params.get("fold_stride"),
             skip_folds            = cv_params.get("skip_folds"),
             allow_incomplete_fold = cv_params.get("allow_incomplete_fold", True),
-            differentiation       = cv_params.get("differentiation"),
             verbose               = False,
         )
 
@@ -1281,11 +1274,10 @@ def resolve_cv_config(
     cv_config : dict
         Resolved `TimeSeriesFold` parameters (`steps`,
         `initial_train_size`, `refit`, `fixed_train_size`, `gap`,
-        `fold_stride`, `skip_folds`, `allow_incomplete_fold`,
-        `differentiation`) plus `n_folds` and `n_fits` (folds in which the
-        forecaster is trained, 0 when it is not trained), and for
-        `ForecasterFoundation` `inference_windows` (one per series and
-        fold, see `count_inference_windows`).
+        `fold_stride`, `skip_folds`, `allow_incomplete_fold`) plus `n_folds`
+        and `n_fits` (folds in which the forecaster is trained, 0 when it is
+        not trained), and for `ForecasterFoundation` `inference_windows`
+        (one per series and fold, see `count_inference_windows`).
     explanation : str
         Multi-sentence description of the strategy, see
         `build_cv_explanation`.
@@ -1317,7 +1309,6 @@ def resolve_cv_config(
         "fold_stride": cv.fold_stride,
         "skip_folds": cv.skip_folds,
         "allow_incomplete_fold": cv.allow_incomplete_fold,
-        "differentiation": cv.differentiation,
         "n_folds": n_folds,
         "n_fits": n_fits,
     }

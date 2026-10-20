@@ -167,7 +167,6 @@ def test_create_cv_cv_config_matches_splitter_and_counts_folds():
         "fold_stride": 10,
         "skip_folds": None,
         "allow_incomplete_fold": False,
-        "differentiation": None,
         "n_folds": 4,
         "n_fits": 1,
     }
@@ -560,19 +559,23 @@ def test_create_cv_output_when_floor_by_baseline_window():
     assert cv.initial_train_size == "2023-01-21"
 
 
-def test_create_cv_output_when_differentiation_set():
+def test_create_cv_output_without_differentiation_when_plan_has_one():
     """
-    Test that differentiation flows from plan.forecaster_kwargs to the
-    TimeSeriesFold.
+    Test that the strategy of a plan with a differentiation order does not
+    carry it: skforecast 0.27 takes the order from the window of the
+    forecaster and deprecates it in `TimeSeriesFold` (a `FutureWarning`,
+    an error in this suite), so neither the splitter, nor `cv_config`, nor
+    the snippet name it.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
-    plan = assistant.plan(profile, steps=5)
-    plan.forecaster_kwargs["differentiation"] = 1
+    plan = assistant.plan(profile, steps=5, differentiation=1)
 
-    cv = assistant.create_cv(profile, plan).cv
+    result = assistant.create_cv(profile, plan)
 
-    assert cv.differentiation == 1
+    assert getattr(result.cv, "differentiation", None) is None
+    assert "differentiation" not in result.cv_config
+    assert "differentiation" not in result.code
 
 
 def test_create_cv_output_when_floor_by_window_features():
@@ -1486,9 +1489,10 @@ def test_create_cv_output_when_skip_folds_in_range():
 
 def test_create_cv_output_when_plan_has_differentiation():
     """
-    Test that the strategy of a plan with a differentiation order carries
-    it and says so, and that the order adds to the minimum size of the
-    first training window.
+    Test that the differentiation order of a plan adds to the minimum size
+    of the first training window, as it adds to the window of the
+    forecaster in skforecast, and that the explanation of the strategy,
+    which no longer carries the order, does not name it.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_h2o, target="x")
@@ -1497,9 +1501,7 @@ def test_create_cv_output_when_plan_has_differentiation():
 
     result = assistant.create_cv(profile, plan)
 
-    assert result.cv.differentiation == 2
-    assert result.cv_config["differentiation"] == 2
-    assert result.explanation.endswith("differentiation order 2.")
+    assert "differentiation" not in result.explanation
     assert _compute_min_train_size(plan) == _compute_min_train_size(plain) + 2
 
 

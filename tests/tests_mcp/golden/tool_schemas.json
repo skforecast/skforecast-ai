@@ -1667,7 +1667,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Order of differencing of the target before training (an integer of at least 1, usually 1 for a trend); predictions are integrated back. Machine learning forecasters only. The candidate runs on a copy of the strategy with this order."
+              "description": "Order of differencing of the target before training (an integer of at least 1, usually 1 for a trend); predictions are integrated back. Machine learning forecasters only. Candidates with different orders share the strategy."
             },
             "calendar_features": {
               "anyOf": [

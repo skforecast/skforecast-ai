@@ -159,7 +159,7 @@ skforecast-ai backtest-code "$DATA" --target y --date-column fecha --steps 12 \
   --initial-train-size 100 --no-refit --output backtest.py
 ```
 
-`compare` backtests several candidates on the same folds and ranks them by the metric. Without `--candidates`, the candidates are built from the profile. With it, each candidate is a `[name, config]` pair; the config takes `forecaster`, `estimator`, `estimator_kwargs`, `lags`, `window_features`, `use_exog`, `differentiation`, `calendar_features`, `target_transformer` and `dropna_from_series`, and all the candidates must belong to the same forecaster family.
+`compare` backtests several candidates on the same folds and ranks them by the metric. Without `--candidates`, the candidates are built from the profile. With it, each candidate is a `[name, config]` pair; the config takes `forecaster`, `estimator`, `estimator_kwargs`, `lags`, `window_features`, `use_exog`, `differentiation`, `calendar_features`, `target_transformer` and `dropna_from_series`, and all the candidates must belong to the same forecaster family. Candidates with different `differentiation` orders run on the same folds.
 
 For a single series, a seasonal naive baseline (`ForecasterEquivalentDate`) is ranked as one more row, and the explanation says whether the best candidate beats it; `--no-baseline` leaves it out.
 

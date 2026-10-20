@@ -285,32 +285,33 @@ def test_tool_backtest_missing_dependency_of_a_foundation_model(
 def test_tool_backtest_differentiation_of_the_plan_and_of_the_strategy(tmp_path):
     """
     Test that a plan with `differentiation` backtests on a strategy created
-    from it, as the Python API does, and that backtesting it on a strategy
-    with another order is an `invalid_argument` naming `cv_id`.
+    from a plan without it, where it was an `invalid_argument` before: the
+    strategy does not carry the order (skforecast 0.27 takes it from the
+    window of the forecaster), and the summary is the one of the Python
+    API for the same plan and strategy.
     """
     server, path = h2o_server(tmp_path)
     profile_id, _, cv_id = cv_of(server, path)
-    _, _, diff_cv_id = cv_of(server, path, differentiation=1)
     diff_plan = content_of(call(server, "plan", {
         "profile_id": profile_id, "steps": 12, "differentiation": 1,
     }))
 
-    result = content_of(call(server, "backtest", {"cv_id": diff_cv_id}))
-    error = error_of(
-        call(server, "backtest", {"cv_id": cv_id, "plan_id": diff_plan["id"]}),
-        "backtest",
+    result = content_of(
+        call(server, "backtest", {"cv_id": cv_id, "plan_id": diff_plan["id"]})
     )
 
     assistant = ForecastingAssistant()
     profile = assistant.profile(path, target="x")
+    plain = assistant.plan(profile=profile, steps=12)
     plan = assistant.plan(profile=profile, steps=12, differentiation=1)
     expected = assistant.backtest(
-        data=path, cv=assistant.create_cv(profile=profile, plan=plan),
-        profile=profile, show_progress=False,
+        data=path, cv=assistant.create_cv(profile=profile, plan=plain),
+        profile=profile, plan=plan, show_progress=False,
     )
 
     assert result["summary"] == expected.describe()
-    assert (error["code"], error["field"]) == ("invalid_argument", "cv_id")
+    assert expected.plan.forecaster_kwargs["differentiation"] == 1
+    assert "differentiation" not in expected.cv_config
 
 
 def test_tool_backtest_output_when_csv_dates_in_utc(tmp_path):
