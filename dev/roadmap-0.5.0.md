@@ -1115,8 +1115,9 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     medidos, y volver a perfilar el mismo fichero empieza de cero (va por
     `profile_id`).
 
-- **D?. 2c-ii: cobertura y anchura del intervalo medidas en el backtest**
-  (2026-10-20), sin cálculo propio en los scripts: `coverage` e
+- **D22. 2c-ii: cobertura y anchura del intervalo medidas en el backtest**
+  (2026-10-20), en [#112](https://github.com/skforecast/skforecast-ai/pull/112),
+  sin cálculo propio en los scripts: `coverage` e
   `interval_width` salen de skforecast 0.27 (#1409):
   - El resumen de `backtest()` (y lo que leen `describe()`, `ask()` y el
     servidor MCP) ya no las lista con las demás métricas: una frase propia
