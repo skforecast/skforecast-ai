@@ -23,7 +23,7 @@ The dataset contains 2 series, so a multi-series forecaster (ForecasterRecursive
 - Forecaster: ForecasterFoundation
 - Steps: 3
 - Estimator: autogluon/chronos-2-small
-- Prediction interval: [0.1, 0.9] (80% coverage)
+- Prediction interval: [0.1, 0.9] (80% nominal coverage)
 - Interval method: native
 - Primary metric: mean_absolute_scaled_error
 - Chosen by the user instead of the rules: forecaster

@@ -259,7 +259,7 @@ def test_build_context_message_plan_includes_interval_method_and_metric():
     result = build_context_message(plan=plan)
 
     assert "<forecast_plan>" in result
-    assert "Prediction interval: [0.1, 0.9] (80% coverage)" in result
+    assert "Prediction interval: [0.1, 0.9] (80% nominal coverage)" in result
     assert "Interval method: bootstrapping" in result
     assert "Primary metric: mean_absolute_error" in result
 

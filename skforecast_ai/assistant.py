@@ -48,6 +48,7 @@ from .exceptions import (
     AllCandidatesFailedError,
     CandidateFailedWarning,
     DataSentToLLMWarning,
+    IntervalCoverageWarning,
     InvalidInputError,
     InvalidInputTypeError,
     LLMCallError,
@@ -71,6 +72,11 @@ from .execution.comparison import (
     resolve_default_candidates,
 )
 from .execution.forecast_runner import render_forecast_script
+from .execution.interval_coverage import (
+    INTERVAL_METRICS,
+    describe_low_coverage_candidates,
+    warn_low_coverage,
+)
 from .rendering.backtesting import _emit_cv_configuration
 from .llm import (
     build_ollama_settings,
@@ -3370,10 +3376,14 @@ class ForecastingAssistant:
             - cv_config: resolved `TimeSeriesFold` parameters plus the
             resulting `n_folds`.
             - metrics: backtesting metric values returned by skforecast.
+            With an interval, skforecast adds `coverage` (share of the
+            actual values inside it) and `interval_width` (its mean width,
+            in the units of the series) after the requested metrics.
             - predictions: full backtest predictions across all folds.
             - code: generated Python script reproducing the workflow.
             - explanation: human-readable summary of the configuration
-            and results.
+            and results, with the coverage and the width of the interval
+            of each series next to its nominal coverage.
             - cv_overridden_fields: names of the strategy parameters passed
             to `create_cv()` instead of its defaults. None when `cv` is a
             `TimeSeriesFold`, whose origin is not known.
@@ -3398,6 +3408,11 @@ class ForecastingAssistant:
         To keep both consistent, build the plan with `plan()` (or
         `refine_plan()`), pass it via `plan`, and build a matching `cv` with
         `create_cv()`.
+
+        An `IntervalCoverageWarning` is emitted when the prediction interval
+        of any series covers clearly less than its nominal level
+        (`upper - lower`): more than two binomial standard errors for the
+        number of predictions, and at least 5 percentage points, below it.
 
         References
         ----------
@@ -3511,6 +3526,13 @@ class ForecastingAssistant:
             cv_explanation = cv_explanation,
             show_progress  = show_progress,
         )
+        # The coverage is measured by skforecast; only the reading of it
+        # against the nominal level is done here.
+        warn_low_coverage(
+            metrics     = result["metrics"],
+            predictions = result["predictions"],
+            interval    = plan.interval,
+        )
 
         return BacktestResult(
             profile     = profile,
@@ -3622,7 +3644,11 @@ class ForecastingAssistant:
         interval : list of float, default None
             Prediction interval quantiles as a two-element list
             `[lower, upper]` computed for every candidate. When None, no
-            prediction intervals are computed.
+            prediction intervals are computed. With an interval, the table
+            carries the `coverage` and the `interval_width` that skforecast
+            measured after the metrics, which do not rank, and an
+            `IntervalCoverageWarning` names the candidates whose interval
+            covers clearly less than its nominal level in any series.
         profile : ForecastingProfile, default None
             Pre-computed profile, shared by every candidate. `data` is
             profiled again with its target, date and series id columns:
@@ -3806,6 +3832,12 @@ class ForecastingAssistant:
             metric_override = resolve_metric_override(metric)
             ranking_metric = metric_override[0]
             metric_columns = metric_override
+        # With an interval, the coverage and the width that skforecast
+        # measured follow the metrics in the table; they never rank.
+        table_columns = (
+            [*metric_columns, *INTERVAL_METRICS]
+            if interval is not None else list(metric_columns)
+        )
 
         steps = cv.steps
 
@@ -3941,7 +3973,7 @@ class ForecastingAssistant:
                 "estimator": config.get("estimator"),
                 "error": None,
             }
-            for col in metric_columns:
+            for col in table_columns:
                 row[col] = float("nan")
             ranking_value = float("nan")
 
@@ -4008,6 +4040,12 @@ class ForecastingAssistant:
 
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore", category=LongTrainingWarning)
+                    # One warning after the loop names the candidates whose
+                    # interval covers too little; the one of each backtest
+                    # would not say which candidate it is about.
+                    warnings.simplefilter(
+                        "ignore", category=IntervalCoverageWarning
+                    )
                     # The candidate runs on the DataFrame already read;
                     # its script loads the file the comparison read.
                     with _data_path_of_run(run_data_path):
@@ -4022,7 +4060,7 @@ class ForecastingAssistant:
                             show_progress    = False,
                         )
                 agg = aggregate_metrics(bt.metrics)
-                for col in metric_columns:
+                for col in table_columns:
                     row[col] = agg.get(col, float("nan"))
                 ranking_value = agg.get(ranking_metric, float("nan"))
                 ranked.append((name, bt, ranking_value))
@@ -4053,7 +4091,7 @@ class ForecastingAssistant:
 
         results = build_comparison_table(
             rows           = rows,
-            metric_columns = metric_columns,
+            metric_columns = table_columns,
             any_error      = bool(failures),
             baseline_name  = baseline_name,
         )
@@ -4069,6 +4107,12 @@ class ForecastingAssistant:
         if not ranked_sorted:
             raise AllCandidatesFailedError(failures)
         candidate_results = {name: bt for name, bt, _ in ranked_sorted}
+        low_coverage = describe_low_coverage_candidates(
+            candidates = candidate_results,
+            interval   = interval,
+        )
+        if low_coverage is not None:
+            warnings.warn(low_coverage, IntervalCoverageWarning, stacklevel=2)
 
         explanation = build_comparison_explanation(
             n_candidates   = len(candidate_configs),
@@ -4088,6 +4132,7 @@ class ForecastingAssistant:
             ),
             strategy_row         = strategy_row,
             strategy_note        = strategy_note,
+            interval             = interval,
         )
 
         return ComparisonResult(

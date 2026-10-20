@@ -37,6 +37,7 @@ from skforecast_ai import (
     ComparisonResult,
     DataNotFoundError,
     ForecastingAssistant,
+    IntervalCoverageWarning,
     InvalidInputError,
     InvalidInputTypeError,
     MissingBackendWarning,
@@ -580,16 +581,17 @@ def test_compare_propagates_interval_to_candidates():
     """
     Test that the `interval` argument flows into each candidate's plan.
     """
-    result = assistant.compare(
-        data=df_single,
-        cv=_single_cv(),
-        target="sales",
-        date_column="date",
-        candidates=_LIGHT_CANDIDATES,
-        interval=[0.1, 0.9],
-        show_progress=False,
-        baseline=False,
-    )
+    with pytest.warns(IntervalCoverageWarning, match="in these candidates"):
+        result = assistant.compare(
+            data=df_single,
+            cv=_single_cv(),
+            target="sales",
+            date_column="date",
+            candidates=_LIGHT_CANDIDATES,
+            interval=[0.1, 0.9],
+            show_progress=False,
+            baseline=False,
+        )
 
     for bt in result.candidates.values():
         assert bt.plan.interval == [0.1, 0.9]
@@ -1724,15 +1726,16 @@ def test_compare_baseline_uses_conformal_intervals():
     Test that the requested interval reaches the baseline with the conformal
     method while the ML candidates keep bootstrapping.
     """
-    result = assistant.compare(
-        data=df_single,
-        cv=_single_cv(),
-        target="sales",
-        date_column="date",
-        candidates=_LIGHT_CANDIDATES,
-        interval=[0.1, 0.9],
-        show_progress=False,
-    )
+    with pytest.warns(IntervalCoverageWarning, match="in these candidates"):
+        result = assistant.compare(
+            data=df_single,
+            cv=_single_cv(),
+            target="sales",
+            date_column="date",
+            candidates=_LIGHT_CANDIDATES,
+            interval=[0.1, 0.9],
+            show_progress=False,
+        )
 
     methods = {name: bt.plan.interval_method for name, bt in result.candidates.items()}
     assert methods == {
@@ -2471,15 +2474,16 @@ def test_compare_output_when_interval_asymmetric_and_baseline_requested():
     since ForecasterEquivalentDate predicts symmetric intervals only, and
     says so in the explanation, without any candidate failing.
     """
-    result = assistant.compare(
-        data          = df_single,
-        cv            = _single_cv(),
-        target        = "sales",
-        date_column   = "date",
-        candidates    = [("ridge", {"forecaster": "ForecasterRecursive"})],
-        interval      = [0.1, 0.8],
-        show_progress = False,
-    )
+    with pytest.warns(IntervalCoverageWarning, match="in these candidates"):
+        result = assistant.compare(
+            data          = df_single,
+            cv            = _single_cv(),
+            target        = "sales",
+            date_column   = "date",
+            candidates    = [("ridge", {"forecaster": "ForecasterRecursive"})],
+            interval      = [0.1, 0.8],
+            show_progress = False,
+        )
 
     assert result.baseline_name is None
     assert list(result.results["name"]) == ["ridge"]
@@ -2496,15 +2500,16 @@ def test_compare_output_when_interval_symmetric_adds_baseline():
     """
     Test that compare() with a symmetric interval still adds the baseline.
     """
-    result = assistant.compare(
-        data          = df_single,
-        cv            = _single_cv(),
-        target        = "sales",
-        date_column   = "date",
-        candidates    = [("ridge", {"forecaster": "ForecasterRecursive"})],
-        interval      = [0.1, 0.9],
-        show_progress = False,
-    )
+    with pytest.warns(IntervalCoverageWarning, match="in these candidates"):
+        result = assistant.compare(
+            data          = df_single,
+            cv            = _single_cv(),
+            target        = "sales",
+            date_column   = "date",
+            candidates    = [("ridge", {"forecaster": "ForecasterRecursive"})],
+            interval      = [0.1, 0.9],
+            show_progress = False,
+        )
 
     assert result.baseline_name == "Baseline (seasonal naive)"
     assert list(result.results["name"]) == ["ridge", "Baseline (seasonal naive)"]
@@ -3881,3 +3886,53 @@ def test_compare_candidate_scripts_keep_the_dialect_when_saved_profile_is_stale(
     assert result.profile.data_profile.csv_sep == ";"
     for backtest in result.candidates.values():
         assert f"data = pd.read_csv({path!r}, sep=';', decimal=',')\n" in backtest.code
+
+
+def test_compare_output_when_interval_adds_coverage_columns_without_changing_ranking():
+    """
+    Test that compare() with an interval puts the `coverage` and the
+    `interval_width` that skforecast measured after the metrics of the
+    table, from the metrics of each candidate, ranks the candidates as
+    without an interval, and warns once, naming the candidates whose
+    interval covers clearly less than 80 % (h2o, 6 folds of 12 months).
+    """
+    cv = TimeSeriesFold(steps=12, initial_train_size=142)
+    candidates = [
+        ("ridge", {"forecaster": "ForecasterRecursive", "estimator": "Ridge"}),
+        ("direct", {"forecaster": "ForecasterDirect", "lags": 3}),
+    ]
+    plain = assistant.compare(
+        data=df_h2o, cv=cv, target="x", candidates=candidates,
+        baseline=False, show_progress=False,
+    )
+    warn_msg = re.escape(
+        "The prediction interval [0.1, 0.9] has a nominal coverage of 80 %, "
+        "but it covered clearly less (more than 2 binomial standard errors for "
+        "the number of predictions, and at least 5 percentage points, below "
+        "80 %) in these candidates: 'ridge' (64.5 % of 62 actual values), "
+        "'direct' (59.7 % of 62 actual values). Do not present their interval "
+        "as covering 80 %: report the coverage measured in the backtest (the "
+        "`coverage` column of the table, and of the metrics of each candidate "
+        "by series)."
+    )
+    with pytest.warns(IntervalCoverageWarning, match=f"^{warn_msg}$") as records:
+        result = assistant.compare(
+            data=df_h2o, cv=cv, target="x", candidates=candidates,
+            interval=[0.1, 0.9], baseline=False, show_progress=False,
+        )
+
+    assert len(records) == 1
+    assert list(result.results.columns) == [
+        "rank", "name", "forecaster", "estimator", "mean_absolute_error",
+        "mean_squared_error", "mean_absolute_scaled_error",
+        "mean_absolute_percentage_error", "coverage", "interval_width",
+    ]
+    assert list(result.results["name"]) == list(plain.results["name"])
+    for _, row in result.results.iterrows():
+        metrics = result.candidates[row["name"]].metrics
+        assert row["coverage"] == metrics.loc[0, "coverage"]
+        assert row["interval_width"] == metrics.loc[0, "interval_width"]
+    np.testing.assert_allclose(
+        result.results[["coverage"]].to_numpy(),
+        [[0.6451612903225806], [0.5967741935483871]],
+    )

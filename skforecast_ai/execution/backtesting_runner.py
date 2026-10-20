@@ -23,6 +23,7 @@ from ..rendering.backtesting import (
 from ..schemas import DataProfile, ForecastPlan, RenderedScript
 from ..exceptions import InvalidInputError
 from .comparison import aggregate_metrics
+from .interval_coverage import INTERVAL_METRICS, describe_interval_coverage
 from ._exec import exec_rendered
 
 _RENDER_DISPATCH: dict[
@@ -86,8 +87,10 @@ def run_backtest(
 
     # Build explanation
     explanation = _build_backtest_explanation(
-        cv_explanation=cv_explanation,
-        metrics=metrics,
+        cv_explanation = cv_explanation,
+        metrics        = metrics,
+        predictions    = predictions,
+        interval       = plan.interval,
     )
 
     return {
@@ -177,11 +180,17 @@ def _exec_rendered_code(
 def _build_backtest_explanation(
     cv_explanation: str,
     metrics: pd.DataFrame,
+    predictions: pd.DataFrame | None = None,
+    interval: list[float] | None = None,
 ) -> str:
     """
     Build the full backtesting explanation.
 
-    Concatenates the CV explanation with a post-execution summary.
+    Concatenates the CV explanation with a post-execution summary. With a
+    prediction interval, the coverage and the width that skforecast
+    measured (`coverage` and `interval_width` of the metrics) are not
+    listed with the other metrics: a sentence of their own states them by
+    series next to the nominal coverage of the interval.
 
     Parameters
     ----------
@@ -189,6 +198,11 @@ def _build_backtest_explanation(
         Explanation from `create_cv`.
     metrics : pandas DataFrame
         Backtesting metrics result.
+    predictions : pandas DataFrame, default None
+        Backtesting predictions, which give the number of predictions the
+        coverage of each series is measured on.
+    interval : list of float, default None
+        Prediction interval of the plan.
 
     Returns
     -------
@@ -203,13 +217,17 @@ def _build_backtest_explanation(
     summary_parts = [
         f"{name}: {value:.4f}"
         for name, value in aggregate_metrics(metrics).items()
-        if isinstance(value, float)
+        if isinstance(value, float) and name not in INTERVAL_METRICS
     ]
 
+    explanation = cv_explanation
     if summary_parts:
         metrics_str = ", ".join(summary_parts)
         multi_series = metrics is not None and "levels" in metrics.columns
         label = "Results (average across series)" if multi_series else "Results"
-        return f"{cv_explanation} {label}: {metrics_str}."
+        explanation = f"{cv_explanation} {label}: {metrics_str}."
+    coverage = describe_interval_coverage(metrics, predictions, interval)
+    if coverage is not None:
+        explanation = f"{explanation} {coverage}"
 
-    return cv_explanation
+    return explanation

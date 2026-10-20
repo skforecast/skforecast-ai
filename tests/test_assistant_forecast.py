@@ -3380,3 +3380,32 @@ def test_forecast_InvalidInputError_when_target_list_and_multiindex():
         ForecastingAssistant().forecast(data=data, target=["value"], steps=3)
 
     assert exc_info.value.field == "target"
+
+
+def test_forecast_output_when_stats_interval_80_is_narrower_than_95():
+    """
+    Test that the interval [0.1, 0.9] of ForecasterStats is the 80 % one,
+    narrower than the 95 % one. Before skforecast 0.27, `predict_interval`
+    ignored `interval` and always returned the 95 % interval (skforecast
+    #1416), so both had the same width. The intervals of the ARIMA model are
+    Gaussian: each 80 % width is the 95 % width times z(0.9) / z(0.975).
+    """
+    assistant = ForecastingAssistant()
+    widths = {}
+    for interval in ([0.1, 0.9], [0.025, 0.975]):
+        result = assistant.forecast(
+            data       = df_h2o,
+            target     = "x",
+            steps      = 12,
+            forecaster = "ForecasterStats",
+            interval   = interval,
+        )
+        predictions = result.predictions
+        widths[interval[0]] = (
+            predictions["upper_bound"] - predictions["lower_bound"]
+        ).to_numpy()
+
+    assert np.all(widths[0.1] < widths[0.025])
+    np.testing.assert_allclose(
+        widths[0.1], widths[0.025] * 1.2815516 / 1.9599640, rtol=1e-4
+    )
