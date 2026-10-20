@@ -283,6 +283,49 @@ metrics_stats = pd.DataFrame({
 })
 explanation_stats = _build_backtest_explanation(cv_stats.explanation, metrics_stats)
 
+# Backtests with an interval: skforecast 0.27 appends `coverage` and
+# `interval_width` after the requested metrics (by series and in the
+# aggregated rows), and the summary states them next to the nominal
+# coverage of the plan. `store_b` covers far less than 80 %.
+plan_interval_single = assistant.plan(profile_single, steps=5, interval=[0.1, 0.9])
+plan_interval_multi = assistant.plan(profile_multi, steps=3, interval=[0.1, 0.9])
+predictions_backtest_interval = predictions_backtest.assign(
+    lower_bound = predictions_backtest["pred"] - 20.0,
+    upper_bound = predictions_backtest["pred"] + 20.0,
+)
+metrics_interval_single = pd.DataFrame({
+    "mean_absolute_error":        [12.5],
+    "mean_squared_error":         [231.25],
+    "mean_absolute_scaled_error": [0.8],
+    "coverage":                   [0.775],
+    "interval_width":             [40.0],
+})
+explanation_interval_single = _build_backtest_explanation(
+    cv_explanation = explanation_backtest,
+    metrics        = metrics_interval_single,
+    predictions    = predictions_backtest_interval,
+    interval       = plan_interval_single.interval,
+)
+_half_widths = np.repeat([20.0, 30.0], 20)
+predictions_backtest_multi_interval = predictions_backtest_multi.assign(
+    lower_bound = predictions_backtest_multi["pred"] - _half_widths,
+    upper_bound = predictions_backtest_multi["pred"] + _half_widths,
+)
+metrics_interval_multi = pd.DataFrame({
+    "levels": ["store_a", "store_b", "average", "weighted_average", "pooling"],
+    "mean_absolute_error":        [10.5, 25.5, 18.0, 18.0, 18.0],
+    "mean_squared_error":         [150.25, 900.5, 525.375, 525.375, 525.375],
+    "mean_absolute_scaled_error": [0.7, 1.4, 1.05, 1.05, 1.05],
+    "coverage":                   [0.8, 0.45, 0.625, 0.625, 0.625],
+    "interval_width":             [40.0, 60.0, 50.0, 50.0, 50.0],
+})
+explanation_interval_multi = _build_backtest_explanation(
+    cv_explanation = explanation_backtest,
+    metrics        = metrics_interval_multi,
+    predictions    = predictions_backtest_multi_interval,
+    interval       = plan_interval_multi.interval,
+)
+
 # Long-format data of 3 series with a numeric and a categorical exogenous
 # column, one series ending 6 days before the others (a note in the data
 # warnings), as ForecasterRecursiveMultiSeries backtests it.
@@ -530,6 +573,7 @@ def make_comparison_result(
     with_baseline: bool = False,
     with_stats: bool = False,
     with_strategy_plan: bool = False,
+    with_interval: bool = False,
 ):
     """
     Build a `ComparisonResult` without backtesting any candidate.
@@ -558,6 +602,11 @@ def make_comparison_result(
         ranked after the other successful candidates, set
         `strategy_plan_name` and write the explanation with
         `build_comparison_explanation`, as `compare()` does.
+    with_interval : bool, default False
+        Whether the candidates ran with the interval `[0.1, 0.9]`: their
+        metrics and the leaderboard carry `coverage` and `interval_width`
+        after MAE, and the explanation is written with
+        `build_comparison_explanation`, as `compare()` does.
 
     Returns
     -------
@@ -570,12 +619,19 @@ def make_comparison_result(
     for i in range(n_candidates):
         name = f"candidate_{i + 1:02d}"
         mae = 1.5 + i
+        interval_metrics = (
+            {"coverage": 0.8 - 0.3 * i, "interval_width": 4.0 - i}
+            if with_interval else {}
+        )
         candidates[name] = BacktestResult(
             profile     = profile_single,
-            plan        = plan_single,
+            plan        = plan_interval_single if with_interval else plan_single,
             code        = f"# {name} code",
             predictions = pd.DataFrame({"pred": [1.0, 2.0, 3.0, 4.0, 5.0]}),
-            metrics     = pd.DataFrame({"MAE": [mae]}),
+            metrics     = pd.DataFrame({"MAE": [mae], **{
+                              key: [value]
+                              for key, value in interval_metrics.items()
+                          }}),
             cv_config   = cv_config,
             explanation = f"Backtest of {name}.",
         )
@@ -585,6 +641,7 @@ def make_comparison_result(
             "forecaster": "ForecasterRecursive",
             "estimator":  "Ridge",
             "MAE":        mae,
+            **interval_metrics,
         })
 
     baseline_name = None
@@ -673,7 +730,7 @@ def make_comparison_result(
     explanation = (
         f"Compared {n_candidates} configurations, ranked ascending by MAE."
     )
-    if with_strategy_plan:
+    if with_strategy_plan or with_interval:
         explanation = build_comparison_explanation(
             n_candidates   = n_candidates + len(failures),
             ranked         = [
@@ -684,7 +741,8 @@ def make_comparison_result(
             any_error      = bool(failures),
             cv_explanation = "Initial training of 70 observations, 6 folds.",
             baseline_name  = baseline_name,
-            strategy_row   = STRATEGY_PLAN_NAME,
+            strategy_row   = STRATEGY_PLAN_NAME if with_strategy_plan else None,
+            interval       = [0.1, 0.9] if with_interval else None,
         )
 
     return ComparisonResult(
@@ -764,6 +822,19 @@ GOLDEN_SCENARIOS = {
         predictions = predictions_backtest_multi,
         metrics     = metrics_multi,
     ),
+    "backtest_single_series_interval": lambda: make_backtest_result(
+        plan        = plan_interval_single,
+        predictions = predictions_backtest_interval,
+        metrics     = metrics_interval_single,
+        explanation = explanation_interval_single,
+    ),
+    "backtest_multi_series_interval": lambda: make_backtest_result(
+        profile     = profile_multi,
+        plan        = plan_interval_multi,
+        predictions = predictions_backtest_multi_interval,
+        metrics     = metrics_interval_multi,
+        explanation = explanation_interval_multi,
+    ),
     "comparison_all_succeeded": lambda: make_comparison_result(),
     "comparison_with_failures": lambda: make_comparison_result(
         with_failure=True
@@ -772,6 +843,7 @@ GOLDEN_SCENARIOS = {
         with_baseline=True
     ),
     "comparison_with_stats": lambda: make_comparison_result(with_stats=True),
+    "comparison_with_interval": lambda: make_comparison_result(with_interval=True),
     # The row of the plan the strategy was created for, ranked below the
     # baseline, so the summary counts the configurations that beat it.
     "comparison_with_strategy_plan": lambda: make_comparison_result(

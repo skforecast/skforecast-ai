@@ -46,6 +46,8 @@ The main changes in this release are:
 
 + The `backtest` and `forecast` tools of the MCP server carry an `EstimatorNotRecommendedNotice` when the estimator of the plan was chosen instead of the one the rules recommend for its forecaster (after a `MissingValuesNotice`, say). It names both and asks the agent to tell the user. See [MCP server][mcp] ([#110](https://github.com/skforecast/skforecast-ai/pull/110)).
 
++ New `IntervalCoverageWarning` of [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` when the prediction interval covers clearly less than its nominal level in a series (more than two binomial standard errors and 5 points below it), naming the series or the candidates; an `IntervalCoverageNotice` in the MCP server. See [Exceptions][exceptions] ([#112](https://github.com/skforecast/skforecast-ai/pull/112)).
+
 + New option `--exog` of the `forecast-code` command of the [CLI][cli], so the script reads the future exogenous values from that file, as `forecast --exog` does, instead of `exog_future.csv`. See the [CLI guide][cli-guide] ([#99](https://github.com/skforecast/skforecast-ai/pull/99)).
 
 
@@ -70,6 +72,8 @@ The main changes in this release are:
 + The `MetricUnitNotice` of the MCP server gives the unit of sMAPE, already a percentage from 0 to 200, as it does for MAPE, a fraction, and [<code>ForecastingAssistant.ask()</code>][assistant] no longer describes MAPE as a percentage ([#104](https://github.com/skforecast/skforecast-ai/pull/104)).
 
 + The `forecast` tool of the MCP server adds an `UnmeasuredPlanNotice` to a forecast of the future when no `backtest`, `compare` or `forecast` with `test_size` of the server measured its plan (the same plan with another interval or metric counts as measured), so an agent does not present it as reliable or give it the accuracy of another plan ([#109](https://github.com/skforecast/skforecast-ai/pull/109)).
+
++ With a prediction interval, the summary of [<code>ForecastingAssistant.backtest()</code>][assistant] (and what `ask()` and the MCP server read) gives, by series, the coverage and the mean width that skforecast measures (`coverage`, `interval_width`) next to the nominal coverage, and the table of `compare()` adds both columns without changing the ranking ([#112](https://github.com/skforecast/skforecast-ai/pull/112)).
 
 + The description of a forecast run with `test_size`, in `describe()` and in the context of [<code>ForecastingAssistant.ask()</code>][assistant], says that its metrics come from a hold-out evaluation on dates already in the data, not from a forecast of the future ([#109](https://github.com/skforecast/skforecast-ai/pull/109)).
 
@@ -113,6 +117,8 @@ The main changes in this release are:
 + Fixed an issue in [<code>ForecastingAssistant.plan()</code>][assistant] and `refine_plan()` where `ForecasterDirectMultiVariate` got the estimator chosen for the series pooled (`LGBMRegressor` from 250 observations), which on few dates per step predicted a constant. The rule now counts the dates the series share, and the explanation says so ([#102](https://github.com/skforecast/skforecast-ai/pull/102)).
 
 + Fixed an issue in [<code>ForecastingAssistant.plan()</code>][assistant] where the default metrics of a target that crosses zero with negative values (profits, temperatures) included MAPE, which reached values such as 3e13. MAPE is now left out when any series touches or crosses zero; asked for in `metric`, it comes with a warning, and the MCP server says it has no meaning instead of asking to multiply it by 100 ([#104](https://github.com/skforecast/skforecast-ai/pull/104)).
+
++ `ForecasterStats` with an interval other than 95 % (`[0.1, 0.9]`, say) returned the 95 % interval in [<code>ForecastingAssistant.forecast()</code>][assistant], `backtest()` and `compare()`. Fixed by skforecast 0.27, now required, with a test that pins it ([#112](https://github.com/skforecast/skforecast-ai/pull/112)).
 
 + Fixed an issue in [<code>ForecastingAssistant.refine_plan()</code>][assistant] where switching to `ForecasterStats`, `ForecasterFoundation` or the baseline dropped the differentiation, calendar features and target transformer without a warning, as a new `estimator` did with the `estimator_kwargs` of the previous one. A `PlanEditsDiscardedWarning` (a notice in the MCP server) now names what is left out and whether you or the rules chose it ([#107](https://github.com/skforecast/skforecast-ai/pull/107)).
 

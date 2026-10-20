@@ -722,7 +722,7 @@ def render_plan_section(
         coverage = (plan.interval[1] - plan.interval[0]) * 100
         parts.append(
             f"- Prediction interval: {plan.interval} "
-            f"({coverage:.4g}% coverage)"
+            f"({coverage:.4g}% nominal coverage)"
         )
         if plan.interval_method is not None:
             parts.append(f"- Interval method: {plan.interval_method}")

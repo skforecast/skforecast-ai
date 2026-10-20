@@ -141,8 +141,18 @@ into a percentage against them.
 Prediction intervals are estimates: report them as such, and only from the
 rows of `files.predictions` (the bounds of each step). If you have not read
 that file, do not describe the interval: name the file. The summary gives
-the minimum, maximum and mean of each bound, not a width, so no width and
-no range around the point comes from it. Read `notices` before you report
+the minimum, maximum and mean of each bound, not a width, so no range
+around the point comes from it. The level of `interval` (`[0.1, 0.9]` is
+80 %) is nominal: a `backtest` or a `compare` measures it. Their summary
+gives, next to the nominal coverage, the share of the actual values that
+fell inside the interval (`coverage`) and its mean width in the units of
+the target (`interval_width`), by series in `files.metrics` and as columns
+of the leaderboard (they do not rank). Report the measured coverage with
+the interval, by series when there are several. An
+`IntervalCoverageNotice` says that it is clearly below the nominal level:
+then never present the interval at its nominal level, nor in a `forecast`
+of the same plan; give the measured coverage instead. A `forecast` with
+`test_size` does not measure it: one window is too short. Read `notices` before you report
 anything: any notice can change what the result means (a data problem, a
 warning of the plan, a long training), so tell the user about it.
 
