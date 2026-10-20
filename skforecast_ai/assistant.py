@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 import contextlib
-import copy
 import hashlib
 import json
 import numbers
@@ -224,10 +223,6 @@ _CHOSEN_DECISIONS = (
     "target_transformer",
     "dropna_from_series",
 )
-
-# Forecasters with a `differentiation` argument, whose order skforecast
-# requires to be the one of the strategy of a backtest.
-_DIFFERENTIATION_FORECASTERS = AUTOREG_FORECASTERS | BASELINE_FORECASTERS
 
 
 def _cv_provenance_fields(
@@ -3061,6 +3056,10 @@ class ForecastingAssistant:
         cv : TimeSeriesFold, CVResult
             Time series cross-validation fold splitter (output of
             `create_cv()` or user-constructed) [1]_.
+            The differentiation order comes from the plan (skforecast takes
+            it from the window of the forecaster): a strategy serves plans
+            with any order, and its `differentiation`, deprecated in
+            skforecast 0.27, is not read.
             The `CVResult` returned by `create_cv()` is accepted as well;
             its `cv` splitter is used.
             Without `plan` and the arguments of the model (`forecaster`,
@@ -3284,6 +3283,10 @@ class ForecastingAssistant:
         cv : TimeSeriesFold, CVResult
             Time series cross-validation fold splitter (output of `create_cv()`
             or user-constructed) [1]_.
+            The differentiation order comes from the plan (skforecast takes
+            it from the window of the forecaster): a strategy serves plans
+            with any order, and its `differentiation`, deprecated in
+            skforecast 0.27, is not read.
             The `CVResult` returned by `create_cv()` is accepted as well;
             its `cv` splitter is used.
             Without `plan` and the arguments of the model (`forecaster`,
@@ -3613,6 +3616,10 @@ class ForecastingAssistant:
         cv : TimeSeriesFold, CVResult
             Cross-validation strategy applied identically to every
             candidate. The `steps` value is inferred from `cv.steps`.
+            Candidates with different differentiation orders share it:
+            skforecast takes the order from the window of each forecaster,
+            and the `differentiation` of `cv`, deprecated in skforecast
+            0.27, is not read.
             The `CVResult` returned by `create_cv()` is accepted as well;
             its `cv` splitter is used and, when `candidates` is None, its
             plan runs too (see `candidates`).
@@ -4047,7 +4054,6 @@ class ForecastingAssistant:
 
         rows: list[tuple[dict, float]] = []
         ranked: list[tuple[str, BacktestResult, float]] = []
-        own_differentiation: dict[str, int | None] = {}
         n_candidates = len(candidate_configs)
 
         def notify(event: CompareProgress) -> None:
@@ -4089,26 +4095,6 @@ class ForecastingAssistant:
             else:
                 cand_plan = plans[name]
                 try:
-                    # Each candidate runs with its own differentiation order:
-                    # the shared strategy is copied with it when they differ
-                    # (10.4).
-                    candidate_cv = cv
-                    cand_differentiation = cand_plan.forecaster_kwargs.get(
-                        "differentiation"
-                    )
-                    # The baseline has no order of its own: it runs without
-                    # one.
-                    if (
-                        cand_plan.forecaster in _DIFFERENTIATION_FORECASTERS
-                        and cand_differentiation != cv.differentiation
-                    ):
-                        candidate_cv = copy.deepcopy(cv)
-                        candidate_cv.set_params(
-                            {"differentiation": cand_differentiation}
-                        )
-                        if cand_plan.forecaster not in BASELINE_FORECASTERS:
-                            own_differentiation[name] = cand_differentiation
-
                     row["forecaster"] = cand_plan.forecaster
                     row["estimator"] = cand_plan.estimator
 
@@ -4124,7 +4110,7 @@ class ForecastingAssistant:
                         with _data_path_of_run(run_data_path):
                             bt = self.backtest(
                                 data             = data_df,
-                                cv               = candidate_cv,
+                                cv               = cv,
                                 target           = target,
                                 date_column      = date_column,
                                 series_id_column = series_id_column,
@@ -4194,15 +4180,9 @@ class ForecastingAssistant:
             baseline_note  = baseline_note,
             backend_note   = backend_note,
             budget_note    = budget_note,
-            differentiation_note = (
-                f"These candidates ran on a copy of the strategy with their "
-                f"own differentiation order (the strategy has "
-                f"{cv.differentiation}): {own_differentiation}."
-                if own_differentiation else None
-            ),
-            strategy_row         = strategy_row,
-            strategy_note        = strategy_note,
-            interval             = interval,
+            strategy_row   = strategy_row,
+            strategy_note  = strategy_note,
+            interval       = interval,
         )
 
         return ComparisonResult(
@@ -5038,22 +5018,6 @@ class ForecastingAssistant:
         # A plan received (saved, or built for other data) is checked
         # against the exogenous columns of this profile, as `plan()` does.
         _check_feature_name_collisions(plan, profile.data_profile)
-        # skforecast rejects inside the script a strategy whose
-        # differentiation order is not the one of a forecaster that has one
-        # (not ForecasterStats nor ForecasterFoundation, which ignore it).
-        plan_differentiation = plan.forecaster_kwargs.get("differentiation")
-        if (
-            plan.forecaster in _DIFFERENTIATION_FORECASTERS
-            and cv.differentiation != plan_differentiation
-        ):
-            raise InvalidInputError(
-                f"The cross-validation strategy has `differentiation="
-                f"{cv.differentiation}` and the plan "
-                f"`differentiation={plan_differentiation}`: they must match. "
-                f"Create the strategy from this plan with `create_cv()`, or "
-                f"pass the same `differentiation`.",
-                field = "cv",
-            )
 
         return profile, plan
 

@@ -951,7 +951,6 @@ def validate_series_lengths(
             spans  = spans,
             cv     = cv,
             window = window,
-            order  = order,
             long   = profile.data_format == "long",
             dropna = dropna,
         )
@@ -976,7 +975,6 @@ def _series_never_forecast(
     spans: dict,
     cv: TimeSeriesFold,
     window: int,
-    order: int,
     long: bool,
     dropna: bool,
 ) -> dict:
@@ -1024,12 +1022,10 @@ def _series_never_forecast(
         span = grids[0]
     n_observations = len(span)
 
+    # The window of the forecaster, with its differentiation order, as
+    # skforecast sets it on the strategy of a backtest.
     splitter = copy.deepcopy(cv)
-    splitter.set_params({
-        "window_size": window,
-        "differentiation": order or None,
-        "verbose": False,
-    })
+    splitter.set_params({"window_size": window, "verbose": False})
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")

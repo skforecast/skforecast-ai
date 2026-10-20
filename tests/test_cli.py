@@ -2428,7 +2428,9 @@ class TestDecisionOptions:
     ):
         """
         With --from-plan, the options are applied on top of the saved plan
-        through refine_plan, as the other overrides are.
+        through refine_plan, as the other overrides are. The backtesting
+        script writes the order in the forecaster only, not in the strategy
+        (skforecast 0.27 takes it from the window of the forecaster).
         """
         csv_path = _write_csv(tmp_path, df_single)
         planned = runner.invoke(
@@ -2453,7 +2455,10 @@ class TestDecisionOptions:
         assert code.exit_code == 0, code.output
         assert backtest_code.exit_code == 0, backtest_code.output
         assert re.search(r"differentiation\s+=\s+1,", code.output)
-        assert len(re.findall(r"differentiation\s+=\s+1,", backtest_code.output)) == 2
+        assert len(re.findall(r"differentiation\s+=\s+1,", backtest_code.output)) == 1
+        assert "differentiation" not in backtest_code.output.split(
+            "cv = TimeSeriesFold("
+        )[1]
 
 
     def test_forecast_and_backtest_from_plan_apply_decision_options(self, tmp_path):

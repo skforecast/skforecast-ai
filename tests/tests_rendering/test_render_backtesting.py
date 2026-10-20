@@ -1156,7 +1156,9 @@ def test_render_backtesting_single_series_output_when_metric_is_rmse():
 def test_render_backtesting_single_series_output_when_differentiation():
     """
     Test that the backtest of a plan with a differentiation order writes
-    it into the forecaster and into the strategy `create_cv()` builds.
+    it into the forecaster only: skforecast 0.27 takes it from the window
+    of the forecaster and deprecates it in `TimeSeriesFold`, so the
+    strategy is written without it, also when it carries one.
     """
     result = render_backtesting_single_series(
         plan_single_differentiation, profile_single_no_exog, cv_differentiation
@@ -1188,7 +1190,6 @@ def test_render_backtesting_single_series_output_when_differentiation():
         "    steps              = 10,\n"
         "    initial_train_size = 80,\n"
         "    refit              = False,\n"
-        "    differentiation    = 1,\n"
         ")\n"
         "\n"
         "# Run backtesting\n"

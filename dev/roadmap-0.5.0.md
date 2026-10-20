@@ -1281,6 +1281,56 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     defecto, decisión aparte (D24); el aviso de unidades da la de MSE
     cuando se pide, sin nombrar la raíz en las instrucciones del servidor;
     el runner solo junta lo que calcula el script.
+- **D?. 5-0: la estrategia sin `differentiation`** (2026-10-20), en
+  [#115](https://github.com/skforecast/skforecast-ai/pull/115), tras
+  skforecast/skforecast#1423 (skforecast toma el orden del `window_size`
+  del forecaster y lo depreca en `TimeSeriesFold`):
+  - `create_cv` no tenía argumento `differentiation` (ni en Python, ni en
+    la CLI, ni en el MCP): la estrategia copiaba el orden del plan
+    (`derive_cv_defaults`). Se quita ese campo: el `TimeSeriesFold` de la
+    librería y de los scripts, la clave de `cv_config` (también en
+    `BacktestResult` y `ComparisonResult`, y en el JSON de `CVResult.cv`)
+    y "differentiation order N" de la explicación. La API rompe solo ahí:
+    línea en "Before upgrading".
+  - Sobran la comprobación de `backtest()` (la estrategia y el plan con el
+    mismo orden) y la copia de la estrategia por candidato de `compare()`,
+    con su frase en la explicación: una estrategia sirve para planes de
+    cualquier orden, y los candidatos de un `compare` la comparten tal
+    cual.
+  - Una estrategia guardada con el campo (un `CVResult` de la 0.4.x
+    guardado con pickle, un `TimeSeriesFold` construido a mano con
+    `differentiation`) se acepta y su orden se ignora, como hace
+    skforecast: no cambia los folds y el que corre es el del plan. Sin
+    aviso propio: el `FutureWarning` de skforecast ya sale al construir el
+    `TimeSeriesFold`, y un pickle no lo construye. Un script anterior que
+    lo pasa se describe sin él (`backtest_cv_from_code`, sin el
+    `FutureWarning`). Los bundles de la CLI (perfil y plan) no llevan
+    estrategia: no cambian.
+  - Lo que se calcula sobre los folds no leía el orden de la estrategia:
+    `plan_window_size` (y la ventana de `_read_positions`) ya suma el del
+    plan, como `forecaster.window_size`. El único que lo pasaba, el
+    splitter de D15 (`_series_never_forecast`, por `set_params`), da los
+    mismos folds sin él (`TimeSeriesFold.split` nunca lo usó) y emitía el
+    `FutureWarning`. Comprobado contra el backtest real con estrategias
+    sin el orden: 300 configuraciones al azar de una serie (recursivo y
+    directo, sin orden, 1 y 2) dan la misma ventana, el mismo fallo de la
+    primera ventana, los mismos folds y los mismos ajustes del estimador
+    (el coste de D19 y D23), y la estrategia por defecto de `create_cv`
+    corre cuando no avisa; 600 multiserie (D15) nombran las mismas series
+    que faltan en las predicciones. Dos multiserie fallaron dentro del
+    script sin que nada lo anunciara: un fold que reentrena con una
+    ventana fija en la que ya no queda ninguna serie, igual sin
+    diferenciación y con un estimador que acepta faltantes. Es de
+    skforecast (nueva fila en "Dependencia de skforecast 0.27.0").
+  - El contexto del LLM pierde `- differentiation: None` de
+    `<backtesting_strategy>` (10 goldens, contexto y `describe()`); el check
+    de pago va en la fase 7. Las salidas guardadas de los dos notebooks
+    muestran todavía la fila `differentiation` de la estrategia: cambian
+    al volver a grabarlos en la fase 7.
+  - El golden de esquemas cambia solo en la descripción de
+    `differentiation` de `CandidateArgs`; las instrucciones del servidor no
+    lo nombran. SKILL.md, `docs/api/mcp.md` y la guía de la CLI dicen que
+    una estrategia sirve para cualquier orden.
 
 ## Decisiones abiertas
 
@@ -1306,7 +1356,8 @@ arranque de las sesiones en la nube instala skforecast desde su rama
 | Sin issue ([#1416](https://github.com/skforecast/skforecast/pull/1416)) | `ForecasterStats.predict_interval` ignoraba `interval` y devolvía siempre el intervalo del 95 % (`alpha=0.05` por defecto ganaba a `interval`) | Afectaba sin aviso a skforecast-ai 0.4.x: el script de un forecast de ForecasterStats con intervalo llama a `predict_interval(steps=..., interval=...)` sin `alpha`, así que un 80 % salía al 95 %. Nada que cambiar en el código; falta un test que lo fije (un intervalo `[10, 90]` de ForecasterStats más estrecho que el del 95 %, en el forecast y en el backtest) y una línea en las notas de la 0.5.0 al consolidar | Resuelto en `0.27.x` (2026-10-19) |
 | Sin issue | El skill `metric-selection` describía MAPE como "Percentage error" sin decir que sklearn devuelve una fracción (D16, #104) | Nada: corregido en la rama `0.27.x` de skforecast y sincronizado aquí (2026-10-18) | Hecho |
 | Sin issue ([#1424](https://github.com/skforecast/skforecast/pull/1424)) | `root_mean_squared_error` por nombre en el backtesting, como las demás métricas de regresión (3c-ii) | Nada que rodear: el script del backtest lo pasa por nombre, como las demás métricas; el del forecast con `test_size` lo importa de `sklearn.metrics`, como el resto de sus métricas | Resuelto en `0.27.x` ([#1424](https://github.com/skforecast/skforecast/pull/1424), 2026-10-20) |
-| Sin issue ([#1423](https://github.com/skforecast/skforecast/pull/1423)) | La estrategia ya no repite la `differentiation` del forecaster: se toma de su `window_size`, y `differentiation` de `TimeSeriesFold` y `OneStepAheadFold` (y `window_size` de `OneStepAheadFold`) quedan deprecados, con un `FutureWarning`, hasta su retirada en 0.29.0. Una misma estrategia sirve para forecasters con distinta diferenciación | 5-0: dejar de pasar `differentiation` a la estrategia, y quitar la exigencia de que coincida con la del plan. Hasta entonces la suite de `0.5.x` falla contra la cabeza de `0.27.x` (16 tests, por el `FutureWarning`) | Resuelto en `0.27.x` (2026-10-20); falta el lado de skforecast-ai |
+| Sin issue ([#1423](https://github.com/skforecast/skforecast/pull/1423)) | La estrategia ya no repite la `differentiation` del forecaster: se toma de su `window_size`, y `differentiation` de `TimeSeriesFold` y `OneStepAheadFold` (y `window_size` de `OneStepAheadFold`) quedan deprecados, con un `FutureWarning`, hasta su retirada en 0.29.0. Una misma estrategia sirve para forecasters con distinta diferenciación | 5-0: dejar de pasar `differentiation` a la estrategia, y quitar la exigencia de que coincida con la del plan. Hasta entonces la suite de `0.5.x` falla contra la cabeza de `0.27.x` (16 tests, por el `FutureWarning`) | Resuelto en `0.27.x` (2026-10-20); el lado de skforecast-ai, en [#115](https://github.com/skforecast/skforecast-ai/pull/115) (5-0, D?) |
+| Por abrir (encontrado en 5-0) | Un fold de `backtesting_forecaster_multiseries` que reentrena (`refit` con `fixed_train_size=True`) en una ventana de entrenamiento sin ninguna serie que skforecast conserve (todas acabaron antes, o les quedan `window_size` valores o menos) falla en `fit` con "all series must have a Pandas RangeIndex or DatetimeIndex with the same step/frequency ... Found frequencies: []", porque `check_preprocess_series` recibe un dict vacío. Con o sin diferenciación, y también con un estimador que acepta faltantes. Debería saltarse ese fold con el `MissingValuesWarning` de las series descartadas, o fallar con un error que lo diga | Nada que rodear: la comprobación previa de D15 mira las series que ningún fold pronostica, no los folds sin ninguna serie; con el arreglo, el script corre o explica el fallo | Por abrir |
 
 Detalle de cada uno:
 

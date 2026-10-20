@@ -33,7 +33,6 @@ A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 204 ob
 - fold_stride: 12
 - skip_folds: None
 - allow_incomplete_fold: True
-- differentiation: None
 - n_folds: 6
 - n_fits: 6
 </backtesting_strategy>

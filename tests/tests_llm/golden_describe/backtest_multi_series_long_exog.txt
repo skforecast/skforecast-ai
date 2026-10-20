@@ -43,7 +43,6 @@ The dataset contains 3 series, so a multi-series forecaster (ForecasterRecursive
 - fold_stride: 7
 - skip_folds: None
 - allow_incomplete_fold: True
-- differentiation: None
 - n_folds: 2
 - n_fits: 1
 </backtesting_strategy>

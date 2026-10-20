@@ -37,8 +37,8 @@ if TYPE_CHECKING:
     from rich.console import Console, ConsoleOptions, RenderResult
 
 # Parameters of a cross-validation strategy that the user can pass to
-# `create_cv()`, in the order of its signature. `steps` and
-# `differentiation` are not among them: they always come from the plan.
+# `create_cv()`, in the order of its signature. `steps` is not among them:
+# it always comes from the plan.
 CVOverrideName = Literal[
     "initial_train_size",
     "fold_stride",

@@ -32,7 +32,6 @@ def test_resolve_cv_config_output_when_integer_initial_train_size():
         "fold_stride": 10,
         "skip_folds": None,
         "allow_incomplete_fold": True,
-        "differentiation": None,
         "n_folds": 4,
         "n_fits": 1,
     }
@@ -215,7 +214,6 @@ def test_resolve_cv_config_output_when_stats_does_not_refit():
         "fold_stride": 10,
         "skip_folds": None,
         "allow_incomplete_fold": True,
-        "differentiation": None,
         "n_folds": 4,
         "n_fits": 4,
     }

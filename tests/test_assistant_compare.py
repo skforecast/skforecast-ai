@@ -1689,7 +1689,7 @@ def test_compare_cost_counts_the_baseline_and_matches_what_ran():
         "estimator_fits": 13,
         "inference_windows": 0,
     }
-    assert result.candidates["diff"].cv_config["differentiation"] == 1
+    assert result.candidates["diff"].plan.forecaster_kwargs["differentiation"] == 1
     assert set(result.cost.candidates) == set(result.candidates)
     for name, candidate in result.candidates.items():
         assert result.cost.candidates[name].n_fits == candidate.cv_config["n_fits"]
@@ -3145,11 +3145,13 @@ def test_compare_overridden_fields_of_automatic_candidates_and_baseline(monkeypa
     assert all("forecaster" in fields for fields in explicit)
 
 
-def test_compare_candidate_differentiation_runs_on_a_copy_of_the_strategy():
+def test_compare_candidates_with_different_differentiation_share_the_strategy():
     """
-    Test that a candidate with its own differentiation order runs on a copy
-    of the shared strategy with that order (the strategy is not changed),
-    and that the explanation says so.
+    Test that candidates with different differentiation orders, and the
+    baseline, run on the same strategy: skforecast 0.27 takes the order
+    from the window of each forecaster. Each candidate has the
+    metrics of a backtest of its plan on that strategy, and the explanation
+    says nothing about the order.
     """
     cv = _single_cv()
     result = assistant.compare(
@@ -3160,46 +3162,13 @@ def test_compare_candidate_differentiation_runs_on_a_copy_of_the_strategy():
         candidates=[
             ("plain", {"forecaster": "ForecasterRecursive"}),
             ("diff", {"forecaster": "ForecasterRecursive", "differentiation": 1}),
-        ],
-        show_progress=False,
-        baseline=False,
-    )
-
-    assert cv.differentiation is None
-    assert result.candidates["diff"].cv_config["differentiation"] == 1
-    assert result.candidates["plain"].cv_config["differentiation"] is None
-    assert result.explanation.endswith(
-        "These candidates ran on a copy of the strategy with their own "
-        "differentiation order (the strategy has None): {'diff': 1}."
-    )
-
-
-def test_compare_explanation_without_differentiation_note_when_only_baseline_differs():
-    """
-    Test that when every candidate uses the order of the strategy, the
-    baseline (which runs on a copy of the strategy without order) is not
-    named in a note about candidates with their own differentiation order.
-    """
-    cv = TimeSeriesFold(
-        steps=5, initial_train_size=70, differentiation=1, verbose=False
-    )
-    result = assistant.compare(
-        data=df_single,
-        cv=cv,
-        target="sales",
-        date_column="date",
-        candidates=[
-            (
-                "recursive_diff",
-                {"forecaster": "ForecasterRecursive", "differentiation": 1},
-            ),
             (
                 "direct_diff",
                 {
                     "forecaster": "ForecasterDirect",
                     "estimator": "Ridge",
                     "lags": [1, 2, 3],
-                    "differentiation": 1,
+                    "differentiation": 2,
                 },
             ),
         ],
@@ -3207,14 +3176,36 @@ def test_compare_explanation_without_differentiation_note_when_only_baseline_dif
         baseline=True,
     )
 
-    assert result.baseline_name == "Baseline (seasonal naive)"
-    assert "Baseline (seasonal naive)" in list(result.results["name"])
-    assert result.candidates["Baseline (seasonal naive)"].cv_config[
-        "differentiation"
-    ] is None
-    assert result.candidates["recursive_diff"].cv_config["differentiation"] == 1
-    assert "own differentiation order" not in result.explanation
-    assert "copy of the strategy" not in result.explanation
+    assert result.failures == {}
+    assert set(result.candidates) == {
+        "plain", "diff", "direct_diff", "Baseline (seasonal naive)"
+    }
+    orders = {
+        name: candidate.plan.forecaster_kwargs.get("differentiation")
+        for name, candidate in result.candidates.items()
+    }
+    assert orders == {
+        "plain": None, "diff": 1, "direct_diff": 2,
+        "Baseline (seasonal naive)": None,
+    }
+    assert all(
+        candidate.cv_config == result.cv_config
+        for candidate in result.candidates.values()
+    )
+    assert "differentiation" not in result.cv_config
+    assert "differentiation" not in result.explanation
+    for name in ("diff", "direct_diff"):
+        alone = assistant.backtest(
+            data=df_single,
+            cv=cv,
+            target="sales",
+            date_column="date",
+            plan=result.candidates[name].plan,
+            show_progress=False,
+        )
+        pd.testing.assert_frame_equal(
+            result.candidates[name].metrics, alone.metrics
+        )
 
 
 def test_compare_candidate_feature_overrides():

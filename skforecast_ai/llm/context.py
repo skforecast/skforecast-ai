@@ -799,6 +799,11 @@ def backtest_cv_from_code(code: str) -> Any:
             continue
         kwargs = {}
         for keyword in node.value.keywords:
+            # A script written before skforecast 0.27 passes the
+            # differentiation order of the forecaster, which does not change
+            # the folds and is deprecated there (a `FutureWarning`).
+            if keyword.arg == "differentiation":
+                continue
             value = keyword.value
             if (
                 isinstance(value, ast.Call)

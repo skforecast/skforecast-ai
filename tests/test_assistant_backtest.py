@@ -1,5 +1,6 @@
 # Unit test backtest ForecastingAssistant
 
+import pickle
 import re
 import warnings
 
@@ -1571,48 +1572,84 @@ def test_backtest_ValueError_when_use_exog_differs_from_plan():
         )
 
 
-def test_backtest_ValueError_when_cv_differentiation_differs_from_plan():
+# The `FutureWarning` of skforecast 0.27 for `TimeSeriesFold(differentiation=...)`.
+DEPRECATED_DIFFERENTIATION = re.escape("`differentiation` is deprecated")
+
+
+def test_backtest_output_when_cv_without_differentiation_and_plan_with_it():
     """
-    Test that a strategy whose differentiation order is not the one of the
-    plan (also None against an order) is rejected before running, where
-    skforecast rejected it inside the script.
+    Test that a strategy without a differentiation order backtests a plan
+    with one, where it was rejected before: skforecast 0.27 takes the order
+    from the window of the forecaster. A strategy built with another order
+    (deprecated by skforecast, with a `FutureWarning`) gives the same
+    script and metrics, because its order is not read.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
     plan = assistant.plan(profile, steps=5, differentiation=1)
     inputs = {
         "data": df_single, "target": "sales", "date_column": "date",
+        "profile": profile, "plan": plan, "show_progress": False,
+    }
+    with pytest.warns(FutureWarning, match=DEPRECATED_DIFFERENTIATION):
+        cv_with_order = TimeSeriesFold(
+            steps=5, initial_train_size=60, differentiation=2
+        )
+
+    result = assistant.backtest(
+        **inputs, cv=TimeSeriesFold(steps=5, initial_train_size=60)
+    )
+    result_with_order = assistant.backtest(**inputs, cv=cv_with_order)
+
+    assert result.plan.forecaster_kwargs["differentiation"] == 1
+    assert "differentiation" not in result.cv_config
+    assert result_with_order.code == result.code
+    pd.testing.assert_frame_equal(result_with_order.metrics, result.metrics)
+    pd.testing.assert_frame_equal(
+        result_with_order.predictions, result.predictions
+    )
+
+
+def test_backtest_output_when_cv_result_saved_with_differentiation():
+    """
+    Test that a `CVResult` saved before skforecast 0.27, whose splitter and
+    `cv_config` carry the differentiation order of its plan, is accepted and
+    its order ignored: the backtest runs without a `FutureWarning` (an
+    error in this suite), with the script and metrics of the strategy
+    created now, and its `cv_config` without the order.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, differentiation=1)
+    cv_result = assistant.create_cv(profile, plan, initial_train_size=60)
+    # pickle restores the attributes without running `__init__`, so the
+    # deprecated order comes back without a warning, as from 0.4.x.
+    saved = pickle.loads(pickle.dumps(cv_result))
+    saved.cv.differentiation = 1
+    saved.cv_config["differentiation"] = 1
+    inputs = {
+        "data": df_single, "target": "sales", "date_column": "date",
         "profile": profile, "show_progress": False,
     }
 
-    for cv_differentiation in (2, None):
-        err_msg = re.escape(
-            f"The cross-validation strategy has `differentiation="
-            f"{cv_differentiation}` and the plan `differentiation=1`: they "
-            f"must match."
-        )
-        cv = TimeSeriesFold(
-            steps=5, initial_train_size=60, differentiation=cv_differentiation
-        )
-        with pytest.raises(InvalidInputError, match=err_msg) as info:
-            assistant.backtest(**inputs, plan=plan, cv=cv)
-        assert info.value.field == "cv"
-    result = assistant.backtest(
-        **inputs, plan=plan,
-        cv=TimeSeriesFold(steps=5, initial_train_size=60, differentiation=1),
-    )
+    expected = assistant.backtest(**inputs, cv=cv_result)
+    result = assistant.backtest(**inputs, cv=saved)
 
     assert result.plan.forecaster_kwargs["differentiation"] == 1
+    assert result.code == expected.code
+    assert "differentiation" not in result.cv_config
+    pd.testing.assert_frame_equal(result.metrics, expected.metrics)
 
 
 def test_backtest_output_when_stats_ignores_cv_differentiation():
     """
-    Test that ForecasterStats, which skforecast backtests without checking
-    the differentiation order of the strategy, still runs with a strategy
-    that has one, as it did.
+    Test that ForecasterStats still runs with a strategy built with a
+    differentiation order (deprecated by skforecast 0.27, with a
+    `FutureWarning`), which it never read.
     """
     assistant = ForecastingAssistant()
-    cv = TimeSeriesFold(steps=12, initial_train_size=150, differentiation=1)
+    with pytest.warns(FutureWarning, match=DEPRECATED_DIFFERENTIATION):
+        cv = TimeSeriesFold(steps=12, initial_train_size=150, differentiation=1)
 
     result = assistant.backtest(
         df_h2o, target="x", cv=cv, forecaster="ForecasterStats",

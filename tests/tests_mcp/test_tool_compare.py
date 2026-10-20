@@ -655,6 +655,68 @@ def test_tool_compare_candidates_with_the_overrides_of_a_plan(tmp_path):
     assert result["summary"] == expected.describe()
 
 
+def test_tool_compare_candidates_with_different_differentiation_share_the_strategy(
+    tmp_path,
+):
+    """
+    Test that `compare` runs candidates with different differentiation
+    orders on the same strategy, here one created from a plan with an
+    order: the leaderboard and the summary are those of the Python API, a
+    candidate has the metrics of a `backtest` of the same plan on that
+    strategy, and each script writes its order in the forecaster only.
+    """
+    server, path = h2o_server(tmp_path)
+    profile_id, _, cv_id = cv_of(server, path, differentiation=1)
+    candidates = [
+        {"name": "none", "config": {"estimator": "Ridge"}},
+        {"name": "first", "config": {"estimator": "Ridge", "differentiation": 1}},
+        {"name": "second", "config": {"estimator": "Ridge", "differentiation": 2}},
+    ]
+
+    result = content_of(call(server, "compare", {
+        "cv_id": cv_id, "candidates": candidates, "baseline": False,
+    }))
+    second_plan = content_of(call(server, "plan", {
+        "profile_id": profile_id, "steps": 12, "estimator": "Ridge",
+        "differentiation": 2,
+    }))
+    second = content_of(call(server, "backtest", {
+        "cv_id": cv_id, "plan_id": second_plan["id"],
+    }))
+    codes = {
+        candidate["name"]: content_of(call(server, "get_code", {
+            "object_id": result["id"], "candidate": candidate["name"],
+        }))["code"]
+        for candidate in candidates
+    }
+
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(path, target="x")
+    expected = assistant.compare(
+        data=path,
+        cv=assistant.create_cv(
+            profile=profile,
+            plan=assistant.plan(profile=profile, steps=12, differentiation=1),
+        ),
+        profile=profile,
+        candidates=[(c["name"], dict(c["config"])) for c in candidates],
+        show_progress=False,
+        baseline=False,
+    )
+
+    assert text_of(result["files"]["leaderboard"]) == csv_of(expected.results)
+    assert result["summary"] == expected.describe()
+    assert text_of(second["files"]["metrics"]) == csv_of(
+        expected.candidates["second"].metrics
+    )
+    for name, order in (("none", None), ("first", 1), ("second", 2)):
+        forecaster, strategy = codes[name].split("cv = TimeSeriesFold(")
+        strategy = strategy.split(")")[0]
+        assert "differentiation" not in strategy
+        written = re.findall(r"differentiation\s*=\s*(\d+)", forecaster)
+        assert written == ([] if order is None else [str(order)])
+
+
 def test_tool_compare_summary_names_the_arguments_passed_to_the_strategy(tmp_path):
     """
     Test that `compare` hands the whole strategy to the assistant: the
