@@ -1216,6 +1216,40 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     candidatos, no uno por candidato. Los valores fijos que salen del
     ajuste de un ARIMA se comparan con `rtol=1e-4` (la anchura difiere un
     4.7e-5 relativo en macOS arm).
+- **D?. 3c-ii: RMSE como métrica y las columnas de las métricas del
+  forecast (V05)** (2026-10-20). Concreta D4:
+  - `root_mean_squared_error` entra en `ALLOWED_METRICS`, detrás de los ocho
+    nombres que acepta el backtesting de skforecast: `metric` de `plan`,
+    `refine_plan`, `forecast` y `compare`, `--metric` de la CLI y el enum
+    del servidor (golden de `tool_schemas.json`). skforecast no lo acepta
+    por nombre (`_get_metric`), así que el script del backtest importa la
+    función de scikit-learn y la pasa en la lista
+    (`[root_mean_squared_error, 'mean_absolute_error']`); skforecast nombra
+    la columna con el nombre de la función, como las demás. El script del
+    forecast la calcula como las otras de scikit-learn. Que skforecast la
+    acepte por nombre, pregunta en la PR.
+  - La selección automática no cambia: el panel por defecto sigue siendo
+    MAE, MSE y MASE (más MAPE lejos del cero). RMSE da la misma información
+    que MSE, y añadirla cambiaría todos los scripts y el contexto del LLM
+    (pregunta en la PR: cambiar MSE por RMSE en el panel).
+  - Unidad: el `MetricUnitNotice` de D16 da también la de RMSE, la del
+    objetivo (la raíz de `mean_squared_error`, en unidades al cuadrado),
+    cuando RMSE está entre las métricas de un `backtest`, un `forecast` o
+    el leaderboard de `compare`. Un MSE sin RMSE no lleva aviso (pregunta
+    en la PR). El SKILL.md lo nombra en la regla de no derivar cifras
+    (pedir `root_mean_squared_error` en `metric` de `plan` en vez de sacar
+    la raíz del MSE) y en "Inputs", con su unidad.
+  - V05: las métricas de `forecast` con `test_size` tienen las columnas de
+    las del backtest del mismo plan: una por métrica, con su nombre, y
+    `levels` cuando skforecast la da (varias series, y
+    ForecasterDirectMultiVariate con su única serie). Con una serie no hay
+    columna de serie, como en `backtesting_forecaster` (pregunta en la PR).
+    La tabla la construye el script con varias series (cambian sus goldens
+    de renderizado) y el runner con una (los scripts de una serie siguen
+    imprimiendo `MAE  : ...`). Llega a `ForecastResult.metrics`, al CSV del
+    servidor, a la tabla de la CLI y al contexto de `ask()`: las fixtures
+    de los goldens del contexto pasan al formato real, y el check de pago
+    queda para la fase 7. Línea en "Before upgrading".
 
 ## Decisiones abiertas
 
