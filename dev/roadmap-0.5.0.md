@@ -338,6 +338,21 @@ estaba en el plan, pero se apoya en una contabilidad que hoy está mal:
 Fallos opacos o contratos que no se cumplen. Independientes entre sí y
 pequeños; se pueden agrupar en dos o tres PR.
 
+- **5-0. La estrategia sin `differentiation` (skforecast 0.27,
+  [#1423](https://github.com/skforecast/skforecast/pull/1423)). Urgente:**
+  la suite de `0.5.x` falla contra la cabeza de `0.27.x` (16 tests por el
+  `FutureWarning`), y va antes que cualquier otro PR. skforecast toma el
+  orden de diferenciación del `window_size` del forecaster y depreca
+  `differentiation` en las estrategias. Aquí sobra todo lo que exigía
+  repetirlo: el `TimeSeriesFold(differentiation=...)` de la librería y de
+  los scripts (`rendering/backtesting.py`), la comprobación de que la
+  estrategia y el plan coinciden en `backtest()` y la copia de la
+  estrategia por candidato en `compare()` (`assistant.py`), el campo de la
+  estrategia y el argumento `differentiation` de `create_cv` (API, CLI y
+  MCP). Una misma estrategia sirve para candidatos con distinta
+  diferenciación (era V07, descartado, y lo que pedía FE-05 en skforecast).
+  *[script]* *[API]* *[SKILL]*
+
 - **Entradas que no se validan**: claves desconocidas de `window_features` se
   ignoran y el resumen las muestra como elegidas (V25, cierra el `TypedDict`
   y cambia el golden de esquemas); `plan` valida los nombres de
@@ -1225,7 +1240,7 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
   cambia, solo el panel. Va en su propio PR de 3f, después de 3c-ii
   (#114): cambia todos los scripts por defecto, sus goldens y el contexto
   del LLM. *[script]* *[LLM]*
-- **D?. 3c-ii: RMSE como métrica y las columnas de las métricas del
+- **D25. 3c-ii: RMSE como métrica y las columnas de las métricas del
   forecast (V05)** (2026-10-20), en
   [#114](https://github.com/skforecast/skforecast-ai/pull/114). Concreta D4:
   - `root_mean_squared_error` entra en `ALLOWED_METRICS`, en el orden de
@@ -1291,6 +1306,7 @@ arranque de las sesiones en la nube instala skforecast desde su rama
 | Sin issue ([#1416](https://github.com/skforecast/skforecast/pull/1416)) | `ForecasterStats.predict_interval` ignoraba `interval` y devolvía siempre el intervalo del 95 % (`alpha=0.05` por defecto ganaba a `interval`) | Afectaba sin aviso a skforecast-ai 0.4.x: el script de un forecast de ForecasterStats con intervalo llama a `predict_interval(steps=..., interval=...)` sin `alpha`, así que un 80 % salía al 95 %. Nada que cambiar en el código; falta un test que lo fije (un intervalo `[10, 90]` de ForecasterStats más estrecho que el del 95 %, en el forecast y en el backtest) y una línea en las notas de la 0.5.0 al consolidar | Resuelto en `0.27.x` (2026-10-19) |
 | Sin issue | El skill `metric-selection` describía MAPE como "Percentage error" sin decir que sklearn devuelve una fracción (D16, #104) | Nada: corregido en la rama `0.27.x` de skforecast y sincronizado aquí (2026-10-18) | Hecho |
 | Sin issue ([#1424](https://github.com/skforecast/skforecast/pull/1424)) | `root_mean_squared_error` por nombre en el backtesting, como las demás métricas de regresión (3c-ii) | Nada que rodear: el script del backtest lo pasa por nombre, como las demás métricas; el del forecast con `test_size` lo importa de `sklearn.metrics`, como el resto de sus métricas | Resuelto en `0.27.x` ([#1424](https://github.com/skforecast/skforecast/pull/1424), 2026-10-20) |
+| Sin issue ([#1423](https://github.com/skforecast/skforecast/pull/1423)) | La estrategia ya no repite la `differentiation` del forecaster: se toma de su `window_size`, y `differentiation` de `TimeSeriesFold` y `OneStepAheadFold` (y `window_size` de `OneStepAheadFold`) quedan deprecados, con un `FutureWarning`, hasta su retirada en 0.29.0. Una misma estrategia sirve para forecasters con distinta diferenciación | 5-0: dejar de pasar `differentiation` a la estrategia, y quitar la exigencia de que coincida con la del plan. Hasta entonces la suite de `0.5.x` falla contra la cabeza de `0.27.x` (16 tests, por el `FutureWarning`) | Resuelto en `0.27.x` (2026-10-20); falta el lado de skforecast-ai |
 
 Detalle de cada uno:
 
