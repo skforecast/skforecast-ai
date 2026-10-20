@@ -262,7 +262,8 @@ cuenta al usuario.
   forecast sin ninguna medida). H4: el resumen de un forecast con
   `test_size` no dice con palabras que es una evaluación; el aviso del
   servidor lo cubre y el texto vive en `llm/context.py`. *[LLM]*
-- **3f. Avisos menores.** El aviso de coste ofrece `refit` para ForecasterStats
+- **3f. Avisos menores.** En un PR propio, D24: el panel de métricas por
+  defecto lleva RMSE en vez de MSE. El aviso de coste ofrece `refit` para ForecasterStats
   y modelos fundacionales, que no baja su coste (V18). `create_cv` acepta
   `skip_folds` para ForecasterStats y el backtest falla opaco (V17).
   `fixed_train_size` sin `refit`: el esquema dice que es un error y el
@@ -1216,6 +1217,14 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     candidatos, no uno por candidato. Los valores fijos que salen del
     ajuste de un ARIMA se comparan con `rtol=1e-4` (la anchura difiere un
     4.7e-5 relativo en macOS arm).
+- **D24. RMSE en vez de MSE en el panel de métricas por defecto**
+  (2026-10-20). El MSE va en unidades al cuadrado y cuesta leerlo; el RMSE
+  va en las unidades del objetivo, al lado del MAE. skforecast 0.27 lo
+  acepta por nombre ([#1424](https://github.com/skforecast/skforecast/pull/1424)),
+  así que el script no se complica. La métrica que ordena y elige no
+  cambia, solo el panel. Va en su propio PR de 3f, después de 3c-ii
+  (#114): cambia todos los scripts por defecto, sus goldens y el contexto
+  del LLM. *[script]* *[LLM]*
 
 ## Decisiones abiertas
 
