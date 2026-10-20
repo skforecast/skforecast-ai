@@ -3,6 +3,7 @@
 import ast
 import json
 import re
+import warnings
 from types import SimpleNamespace
 
 import numpy as np
@@ -35,6 +36,7 @@ from skforecast_ai import (
     CandidateFailure,
     CompareProgress,
     ComparisonResult,
+    CostNotConfirmedError,
     DataNotFoundError,
     ForecastingAssistant,
     InvalidInputError,
@@ -1313,83 +1315,93 @@ def test_compare_LongTrainingWarning_when_automatic_stats_exceeds_fit_budget(
     assert result.explanation.endswith(budget_note)
 
 
-def test_compare_LongTrainingWarning_once_when_explicit_candidate_is_costly(
+def test_compare_CostNotConfirmedError_when_explicit_candidate_is_costly(
     monkeypatch,
 ):
     """
     Test that an explicit candidate is never left out for its cost, even
-    above the budget, and that compare() warns once before running it
-    instead of once more from its backtest.
+    above the budget: compare() raises CostNotConfirmedError before running
+    it, and runs it, without a LongTrainingWarning from its backtest, once
+    `confirm_cost` is the figure of the cost.
     """
     monkeypatch.setattr(comparison_module, "COMPARE_FIT_BUDGET", 10)
     cv = TimeSeriesFold(steps=10, initial_train_size=40, refit=True, verbose=False)
+    kwargs = dict(
+        data          = df_no_exog,
+        cv            = cv,
+        target        = "sales",
+        date_column   = "date",
+        candidates    = [
+            ("direct", {"forecaster": "ForecasterDirect", "lags": [1, 2, 3]})
+        ],
+        show_progress = False,
+        baseline      = False,
+    )
 
-    with pytest.warns(LongTrainingWarning) as record:
-        result = assistant.compare(
-            data          = df_no_exog,
-            cv            = cv,
-            target        = "sales",
-            date_column   = "date",
-            candidates    = [
-                ("direct", {"forecaster": "ForecasterDirect", "lags": [1, 2, 3]})
-            ],
-            show_progress = False,
-            baseline      = False,
-        )
-
-    messages = [
-        str(w.message) for w in record if w.category is LongTrainingWarning
-    ]
-    assert len(messages) == 1
-    assert messages[0].startswith(
+    err_msg = re.escape(
         "The comparison will fit 60 estimators in all ('direct': 60 "
         "(6 trainings x 10 estimators))."
     )
+    with pytest.raises(CostNotConfirmedError, match=err_msg) as exc_info:
+        assistant.compare(**kwargs)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", category=LongTrainingWarning)
+        result = assistant.compare(**kwargs, confirm_cost=60)
+
+    assert exc_info.value.figure == 60
     assert list(result.results["name"]) == ["direct"]
     assert result.failures == {}
 
 
-def test_compare_LongTrainingWarning_once_when_candidates_add_up_above_threshold():
+def test_compare_CostNotConfirmedError_when_candidates_add_up_above_threshold():
     """
     Test that explicit candidates that fit fewer than 50 estimators each
-    (36, 36 and 6) but 78 together make compare() emit one
-    LongTrainingWarning before running, with the total and what each
-    candidate adds, and that `result.cost` has the same values.
+    (36, 36 and 6) but 78 together make compare() raise
+    CostNotConfirmedError before running, with the total, what each
+    candidate adds and the changes that lower it, and that the error and
+    `result.cost` of the run confirmed with that figure have the same
+    values.
     """
     cv = TimeSeriesFold(steps=6, initial_train_size=64, refit=True, verbose=False)
+    kwargs = dict(
+        data          = df_no_exog,
+        cv            = cv,
+        target        = "sales",
+        date_column   = "date",
+        candidates    = [
+            ("direct_a", {"forecaster": "ForecasterDirect", "lags": [1, 2, 3]}),
+            (
+                "direct_b",
+                {"forecaster": "ForecasterDirect", "lags": [1, 2],
+                 "estimator": "Ridge"},
+            ),
+            ("recursive", {"forecaster": "ForecasterRecursive"}),
+        ],
+        show_progress = False,
+        baseline      = False,
+    )
 
-    with pytest.warns(LongTrainingWarning) as record:
-        result = assistant.compare(
-            data          = df_no_exog,
-            cv            = cv,
-            target        = "sales",
-            date_column   = "date",
-            candidates    = [
-                ("direct_a", {"forecaster": "ForecasterDirect", "lags": [1, 2, 3]}),
-                (
-                    "direct_b",
-                    {"forecaster": "ForecasterDirect", "lags": [1, 2],
-                     "estimator": "Ridge"},
-                ),
-                ("recursive", {"forecaster": "ForecasterRecursive"}),
-            ],
-            show_progress = False,
-            baseline      = False,
-        )
-
-    messages = [
-        str(w.message).split("\n")[0]
-        for w in record if w.category is LongTrainingWarning
-    ]
-    assert messages == [
-        "The comparison will fit 78 estimators in all ('direct_a': 36 "
-        "(6 trainings x 6 estimators), 'direct_b': 36 (6 trainings x 6 "
-        "estimators), 'recursive': 6). This can take substantial amounts of "
-        "time. If not feasible, compare fewer candidates or use an integer "
-        "`refit` (retrain every n folds), fewer folds (a later "
+    err_msg = re.escape(
+        "This comparison is above the threshold of an expensive run (50 "
+        "estimator fits or 2000 inference windows), so it needs a confirmation "
+        "and nothing ran. The comparison will fit 78 estimators in all "
+        "('direct_a': 36 (6 trainings x 6 estimators), 'direct_b': 36 (6 "
+        "trainings x 6 estimators), 'recursive': 6). It can take substantial "
+        "amounts of time. If not feasible, compare fewer candidates or use an "
+        "integer `refit` (retrain every n folds), fewer folds (a later "
         "`initial_train_size`, a larger `fold_stride` or `skip_folds`) or "
         "`refit=False` (train once)."
-    ]
+    )
+    with pytest.raises(CostNotConfirmedError, match=f"^{err_msg}$") as exc_info:
+        assistant.compare(**kwargs)
+    result = assistant.compare(**kwargs, confirm_cost=78)
+
+    error = exc_info.value
+    assert error.figure == 78
+    assert error.cost == {
+        "n_folds": 6, "n_fits": 18, "estimator_fits": 78, "inference_windows": 0
+    }
+    assert error.comparison_cost == result.cost
     assert result.failures == {}
     assert result.cost.model_dump() == {
         "n_folds": 6,
@@ -1411,6 +1423,185 @@ def test_compare_LongTrainingWarning_once_when_candidates_add_up_above_threshold
         "estimator_fits": 78,
         "inference_windows": 0,
     }
+
+
+@pytest.mark.parametrize("confirm_cost", [False, 77], ids=["false", "another"])
+def test_compare_CostNotConfirmedError_when_confirm_cost_is_not_the_figure(
+    confirm_cost,
+):
+    """
+    Test that compare() above the threshold does not run with
+    `confirm_cost=False` nor with a figure other than that of its cost (77
+    for 78 estimator fits), and that the second error says the strategy or
+    the candidates changed.
+    """
+    cv = TimeSeriesFold(steps=6, initial_train_size=64, refit=True, verbose=False)
+    events = []
+
+    with pytest.raises(CostNotConfirmedError) as exc_info:
+        assistant.compare(
+            data              = df_no_exog,
+            cv                = cv,
+            target            = "sales",
+            date_column       = "date",
+            candidates        = [
+                ("direct_a", {"forecaster": "ForecasterDirect", "lags": 3}),
+                ("direct_b", {"forecaster": "ForecasterDirect", "lags": 2}),
+                ("recursive", {"forecaster": "ForecasterRecursive"}),
+            ],
+            show_progress     = False,
+            baseline          = False,
+            progress_callback = events.append,
+            confirm_cost      = confirm_cost,
+        )
+
+    mismatch = (
+        "`confirm_cost=77` does not confirm it: the figure of this cost is 78, "
+        "so the strategy or the candidates changed since that number was given."
+    )
+    assert exc_info.value.figure == 78
+    assert str(exc_info.value).endswith(mismatch) == (confirm_cost == 77)
+    assert events == []
+
+
+def test_compare_ignores_confirm_cost_below_threshold():
+    """
+    Test that compare() whose candidates together fit 50 estimators or fewer
+    runs whatever `confirm_cost` says, also a figure that is not its cost.
+    """
+    result = assistant.compare(
+        data          = df_single,
+        cv            = _single_cv(),
+        target        = "sales",
+        date_column   = "date",
+        candidates    = _LIGHT_CANDIDATES,
+        show_progress = False,
+        confirm_cost  = 3,
+    )
+
+    assert result.cost.estimator_fits == 6
+    assert result.failures == {}
+
+
+@pytest.mark.parametrize(
+    "confirm_cost, error",
+    [("yes", InvalidInputTypeError), (-5, InvalidInputError)],
+    ids=["text", "negative"],
+)
+def test_compare_InvalidInputError_when_confirm_cost_is_not_valid(
+    confirm_cost, error
+):
+    """
+    Test that compare() rejects a `confirm_cost` that is neither a bool nor
+    an integer of at least 0 before anything runs, also below the
+    threshold.
+    """
+    with pytest.raises(error, match=re.escape("`confirm_cost` must be")) as exc_info:
+        assistant.compare(
+            data          = df_single,
+            cv            = _single_cv(),
+            target        = "sales",
+            date_column   = "date",
+            candidates    = _LIGHT_CANDIDATES,
+            show_progress = False,
+            confirm_cost  = confirm_cost,
+        )
+
+    assert exc_info.value.field == "confirm_cost"
+
+
+def test_compare_builds_every_plan_before_counting_and_running():
+    """
+    Test that compare() builds the plan of every candidate before it counts
+    the cost: a candidate whose plan cannot be built fails then, with its
+    CandidateFailedWarning before the cost is checked, is not counted, and
+    nothing runs (no progress event) when the others are above the
+    threshold, as the error says.
+    """
+    cv = TimeSeriesFold(steps=6, initial_train_size=64, refit=True, verbose=False)
+    events = []
+
+    with pytest.warns(
+        CandidateFailedWarning, match=re.escape("Candidate 'bad' failed")
+    ):
+        with pytest.raises(CostNotConfirmedError) as exc_info:
+            assistant.compare(
+                data              = df_no_exog,
+                cv                = cv,
+                target            = "sales",
+                date_column       = "date",
+                candidates        = [
+                    ("direct_a", {"forecaster": "ForecasterDirect", "lags": 3}),
+                    ("bad", {"estimator": "NoSuchEstimator"}),
+                    ("direct_b", {"forecaster": "ForecasterDirect", "lags": 2}),
+                ],
+                show_progress     = False,
+                baseline          = False,
+                progress_callback = events.append,
+            )
+
+    assert exc_info.value.figure == 72
+    assert list(exc_info.value.comparison_cost.candidates) == [
+        "direct_a", "direct_b"
+    ]
+    assert str(exc_info.value.description).endswith(
+        "'bad' is not counted: its plan cannot be built, so it runs nothing."
+    )
+    assert events == []
+
+
+def test_compare_candidate_with_invalid_plan_fails_before_any_candidate_runs():
+    """
+    Test that the CandidateFailedWarning of a candidate whose plan cannot be
+    built comes before the first candidate runs, that its two progress
+    events still come at its turn, in the order of the candidates, that it
+    is not in `cost` and that `failures` keeps the order of the candidates
+    when another one fails later, while running (a direct forecaster with a
+    gap).
+    """
+    candidates = [
+        ("direct", {"forecaster": "ForecasterDirect", "estimator": "Ridge"}),
+        ("recursive", {"forecaster": "ForecasterRecursive", "estimator": "Ridge"}),
+        ("bad", {"forecaster": "ForecasterRecursive", "estimator": "NotAReal"}),
+    ]
+    cv = TimeSeriesFold(steps=5, initial_train_size=70, gap=2, verbose=False)
+    events = []
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+
+        def record(event):
+            failed = [
+                str(w.message).split(":")[0] for w in caught
+                if issubclass(w.category, CandidateFailedWarning)
+            ]
+            events.append((event.candidate, event.status, failed))
+
+        result = assistant.compare(
+            data              = df_single,
+            cv                = cv,
+            target            = "sales",
+            date_column       = "date",
+            candidates        = candidates,
+            show_progress     = False,
+            baseline          = False,
+            progress_callback = record,
+        )
+
+    bad = "Candidate 'bad' failed and is ranked last"
+    direct = "Candidate 'direct' failed and is ranked last"
+    assert events == [
+        ("direct", "started", [bad]),
+        ("direct", "failed", [bad, direct]),
+        ("recursive", "started", [bad, direct]),
+        ("recursive", "succeeded", [bad, direct]),
+        ("bad", "started", [bad, direct]),
+        ("bad", "failed", [bad, direct]),
+    ]
+    assert list(result.cost.candidates) == ["direct", "recursive"]
+    assert list(result.failures) == ["direct", "bad"]
+    assert result.failures["bad"].generated_code is None
+    assert list(result.results["name"]) == ["recursive", "direct", "bad"]
 
 
 def test_compare_cost_counts_the_baseline_and_matches_what_ran():
@@ -2592,64 +2783,55 @@ def test_compare_CandidateFailedWarning_when_foundation_backend_not_installed(
     assert result.best_name == "ridge"
 
 
-def test_compare_LongTrainingWarning_when_foundation_candidate_inference_windows_exceed_threshold(
+def test_compare_CostNotConfirmedError_when_foundation_candidate_inference_windows_exceed_threshold(
     monkeypatch,
 ):
     """
-    Test that compare() warns once, before running, about a
-    ForecasterFoundation candidate whose inference windows (series times
-    folds of the shared strategy) exceed the threshold (lowered to 3 here),
-    and not about the other candidates, which fit their estimator once.
+    Test that compare() raises CostNotConfirmedError before running when a
+    ForecasterFoundation candidate forecasts more inference windows (series
+    times folds of the shared strategy) than the threshold (lowered to 3
+    here), with the windows as the figure, since the other candidates fit
+    their estimator once.
     """
     monkeypatch.setattr("skforecast_ai._utils.LONG_INFERENCE_WINDOWS", 3)
-    monkeypatch.setattr(
-        "skforecast_ai._foundation.foundation_backend_installed", lambda info: False
-    )
     candidates = [
         ("ridge", {"forecaster": "ForecasterRecursive", "estimator": "Ridge"}),
         ("foundation", {"forecaster": "ForecasterFoundation"}),
     ]
 
-    # The foundation candidate then fails: its backend is not installed.
-    with pytest.warns(
-        CandidateFailedWarning, match=re.escape("Candidate 'foundation' failed")
-    ):
-        with pytest.warns(LongTrainingWarning) as caught:
-            assistant.compare(
-                data          = df_single,
-                cv            = _single_cv(),
-                target        = "sales",
-                date_column   = "date",
-                candidates    = candidates,
-                show_progress = False,
-                baseline      = False,
-            )
+    err_msg = re.escape(
+        "This comparison is above the threshold of an expensive run (50 "
+        "estimator fits or 3 inference windows), so it needs a confirmation "
+        "and nothing ran. ForecasterFoundation will forecast up to 6 inference "
+        "windows (1 series x 6 folds). It can take substantial amounts of "
+        "time. If not feasible, compare fewer candidates or use fewer folds (a "
+        "later `initial_train_size`, a larger `fold_stride` or `skip_folds`) "
+        "or fewer series."
+    )
+    with pytest.raises(CostNotConfirmedError, match=f"^{err_msg}$") as exc_info:
+        assistant.compare(
+            data          = df_single,
+            cv            = _single_cv(),
+            target        = "sales",
+            date_column   = "date",
+            candidates    = candidates,
+            show_progress = False,
+            baseline      = False,
+        )
 
-    # skforecast's warnings append a line on how to silence them.
-    long_training = [
-        str(w.message).split("\n")[0]
-        for w in caught if issubclass(w.category, LongTrainingWarning)
-    ]
-    assert long_training == [
-        "ForecasterFoundation will forecast up to 6 inference windows (1 series x 6 "
-        "folds), more than 3. This can take minutes on a CPU. If not feasible, "
-        "use a cross-validation strategy with fewer folds (a later "
-        "`initial_train_size` or a larger `fold_stride`) or forecast fewer "
-        "series."
-    ]
+    assert exc_info.value.figure == 6
 
 
-def test_compare_LongTrainingWarning_adds_up_the_foundation_candidates(monkeypatch):
+def test_compare_CostNotConfirmedError_adds_up_the_foundation_candidates(
+    monkeypatch,
+):
     """
     Test that the inference windows of several ForecasterFoundation
-    candidates add up into one warning that states the total: two candidates
+    candidates add up into one figure that states the total: two candidates
     of 6 windows (1 series x 6 folds) exceed a threshold of 10 that neither
     exceeds alone.
     """
     monkeypatch.setattr("skforecast_ai._utils.LONG_INFERENCE_WINDOWS", 10)
-    monkeypatch.setattr(
-        "skforecast_ai._foundation.foundation_backend_installed", lambda info: False
-    )
     candidates = [
         ("ridge", {"forecaster": "ForecasterRecursive", "estimator": "Ridge"}),
         ("small", {"forecaster": "ForecasterFoundation"}),
@@ -2659,30 +2841,23 @@ def test_compare_LongTrainingWarning_adds_up_the_foundation_candidates(monkeypat
         ),
     ]
 
-    # The foundation candidates then fail: their backend is not installed.
-    with pytest.warns(CandidateFailedWarning):
-        with pytest.warns(LongTrainingWarning) as caught:
-            assistant.compare(
-                data          = df_single,
-                cv            = _single_cv(),
-                target        = "sales",
-                date_column   = "date",
-                candidates    = candidates,
-                show_progress = False,
-                baseline      = False,
-            )
-
-    long_training = [
-        str(w.message).split("\n")[0]
-        for w in caught if issubclass(w.category, LongTrainingWarning)
-    ]
-    assert long_training == [
+    err_msg = re.escape(
         "ForecasterFoundation will forecast up to 12 inference windows (1 series "
-        "x 6 folds x 2 candidates), more than 10. This can take minutes on a "
-        "CPU. If not feasible, use a cross-validation strategy with fewer folds "
-        "(a later `initial_train_size` or a larger `fold_stride`) or forecast "
-        "fewer series."
-    ]
+        "x 6 folds x 2 candidates)."
+    )
+    with pytest.raises(CostNotConfirmedError, match=err_msg) as exc_info:
+        assistant.compare(
+            data          = df_single,
+            cv            = _single_cv(),
+            target        = "sales",
+            date_column   = "date",
+            candidates    = candidates,
+            show_progress = False,
+            baseline      = False,
+        )
+
+    assert exc_info.value.figure == 12
+    assert exc_info.value.cost["inference_windows"] == 12
 
 
 def test_compare_CandidateFailedWarning_when_direct_candidate_and_cv_with_gap():

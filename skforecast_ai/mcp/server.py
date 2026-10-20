@@ -38,7 +38,12 @@ from .._constants import (
     LONG_INFERENCE_WINDOWS,
     LONG_TRAINING_FITS,
 )
-from ..exceptions import DataContentError, InvalidInputError, SkforecastAIError
+from ..exceptions import (
+    CostNotConfirmedError,
+    DataContentError,
+    InvalidInputError,
+    SkforecastAIError,
+)
 from . import _inputs
 from ._errors import (
     ServerError,
@@ -249,8 +254,9 @@ response does not give.
 2. Cost: read `cost` of `create_cv` before running. Before a run above 50 \
 estimator fits (a `compare`: all its candidates together), stop: tell the \
 user the number of fits and the cheaper strategies its `CostNotice` names \
-and run the expensive one only if they choose it. Asking to retrain is not \
-that choice.
+and run the expensive one only if they choose it, passing that number as \
+`confirm_cost` (without it, `backtest` and `compare` refuse the run and give \
+the number). Asking to retrain is not that choice.
 3. Read `notices` before reporting and tell the user about data problems \
 (missing dates, rows without target) and plan warnings.
 4. `compare` without `interval` uses the interval of the plan of the \
@@ -533,10 +539,12 @@ def _cost_notices(
     (`... will be fit 220 times`), and rule 2 of the instructions says what
     to do with it: an agent that has only the instructions reads the number
     and runs anyway. This notice carries that rule with the number, in the
-    response where the strategy can still change, and names only the
-    changes that lower that cost (`cost_remedies`): `refit` lowers nothing
-    for ForecasterStats nor for a foundation model, nor once the strategy
-    trains once.
+    response where the strategy can still change, names only the changes
+    that lower that cost (`cost_remedies`): `refit` lowers nothing for
+    ForecasterStats nor for a foundation model, nor once the strategy
+    trains once; and says how to run it once the user chose it: `backtest`
+    and `compare` refuse a run above the thresholds without `confirm_cost`
+    set to the number of its cost.
 
     Parameters
     ----------
@@ -562,7 +570,7 @@ def _cost_notices(
         below the thresholds.
     """
 
-    from .._utils import cost_remedies, join_remedies
+    from .._utils import comparison_remedies, cost_remedies, join_remedies
 
     backtest_parts = []
     if cost["estimator_fits"] > LONG_TRAINING_FITS:
@@ -572,27 +580,21 @@ def _cost_notices(
             f"runs up to {cost['inference_windows']} inference windows"
         )
     compare_parts = []
-    # The forecasters whose cost makes the total of the comparison: those
-    # of the estimator fits, or the foundation model of the windows.
-    compare_costly = set()
     if cost["compare_estimator_fits"] > LONG_TRAINING_FITS:
-        compare_parts.append(
-            f"fits about {cost['compare_estimator_fits']} estimators"
-        )
-        compare_costly |= {
-            candidate.forecaster for candidate in compare_cost.candidates.values()
-            if candidate.estimator_fits
-        }
+        compare_parts.append(f"fits {cost['compare_estimator_fits']} estimators")
     if cost["compare_inference_windows"] > LONG_INFERENCE_WINDOWS:
         compare_parts.append(
             f"runs up to {cost['compare_inference_windows']} inference windows"
         )
-        compare_costly.add("ForecasterFoundation")
     if not backtest_parts and not compare_parts:
         return []
 
     runs = []
     cheaper = []
+    # The number each run is confirmed with, which the agent repeats once
+    # the user chose that run: its estimator fits, or its inference windows
+    # when only those are above (`expensive_run_figure`).
+    confirm = []
     if backtest_parts:
         runs.append(f"`backtest` {' and '.join(backtest_parts)}")
         remedies = cost_remedies(
@@ -605,31 +607,39 @@ def _cost_notices(
             f"for `backtest`, {join_remedies(remedies)}" if compare_parts
             else join_remedies(remedies)
         )
+        figure = (
+            cost["estimator_fits"] if cost["estimator_fits"] > LONG_TRAINING_FITS
+            else cost["inference_windows"]
+        )
+        confirm.append(f"`confirm_cost: {figure}` to `backtest`")
     if compare_parts:
         runs.append(
             f"`compare` without `candidates` {' and '.join(compare_parts)}"
         )
-        remedies = cost_remedies(
-                       forecasters = compare_costly,
-                       n_fits      = compare_n_fits,
-                       steps       = steps,
-                       skip_folds  = all(
-                                         candidate.forecaster != "ForecasterStats"
-                                         for candidate in compare_cost.candidates.values()
-                                     ),
-                       false       = "false",
+        remedies = comparison_remedies(
+                       cost   = compare_cost,
+                       n_fits = compare_n_fits,
+                       steps  = steps,
+                       false  = "false",
                    )
         cheaper.append(
             f"for `compare`, {join_remedies(['a list of `candidates`', *remedies])}"
         )
+        figure = (
+            cost["compare_estimator_fits"]
+            if cost["compare_estimator_fits"] > LONG_TRAINING_FITS
+            else cost["compare_inference_windows"]
+        )
+        confirm.append(f"`confirm_cost: {figure}` to `compare` without `candidates`")
     message = (
         f"Expensive run: with this strategy, {'; '.join(runs)} (an expensive "
         f"run is one above {LONG_TRAINING_FITS} estimator fits or "
         f"{LONG_INFERENCE_WINDOWS} inference windows). Stop here and do not "
         f"run it: tell the user those numbers and the cheaper strategies "
         f"({'; '.join(cheaper)}), and run the expensive one only if they "
-        f"choose it. Asking to retrain the model, or to evaluate it as in "
-        f"production, is not that choice."
+        f"choose it, passing {' or '.join(confirm)}: without that number "
+        f"the run is refused. Asking to retrain the model, or to evaluate it "
+        f"as in production, is not that choice."
     )
     if not backtest_parts:
         message += " `backtest` of this plan is below the thresholds and can run."
@@ -1763,10 +1773,13 @@ def _default_compare_cost(
     the strategy was created for when it is none of them, and without the
     alternatives above the budget of `compare()` (the recommended
     forecaster and the plan of the strategy always run), plus the baseline
-    the tool adds by default. The interval and the metric are those the
-    `compare` tool takes from that plan. The fits are those of the
-    strategy as `compare()` shares it, not as the forecaster of the plan
-    runs it (ForecasterStats is refitted in every fold).
+    the tool adds by default, and without those whose plan cannot be built
+    (`compare()` builds every plan first, and such a candidate runs
+    nothing), so its total is the number that `confirm_cost` of that
+    `compare` repeats. The interval and the metric are those the `compare`
+    tool takes from that plan. The fits are those of the strategy as
+    `compare()` shares it, not as the forecaster of the plan runs it
+    (ForecasterStats is refitted in every fold).
 
     Returns
     -------
@@ -1779,6 +1792,7 @@ def _default_compare_cost(
     from .._utils import plan_override_value
     from ..execution.comparison import (
         add_baseline_candidate,
+        buildable_candidates,
         count_comparison_cost,
         resolve_default_candidates,
     )
@@ -1814,6 +1828,7 @@ def _default_compare_cost(
                      n_folds       = n_folds,
                  ).candidates
     candidates, _, _ = add_baseline_candidate(candidates, profile, interval)
+    candidates = buildable_candidates(candidates, build_plan)
 
     cost = count_comparison_cost(
                candidate_configs = candidates,
@@ -1825,6 +1840,84 @@ def _default_compare_cost(
            )
 
     return cost, n_fits
+
+
+def _cost_not_confirmed(
+    exc: CostNotConfirmedError,
+    tool: str,
+    confirm_cost: int | None,
+    remedies: list[str],
+) -> ServerError:
+    """
+    Error of `backtest` or `compare` for a run above the thresholds of an
+    expensive run that `confirm_cost` does not confirm, raised before
+    anything runs.
+
+    The core accepts True, which an agent would pass without reading the
+    cost (the weaker model ran with the `CostNotice` read, 12 of 12): the
+    tool takes only the number of the cost, so the agent has to read it,
+    and a strategy or candidates with another cost refuse the old number.
+    The error states the cost, what makes it and the cheaper strategies,
+    and tells the agent to ask the user before calling again with that
+    number.
+
+    Parameters
+    ----------
+    exc : CostNotConfirmedError
+        Error of the core.
+    tool : str
+        Name of the tool, `'backtest'` or `'compare'`.
+    confirm_cost : int, None
+        Argument of the tool.
+    remedies : list of str
+        Changes that lower the cost, written for the arguments of the tools
+        (`refit=false`).
+
+    Returns
+    -------
+    error : ServerError
+        Error with the code `'invalid_argument'` and the field
+        `'confirm_cost'`.
+    """
+
+    from .._utils import changed_since, join_remedies
+
+    run = "comparison" if tool == "compare" else "backtest"
+    message = (
+        f"Expensive run not confirmed, so nothing ran. This {run} is above "
+        f"the threshold of an expensive run ({LONG_TRAINING_FITS} estimator "
+        f"fits or {LONG_INFERENCE_WINDOWS} inference windows). "
+        f"{exc.description}"
+    )
+    if confirm_cost is not None:
+        message += (
+            f" `confirm_cost` is {confirm_cost}, not {exc.figure}: "
+            f"{changed_since(run)} changed since that number was given."
+        )
+    cheaper = (
+        f" and the cheaper strategies ({join_remedies(remedies)})" if remedies else ""
+    )
+    hint = (
+        f"Stop here and do not run it: tell the user these numbers{cheaper}, "
+        f"and ask them. Only if they choose to run it as it is, call `{tool}` "
+        f"again with the same arguments and `confirm_cost: {exc.figure}`. "
+        f"Asking to retrain the model, or to evaluate it as in production, is "
+        f"not that choice."
+    )
+    details: dict[str, Any] = {"confirm_cost": exc.figure, "cost": dict(exc.cost)}
+    if exc.comparison_cost is not None:
+        details["candidates"] = {
+            name: candidate.model_dump()
+            for name, candidate in exc.comparison_cost.candidates.items()
+        }
+
+    return ServerError(
+        message,
+        code    = "invalid_argument",
+        field   = "confirm_cost",
+        hint    = hint,
+        details = details,
+    )
 
 
 def _register(
@@ -2382,7 +2475,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                     category = "CompareCostNotice",
                     message  = (
                         f"`compare` without `candidates` on this strategy fits "
-                        f"about {cost['compare_estimator_fits']} estimators "
+                        f"{cost['compare_estimator_fits']} estimators "
                         f"({shown}), more than the {cost['estimator_fits']} of "
                         f"this plan. Pass `candidates` to choose what runs"
                         + (f", or use {join_remedies(remedies)}." if remedies else ".")
@@ -2516,6 +2609,15 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             "Plan to backtest, built from the same profile. Null for the plan "
             "the cross-validation strategy was built for."
         ))] = None,
+        confirm_cost: Annotated[NonNegative | None, Field(description=(
+            "Confirms an expensive run (above 50 estimator fits, or 2000 "
+            "inference windows of a foundation model), only once the user "
+            "chose it: the number of its cost that `create_cv` or the error "
+            "of a call without it gives (its estimator fits; its inference "
+            "windows when only those are above). Without it, or with another "
+            "number, such a run is an error and nothing runs. Ignored below "
+            "the thresholds."
+        ))] = None,
         ctx: Context = None,
     ) -> ToolResult:
         cv_entry = store.get(cv_id, "cv_id", ("cv",))
@@ -2538,6 +2640,8 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         _run_plan_locally(backtested, "plan_id")
 
         def work(control: CallControl):
+            from .._utils import cost_remedies
+
             path = _data_of(cv_entry)
             try:
                 result = state.assistant.backtest(
@@ -2548,7 +2652,18 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                     profile       = _copy(cv_entry.profile),
                     plan          = _copy(backtested),
                     show_progress = False,
+                    confirm_cost  = False if confirm_cost is None else confirm_cost,
                 )
+            except CostNotConfirmedError as exc:
+                remedies = cost_remedies(
+                               forecasters = [backtested.forecaster],
+                               n_fits      = exc.cost["n_fits"],
+                               steps       = backtested.steps,
+                               false       = "false",
+                           )
+                raise _cost_not_confirmed(
+                    exc, "backtest", confirm_cost, remedies
+                ) from None
             except SkforecastAIError as exc:
                 _leave_to_user(exc, {"data": DATA_VALUES_HINT})
                 _keep_failure(exc)
@@ -2632,6 +2747,15 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             "Whether to add a seasonal naive baseline (ForecasterEquivalentDate) "
             "to the ranking."
         ))] = True,
+        confirm_cost: Annotated[NonNegative | None, Field(description=(
+            "Confirms an expensive run (all the candidates together above 50 "
+            "estimator fits, or 2000 inference windows of foundation models), "
+            "only once the user chose it: the number of its cost that "
+            "`create_cv` (without `candidates`) or the error of a call without "
+            "it gives (the estimator fits; the inference windows when only "
+            "those are above). Without it, or with another number, such a run "
+            "is an error and nothing runs. Ignored below the thresholds."
+        ))] = None,
         ctx: Context = None,
     ) -> ToolResult:
         from .._utils import plan_override_value
@@ -2706,7 +2830,26 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                     show_progress     = False,
                     baseline          = baseline,
                     progress_callback = on_progress,
+                    confirm_cost      = False if confirm_cost is None else confirm_cost,
                 )
+            except CostNotConfirmedError as exc:
+                from .._utils import comparison_remedies
+                from ..recommendation import resolve_cv_config
+
+                shared, _ = resolve_cv_config(cv_entry.obj.cv, profile_obj.data_profile)
+                remedies = comparison_remedies(
+                               cost   = exc.comparison_cost,
+                               n_fits = int(shared["n_fits"]),
+                               steps  = cv_entry.obj.cv.steps,
+                               false  = "false",
+                           )
+                fewer = (
+                    "a list of `candidates`" if candidates is None
+                    else "fewer `candidates`"
+                )
+                raise _cost_not_confirmed(
+                    exc, "compare", confirm_cost, [fewer, *remedies]
+                ) from None
             except SkforecastAIError as exc:
                 _leave_to_user(exc, {"data": DATA_VALUES_HINT})
                 _keep_failure(exc)

@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal, get_args
 
 if TYPE_CHECKING:
-    from .schemas.results import CandidateFailure
+    from .schemas.results import CandidateFailure, ComparisonCost
 
 
 ErrorCode = Literal[
@@ -123,6 +123,67 @@ class DataContentError(InvalidInputError):
     or `ValueError` still covers it. Catch it to tell a problem of the
     values, which is solved in the data, from an argument to correct.
     """
+
+
+class CostNotConfirmedError(InvalidInputError):
+    """
+    Raised by `backtest()` and `compare()` before anything runs when the
+    run is above the thresholds of an expensive run (50 estimator fits or
+    2000 inference windows of a foundation model; for a comparison, all
+    its candidates together) and `confirm_cost` does not confirm it.
+
+    The message states the cost, what makes it and the changes that lower
+    it; `hint` says how to run it as it is. A subclass of
+    `InvalidInputError`, with the code `'invalid_argument'` and the field
+    `'confirm_cost'`.
+
+    Parameters
+    ----------
+    message : str
+        Error message, returned by `str(exc)`.
+    figure : int
+        Number that confirms the run, see the attribute.
+    cost : dict
+        Cost of the run, see the attribute.
+    description : str
+        Sentence stating the cost, see the attribute.
+    comparison_cost : ComparisonCost, default None
+        Cost of each candidate of a comparison.
+    hint : str, default None
+        How to run it as it is.
+
+    Attributes
+    ----------
+    figure : int
+        Number that confirms the run as `confirm_cost`: its estimator
+        fits, or its inference windows when only those are above their
+        threshold.
+    cost : dict
+        `n_folds`, `n_fits` (trainings), `estimator_fits` and
+        `inference_windows` of the run; for a comparison, the folds of
+        the shared strategy and the totals of its candidates.
+    description : str
+        Sentence stating the cost and what makes it, without how to lower
+        it or how to confirm it.
+    comparison_cost : ComparisonCost, None
+        Cost of each candidate of a comparison, None for a backtest.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        figure: int,
+        cost: dict[str, int],
+        description: str,
+        comparison_cost: ComparisonCost | None = None,
+        hint: str | None = None,
+    ) -> None:
+        super().__init__(message, field="confirm_cost", hint=hint)
+        self.figure = figure
+        self.cost = cost
+        self.description = description
+        self.comparison_cost = comparison_cost
 
 
 class DataNotFoundError(SkforecastAIError, FileNotFoundError):

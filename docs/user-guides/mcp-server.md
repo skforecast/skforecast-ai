@@ -195,7 +195,7 @@ You ask, for example, *"Forecast the next 12 months of `/path/to/data/h2o.csv` a
 
 1. `profile(data_path="/path/to/data/h2o.csv", target="x")`: the frequency, the series, the exogenous columns and the recommended forecaster, as a profile id. Every column other than the target, the date and the series ids is an exogenous variable, unless `exog_columns` names the ones to use.
 2. `plan(profile_id=..., steps=12)`: lags, window features, metric and preprocessing, as a plan id.
-3. `create_cv(plan_id=...)`: the cross-validation strategy, with its cost (estimator fits, or inference windows for a foundation model, which is never trained). A notice warns when the backtest will be long.
+3. `create_cv(plan_id=...)`: the cross-validation strategy, with its cost (estimator fits, or inference windows for a foundation model, which is never trained). A notice warns when the backtest will be long: the agent then tells you the cost and the cheaper strategies, and `backtest` and `compare` run such a strategy only with `confirm_cost`, the number of its cost, which the agent passes once you chose it.
 4. `backtest(cv_id=...)` and, to compare configurations, `compare(cv_id=...)`. Without `candidates`, `compare` ranks the configurations the profile recommends, a seasonal naive baseline and, when the strategy was created for another plan (one from `refine_plan`), that plan as the row `Strategy plan`.
 5. `forecast(plan_id=...)`: the forecast of the next 12 months.
 

@@ -244,6 +244,9 @@ def test_skill_md_covers_what_agents_get_wrong(phrase):
         "stop and do not run it: tell the user the number of fits and the "
         "cheaper strategies",
         "asking to retrain regularly is not that choice",
+        "never pass `confirm_cost` before you asked",
+        "`backtest` and `compare` refuse it, before anything runs, unless "
+        "`confirm_cost` is the number of its cost",
         "Report what was measured, never why",
         "The server does not search hyperparameters",
         "Do not do any of it another way in the same answer",

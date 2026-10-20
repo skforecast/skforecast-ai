@@ -16,6 +16,7 @@ from skforecast.model_selection import TimeSeriesFold
 
 from skforecast_ai import BacktestResult, ForecastingAssistant
 from skforecast_ai.exceptions import (
+    CostNotConfirmedError,
     DataContentError,
     InvalidInputError,
     InvalidInputTypeError,
@@ -71,25 +72,29 @@ def test_backtest_ValueError_when_cv_steps_differs_from_plan_steps():
 # =============================================================================
 # Tests: basic output
 # =============================================================================
-def test_backtest_LongTrainingWarning_when_estimator_fits_exceed_threshold():
+def test_backtest_CostNotConfirmedError_when_estimator_fits_exceed_threshold():
     """
-    Test that backtest() warns before running when the strategy fits the
-    estimator more than 50 times (the skforecast threshold, silenced in the
-    generated scripts): a ForecasterDirect refitted in each of 6 folds fits
-    10 estimators per training. The backtest still runs.
+    Test that backtest() raises CostNotConfirmedError before running when
+    the strategy fits the estimator more than 50 times and `confirm_cost`
+    is not given: a ForecasterDirect refitted in each of 6 folds fits 10
+    estimators per training. The error states the cost, the changes that
+    lower it, the figure that confirms it and how to run it.
     """
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
     plan = assistant.plan(profile, steps=10, forecaster="ForecasterDirect")
     cv = TimeSeriesFold(steps=10, initial_train_size=40, refit=True, verbose=False)
 
-    warn_msg = re.escape(
-        "ForecasterDirect will be fit 60 times (6 trainings x 10 estimators). "
-        "This can take substantial amounts of time. If not feasible, use a "
-        "cross-validation strategy with `refit=False` (train once) or an "
-        "integer `refit` (retrain every n folds)."
+    err_msg = re.escape(
+        "This backtest is above the threshold of an expensive run (50 estimator "
+        "fits or 2000 inference windows), so it needs a confirmation and nothing "
+        "ran. ForecasterDirect will be fit 60 times (6 trainings x 10 "
+        "estimators). It can take substantial amounts of time. If not feasible, "
+        "use an integer `refit` (retrain every n folds), fewer folds (a later "
+        "`initial_train_size`, a larger `fold_stride` or `skip_folds`) or "
+        "`refit=False` (train once)."
     )
-    with pytest.warns(LongTrainingWarning, match=warn_msg):
-        result = assistant.backtest(
+    with pytest.raises(CostNotConfirmedError, match=f"^{err_msg}$") as exc_info:
+        assistant.backtest(
             data          = df_single,
             cv            = cv,
             profile       = profile,
@@ -97,8 +102,141 @@ def test_backtest_LongTrainingWarning_when_estimator_fits_exceed_threshold():
             show_progress = False,
         )
 
+    error = exc_info.value
+    assert error.code == "invalid_argument"
+    assert error.field == "confirm_cost"
+    assert error.hint == "Pass `confirm_cost=True` to run it as it is."
+    assert error.figure == 60
+    assert error.cost == {
+        "n_folds": 6, "n_fits": 6, "estimator_fits": 60, "inference_windows": 0
+    }
+    assert error.description == (
+        "ForecasterDirect will be fit 60 times (6 trainings x 10 estimators)."
+    )
+    assert error.comparison_cost is None
+
+
+@pytest.mark.parametrize("confirm_cost", [True, 60], ids=["true", "figure"])
+def test_backtest_runs_without_warning_when_confirm_cost_confirms_the_cost(
+    confirm_cost,
+):
+    """
+    Test that backtest() above the threshold runs, without a
+    LongTrainingWarning, when `confirm_cost` is True or the figure of its
+    cost (60 estimator fits), and that the explanation states that cost.
+    """
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10, forecaster="ForecasterDirect")
+    cv = TimeSeriesFold(steps=10, initial_train_size=40, refit=True, verbose=False)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", category=LongTrainingWarning)
+        result = assistant.backtest(
+            data          = df_single,
+            cv            = cv,
+            profile       = profile,
+            plan          = plan,
+            show_progress = False,
+            confirm_cost  = confirm_cost,
+        )
+
     assert result.cv_config["n_fits"] == 6
     assert "(60 fits in all)" in result.explanation
+
+
+def test_backtest_CostNotConfirmedError_when_confirm_cost_is_another_figure():
+    """
+    Test that backtest() above the threshold raises CostNotConfirmedError
+    when `confirm_cost` is a figure other than that of its cost: 59, given
+    for another strategy, does not confirm 60 estimator fits.
+    """
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10, forecaster="ForecasterDirect")
+    cv = TimeSeriesFold(steps=10, initial_train_size=40, refit=True, verbose=False)
+
+    err_msg = re.escape(
+        "`confirm_cost=59` does not confirm it: the figure of this cost is 60, "
+        "so the strategy or the plan changed since that number was given."
+    )
+    with pytest.raises(CostNotConfirmedError, match=f"{err_msg}$") as exc_info:
+        assistant.backtest(
+            data          = df_single,
+            cv            = cv,
+            profile       = profile,
+            plan          = plan,
+            show_progress = False,
+            confirm_cost  = 59,
+        )
+
+    assert exc_info.value.figure == 60
+
+
+@pytest.mark.parametrize("confirm_cost", [False, 7], ids=["false", "figure"])
+def test_backtest_ignores_confirm_cost_below_threshold(confirm_cost):
+    """
+    Test that backtest() at or below the threshold runs whatever
+    `confirm_cost` says, also a figure that is not its cost: a
+    ForecasterRecursive refitted in each of 6 folds fits 6 estimators.
+    """
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+    cv = TimeSeriesFold(steps=10, initial_train_size=40, refit=True, verbose=False)
+
+    result = assistant.backtest(
+        data          = df_single,
+        cv            = cv,
+        profile       = profile,
+        plan          = plan,
+        show_progress = False,
+        confirm_cost  = confirm_cost,
+    )
+
+    assert result.cv_config["n_fits"] == 6
+
+
+@pytest.mark.parametrize(
+    "confirm_cost, error, err_msg",
+    [
+        (
+            "60",
+            InvalidInputTypeError,
+            "`confirm_cost` must be True, False or the integer figure of the "
+            "cost, got str.",
+        ),
+        (
+            60.0,
+            InvalidInputTypeError,
+            "`confirm_cost` must be True, False or the integer figure of the "
+            "cost, got float.",
+        ),
+        (
+            -1,
+            InvalidInputError,
+            "`confirm_cost` must be True, False or the integer figure of the "
+            "cost (0 or more), got -1.",
+        ),
+    ],
+    ids=["text", "float", "negative"],
+)
+def test_backtest_InvalidInputError_when_confirm_cost_is_not_valid(
+    confirm_cost, error, err_msg
+):
+    """
+    Test that backtest() rejects a `confirm_cost` that is neither a bool nor
+    an integer of at least 0 before anything else, also below the
+    threshold.
+    """
+    with pytest.raises(error, match=re.escape(err_msg)) as exc_info:
+        assistant.backtest(
+            data          = df_single,
+            cv            = TimeSeriesFold(steps=10, initial_train_size=40),
+            target        = "sales",
+            date_column   = "date",
+            show_progress = False,
+            confirm_cost  = confirm_cost,
+        )
+
+    assert exc_info.value.field == "confirm_cost"
 
 
 def test_backtest_output_when_single_series():
@@ -411,15 +549,53 @@ def test_backtest_InvalidInputError_when_foundation_backend_not_installed(
     )
 
 
-def test_backtest_LongTrainingWarning_when_foundation_inference_windows_exceed_threshold(
+def test_backtest_CostNotConfirmedError_when_foundation_inference_windows_exceed_threshold(
     monkeypatch,
 ):
     """
     Test that backtest() of a ForecasterFoundation plan, which fits no
-    estimator, warns before running when its inference windows (series
-    times folds) exceed the threshold (lowered to 3 here, 2000 by default),
-    and states them in `cv_config`. The warning comes before the check of
-    the backend, which then fails here because it is not installed.
+    estimator, raises CostNotConfirmedError before running when its
+    inference windows (series times folds) exceed the threshold (lowered to
+    3 here, 2000 by default): the figure that confirms it is the number of
+    windows. The backend is reported installed, so nothing is downloaded.
+    """
+    monkeypatch.setattr("skforecast_ai._utils.LONG_INFERENCE_WINDOWS", 3)
+    monkeypatch.setattr(
+        "skforecast_ai._foundation.foundation_backend_installed", lambda info: True
+    )
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, forecaster="ForecasterFoundation")
+    cv = TimeSeriesFold(steps=5, initial_train_size=70, verbose=False)
+
+    err_msg = re.escape(
+        "This backtest is above the threshold of an expensive run (50 estimator "
+        "fits or 3 inference windows), so it needs a confirmation and nothing "
+        "ran. ForecasterFoundation will forecast up to 6 inference windows (1 "
+        "series x 6 folds). It can take substantial amounts of time. If not "
+        "feasible, use fewer folds (a later `initial_train_size`, a larger "
+        "`fold_stride` or `skip_folds`) or fewer series."
+    )
+    with pytest.raises(CostNotConfirmedError, match=f"^{err_msg}$") as exc_info:
+        assistant.backtest(
+            data          = df_no_exog,
+            cv            = cv,
+            profile       = profile,
+            plan          = plan,
+            show_progress = False,
+        )
+
+    assert exc_info.value.figure == 6
+    assert exc_info.value.cost == {
+        "n_folds": 6, "n_fits": 0, "estimator_fits": 0, "inference_windows": 6
+    }
+
+
+def test_backtest_missing_dependency_before_the_cost_is_checked(monkeypatch):
+    """
+    Test that backtest() of a ForecasterFoundation plan above the threshold
+    of inference windows (lowered to 3) whose backend is not installed
+    raises `missing_dependency`, not CostNotConfirmedError: a run that would
+    fail does not ask first for a confirmation of its cost.
     """
     monkeypatch.setattr("skforecast_ai._utils.LONG_INFERENCE_WINDOWS", 3)
     monkeypatch.setattr(
@@ -429,21 +605,18 @@ def test_backtest_LongTrainingWarning_when_foundation_inference_windows_exceed_t
     plan = assistant.plan(profile, steps=5, forecaster="ForecasterFoundation")
     cv = TimeSeriesFold(steps=5, initial_train_size=70, verbose=False)
 
-    warn_msg = re.escape(
-        "ForecasterFoundation will forecast up to 6 inference windows (1 series x 6 "
-        "folds), more than 3. This can take minutes on a CPU."
-    )
-    with pytest.warns(LongTrainingWarning, match=warn_msg):
-        with pytest.raises(
-            InvalidInputError, match=re.escape("chronos-forecasting")
-        ):
-            assistant.backtest(
-                data          = df_no_exog,
-                cv            = cv,
-                profile       = profile,
-                plan          = plan,
-                show_progress = False,
-            )
+    with pytest.raises(
+        InvalidInputError, match=re.escape("chronos-forecasting")
+    ) as exc_info:
+        assistant.backtest(
+            data          = df_no_exog,
+            cv            = cv,
+            profile       = profile,
+            plan          = plan,
+            show_progress = False,
+        )
+
+    assert exc_info.value.code == "missing_dependency"
 
 
 @pytest.mark.parametrize(
@@ -1485,41 +1658,38 @@ def test_backtest_output_when_plan_of_exog_columns_given_without_its_profile():
     assert result.profile.data_profile.unused_columns == ["weekday"]
 
 
-def test_backtest_LongTrainingWarning_counts_every_series_and_the_incomplete_fold(
+def test_backtest_CostNotConfirmedError_counts_every_series_and_the_incomplete_fold(
     monkeypatch,
 ):
     """
     Test that the inference windows of a ForecasterFoundation backtest count
     every series and the last fold when it is incomplete: 2 series over 7
     folds (30 test observations in steps of 5 from 68, the last one of 2)
-    are 14 windows, stated in the warning and in `cv_config`. The backend
-    is not installed here, so the backtest then fails.
+    are 14 windows, stated in the error and in `cv_config`.
     """
     monkeypatch.setattr("skforecast_ai._utils.LONG_INFERENCE_WINDOWS", 13)
     monkeypatch.setattr(
-        "skforecast_ai._foundation.foundation_backend_installed", lambda info: False
+        "skforecast_ai._foundation.foundation_backend_installed", lambda info: True
     )
     targets = ["series_a", "series_b"]
     profile = assistant.profile(data=df_multi_wide, target=targets, date_column="date")
     plan = assistant.plan(profile, steps=5, forecaster="ForecasterFoundation")
     cv = TimeSeriesFold(steps=5, initial_train_size=68, verbose=False)
 
-    warn_msg = re.escape(
+    err_msg = re.escape(
         "ForecasterFoundation will forecast up to 14 inference windows (2 series "
-        "x 7 folds), more than 13."
+        "x 7 folds)."
     )
-    with pytest.warns(LongTrainingWarning, match=warn_msg):
-        with pytest.raises(
-            InvalidInputError, match=re.escape("chronos-forecasting")
-        ):
-            assistant.backtest(
-                data          = df_multi_wide,
-                cv            = cv,
-                profile       = profile,
-                plan          = plan,
-                show_progress = False,
-            )
+    with pytest.raises(CostNotConfirmedError, match=err_msg) as exc_info:
+        assistant.backtest(
+            data          = df_multi_wide,
+            cv            = cv,
+            profile       = profile,
+            plan          = plan,
+            show_progress = False,
+        )
 
+    assert exc_info.value.figure == 14
     assert assistant.create_cv(
         profile, plan, initial_train_size=68
     ).cv_config["inference_windows"] == 14

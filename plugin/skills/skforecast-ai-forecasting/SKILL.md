@@ -61,16 +61,17 @@ candidates).
    ran, which one the rules recommend and why it was changed.
 4. `create_cv(plan_id, ...)`: the backtesting strategy. Read `cost` before
    running anything; above 50 estimator fits (2000 inference windows for a
-   foundation model) it already carries the `LongTrainingWarning` the
-   backtest would emit. A notice says when a
+   foundation model) a `CostNotice` gives the number that `confirm_cost`
+   of `backtest` (or of `compare` without `candidates`) needs once the user
+   chose that run (see Cost). A notice says when a
    `backtest` of its plan would fail (a direct forecaster with `gap`, or
    a first training window shorter than the forecaster needs): change
    the strategy as the notice says before running it.
-5. `backtest(cv_id, plan_id?)`: the accuracy of the plan of the strategy
-   over its folds. `plan_id` backtests another plan of the same profile on
-   the same folds.
-6. Optionally `compare(cv_id, candidates?)`: several configurations on the
-   same folds, ranked by its `metric`, else by the metric chosen for the
+5. `backtest(cv_id, plan_id?, confirm_cost?)`: the accuracy of the plan
+   of the strategy over its folds. `plan_id` backtests another plan of the
+   same profile on the same folds.
+6. Optionally `compare(cv_id, candidates?, confirm_cost?)`: several
+   configurations on the same folds, ranked by its `metric`, else by the metric chosen for the
    plan of the strategy, else by the one selected from the data, with a
    seasonal naive baseline. `links.best_plan_id` is the plan of the winner. Without
    `candidates` it runs the forecasters the profile recommends for the
@@ -164,26 +165,34 @@ than the plan (with `refit=true`, ForecasterDirect fits one estimator per
 step and fold; with many series, the foundation model forecasts each one in
 each fold); a `CompareCostNotice` says so (for a foundation plan, its own
 `LongTrainingWarning` notice says it instead). `inference_windows` is an
-upper bound: a series without data in a fold is not forecast in it. Above
-50 estimator fits, or 2000 inference windows (for a `compare`, all its
-candidates together), a run gets a `LongTrainingWarning` notice and can
-take minutes on a CPU; `compare` without `candidates` leaves out the
-candidates above 500 estimator fits, never the recommended forecaster
-nor the plan of the strategy. With `candidates`, no tool gives the total
-before the run, and the `LongTrainingWarning` of `compare` (with the total
-and what each candidate adds) comes in its response: each candidate costs
-what `create_cv` gives for a plan of its forecaster with the same
-arguments. Before an expensive run (a `backtest` or a `compare` above those
-thresholds), stop and do not run it: tell the user the number of fits and
-the cheaper strategies the `CostNotice` names. They are only those that
-lower that cost: an integer `refit` (retrain every n folds) or
-`refit=false` (train once) do nothing for ForecasterStats (refitted in
-every fold) nor for a foundation model (never trained), nor once the
-strategy trains once; fewer folds (a larger `fold_stride`, a later
-`initial_train_size` or `skip_folds`, which ForecasterStats does not
-allow) and, for a foundation model, fewer series. Run the expensive one
-only when the user chooses it in so many words: asking to retrain
-regularly is not that choice.
+upper bound: a series without data in a fold is not forecast in it.
+`compare` without `candidates` leaves out the candidates above 500
+estimator fits, never the recommended forecaster nor the plan of the
+strategy.
+
+Above 50 estimator fits, or 2000 inference windows (for a `compare`, all
+its candidates together), a run is expensive and can take minutes on a
+CPU: `backtest` and `compare` refuse it, before anything runs, unless
+`confirm_cost` is the number of its cost (its estimator fits, or its
+inference windows when only those are above). `create_cv` gives that
+number for its plan and for a `compare` without `candidates`, in `cost`
+and in its `CostNotice`. With `candidates`, call `compare` without
+`confirm_cost`: below the thresholds it runs, and above them its error
+(`invalid_argument` on `confirm_cost`) gives the total, what each
+candidate adds and the number (a candidate whose plan cannot be built
+runs nothing and is not counted). A number given for another strategy,
+plan or candidates is refused the same way, with the new one. Before an
+expensive run, stop and do not run it: tell the user the number of fits
+and the cheaper strategies the `CostNotice` or the error names. They are
+only those that lower that cost: an integer `refit` (retrain every n
+folds) or `refit=false` (train once) do nothing for ForecasterStats
+(refitted in every fold) nor for a foundation model (never trained), nor
+once the strategy trains once; fewer folds (a larger `fold_stride`, a
+later `initial_train_size` or `skip_folds`, which ForecasterStats does
+not allow) and, for a foundation model, fewer series. Run the expensive one,
+with `confirm_cost`, only when the user chooses it in so many words:
+asking to retrain regularly is not that choice, and never pass
+`confirm_cost` before you asked.
 
 Progress and cancellation: `compare` reports when each candidate starts
 and ends, and any long call (a backtest, a forecast, a candidate) sends a
@@ -312,7 +321,7 @@ and follow `hint` when there is one:
 
 | code | What to do |
 |---|---|
-| `invalid_argument` | Fix the argument named in `field`, as the message says. |
+| `invalid_argument` | Fix the argument named in `field`, as the message says. On `confirm_cost` nothing is wrong: the run is expensive, so ask the user first (see Cost). |
 | `insufficient_data` | Ask for less, as the message says: a shorter horizon, fewer lags, or a first training set that leaves room for the folds (smaller) or for the window of the forecaster (a later `initial_train_size`). A target column without any value, or a series too short for the forecaster (the message names it), is also reported this way. |
 | `data_not_found`, `invalid_path`, `url_not_allowed` | Pass the absolute path of a CSV file (`.csv`, `.tsv`, `.csv.gz` or `.tsv.gz`) inside the allowed directory. |
 | `path_not_allowed` | The file is outside the allowed directory (`details.allowed_dir`). Do not copy or move it yourself: tell the user, who can copy it there or restart the server with another `--allow-dir`. |

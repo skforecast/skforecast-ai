@@ -22,6 +22,7 @@ PUBLIC_NAMES = {
     "CompareProgress": "skforecast_ai.schemas",
     "ComparisonResult": "skforecast_ai.schemas",
     "CVResult": "skforecast_ai.schemas",
+    "CostNotConfirmedError": "skforecast_ai.exceptions",
     "DataContentError": "skforecast_ai.exceptions",
     "DataNotFoundError": "skforecast_ai.exceptions",
     "DataProfile": "skforecast_ai.schemas",

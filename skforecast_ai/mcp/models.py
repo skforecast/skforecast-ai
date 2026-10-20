@@ -405,10 +405,14 @@ class ToolResult(BaseModel):
         0 for the other forecasters). For a comparison, `n_folds` is that
         of the shared strategy and the other three are totals over all its
         candidates, the baseline included, counted before they run (a
-        candidate that fails counts too). A cross-validation strategy also
-        has `compare_estimator_fits` and `compare_inference_windows`, those
-        of a comparison without candidates with it. None for the other
-        kinds.
+        candidate that fails while it runs counts too; one whose plan
+        cannot be built runs nothing and does not). A cross-validation
+        strategy also has `compare_estimator_fits` and
+        `compare_inference_windows`, those of a comparison without
+        candidates with it. Above 50 estimator fits, or 2000 inference
+        windows, `backtest` and `compare` run only with `confirm_cost` set
+        to the estimator fits (the inference windows, when only those are
+        above). None for the other kinds.
     changeable : list of str
         Arguments of `refine_plan` (for a plan) or of `create_cv` (for a
         cross-validation strategy) that build a variant of the object.

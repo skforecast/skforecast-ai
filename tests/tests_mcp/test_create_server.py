@@ -341,6 +341,7 @@ def test_create_server_instructions_carry_the_rules_that_fail_most(tmp_path):
         "does not give",
         "stop: tell the user the number of fits and the cheaper strategies",
         "run the expensive one only if they choose it",
+        "passing that number as `confirm_cost`",
         "Report what was measured, never why",
         "The server does not search hyperparameters (it compares the "
         "candidates you list), detect anomalies or select features",

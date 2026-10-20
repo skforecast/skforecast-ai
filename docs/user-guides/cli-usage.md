@@ -179,6 +179,14 @@ skforecast-ai compare "$DATA" --target y --date-column fecha --steps 12 --no-bas
 
 `compare` also takes the cross-validation options of `backtest`.
 
+An expensive run stops before it starts: a `backtest` that fits more than 50 estimators (a direct forecaster fits one per step in every training, so `--refit` multiplies them by the folds), or a foundation model that forecasts more than 2000 inference windows (one per series and fold), exits with code 1 and an error that states the cost and the cheaper strategies. For `compare`, the thresholds apply to all its candidates together, the baseline included. `--confirm-cost` runs it as it is; below the thresholds it changes nothing.
+
+```bash
+# A direct forecaster refitted in every fold: 12 estimators per training
+skforecast-ai backtest "$DATA" --target y --date-column fecha --steps 12 \
+  --forecaster ForecasterDirect --refit --confirm-cost
+```
+
 ---
 
 ## Save, reuse and chain

@@ -154,16 +154,17 @@ MAX_UNTABULATED_ARIMA_PERIOD = 12
 # fits one estimator per step). Counting fits instead of timing a trial fold
 # keeps the decision exact, known before running and reproducible.
 # `LONG_TRAINING_FITS` is the threshold of skforecast's LongTrainingWarning,
-# which the generated scripts silence with `suppress_warnings=True`, so the
-# assistant warns itself before running. `COMPARE_FIT_BUDGET` is the most a
-# candidate chosen automatically by `compare()` may cost.
+# which the generated scripts silence with `suppress_warnings=True`: above it
+# `backtest()` and `compare()` stop before running until `confirm_cost`
+# confirms the run, since a warning does not stop it. `COMPARE_FIT_BUDGET` is
+# the most a candidate chosen automatically by `compare()` may cost.
 LONG_TRAINING_FITS = 50
 COMPARE_FIT_BUDGET = 500
 
 # Backtesting cost of a foundation model, counted in inference windows: it
 # is never trained, so it loads its weights once and forecasts each series
-# in each fold. Above `LONG_INFERENCE_WINDOWS` the assistant warns with
-# LongTrainingWarning: about a minute of inference with Chronos-2 small on
+# in each fold. Above `LONG_INFERENCE_WINDOWS` a run needs `confirm_cost`, as
+# above `LONG_TRAINING_FITS`: about a minute of inference with Chronos-2 small on
 # a 4-core CPU (about 27 ms per window, `tools/perf/foundation_cost.py`),
 # and about 7 s on a laptop GPU. Kept low on purpose: it protects the
 # machine without a GPU, and `amazon/chronos-2` takes 3.5 times longer.

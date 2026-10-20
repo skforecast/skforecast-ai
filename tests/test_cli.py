@@ -1376,6 +1376,77 @@ class TestRefinePlanAuto:
 class TestBacktest:
     """Tests for the `backtest` CLI command."""
 
+    # A ForecasterDirect refitted in each of 6 folds: 60 estimator fits.
+    _expensive = ["--steps", "10", "--forecaster", "ForecasterDirect",
+                  "--initial-train-size", "40", "--refit"]
+
+    def test_backtest_stops_with_the_cost_without_confirm_cost(self, tmp_path):
+        """
+        An expensive backtest exits with code 1 before running: the error
+        states its cost and the tip names `--confirm-cost`, not the argument
+        of the Python API.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["backtest", csv_path, "--target", "sales", "--date-column", "date",
+             *self._expensive, "--quiet"],
+        )
+        stderr = " ".join(result.stderr.split())
+        assert result.exit_code == 1
+        assert result.stdout == ""
+        assert (
+            "Error: This backtest is above the threshold of an expensive run (50 "
+            "estimator fits or 2000 inference windows), so it needs a "
+            "confirmation and nothing ran. ForecasterDirect will be fit 60 times "
+            "(6 trainings x 10 estimators)."
+        ) in stderr
+        assert stderr.endswith("Tip: Pass --confirm-cost to run it as it is.")
+
+    def test_backtest_json_error_of_the_cost_names_the_option(self, tmp_path):
+        """
+        With --format json the error of an expensive backtest is
+        `invalid_argument` on `confirm_cost`, with the hint of the CLI.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["backtest", csv_path, "--target", "sales", "--date-column", "date",
+             *self._expensive, "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 1
+        error = json.loads(result.stderr)["error"]
+        assert error["code"] == "invalid_argument"
+        assert error["field"] == "confirm_cost"
+        assert error["hint"] == "Pass --confirm-cost to run it as it is."
+        assert "ForecasterDirect will be fit 60 times" in error["message"]
+
+    def test_backtest_runs_with_confirm_cost(self, tmp_path):
+        """
+        `--confirm-cost` runs the expensive backtest as it is.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["backtest", csv_path, "--target", "sales", "--date-column", "date",
+             *self._expensive, "--confirm-cost", "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout)["cv_config"]["n_fits"] == 6
+
+    def test_backtest_below_threshold_ignores_confirm_cost(self, tmp_path):
+        """
+        Below the threshold `--confirm-cost` changes nothing: the output is
+        the same with and without it.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        base = ["backtest", csv_path, "--target", "sales", "--date-column", "date",
+                "--steps", "5", "--format", "json", "--quiet"]
+        without = runner.invoke(app, base)
+        with_flag = runner.invoke(app, [*base, "--confirm-cost"])
+        assert without.exit_code == with_flag.exit_code == 0
+        assert json.loads(without.stdout) == json.loads(with_flag.stdout)
+
     def test_backtest_basic(self, tmp_path):
         """
         Backtest command prints metrics table and CV configuration.
@@ -1577,6 +1648,32 @@ class TestCompare:
         '"lags": [1, 2, 3]}]]'
     )
 
+    def test_compare_stops_with_the_cost_and_runs_with_confirm_cost(self, tmp_path):
+        """
+        A comparison whose candidates fit more than 50 estimators together
+        (two ForecasterDirect of 36 and a ForecasterRecursive of 6, plus the
+        baseline) exits with code 1 and the total before running, and runs
+        with `--confirm-cost`.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        candidates = (
+            '[["dir_a", {"forecaster": "ForecasterDirect", "lags": 3}], '
+            '["dir_b", {"forecaster": "ForecasterDirect", "lags": 2}], '
+            '["rec", {"forecaster": "ForecasterRecursive"}]]'
+        )
+        base = ["compare", csv_path, "--target", "sales", "--date-column", "date",
+                "--steps", "6", "--initial-train-size", "64", "--refit",
+                "--candidates", candidates, "--format", "json", "--quiet"]
+        stopped = runner.invoke(app, base)
+        confirmed = runner.invoke(app, [*base, "--confirm-cost"])
+        assert stopped.exit_code == 1
+        error = json.loads(stopped.stderr)["error"]
+        assert error["field"] == "confirm_cost"
+        assert error["hint"] == "Pass --confirm-cost to run it as it is."
+        assert "The comparison will fit 78 estimators in all" in error["message"]
+        assert confirmed.exit_code == 0, confirmed.output
+        assert len(json.loads(confirmed.stdout)["results"]) == 4
+
     def test_compare_basic(self, tmp_path):
         """
         Compare command prints the leaderboard and CV configuration.
@@ -1756,15 +1853,15 @@ class TestWarningsToStderr:
             result = runner.invoke(
                 app,
                 ["backtest", csv_path, "--target", "sales", "--date-column", "date",
-                 "--steps", "1", "--initial-train-size", "40", "--refit",
+                 "--steps", "1", "--initial-train-size", "40", "--fixed-train-size",
                  "--format", "json", "--quiet"],
             )
             handler_after = warnings.showwarning
         assert result.exit_code == 0, result.output
         payload = json.loads(result.stdout)
         assert "metrics" in payload
-        assert "LongTrainingWarning" in result.stderr
-        assert "LongTrainingWarning" not in result.stdout
+        assert "IgnoredArgumentWarning" in result.stderr
+        assert "IgnoredArgumentWarning" not in result.stdout
         assert handler_after is rich_warning_handler
 
     def test_backtest_json_stdout_parseable_in_a_new_interpreter(self, tmp_path):
@@ -1778,15 +1875,15 @@ class TestWarningsToStderr:
         proc = subprocess.run(
             [sys.executable, "-W", "always", "-m", "skforecast_ai.cli",
              "backtest", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "1", "--initial-train-size", "40", "--refit",
+             "--steps", "1", "--initial-train-size", "40", "--fixed-train-size",
              "--format", "json", "--quiet"],
             capture_output=True, text=True, timeout=300, cwd=tmp_path,
         )
         assert proc.returncode == 0, proc.stderr[-2000:]
         payload = json.loads(proc.stdout)
         assert "metrics" in payload
-        assert "LongTrainingWarning" in proc.stderr
-        assert "LongTrainingWarning" not in proc.stdout
+        assert "IgnoredArgumentWarning" in proc.stderr
+        assert "IgnoredArgumentWarning" not in proc.stdout
 
     def test_showwarning_to_stderr_keeps_explicit_file(self, capsys):
         """
