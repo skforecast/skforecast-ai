@@ -1125,9 +1125,11 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     automatización silenciosa, y la ejecución no se degrada a otra).
   - `confirm_cost: bool | int = False` en `backtest()` y `compare()`: True
     confirma cualquier coste; un entero, solo esa cifra. El servidor pasa
-    la cifra del agente al núcleo, que hace la comprobación una sola vez,
-    después de todas las demás (un backtest que va a fallar no pide antes
-    confirmación) y antes de ejecutar nada. La CLI pasa True con
+    la cifra del agente al núcleo, que hace la comprobación una sola vez y
+    antes de ejecutar nada: en `backtest()`, después de todas las demás (un
+    backtest que va a fallar no pide antes confirmación); en `compare()`,
+    una vez construidos los planes (las comprobaciones del backtest de cada
+    candidato van después, y un candidato que falla ahí cuenta). La CLI pasa True con
     `--confirm-cost`, y el tip del error nombra la opción.
   - La cifra es la de ajustes de estimador; la de ventanas de inferencia
     cuando solo esas pasan su umbral (un fundacional tiene 0 ajustes). Con
