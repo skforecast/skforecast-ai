@@ -21,6 +21,7 @@ from rich.table import Table
 from pydantic import ValidationError
 
 from . import __version__
+from ._constants import LONG_INFERENCE_WINDOWS, LONG_TRAINING_FITS
 from .config import (
     CONFIG_FILE,
     VALID_KEYS,
@@ -92,7 +93,7 @@ ApiKeyOption = Annotated[str | None, typer.Option("--api-key", help="API key for
 OutputOption = Annotated[Path | None, typer.Option("--output", "-o", help="Write output to file.")]
 OutputPredictionsOption = Annotated[Path | None, typer.Option("--output-predictions", help="Save predictions as CSV.")]
 QuietOption = Annotated[bool, typer.Option("--quiet", "-q", help="Suppress spinners.")]
-ConfirmCostOption = Annotated[bool, typer.Option("--confirm-cost", help="Run it although it is an expensive run: above 50 estimator fits, or 2000 inference windows of a foundation model (for compare, all the candidates together). Without it, such a run stops with its cost before anything runs.")]
+ConfirmCostOption = Annotated[bool, typer.Option("--confirm-cost", help=f"Run it although it is an expensive run: above {LONG_TRAINING_FITS} estimator fits, or {LONG_INFERENCE_WINDOWS} inference windows of a foundation model (for compare, all the candidates together). Without it, such a run stops with its cost before anything runs.")]
 TableFormatOption = Annotated[Literal["table", "json"], typer.Option("--format", help="Output format: table or json.")]
 CodeFormatOption = Annotated[Literal["code", "json"], typer.Option("--format", help="Output format: code or json.")]
 TextFormatOption = Annotated[Literal["text", "json"], typer.Option("--format", help="Output format: text or json.")]

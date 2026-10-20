@@ -1,7 +1,7 @@
 """
 Time of a backtest of a foundation model by number of inference windows
-(series times folds), to set the threshold of its `LongTrainingWarning`
-(`LONG_INFERENCE_WINDOWS`). Measured for 0.4.0: the results are in
+(series times folds), to set the threshold of an expensive run
+(`LONG_INFERENCE_WINDOWS`), above which `backtest()` needs `confirm_cost`. Measured for 0.4.0: the results are in
 `results/phase7_*`.
 
 A foundation model is never trained: its cost is the load of the weights,
@@ -86,8 +86,10 @@ def _backtest(data: pd.DataFrame, n_folds: int, model: str | None) -> dict:
             steps=STEPS, initial_train_size=n_dates - n_folds * STEPS
         )
         start = time.perf_counter()
+        # The cells above the threshold are the ones measured on purpose.
         result = assistant.backtest(
-            data, cv=cv, profile=profile, plan=plan, show_progress=False
+            data, cv=cv, profile=profile, plan=plan, show_progress=False,
+            confirm_cost=True,
         )
         seconds = time.perf_counter() - start
     return {

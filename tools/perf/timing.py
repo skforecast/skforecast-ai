@@ -280,11 +280,13 @@ def api_calls(scenario: Scenario) -> dict[str, Callable[[], Any]]:
         "forecast_test_size": lambda: assistant.forecast(
             data, steps=steps, test_size=steps, **arguments
         ),
+        # The large scenarios are expensive runs, timed on purpose.
         "backtest": lambda: assistant.backtest(
-            data, cv=cv, profile=profile, plan=plan, show_progress=False
+            data, cv=cv, profile=profile, plan=plan, show_progress=False,
+            confirm_cost=True,
         ),
         "compare": lambda: assistant.compare(
-            data, cv=cv, profile=profile, show_progress=False
+            data, cv=cv, profile=profile, show_progress=False, confirm_cost=True
         ),
     }
 

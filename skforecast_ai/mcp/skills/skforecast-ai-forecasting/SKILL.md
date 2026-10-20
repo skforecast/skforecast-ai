@@ -71,9 +71,9 @@ candidates).
    of the strategy over its folds. `plan_id` backtests another plan of the
    same profile on the same folds.
 6. Optionally `compare(cv_id, candidates?, confirm_cost?)`: several
-   configurations on the same folds, ranked by its `metric`, else by the metric chosen for the
-   plan of the strategy, else by the one selected from the data, with a
-   seasonal naive baseline. `links.best_plan_id` is the plan of the winner. Without
+   configurations on the same folds, ranked by its `metric`, else by the
+   metric chosen for the plan of the strategy, else by the one selected
+   from the data, with a seasonal naive baseline. `links.best_plan_id` is the plan of the winner. Without
    `candidates` it runs the forecasters the profile recommends for the
    family of the data (with several series, ForecasterRecursiveMultiSeries
    and ForecasterFoundation), or the estimators of the recommended

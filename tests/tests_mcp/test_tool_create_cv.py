@@ -214,9 +214,11 @@ def test_tool_create_cv_no_cost_notice_at_the_threshold(tmp_path, monkeypatch):
     """
     server, _, _, plan_id = _planned(tmp_path, steps=12)
 
-    monkeypatch.setattr("skforecast_ai.mcp.server.LONG_TRAINING_FITS", 19)
+    for module in ("skforecast_ai.mcp.server", "skforecast_ai._utils"):
+        monkeypatch.setattr(f"{module}.LONG_TRAINING_FITS", 19)
     at_threshold = content_of(call(server, "create_cv", {"plan_id": plan_id}))
-    monkeypatch.setattr("skforecast_ai.mcp.server.LONG_TRAINING_FITS", 18)
+    for module in ("skforecast_ai.mcp.server", "skforecast_ai._utils"):
+        monkeypatch.setattr(f"{module}.LONG_TRAINING_FITS", 18)
     above = content_of(call(server, "create_cv", {"plan_id": plan_id}))
 
     assert at_threshold["cost"]["compare_estimator_fits"] == 19
@@ -229,7 +231,10 @@ def test_tool_create_cv_no_cost_notice_at_the_threshold(tmp_path, monkeypatch):
         "19 estimators (an expensive run is one above 18 estimator fits"
     )
     assert above["notices"][0]["message"].endswith(
-        "`backtest` of this plan is below the thresholds and can run."
+        "passing `confirm_cost: 19` to `compare` without `candidates`: without "
+        "that number the run is refused. Asking to retrain the model, or to "
+        "evaluate it as in production, is not that choice. `backtest` of this "
+        "plan is below the thresholds and can run."
     )
 
 

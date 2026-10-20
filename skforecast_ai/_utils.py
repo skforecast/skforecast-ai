@@ -14,7 +14,7 @@ from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 import numpy as np
 import pandas as pd
 from pydantic import BaseModel
@@ -3029,11 +3029,21 @@ def expensive_run_figure(estimator_fits: int, inference_windows: int) -> int | N
     return None
 
 
-def changed_since(run: str) -> str:
+def changed_since(run: Literal["backtest", "comparison"]) -> str:
     """
     Name what changes the cost of a run, for the message of a confirmation
-    given for another cost: `'the strategy or the plan'` of a backtest,
-    `'the strategy or the candidates'` of a comparison.
+    given for another cost.
+
+    Parameters
+    ----------
+    run : {'backtest', 'comparison'}
+        What runs.
+
+    Returns
+    -------
+    text : str
+        `'the strategy or the plan'` of a backtest, `'the strategy or the
+        candidates'` of a comparison.
     """
 
     return "the strategy or the candidates" if run == "comparison" else (
@@ -3043,7 +3053,7 @@ def changed_since(run: str) -> str:
 
 def check_cost_confirmed(
     confirm_cost: bool | int,
-    run: str,
+    run: Literal["backtest", "comparison"],
     cost: dict[str, int],
     description: str,
     remedies: str,
@@ -3063,9 +3073,8 @@ def check_cost_confirmed(
     ----------
     confirm_cost : bool, int
         Confirmation passed by the caller, see `validate_confirm_cost`.
-    run : str
-        What runs, as the message names it: `'backtest'` or
-        `'comparison'`.
+    run : {'backtest', 'comparison'}
+        What runs, as the message names it.
     cost : dict
         `n_folds`, `n_fits`, `estimator_fits` and `inference_windows` of
         the run.

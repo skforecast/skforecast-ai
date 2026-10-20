@@ -544,7 +544,7 @@ def _cost_notices(
     ForecasterStats nor for a foundation model, nor once the strategy
     trains once; and says how to run it once the user chose it: `backtest`
     and `compare` refuse a run above the thresholds without `confirm_cost`
-    set to the number of its cost.
+    set to the number of its cost (`expensive_run_figure`).
 
     Parameters
     ----------
@@ -570,7 +570,12 @@ def _cost_notices(
         below the thresholds.
     """
 
-    from .._utils import comparison_remedies, cost_remedies, join_remedies
+    from .._utils import (
+        comparison_remedies,
+        cost_remedies,
+        expensive_run_figure,
+        join_remedies,
+    )
 
     backtest_parts = []
     if cost["estimator_fits"] > LONG_TRAINING_FITS:
@@ -592,8 +597,7 @@ def _cost_notices(
     runs = []
     cheaper = []
     # The number each run is confirmed with, which the agent repeats once
-    # the user chose that run: its estimator fits, or its inference windows
-    # when only those are above (`expensive_run_figure`).
+    # the user chose that run: the one the core asks for.
     confirm = []
     if backtest_parts:
         runs.append(f"`backtest` {' and '.join(backtest_parts)}")
@@ -607,10 +611,7 @@ def _cost_notices(
             f"for `backtest`, {join_remedies(remedies)}" if compare_parts
             else join_remedies(remedies)
         )
-        figure = (
-            cost["estimator_fits"] if cost["estimator_fits"] > LONG_TRAINING_FITS
-            else cost["inference_windows"]
-        )
+        figure = expensive_run_figure(cost["estimator_fits"], cost["inference_windows"])
         confirm.append(f"`confirm_cost: {figure}` to `backtest`")
     if compare_parts:
         runs.append(
@@ -625,10 +626,8 @@ def _cost_notices(
         cheaper.append(
             f"for `compare`, {join_remedies(['a list of `candidates`', *remedies])}"
         )
-        figure = (
-            cost["compare_estimator_fits"]
-            if cost["compare_estimator_fits"] > LONG_TRAINING_FITS
-            else cost["compare_inference_windows"]
+        figure = expensive_run_figure(
+            cost["compare_estimator_fits"], cost["compare_inference_windows"]
         )
         confirm.append(f"`confirm_cost: {figure}` to `compare` without `candidates`")
     message = (
@@ -2409,8 +2408,9 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 allow_incomplete_fold = allow_incomplete_fold,
             )
             cost = _cost(result.cv_config, result.plan.forecaster, result.plan.steps)
-            # The warning a backtest of this strategy will emit, given now,
-            # when the strategy can still change.
+            # The cost of a backtest of this strategy above the thresholds,
+            # given now, when the strategy can still change: `backtest` then
+            # refuses to run it until it is confirmed.
             warn_long_training(
                 estimator_fits = cost["estimator_fits"],
                 n_fits         = cost["n_fits"],
