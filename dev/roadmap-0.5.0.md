@@ -194,9 +194,14 @@ Resultados incorrectos sin aviso, el peor tipo de fallo después de la fase 1.
     cuando la cobertura queda claramente por debajo. Las da el propio
     backtesting de skforecast 0.27
     ([#1409](https://github.com/skforecast/skforecast/issues/1409)): el
-    script no calcula nada propio, las lee de la salida. Espera a que #1409
-    esté en la rama `0.27.x` de skforecast. Los residuos fuera de muestra van
-    a la 0.6.0. *[script]* *[LLM]*
+    script no calcula nada propio, las lee de la salida. #1409 está en la
+    rama `0.27.x` desde el 2026-10-20
+    ([#1420](https://github.com/skforecast/skforecast/pull/1420)): con un
+    intervalo de dos límites, las métricas del backtest llevan `coverage` e
+    `interval_width` después de las pedidas, por serie y en las filas
+    agregadas, en los cuatro backtestings (`backtesting_stats` por
+    estimador). Los residuos fuera de muestra van a la 0.6.0. *[script]*
+    *[LLM]*
 - **2d. `target` como lista (V22, V23).** Con `series_id_column`, la columna
   de ids se descarta en silencio; con una columna repetida, se acepta como
   dos series. Rechazar con `field` el `series_id_column` que pasó el usuario
@@ -1129,7 +1134,7 @@ arranque de las sesiones en la nube instala skforecast desde su rama
 | [#1357](https://github.com/skforecast/skforecast/issues/1357) | Nombres de serie enteros (G02) | Nada que quitar: los ids como texto de 1b se quedan, porque conservan los ceros (`001`) | Resuelto en `0.27.x` ([#1412](https://github.com/skforecast/skforecast/pull/1412), 2026-10-18) |
 | [#1406](https://github.com/skforecast/skforecast/issues/1406) | Avisar de una serie que no se pronostica en ningún fold (G03), y, por un comentario de 2026-10-18 (D17), también de la que se descarta de un fold por un faltante en su última ventana | 2b se queda en la comprobación previa y el aviso del perfil: los scripts corren con `suppress_warnings=True` y fallar antes de ejecutar es mejor para un agente. Lo que no cubre la comprobación previa (una serie que falta solo en algunos folds) puede leerse del `MissingValuesWarning` nuevo de skforecast (ver 3f) | Resuelto en `0.27.x` ([#1415](https://github.com/skforecast/skforecast/pull/1415), 2026-10-19) |
 | [#1410](https://github.com/skforecast/skforecast/issues/1410) | Una serie con exactamente `window_size` observaciones en la ventana de entrenamiento de un fold multiserie (2b) | Nada: el backtest falla dentro del script con "must be greater than the maximum window size"; con el arreglo, la serie se descarta de ese fold como las más cortas, que es lo que ya supone la comprobación de 2b | Resuelto en `0.27.x` ([#1418](https://github.com/skforecast/skforecast/pull/1418), 2026-10-19) |
-| [#1409](https://github.com/skforecast/skforecast/issues/1409) | Cobertura y anchura del intervalo en las métricas del backtesting (D11) | 2c-ii las lee de la salida del backtesting, sin cálculo propio en el script | Abierto |
+| [#1409](https://github.com/skforecast/skforecast/issues/1409) | Cobertura y anchura del intervalo en las métricas del backtesting (D11) | 2c-ii las lee de la salida del backtesting, sin cálculo propio en el script | Resuelto en `0.27.x` ([#1420](https://github.com/skforecast/skforecast/pull/1420), 2026-10-20) |
 | [#1411](https://github.com/skforecast/skforecast/issues/1411) | El error "All samples have been removed due to NaNs" aconseja `dropna_from_series = False`, que falla con un estimador que no acepta faltantes (D17, #105) | Nada: la comprobación previa de 3a ya da el consejo que funciona antes de ejecutar; con el arreglo, el error de skforecast dentro de un script también lo dirá | Abierto |
 | Sin issue ([#1416](https://github.com/skforecast/skforecast/pull/1416)) | `ForecasterStats.predict_interval` ignoraba `interval` y devolvía siempre el intervalo del 95 % (`alpha=0.05` por defecto ganaba a `interval`) | Afectaba sin aviso a skforecast-ai 0.4.x: el script de un forecast de ForecasterStats con intervalo llama a `predict_interval(steps=..., interval=...)` sin `alpha`, así que un 80 % salía al 95 %. Nada que cambiar en el código; falta un test que lo fije (un intervalo `[10, 90]` de ForecasterStats más estrecho que el del 95 %, en el forecast y en el backtest) y una línea en las notas de la 0.5.0 al consolidar | Resuelto en `0.27.x` (2026-10-19) |
 | Sin issue | El skill `metric-selection` describía MAPE como "Percentage error" sin decir que sklearn devuelve una fracción (D16, #104) | Nada: corregido en la rama `0.27.x` de skforecast y sincronizado aquí (2026-10-18) | Hecho |

@@ -293,6 +293,8 @@ def test_run_backtest_baseline_returns_metrics_and_conformal_intervals():
     """
     Test that run_backtest runs the ForecasterEquivalentDate baseline with
     conformal intervals and returns one metrics row plus the predictions.
+    With an interval, skforecast 0.27 adds `coverage` and `interval_width`
+    after the requested metrics.
     """
     result = run_backtest(
         data           = df_single,
@@ -307,6 +309,8 @@ def test_run_backtest_baseline_returns_metrics_and_conformal_intervals():
         "mean_absolute_error",
         "mean_squared_error",
         "mean_absolute_scaled_error",
+        "coverage",
+        "interval_width",
     ]
     assert len(result["metrics"]) == 1
     assert {"pred", "lower_bound", "upper_bound"} <= set(result["predictions"].columns)
