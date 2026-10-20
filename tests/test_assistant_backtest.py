@@ -1833,7 +1833,10 @@ def test_backtest_output_when_stats_interval_80_is_narrower_than_95():
 
     assert width_80 < width_95
     np.testing.assert_allclose(width_80, width_95 * 1.2815516 / 1.9599640, rtol=1e-4)
+    # The width comes from the ARIMA fit, which differs between platforms
+    # (a relative 4.7e-5 on macOS arm): the tolerance of the ratio above.
     np.testing.assert_allclose(
         result_80.metrics[["coverage", "interval_width"]].to_numpy(),
         [[0.6296296296296297, 0.14161422207143617]],
+        rtol=1e-4,
     )

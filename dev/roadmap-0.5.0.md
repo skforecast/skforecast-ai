@@ -1151,6 +1151,14 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     razón de las anchuras es z(0.9) / z(0.975)), y la línea en las notas de
     la 0.5.0 va ya en esta PR. El check de pago de `check_ask_context.py`
     queda para la fase 7.
+  - Revisión (2026-10-20): basta el suelo de 5 puntos para la
+    autocorrelación de los pasos de un fold (`n` sigue contando
+    predicciones, no folds); no hace falta issue en skforecast para el `n`
+    exacto con valores reales que faltan; `forecast` con `test_size` se
+    queda sin cobertura; `compare` da un solo aviso que nombra los
+    candidatos, no uno por candidato. Los valores fijos que salen del
+    ajuste de un ARIMA se comparan con `rtol=1e-4` (la anchura difiere un
+    4.7e-5 relativo en macOS arm).
 
 ## Decisiones abiertas
 
