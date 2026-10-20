@@ -115,15 +115,15 @@ _SKILL_TOKEN_ESTIMATES: dict[str, int] = {
     "feature-selection": 1579,
     "forecasting-multiple-series": 1869,
     "forecasting-single-series": 1505,
-    "foundation-forecasting": 10130,
+    "foundation-forecasting": 10220,
     "hyperparameter-optimization": 5893,
-    "metric-selection": 5889,
-    "prediction-intervals": 4697,
+    "metric-selection": 6047,
+    "prediction-intervals": 4952,
     "statistical-models": 4264,
     "troubleshooting-common-errors": 2587,
 }
 
-_REFERENCE_TOKEN_ESTIMATE = 9123  # llms-base.txt measured size
+_REFERENCE_TOKEN_ESTIMATE = 9385  # llms-base.txt measured size
 
 # Derived from the prompt rather than hardcoded. A hardcoded figure has to
 # be re-measured by hand after every prompt edit, and silently understates
