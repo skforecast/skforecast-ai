@@ -29,7 +29,7 @@ The main changes in this release are:
     + `plan()` of wide-format data whose series start or end with missing values may choose another estimator: `DataProfile.n_total_observations` no longer counts those values. See **Changed**.
     + [<code>ForecastingAssistant.backtest()</code>][assistant] of ForecasterRecursiveMultiSeries raises `insufficient_data` for a series that no fold forecasts, which it left out before, and `invalid_argument` when its missing values are the cause. See **Fixed**.
     + `plan()` of a target that takes values at or around zero, also one that crosses it with negative values, leaves MAPE out of the default metrics and so of the generated script. Pass it in `metric` to compute it anyway. See **Fixed**.
-    + The `compare` tool of the MCP server reports in `cost.n_fits` the trainings of all its candidates instead of those of the shared strategy, and its `cost` counts the candidates that fail too. See **Fixed**.
+    + The `compare` tool of the MCP server reports in `cost.n_fits` the trainings of all its candidates instead of those of the shared strategy, and its `cost` counts the candidates that fail while running too. See **Fixed**.
 
     And some code needs to be updated:
 
@@ -50,6 +50,8 @@ The main changes in this release are:
 + New argument `confirm_cost` of [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` (`--confirm-cost` in the CLI, `confirm_cost` in the `backtest` and `compare` tools of the MCP server) and new error `CostNotConfirmedError`, raised before an expensive run that it does not confirm. See **Changed** and the [MCP server reference][mcp] ([#113](https://github.com/skforecast/skforecast-ai/pull/113)).
 
 + The `backtest` and `forecast` tools of the MCP server carry an `EstimatorNotRecommendedNotice` when the estimator of the plan was chosen instead of the one the rules recommend for its forecaster (after a `MissingValuesNotice`, say). It names both and asks the agent to tell the user. See [MCP server][mcp] ([#110](https://github.com/skforecast/skforecast-ai/pull/110)).
+
++ New `IntervalCoverageWarning` of [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` when the prediction interval covers clearly less than its nominal level in a series (more than two binomial standard errors and 5 points below it), naming the series or the candidates; an `IntervalCoverageNotice` in the MCP server. See [Exceptions][exceptions] ([#112](https://github.com/skforecast/skforecast-ai/pull/112)).
 
 + New option `--exog` of the `forecast-code` command of the [CLI][cli], so the script reads the future exogenous values from that file, as `forecast --exog` does, instead of `exog_future.csv`. See the [CLI guide][cli-guide] ([#99](https://github.com/skforecast/skforecast-ai/pull/99)).
 
@@ -79,6 +81,8 @@ The main changes in this release are:
 + [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` raise `CostNotConfirmedError` before an expensive run (above 50 estimator fits, or 2000 inference windows; for `compare()`, all its candidates together) instead of warning once it started; the error states the cost and the changes that lower it. Pass `confirm_cost=True` to run it. The MCP server takes only the number of the cost, which `create_cv` and the error give. See the [CLI guide][cli-guide] ([#113](https://github.com/skforecast/skforecast-ai/pull/113)).
 
 + [<code>ForecastingAssistant.compare()</code>][assistant] builds the plans of all the candidates before any of them runs: their warnings come first, and a candidate whose plan cannot be built fails then, before the others run ([#113](https://github.com/skforecast/skforecast-ai/pull/113)).
+
++ With a prediction interval, the summary of [<code>ForecastingAssistant.backtest()</code>][assistant] (and what `ask()` and the MCP server read) gives, by series, the coverage and the mean width that skforecast measures (`coverage`, `interval_width`) next to the nominal coverage, and the table of `compare()` adds both columns without changing the ranking ([#112](https://github.com/skforecast/skforecast-ai/pull/112)).
 
 + The description of a forecast run with `test_size`, in `describe()` and in the context of [<code>ForecastingAssistant.ask()</code>][assistant], says that its metrics come from a hold-out evaluation on dates already in the data, not from a forecast of the future ([#109](https://github.com/skforecast/skforecast-ai/pull/109)).
 
@@ -122,6 +126,8 @@ The main changes in this release are:
 + Fixed an issue in [<code>ForecastingAssistant.plan()</code>][assistant] and `refine_plan()` where `ForecasterDirectMultiVariate` got the estimator chosen for the series pooled (`LGBMRegressor` from 250 observations), which on few dates per step predicted a constant. The rule now counts the dates the series share, and the explanation says so ([#102](https://github.com/skforecast/skforecast-ai/pull/102)).
 
 + Fixed an issue in [<code>ForecastingAssistant.plan()</code>][assistant] where the default metrics of a target that crosses zero with negative values (profits, temperatures) included MAPE, which reached values such as 3e13. MAPE is now left out when any series touches or crosses zero; asked for in `metric`, it comes with a warning, and the MCP server says it has no meaning instead of asking to multiply it by 100 ([#104](https://github.com/skforecast/skforecast-ai/pull/104)).
+
++ `ForecasterStats` with an interval other than 95 % (`[0.1, 0.9]`, say) returned the 95 % interval in [<code>ForecastingAssistant.forecast()</code>][assistant], `backtest()` and `compare()`. Fixed by skforecast 0.27, now required, with a test that pins it ([#112](https://github.com/skforecast/skforecast-ai/pull/112)).
 
 + Fixed an issue in [<code>ForecastingAssistant.refine_plan()</code>][assistant] where switching to `ForecasterStats`, `ForecasterFoundation` or the baseline dropped the differentiation, calendar features and target transformer without a warning, as a new `estimator` did with the `estimator_kwargs` of the previous one. A `PlanEditsDiscardedWarning` (a notice in the MCP server) now names what is left out and whether you or the rules chose it ([#107](https://github.com/skforecast/skforecast-ai/pull/107)).
 

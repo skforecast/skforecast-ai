@@ -41,6 +41,7 @@ from .._constants import (
 from ..exceptions import (
     CostNotConfirmedError,
     DataContentError,
+    IntervalCoverageWarning,
     InvalidInputError,
     SkforecastAIError,
 )
@@ -694,6 +695,59 @@ def _holdout_notices(predictions: Any, test_size: Any) -> list[ToolNotice]:
             count    = 1,
         )
     ]
+
+
+def _coverage_notices(
+    records: list[warnings.WarningMessage],
+) -> tuple[list[warnings.WarningMessage], list[ToolNotice]]:
+    """
+    Turn the `IntervalCoverageWarning` of a backtest or a comparison into a
+    notice that tells the agent how to report the interval.
+
+    The warning names the series (or the candidates) whose interval covers
+    clearly less than its nominal level, with the coverage measured. Agents
+    read an interval by its nominal level (an 80 % interval) unless told
+    otherwise, so the notice carries the warning with what to say instead,
+    and replaces it.
+
+    Parameters
+    ----------
+    records : list of warnings.WarningMessage
+        Warnings emitted by the call.
+
+    Returns
+    -------
+    records : list of warnings.WarningMessage
+        The warnings without the `IntervalCoverageWarning`.
+    notices : list of ToolNotice
+        One `IntervalCoverageNotice` (source `'runtime'`) per distinct
+        warning, else empty.
+    """
+
+    kept, texts = [], []
+    for record in records:
+        if issubclass(record.category, IntervalCoverageWarning):
+            text = notice_text(record)
+            if text not in texts:
+                texts.append(text)
+        else:
+            kept.append(record)
+    notices = [
+        ToolNotice(
+            source   = "runtime",
+            category = "IntervalCoverageNotice",
+            message  = (
+                f"{text} The same holds for a `forecast` of the same plan "
+                f"with this interval: give the user the coverage measured "
+                f"here (by series when there are several) and say that the "
+                f"uncertainty is larger than its bounds show."
+            ),
+            count    = 1,
+        )
+        for text in texts
+    ]
+
+    return kept, notices
 
 
 # Fields of a plan left out when telling whether a plan was measured: the
@@ -2683,6 +2737,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         }
         cost = _cost(result.cv_config, result.plan.forecaster, result.plan.steps)
         state.measured_plans.add(_measured_key(cv_entry.profile_id, result.plan))
+        records, coverage_notices = _coverage_notices(outcome.warnings)
 
         return _register(
             state,
@@ -2692,13 +2747,14 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             links     = links,
             summary   = summary,
             notices   = build_notices(
-                            outcome.warnings,
+                            records,
                             plan_warnings  = result.plan.warnings,
                             data_warnings  = cv_entry.data_warnings,
                             server_notices = [
                                 *_estimator_notices(
                                     result.plan, cv_entry.profile, "backtest"
                                 ),
+                                *coverage_notices,
                                 *_metric_notices(
                                     result.metrics, cv_entry.profile.data_profile
                                 ),
@@ -2957,6 +3013,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             "estimator_fits": result.cost.estimator_fits,
             "inference_windows": result.cost.inference_windows,
         }
+        records, coverage_notices = _coverage_notices(outcome.warnings)
 
         return _register(
             state,
@@ -2970,13 +3027,14 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             },
             summary              = summary,
             notices              = build_notices(
-                                       outcome.warnings,
+                                       records,
                                        plan_warnings  = plan_warnings,
                                        data_warnings  = cv_entry.data_warnings,
                                        server_notices = [
                                            *state.models.notices(
                                                ran_models, uncached, ran=True
                                            ),
+                                           *coverage_notices,
                                            *_mape_notices(
                                                result.results,
                                                cv_entry.profile.data_profile,

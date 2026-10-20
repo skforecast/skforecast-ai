@@ -25,7 +25,7 @@ from skforecast_ai.cli import (
     _report_error,
     _showwarning_to_stderr,
 )
-from skforecast_ai.exceptions import ForecastExecutionError
+from skforecast_ai.exceptions import ForecastExecutionError, IntervalCoverageWarning
 from skforecast_ai.assistant import ForecastingAssistant
 
 from .fixtures_csv_dialect import (
@@ -1518,8 +1518,12 @@ class TestBacktest:
         (lower_bound/upper_bound) in the JSON predictions output.
         """
         csv_path = _write_csv(tmp_path, df_single)
-        # The default strategy leaves 49 rows for the intervals (create_cv warns).
-        with pytest.warns(UserWarning, match="the prediction intervals are estimated"):
+        # The default strategy leaves 49 rows for the intervals (create_cv
+        # warns), and the interval covers far less than 80 % of this data.
+        with (
+            pytest.warns(UserWarning, match="the prediction intervals are estimated"),
+            pytest.warns(IntervalCoverageWarning, match="nominal coverage of 80 %"),
+        ):
             result = runner.invoke(
                 app,
                 ["backtest", csv_path, "--target", "sales", "--date-column",

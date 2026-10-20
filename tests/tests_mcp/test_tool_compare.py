@@ -12,6 +12,7 @@ from mcp import Client
 from skforecast_ai import (
     CandidateFailedWarning,
     ForecastingAssistant,
+    IntervalCoverageWarning,
     MissingBackendWarning,
 )
 from skforecast_ai.mcp import _runtime, create_server
@@ -539,7 +540,8 @@ def test_tool_compare_without_interval_uses_the_interval_of_the_plan_of_the_cv(
     Test that `compare` without `interval` computes the interval of the plan
     the strategy was built for, as the Python API with that interval does,
     so the plan of the winner keeps it and its forecast has bounds; an
-    explicit `interval` still wins.
+    explicit `interval` still wins. The interval covers clearly less than
+    80 % on these folds, which the Python API warns about.
     """
     server, path = h2o_server(tmp_path)
     _, _, cv_id = cv_of(server, path, interval=[0.1, 0.9])
@@ -565,14 +567,15 @@ def test_tool_compare_without_interval_uses_the_interval_of_the_plan_of_the_cv(
         profile=profile,
         plan=assistant.plan(profile=profile, steps=12, interval=[0.1, 0.9]),
     )
-    expected = assistant.compare(
-        data=path,
-        cv=cv,
-        profile=profile,
-        show_progress=False,
-        candidates=[(c["name"], dict(c["config"])) for c in candidates],
-        interval=[0.1, 0.9],
-    )
+    with pytest.warns(IntervalCoverageWarning, match="in these candidates"):
+        expected = assistant.compare(
+            data=path,
+            cv=cv,
+            profile=profile,
+            show_progress=False,
+            candidates=[(c["name"], dict(c["config"])) for c in candidates],
+            interval=[0.1, 0.9],
+        )
 
     header = text_of(forecast["files"]["predictions"]).splitlines()[0]
     assert header == ",pred,lower_bound,upper_bound"
@@ -988,3 +991,65 @@ def test_tool_compare_without_candidates_confirmed_with_the_cost_of_create_cv(
         "cheaper strategies (a list of `candidates`, "
     )
     assert result["cost"]["estimator_fits"] == 98
+
+
+def test_tool_compare_output_when_interval_adds_coverage_without_changing_ranking(
+    tmp_path,
+):
+    """
+    Test that `compare` with an interval puts the `coverage` and the
+    `interval_width` that skforecast measured after the metrics of the
+    leaderboard, ranks the candidates as without an interval, and carries an
+    `IntervalCoverageNotice` naming the candidates whose interval covers
+    clearly less than 80 % (in place of the `IntervalCoverageWarning` of the
+    library).
+    """
+    server, path = h2o_server(tmp_path)
+    _, _, cv_id = cv_of(server, path)
+    candidates = [COMPARE_CANDIDATES[0], COMPARE_CANDIDATES[2]]
+
+    plain = content_of(
+        call(server, "compare", {"cv_id": cv_id, "candidates": candidates})
+    )
+    result = content_of(
+        call(
+            server,
+            "compare",
+            {"cv_id": cv_id, "candidates": candidates, "interval": [0.1, 0.9]},
+        )
+    )
+    leaderboard = text_of(result["files"]["leaderboard"]).splitlines()
+    plain_leaderboard = text_of(plain["files"]["leaderboard"]).splitlines()
+
+    assert leaderboard[0] == (
+        ",rank,name,forecaster,estimator,mean_absolute_error,mean_squared_error,"
+        "mean_absolute_scaled_error,mean_absolute_percentage_error,coverage,"
+        "interval_width"
+    )
+    assert [line.split(",")[2] for line in leaderboard[1:]] == [
+        line.split(",")[2] for line in plain_leaderboard[1:]
+    ]
+    assert [n["category"] for n in plain["notices"]] == ["MetricUnitNotice"]
+    assert [(n["source"], n["category"]) for n in result["notices"]] == [
+        ("runtime", "IntervalCoverageNotice"),
+        ("runtime", "MetricUnitNotice"),
+    ]
+    assert result["notices"][0]["message"] == (
+        "The prediction interval [0.1, 0.9] has a nominal coverage of 80 %, but "
+        "it covered clearly less (more than 2 binomial standard errors for the "
+        "number of predictions, and at least 5 percentage points, below 80 %) "
+        "in these candidates: 'ridge' (64.5 % of 62 actual values), 'direct' "
+        "(59.7 % of 62 actual values). Do not present their interval as "
+        "covering 80 %: report the coverage measured in the backtest (the "
+        "`coverage` column of the table, and of the metrics of each candidate "
+        "by series). The same holds for a `forecast` of the same plan with "
+        "this interval: give the user the coverage measured here (by series "
+        "when there are several) and say that the uncertainty is larger than "
+        "its bounds show."
+    )
+    assert (
+        "The table also gives, for the prediction interval [0.1, 0.9] (nominal "
+        "coverage 80 %), the share of the actual values inside it (coverage) "
+        "and its mean width in the units of the target (interval_width); they "
+        "do not change the ranking."
+    ) in result["summary"]

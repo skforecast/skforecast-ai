@@ -18,6 +18,7 @@ from skforecast_ai import BacktestResult, ForecastingAssistant
 from skforecast_ai.exceptions import (
     CostNotConfirmedError,
     DataContentError,
+    IntervalCoverageWarning,
     InvalidInputError,
     InvalidInputTypeError,
 )
@@ -386,21 +387,23 @@ def test_backtest_output_when_interval_passed_with_plan():
     """
     Test that an `interval` passed alongside a pre-built plan without
     intervals is applied to the backtest: the executed plan carries it and
-    the predictions include the bounds.
+    the predictions include the bounds. The interval covers far less than
+    80 % of this data, which warns.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
     plan = assistant.plan(profile, steps=5)
     cv = TimeSeriesFold(steps=5, initial_train_size=60, refit=False)
 
-    result = assistant.backtest(
-        data=df_single,
-        cv=cv,
-        interval=[0.1, 0.9],
-        profile=profile,
-        plan=plan,
-        show_progress=False,
-    )
+    with pytest.warns(IntervalCoverageWarning, match="nominal coverage of 80 %"):
+        result = assistant.backtest(
+            data=df_single,
+            cv=cv,
+            interval=[0.1, 0.9],
+            profile=profile,
+            plan=plan,
+            show_progress=False,
+        )
 
     assert result.plan.interval == [0.1, 0.9]
     assert {"lower_bound", "upper_bound"} <= set(result.predictions.columns)
@@ -1201,7 +1204,8 @@ def test_backtest_output_when_cv_result_without_plan_keeps_its_plan():
     """
     Test that backtest() with the CVResult of create_cv() and no `plan`,
     `forecaster`, `estimator`, `estimator_kwargs` or `interval` runs the
-    plan of the CVResult: its estimator and interval are kept.
+    plan of the CVResult: its estimator and interval are kept. The interval
+    covers far less than 80 % of this data, which warns.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
@@ -1211,13 +1215,14 @@ def test_backtest_output_when_cv_result_without_plan_keeps_its_plan():
     with pytest.warns(UserWarning, match=INTERVAL_WARNING):
         cv_result = assistant.create_cv(profile, plan, initial_train_size=60)
 
-    result = assistant.backtest(
-        data=df_single,
-        target="sales",
-        date_column="date",
-        cv=cv_result,
-        show_progress=False,
-    )
+    with pytest.warns(IntervalCoverageWarning, match="nominal coverage of 80 %"):
+        result = assistant.backtest(
+            data=df_single,
+            target="sales",
+            date_column="date",
+            cv=cv_result,
+            show_progress=False,
+        )
 
     assert result.plan == cv_result.plan
     assert result.plan.estimator == "LGBMRegressor"
@@ -1959,3 +1964,49 @@ def test_backtest_output_when_csv_has_semicolon_and_decimal_comma(tmp_path):
     assert result.profile.data_profile.csv_decimal == ","
     pd.testing.assert_frame_equal(result.metrics, expected.metrics)
     pd.testing.assert_frame_equal(result.predictions, expected.predictions)
+
+
+def test_backtest_output_when_stats_interval_80_is_narrower_than_95():
+    """
+    Test that the interval [0.1, 0.9] of ForecasterStats is the 80 % one in
+    a backtest, narrower than the 95 % one, by the mean width that
+    skforecast measures (`interval_width`). Before skforecast 0.27,
+    `predict_interval` ignored `interval` and always returned the 95 %
+    interval (skforecast #1416). The intervals of the ARIMA model are
+    Gaussian, so the ratio of the widths is z(0.9) / z(0.975). Both cover
+    clearly less than their nominal level on these folds (63 % and 83.3 %
+    of the 54 predictions), which warns.
+    """
+    assistant = ForecastingAssistant()
+    cv = TimeSeriesFold(steps=12, initial_train_size=150)
+
+    with pytest.warns(IntervalCoverageWarning, match="only 63 % of the 54"):
+        result_80 = assistant.backtest(
+            data          = df_h2o,
+            target        = "x",
+            cv            = cv,
+            forecaster    = "ForecasterStats",
+            interval      = [0.1, 0.9],
+            show_progress = False,
+        )
+    with pytest.warns(IntervalCoverageWarning, match="only 83.3 % of the 54"):
+        result_95 = assistant.backtest(
+            data          = df_h2o,
+            target        = "x",
+            cv            = cv,
+            forecaster    = "ForecasterStats",
+            interval      = [0.025, 0.975],
+            show_progress = False,
+        )
+    width_80 = result_80.metrics.loc[0, "interval_width"]
+    width_95 = result_95.metrics.loc[0, "interval_width"]
+
+    assert width_80 < width_95
+    np.testing.assert_allclose(width_80, width_95 * 1.2815516 / 1.9599640, rtol=1e-4)
+    # The width comes from the ARIMA fit, which differs between platforms
+    # (a relative 4.7e-5 on macOS arm): the tolerance of the ratio above.
+    np.testing.assert_allclose(
+        result_80.metrics[["coverage", "interval_width"]].to_numpy(),
+        [[0.6296296296296297, 0.14161422207143617]],
+        rtol=1e-4,
+    )

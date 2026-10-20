@@ -21,6 +21,7 @@ from .._foundation import foundation_backend_installed, resolve_foundation_model
 from .._utils import discarded_plan_edits, long_training_message, plan_override_value
 from .._validation import is_symmetric_interval
 from ..exceptions import InvalidInputError, InvalidInputTypeError
+from .interval_coverage import interval_label
 from ..recommendation import (
     baseline_missing_values_note,
     count_estimator_fits,
@@ -914,6 +915,7 @@ def build_comparison_explanation(
     differentiation_note: str | None = None,
     strategy_row: str | None = None,
     strategy_note: str | None = None,
+    interval: list[float] | None = None,
 ) -> str:
     """
     Build the deterministic `compare()` summary explanation.
@@ -955,6 +957,10 @@ def build_comparison_explanation(
         Sentence explaining why the plan the strategy was created for is
         not in the comparison, or which of its values its row does not
         run, appended as is.
+    interval : list of float, default None
+        Prediction interval of the comparison. When given, the summary says
+        that the table carries its measured coverage and width next to its
+        nominal coverage, and that they do not rank.
 
     Returns
     -------
@@ -1060,6 +1066,15 @@ def build_comparison_explanation(
     parts.append(best_sentence)
     if baseline_name is not None:
         parts.append(_baseline_sentence(ranked, baseline_name, ranking_metric))
+    if interval is not None:
+        across = " (averaged across series)" if averaged else ""
+        parts.append(
+            f"The table also gives, for the prediction interval "
+            f"{interval_label(interval)}, the share of the actual values "
+            f"inside it (coverage) and its mean width in the units of the "
+            f"target (interval_width){across}; they do not change the "
+            f"ranking."
+        )
     if baseline_note is not None:
         parts.append(baseline_note)
     if strategy_note is not None:

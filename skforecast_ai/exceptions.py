@@ -451,6 +451,21 @@ class DataSentToLLMWarning(UserWarning):
     """
 
 
+class IntervalCoverageWarning(UserWarning):
+    """
+    Warned by `backtest()` and `compare()` when the prediction interval
+    covers clearly less than its nominal level.
+
+    The backtesting of skforecast measures the share of the actual values
+    that fall inside the interval (`coverage` in the metrics). The warning
+    is emitted when, in any series, that share is below the nominal coverage
+    (`upper - lower` of `interval`) by more than two binomial standard
+    errors for the number of predictions, and by at least 5 percentage
+    points. It names the series (or, in `compare()`, the candidates) and
+    their coverage: such an interval must not be read at its nominal level.
+    """
+
+
 class MissingBackendWarning(UserWarning):
     """
     Warned by `compare()` when a foundation model candidate is left out.

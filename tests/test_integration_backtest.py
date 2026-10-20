@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from skforecast_ai import BacktestResult, ForecastingAssistant
+from skforecast_ai.exceptions import IntervalCoverageWarning
 
 from tests.fixtures_assistant import df_single, df_no_exog, df_multi_long, df_multi_wide
 
@@ -174,7 +175,8 @@ def test_forecaster_multiseries_backtest_uses_interval_method_of_plan(forecaster
     of the conformal default of backtesting_forecaster_multiseries, and
     that its predictions carry the bounds. The default strategy on 100
     observations leaves fewer than 100 rows for the residuals of the
-    intervals, which `create_cv()` warns about.
+    intervals, which `create_cv()` warns about, and the interval covers far
+    less than 80 % of this data, which `backtest()` warns about.
     """
     data = df_multi_wide
     target = ["series_a", "series_b"]
@@ -185,15 +187,16 @@ def test_forecaster_multiseries_backtest_uses_interval_method_of_plan(forecaster
     with pytest.warns(UserWarning, match="the intervals tend to be too narrow"):
         cv = assistant.create_cv(profile, plan).cv
 
-    result = assistant.backtest(
-        data          = data,
-        target        = target,
-        date_column   = "date",
-        cv            = cv,
-        profile       = profile,
-        plan          = plan,
-        show_progress = False,
-    )
+    with pytest.warns(IntervalCoverageWarning, match="nominal coverage of 80 %"):
+        result = assistant.backtest(
+            data          = data,
+            target        = target,
+            date_column   = "date",
+            cv            = cv,
+            profile       = profile,
+            plan          = plan,
+            show_progress = False,
+        )
 
     assert result.plan.interval_method == "bootstrapping"
     assert "    interval_method   = 'bootstrapping',\n" in result.code

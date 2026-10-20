@@ -1158,6 +1158,52 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     con `confirm_cost`, `cost` y, para `compare`, `candidates`.
   - El contexto del LLM no cambia (goldens iguales): sin check de pago.
 
+- **D22. 2c-ii: cobertura y anchura del intervalo medidas en el backtest**
+  (2026-10-20), en [#112](https://github.com/skforecast/skforecast-ai/pull/112),
+  sin cálculo propio en los scripts: `coverage` e
+  `interval_width` salen de skforecast 0.27 (#1409):
+  - El resumen de `backtest()` (y lo que leen `describe()`, `ask()` y el
+    servidor MCP) ya no las lista con las demás métricas: una frase propia
+    las da junto a la cobertura nominal (`upper - lower` de `interval`), con
+    el número de predicciones; por serie con varias (las 10 de menor
+    cobertura si hay más) y la media de la fila `average`, y la anchura en
+    las unidades de cada serie. La sección del plan dice "nominal coverage".
+  - Aviso: `IntervalCoverageWarning` (público, en la librería) cuando la
+    cobertura de una serie queda por debajo de `nominal - max(2 *
+    sqrt(nominal * (1 - nominal) / n), 0.05)`, con `n` las predicciones de
+    esa serie con los dos límites. Los dos errores estándar evitan que salte
+    por azar con pocas predicciones; los 5 puntos, que salte por una
+    diferencia que no cambia cómo se lee el intervalo con muchas. Nombra
+    hasta 5 series, de menor a mayor cobertura. No tiene en cuenta la
+    autocorrelación de los pasos de un mismo fold (pregunta en la PR).
+  - `compare()`: `coverage` e `interval_width` van después de las métricas
+    en la tabla (la fila `average` con varias series) y no ordenan; el
+    resumen dice qué son. Los avisos de cada candidato se silencian y un
+    solo `IntervalCoverageWarning` nombra los candidatos por debajo.
+  - MCP: `IntervalCoverageNotice` (source `runtime`) en `backtest` y
+    `compare`, en lugar del aviso de la librería: su texto y que dé la
+    cobertura medida, también en un `forecast` del mismo plan, sin
+    presentar el intervalo con su nivel nominal. SKILL.md y
+    `docs/api/mcp.md` lo explican.
+  - `forecast` con `test_size` no añade `coverage` ni `interval_width`: una
+    sola ventana de `steps` valores no mide una cobertura (con 12 valores,
+    dos errores estándar del 80 % son 23 puntos y el valor solo puede ser
+    un múltiplo de 1/12). Si se quiere por coherencia, iría en 3c-ii, que
+    renombra esas columnas (D4) (pregunta en la PR).
+  - Test de skforecast#1416: el intervalo `[0.1, 0.9]` de ForecasterStats
+    es más estrecho que el del 95 % en el forecast y en el backtest (la
+    razón de las anchuras es z(0.9) / z(0.975)), y la línea en las notas de
+    la 0.5.0 va ya en esta PR. El check de pago de `check_ask_context.py`
+    queda para la fase 7.
+  - Revisión (2026-10-20): basta el suelo de 5 puntos para la
+    autocorrelación de los pasos de un fold (`n` sigue contando
+    predicciones, no folds); no hace falta issue en skforecast para el `n`
+    exacto con valores reales que faltan; `forecast` con `test_size` se
+    queda sin cobertura; `compare` da un solo aviso que nombra los
+    candidatos, no uno por candidato. Los valores fijos que salen del
+    ajuste de un ARIMA se comparan con `rtol=1e-4` (la anchura difiere un
+    4.7e-5 relativo en macOS arm).
+
 ## Decisiones abiertas
 
 Se toman en el PR que las necesita y se pasan a la sección de arriba.

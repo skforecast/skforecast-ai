@@ -32,6 +32,7 @@ PUBLIC_NAMES = {
     "ForecastingProfile": "skforecast_ai.schemas",
     "ForecastingAssistant": "skforecast_ai.assistant",
     "ForecastPlan": "skforecast_ai.schemas",
+    "IntervalCoverageWarning": "skforecast_ai.exceptions",
     "InvalidInputError": "skforecast_ai.exceptions",
     "InvalidInputTypeError": "skforecast_ai.exceptions",
     "LLMCheckResult": "skforecast_ai.schemas",

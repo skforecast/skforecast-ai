@@ -21,7 +21,7 @@ A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 100 ob
 - Forecaster: ForecasterFoundation
 - Steps: 5
 - Estimator: google/timesfm-3.0-pytorch
-- Prediction interval: [0.1, 0.9] (80% coverage)
+- Prediction interval: [0.1, 0.9] (80% nominal coverage)
 - Interval method: native
 - Primary metric: mean_absolute_error
 - Preprocessing steps:

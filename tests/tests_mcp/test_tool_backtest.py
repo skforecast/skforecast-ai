@@ -3,13 +3,14 @@
 import time
 
 import pandas as pd
+import pytest
 
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai.mcp import _runtime, create_server
 from skforecast_ai.mcp.models import ToolNotice
 
 from ..fixtures_assistant import df_crossing_zero, df_multi_long_numeric_ids
-from ..fixtures_datasets import df_items_sales_long
+from ..fixtures_datasets import df_items_sales_long, df_items_sales_wide
 from .fixtures_mcp import (
     DATA_VALUES_HINT,
     call,
@@ -657,3 +658,97 @@ def test_tool_backtest_below_the_threshold_ignores_confirm_cost(tmp_path):
     assert without["cost"] == ignored["cost"]
     assert without["cost"]["estimator_fits"] <= 50
     assert text_of(without["files"]["metrics"]) == text_of(ignored["files"]["metrics"])
+
+
+_COVERAGE_NOTICE_END = (
+    "(more than 2 binomial standard errors for the number of predictions, "
+    "and at least 5 percentage points, below 80 %). Do not present the "
+    "interval of these series as covering 80 %: report the coverage measured "
+    "in the backtest (the `coverage` column of the metrics). The same holds "
+    "for a `forecast` of the same plan with this interval: give the user the "
+    "coverage measured here (by series when there are several) and say that "
+    "the uncertainty is larger than its bounds show."
+)
+
+
+@pytest.mark.parametrize(
+    "forecaster, measured",
+    [
+        (
+            "ForecasterRecursiveMultiSeries",
+            "3 of 3 series (share of the actual values inside it): 'item_3' "
+            "22.2 % of 36 predictions, 'item_2' 30.6 % of 36 predictions, "
+            "'item_1' 55.6 % of 36 predictions",
+        ),
+        (
+            "ForecasterDirectMultiVariate",
+            "1 of 1 series (share of the actual values inside it): 'item_1' "
+            "41.7 % of 36 predictions",
+        ),
+    ],
+    ids=["recursive_multiseries", "direct_multivariate"],
+)
+def test_tool_backtest_interval_coverage_notice_when_series_cover_less(
+    tmp_path, forecaster, measured
+):
+    """
+    Test that a multi-series backtest whose 80 % interval covers far less
+    (intervals from in-sample residuals, items_sales) carries an
+    `IntervalCoverageNotice` with the series and their coverage, in place of
+    the `IntervalCoverageWarning` of the library, and that its metrics and
+    summary hold the coverage and the width that skforecast measured.
+    """
+    path = write_csv(tmp_path, "items.csv", df_items_sales_wide.reset_index())
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, _, cv_id = cv_of(
+        server,
+        path,
+        target     = ["item_1", "item_2", "item_3"],
+        steps      = 7,
+        interval   = [0.1, 0.9],
+        forecaster = forecaster,
+    )
+
+    result = content_of(call(server, "backtest", {"cv_id": cv_id}))
+
+    assert [(n["source"], n["category"]) for n in result["notices"]] == [
+        ("runtime", "IntervalCoverageNotice"),
+        ("runtime", "MetricReferenceNotice"),
+        ("runtime", "MetricUnitNotice"),
+    ]
+    assert result["notices"][0]["message"] == (
+        f"The prediction interval [0.1, 0.9] has a nominal coverage of 80 %, "
+        f"but it covered clearly less in {measured} {_COVERAGE_NOTICE_END}"
+    )
+    header = text_of(result["files"]["metrics"]).splitlines()[0]
+    assert header.endswith(",coverage,interval_width")
+    assert (
+        "Prediction interval [0.1, 0.9] (nominal coverage 80 %), share of the "
+        "actual values inside it (coverage) and mean width in the units of "
+        "each series (interval_width), by series: 'item_1' "
+    ) in result["summary"]
+
+
+def test_tool_backtest_no_interval_coverage_notice_when_close_to_nominal(tmp_path):
+    """
+    Test that a backtest of one series whose 80 % interval covers close to
+    that level (the seasonal naive baseline on h2o, 75.8 % of 62
+    predictions, above the threshold of 69.8 %) carries no
+    `IntervalCoverageNotice`, and that its summary states the coverage and
+    the width next to the nominal coverage.
+    """
+    server, path = h2o_server(tmp_path)
+    _, _, cv_id = cv_of(
+        server, path, interval=[0.1, 0.9], forecaster="ForecasterEquivalentDate"
+    )
+
+    result = content_of(call(server, "backtest", {"cv_id": cv_id}))
+
+    assert [n["category"] for n in result["notices"]] == [
+        "MetricReferenceNotice", "MetricUnitNotice"
+    ]
+    assert (
+        "Prediction interval [0.1, 0.9] (nominal coverage 80 %): 75.8 % of the "
+        "62 actual values fell inside it (coverage: 0.7581), with a mean width "
+        "of 0.1823 in the units of the target (interval_width)."
+    ) in result["summary"]

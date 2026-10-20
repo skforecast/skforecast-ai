@@ -1073,7 +1073,10 @@ class ComparisonResult(
         Ranked comparison table, one row per candidate sorted best to
         worst by `ranking_metric`. Columns are
         `['rank', 'name', 'forecaster', 'estimator', <metric columns...>]`,
-        plus an `'error'` column when at least one candidate failed.
+        plus `'coverage'` and `'interval_width'` after the metrics when the
+        comparison has an interval (measured by skforecast, averaged
+        across series with several; they do not rank), and an `'error'`
+        column when at least one candidate failed.
     candidates : dict
         Mapping of candidate name to the full `BacktestResult` of every
         candidate that ran successfully, ordered best to worst. Never
