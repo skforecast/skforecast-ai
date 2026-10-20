@@ -1219,38 +1219,44 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
 - **D?. 3c-ii: RMSE como métrica y las columnas de las métricas del
   forecast (V05)** (2026-10-20), en
   [#114](https://github.com/skforecast/skforecast-ai/pull/114). Concreta D4:
-  - `root_mean_squared_error` entra en `ALLOWED_METRICS`, detrás de los ocho
-    nombres que acepta el backtesting de skforecast: `metric` de `plan`,
+  - `root_mean_squared_error` entra en `ALLOWED_METRICS`, en el orden de
+    skforecast (detrás de `mean_squared_error`): `metric` de `plan`,
     `refine_plan`, `forecast` y `compare`, `--metric` de la CLI y el enum
-    del servidor (golden de `tool_schemas.json`). skforecast no lo acepta
-    por nombre (`_get_metric`), así que el script del backtest importa la
-    función de scikit-learn y la pasa en la lista
-    (`[root_mean_squared_error, 'mean_absolute_error']`); skforecast nombra
-    la columna con el nombre de la función, como las demás. El script del
-    forecast la calcula como las otras de scikit-learn. Que skforecast la
-    acepte por nombre, pregunta en la PR.
+    del servidor (golden de `tool_schemas.json`). El script del backtest lo
+    pasa por nombre, como las demás métricas: skforecast lo acepta desde
+    skforecast/skforecast#1424 (rama `0.27.x`, ver "Dependencia de
+    skforecast 0.27.0"). El script del forecast con `test_size`, que
+    calcula él mismo las métricas, lo importa de `sklearn.metrics` como las
+    demás.
   - La selección automática no cambia: el panel por defecto sigue siendo
-    MAE, MSE y MASE (más MAPE lejos del cero). RMSE da la misma información
-    que MSE, y añadirla cambiaría todos los scripts y el contexto del LLM
-    (pregunta en la PR: cambiar MSE por RMSE en el panel).
-  - Unidad: el `MetricUnitNotice` de D16 da también la de RMSE, la del
-    objetivo (la raíz de `mean_squared_error`, en unidades al cuadrado),
-    cuando RMSE está entre las métricas de un `backtest`, un `forecast` o
-    el leaderboard de `compare`. Un MSE sin RMSE no lleva aviso (pregunta
-    en la PR). El SKILL.md lo nombra en la regla de no derivar cifras
-    (pedir `root_mean_squared_error` en `metric` de `plan` en vez de sacar
-    la raíz del MSE) y en "Inputs", con su unidad.
+    MAE, MSE y MASE (más MAPE lejos del cero). Poner RMSE en lugar de MSE
+    en el panel es una decisión aparte, fuera de esta PR.
+  - Unidades: el `MetricUnitNotice` de D16 da también la de MSE, en las
+    unidades del objetivo al cuadrado, siempre que esté entre las métricas
+    (también en el panel por defecto), y la de RMSE, en las del objetivo,
+    en un `backtest`, un `forecast` o el leaderboard de `compare`. Orden:
+    MAPE, sMAPE, MSE, RMSE. El SKILL.md lo nombra en la regla de no derivar
+    cifras (pedir `root_mean_squared_error` en `metric` de `plan` en vez de
+    sacar la raíz del MSE) y en "Inputs", con las dos unidades. Las
+    instrucciones del servidor no nombran la raíz.
   - V05: las métricas de `forecast` con `test_size` tienen las columnas de
     las del backtest del mismo plan: una por métrica, con su nombre, y
     `levels` cuando skforecast la da (varias series, y
     ForecasterDirectMultiVariate con su única serie). Con una serie no hay
-    columna de serie, como en `backtesting_forecaster` (pregunta en la PR).
-    La tabla la construye el script con varias series (cambian sus goldens
-    de renderizado) y el runner con una (los scripts de una serie siguen
-    imprimiendo `MAE  : ...`). Llega a `ForecastResult.metrics`, al CSV del
-    servidor, a la tabla de la CLI y al contexto de `ask()`: las fixtures
-    de los goldens del contexto pasan al formato real, y el check de pago
-    queda para la fase 7. Línea en "Before upgrading".
+    columna `levels`, como en `backtesting_forecaster`. Llega a
+    `ForecastResult.metrics`, al CSV del servidor, a la tabla de la CLI y
+    al contexto de `ask()`: las fixtures de los goldens del contexto pasan
+    al formato real, y el check de pago queda para la fase 7. Línea en
+    "Before upgrading".
+  - La tabla la construye el script con varias series (cambian sus goldens
+    de renderizado). Con una serie, el script calcula una variable por
+    métrica y el runner solo las junta en la tabla; los scripts de una
+    serie siguen imprimiendo `MAE  : ...` y no construyen la tabla.
+  - Revisión (2026-10-20): con una serie, sin columna `levels`, como el
+    backtest; RMSE por nombre, resuelto en skforecast; RMSE en el panel por
+    defecto, decisión aparte; el aviso de unidades da la de MSE cuando se
+    pide, sin nombrar la raíz en las instrucciones del servidor; el runner
+    solo junta lo que calcula el script.
 
 ## Decisiones abiertas
 
@@ -1275,6 +1281,7 @@ arranque de las sesiones en la nube instala skforecast desde su rama
 | [#1411](https://github.com/skforecast/skforecast/issues/1411) | El error "All samples have been removed due to NaNs" aconseja `dropna_from_series = False`, que falla con un estimador que no acepta faltantes (D17, #105) | Nada: la comprobación previa de 3a ya da el consejo que funciona antes de ejecutar; con el arreglo, el error de skforecast dentro de un script también lo dirá | Resuelto en `0.27.x` ([#1422](https://github.com/skforecast/skforecast/pull/1422), 2026-10-20) |
 | Sin issue ([#1416](https://github.com/skforecast/skforecast/pull/1416)) | `ForecasterStats.predict_interval` ignoraba `interval` y devolvía siempre el intervalo del 95 % (`alpha=0.05` por defecto ganaba a `interval`) | Afectaba sin aviso a skforecast-ai 0.4.x: el script de un forecast de ForecasterStats con intervalo llama a `predict_interval(steps=..., interval=...)` sin `alpha`, así que un 80 % salía al 95 %. Nada que cambiar en el código; falta un test que lo fije (un intervalo `[10, 90]` de ForecasterStats más estrecho que el del 95 %, en el forecast y en el backtest) y una línea en las notas de la 0.5.0 al consolidar | Resuelto en `0.27.x` (2026-10-19) |
 | Sin issue | El skill `metric-selection` describía MAPE como "Percentage error" sin decir que sklearn devuelve una fracción (D16, #104) | Nada: corregido en la rama `0.27.x` de skforecast y sincronizado aquí (2026-10-18) | Hecho |
+| Sin issue ([#1424](https://github.com/skforecast/skforecast/pull/1424)) | `root_mean_squared_error` por nombre en el backtesting, como las demás métricas de regresión (3c-ii) | Nada que rodear: el script del backtest lo pasa por nombre, como las demás métricas; el del forecast con `test_size` lo importa de `sklearn.metrics`, como el resto de sus métricas | Resuelto en `0.27.x` ([#1424](https://github.com/skforecast/skforecast/pull/1424), 2026-10-20) |
 
 Detalle de cada uno:
 
