@@ -1114,6 +1114,44 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     del futuro (es una evaluación hold-out). El aviso no nombra los planes
     medidos, y volver a perfilar el mismo fichero empieza de cero (va por
     `profile_id`).
+- **D?. 4b: la confirmación de coste, concretada** (2026-10-20). Concreta
+  D3 y lo que D19 dejó para 4b:
+  - En la API de Python es un error, no un aviso: `CostNotConfirmedError`
+    (subclase de `InvalidInputError`, código `invalid_argument`, campo
+    `confirm_cost`), con `figure`, `cost`, `description` y
+    `comparison_cost`. Un aviso llega cuando la ejecución ya empezó y no la
+    para, que es lo que 4b corrige; gastar horas de máquina es una decisión
+    que la librería no puede tomar por la persona (principio 3: no hay
+    automatización silenciosa, y la ejecución no se degrada a otra).
+  - `confirm_cost: bool | int = False` en `backtest()` y `compare()`: True
+    confirma cualquier coste; un entero, solo esa cifra. El servidor pasa
+    la cifra del agente al núcleo, que hace la comprobación una sola vez,
+    después de todas las demás (un backtest que va a fallar no pide antes
+    confirmación) y antes de ejecutar nada. La CLI pasa True con
+    `--confirm-cost`, y el tip del error nombra la opción.
+  - La cifra es la de ajustes de estimador; la de ventanas de inferencia
+    cuando solo esas pasan su umbral (un fundacional tiene 0 ajustes). Con
+    las dos por encima, en un `compare`, los ajustes.
+  - Una ejecución confirmada no avisa con `LongTrainingWarning`: el error
+    sustituye al aviso en `backtest()` y `compare()`. `create_cv` del
+    servidor sigue dando el `LongTrainingWarning` con el coste del
+    backtest, y su `CostNotice` da la cifra de cada ejecución (`backtest` y
+    `compare` sin `candidates`). Sin "about" en el coste de `compare`: la
+    cifra es exacta.
+  - `compare()` construye los planes de todos los candidatos antes de
+    contar. Un candidato cuyo plan no se construye falla ahí (su
+    `CandidateFailedWarning` antes de contar y de ejecutar nada), no cuenta
+    en `cost` y sus dos eventos de progreso llegan en su turno, en el orden
+    de los candidatos. Orden de los avisos: los de los planes, el error de
+    coste, la ejecución. `failures` sigue el orden de los candidatos. El
+    coste de `create_cv` para `compare` sin `candidates` aplica el mismo
+    filtro (`buildable_candidates`), para que las dos cuentas coincidan.
+  - Error del servidor: `invalid_argument` en `confirm_cost`, con el coste
+    y el desglose en el mensaje (y, con otra cifra, que no es la del
+    coste), la pista de parar, contárselo al usuario con las estrategias
+    más baratas y preguntarle antes de repetir con la cifra, y `details`
+    con `confirm_cost`, `cost` y, para `compare`, `candidates`.
+  - El contexto del LLM no cambia (goldens iguales): sin check de pago.
 
 ## Decisiones abiertas
 
