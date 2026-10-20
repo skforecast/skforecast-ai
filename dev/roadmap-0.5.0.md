@@ -1114,8 +1114,11 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     del futuro (es una evaluación hold-out). El aviso no nombra los planes
     medidos, y volver a perfilar el mismo fichero empieza de cero (va por
     `profile_id`).
-- **D?. 4b: la confirmación de coste, concretada** (2026-10-20). Concreta
-  D3 y lo que D19 dejó para 4b:
+- **D?. 4b: la confirmación de coste, concretada** (2026-10-20), en
+  [#113](https://github.com/skforecast/skforecast-ai/pull/113). Concreta
+  D3 y lo que D19 dejó para 4b; las preguntas abiertas (la cifra de un
+  fundacional, el entero en Python, el código del error y el check con
+  agentes) están en la PR:
   - En la API de Python es un error, no un aviso: `CostNotConfirmedError`
     (subclase de `InvalidInputError`, código `invalid_argument`, campo
     `confirm_cost`), con `figure`, `cost`, `description` y
