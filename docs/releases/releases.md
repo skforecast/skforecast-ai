@@ -31,7 +31,7 @@ The main changes in this release are:
     + `plan()` of a target that takes values at or around zero, also one that crosses it with negative values, leaves MAPE out of the default metrics and so of the generated script. Pass it in `metric` to compute it anyway. See **Fixed**.
     + The `compare` tool of the MCP server reports in `cost.n_fits` the trainings of all its candidates instead of those of the shared strategy, and its `cost` counts the candidates that fail while running too. See **Fixed**.
 
-    + [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` of ForecasterStats with an automatic `Arima` or `Ets` and a strategy that refits give other metrics from the second fold, and run faster: skforecast 0.27 keeps the model selected in the first fit, which the scripts already asked for with `freeze_params=True`.
+    + [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` of ForecasterStats with an automatic `Arima` or `Ets` and a strategy that refits give other metrics from the second fold, and run faster: skforecast 0.27 keeps the model selected in the first fit, which the scripts already asked for with `freeze_params=True` ([#116](https://github.com/skforecast/skforecast-ai/pull/116)).
 
     And some code needs to be updated:
 
