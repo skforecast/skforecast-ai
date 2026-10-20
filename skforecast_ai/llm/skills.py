@@ -108,7 +108,7 @@ _SKILL_TOKEN_ESTIMATES: dict[str, int] = {
     "backtesting-configuration": 2641,
     "baseline-forecasting": 1929,
     "choosing-a-forecaster": 3034,
-    "complete-api-reference": 12710,
+    "complete-api-reference": 12649,
     "deep-learning-forecasting": 6216,
     "drift-detection": 1249,
     "feature-engineering": 11003,
@@ -123,7 +123,7 @@ _SKILL_TOKEN_ESTIMATES: dict[str, int] = {
     "troubleshooting-common-errors": 2587,
 }
 
-_REFERENCE_TOKEN_ESTIMATE = 9385  # llms-base.txt measured size
+_REFERENCE_TOKEN_ESTIMATE = 9384  # llms-base.txt measured size
 
 # Derived from the prompt rather than hardcoded. A hardcoded figure has to
 # be re-measured by hand after every prompt edit, and silently understates
