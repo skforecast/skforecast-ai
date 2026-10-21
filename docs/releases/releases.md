@@ -61,7 +61,7 @@ The main changes in this release are:
 
 + New metric `root_mean_squared_error` (RMSE, in the units of the target) for `metric` of [<code>ForecastingAssistant.plan()</code>][assistant], `refine_plan()`, `forecast()` and `compare()`, `--metric` in the CLI and the MCP server. The `MetricUnitNotice` of the server gives its unit and that of `mean_squared_error`, in squared units ([#114](https://github.com/skforecast/skforecast-ai/pull/114)).
 
-+ New attribute `closed_weekdays` of [<code>DataProfile</code>][profiles]: the days of the week on which every missing timestamp falls when the data never has a date on them (a shop closed on Sundays). The warning of `create_cv()` names them instead of a condition on the missing dates.
++ New attribute `closed_weekdays` of [<code>DataProfile</code>][profiles]: the days of the week on which every missing timestamp falls when the data never has a date on them (a shop closed on Sundays). The warning of `create_cv()` names them, and gives the advice of the closed days only then, instead of for any daily data with missing dates.
 
 + New option `--exog` of the `forecast-code` command of the [CLI][cli], so the script reads the future exogenous values from that file, as `forecast --exog` does, instead of `exog_future.csv`. See the [CLI guide][cli-guide] ([#99](https://github.com/skforecast/skforecast-ai/pull/99)).
 
@@ -135,7 +135,7 @@ The main changes in this release are:
 
 + [<code>ForecastingAssistant.backtest()</code>][assistant] of a single series failed inside the script with "All samples have been removed due to NaNs" when every training row of a fold read a missing value, as `forecast()` did, also with `test_size`. Both now raise `DataContentError` before running, with what avoids it ([#105](https://github.com/skforecast/skforecast-ai/pull/105)).
 
-+ [<code>ForecastingAssistant.backtest()</code>][assistant] with an estimator that does not accept missing values failed inside the script ("Input contains NaN") when a test fold read a missing exogenous value, and with several series left those predictions out of the metrics without a warning, as `ForecasterDirectMultiVariate` did with a missing value in the window of any series. It now raises `DataContentError` before running, naming the columns, series and dates.
++ [<code>ForecastingAssistant.backtest()</code>][assistant] with an estimator that does not accept missing values failed inside the script ("Input contains NaN") when a test fold read a missing exogenous value, and with several series left those predictions out of the metrics without a warning, as `ForecasterDirectMultiVariate` did with a missing value in the window of any series. It now raises `DataContentError` before running, naming the columns, series and dates, as the warning of `create_cv()` says.
 
 + [<code>ForecastingAssistant.compare()</code>][assistant] applied the threshold of a long training (50 estimator fits) to each candidate, so candidates cheap one by one ran 78 fits without a warning. It now applies it to all the candidates together, before any of them runs, and states the total and what each candidate adds ([#108](https://github.com/skforecast/skforecast-ai/pull/108), [#113](https://github.com/skforecast/skforecast-ai/pull/113)).
 

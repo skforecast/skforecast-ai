@@ -3,6 +3,7 @@
 import re
 
 import pytest
+from skforecast.exceptions import MissingValuesWarning
 
 import skforecast_ai.assistant as assistant_module
 from skforecast_ai import ForecastingAssistant
@@ -11,6 +12,7 @@ from skforecast_ai.exceptions import DataContentError, ForecastExecutionError
 
 from tests.fixtures_last_window import (
     _assistant,
+    _profile_h2o_no_forecast_row,
     _profile_single_closed,
     data_h2o_no_forecast_row,
     data_h2o_no_training_row,
@@ -158,15 +160,14 @@ def test_validate_training_rows_passes_when_plan_is_not_concerned(data, profile,
 
 
 @pytest.mark.parametrize("test_size", [None, 12], ids=["prediction", "evaluation"])
-# skforecast warns on the rows it drops before it fails on having none left.
-@pytest.mark.filterwarnings("ignore::skforecast.exceptions.MissingValuesWarning")
 def test_validate_training_rows_matches_skforecast(monkeypatch, test_size):
     """
     Test that the script of the forecast fails inside skforecast with "All
     samples have been removed due to NaNs" where the check raises, in
-    prediction mode and with `test_size`.
+    prediction mode and with `test_size`; skforecast warns first about the
+    rows it drops.
     """
-    profile = _assistant.profile(data_h2o_no_forecast_row, target="x")
+    profile = _profile_h2o_no_forecast_row
     plan = plan_h2o_no_forecast_row_ridge
     with pytest.raises(DataContentError, match="Every training row of the forecast"):
         ForecastingAssistant().forecast(
@@ -176,7 +177,11 @@ def test_validate_training_rows_matches_skforecast(monkeypatch, test_size):
     monkeypatch.setattr(
         assistant_module, "validate_training_rows", lambda **kwargs: None
     )
-    with pytest.raises(ForecastExecutionError, match="All samples have been removed"):
-        ForecastingAssistant().forecast(
-            data_h2o_no_forecast_row, profile=profile, plan=plan, test_size=test_size
-        )
+    with pytest.warns(MissingValuesWarning, match="NaNs detected"):
+        with pytest.raises(
+            ForecastExecutionError, match="All samples have been removed"
+        ):
+            ForecastingAssistant().forecast(
+                data_h2o_no_forecast_row, profile=profile, plan=plan,
+                test_size=test_size,
+            )

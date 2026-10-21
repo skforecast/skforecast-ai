@@ -3,7 +3,6 @@
 import re
 import warnings
 
-import numpy as np
 import pytest
 from skforecast.exceptions import MissingValuesWarning
 from skforecast.model_selection import TimeSeriesFold
@@ -30,6 +29,8 @@ from tests.fixtures_last_window import (
     plan_h2o_ridge,
     plan_single_closed_ridge,
     plan_wide_multivariate,
+    plan_wide_multivariate_lgbm,
+    plan_wide_multivariate_lgbm_differenced,
     plan_wide_ridge,
     plans_h2o_without_lags,
     profile_h2o,
@@ -38,7 +39,7 @@ from tests.fixtures_last_window import (
     profile_of,
     profile_single_closed,
     profile_wide,
-    profile_of_wide,
+    wide_missing,
     with_missing,
     without_months,
 )
@@ -334,40 +335,6 @@ def test_validate_backtest_windows_DataContentError_names_closed_days_of_trainin
 # =============================================================================
 # Tests: ForecasterDirectMultiVariate
 # =============================================================================
-# The plan of ForecasterDirectMultiVariate on the three items_sales series
-# (level 'item_1') reads the lags 1 and 5 of every series; the 12 test
-# folds of `cv_items_sales()` start at the positions 84, 87, ..., 117, so a
-# value at the position 97 (2012-04-07) is lag 5 of the fold that starts at
-# 102, and the one at 98 (2012-04-08) is the last value before the fold
-# that starts at 99.
-plan_wide_multivariate_lgbm = plan_wide_multivariate.model_copy(
-    update={"estimator": "LGBMRegressor"}, deep=True
-)
-plan_wide_multivariate_lgbm_differenced = plan_wide_multivariate_lgbm.model_copy(
-    update={
-        "forecaster_kwargs": {
-            **plan_wide_multivariate_lgbm.forecaster_kwargs, "differentiation": 1
-        }
-    },
-    deep=True,
-)
-
-
-def _wide_missing(column, position):
-    """
-    Return items_sales in wide format with `column` missing at `position`
-    (counting from 0), and its profile.
-    """
-    data = data_wide.copy()
-    data.iloc[position, data.columns.get_loc(column)] = np.nan
-    with warnings.catch_warnings():
-        # Profiling a target with missing values warns; only the profile is
-        # needed.
-        warnings.simplefilter("ignore", category=MissingValuesWarning)
-        profile = profile_of_wide(data)
-    return data, profile
-
-
 def _multivariate_message(column, date, why):
     """Return the error of a missing value that a fold of DMV reads."""
     return (
@@ -387,7 +354,7 @@ def test_validate_backtest_windows_DataContentError_when_multivariate_window_has
     the predictions of the level would be missing, and its metrics would
     leave them out without a warning.
     """
-    data, profile = _wide_missing(column, 97)
+    data, profile = wide_missing(column, 97)
 
     expected = _multivariate_message(
         column, "2012-04-07",
@@ -420,7 +387,7 @@ def test_validate_backtest_windows_UserWarning_when_multivariate_estimator_toler
     the missing value is the last one of a series other than the level,
     whose inverse is not computed.
     """
-    data, profile = _wide_missing(column, position)
+    data, profile = wide_missing(column, position)
 
     expected = (
         f"The forecaster reads missing values of the target to predict 1 of "
@@ -438,7 +405,7 @@ def test_validate_backtest_windows_DataContentError_when_multivariate_inverse_re
     a fold raises whatever the estimator: the inverse of the
     differentiation starts from it.
     """
-    data, profile = _wide_missing("item_1", 98)
+    data, profile = wide_missing("item_1", 98)
 
     expected = _multivariate_message(
         "item_1", "2012-04-08",
@@ -457,11 +424,11 @@ def test_validate_backtest_windows_passes_when_multivariate_missing_is_not_read(
     Test that a missing value of ForecasterDirectMultiVariate that no window
     reads (in the first training rows) passes.
     """
-    data, profile = _wide_missing("item_2", 30)
+    data, profile = wide_missing("item_2", 30)
 
-    validate_backtest_windows(
+    assert validate_backtest_windows(
         data, profile, plan_wide_multivariate, cv_items_sales()
-    )
+    ) is None
 
 
 @pytest.mark.parametrize(
@@ -482,7 +449,7 @@ def test_validate_backtest_windows_matches_skforecast_for_multivariate(
     level, which its metrics leave out without an error, exactly where the
     check raises (with a tolerant estimator, it only warns).
     """
-    data, profile = _wide_missing(column, position)
+    data, profile = wide_missing(column, position)
     monkeypatch.setattr(
         assistant_module, "validate_backtest_windows", lambda **kwargs: None
     )

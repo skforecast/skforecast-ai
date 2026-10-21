@@ -255,8 +255,10 @@ def backtest_missing_values(
 
     `backtest()` checks every fold before running: the target (see
     `validate_backtest_windows`) and the exogenous columns (see
-    `validate_backtest_exog`). Several series drop the missing values per
-    series and are not concerned, nor ForecasterStats and
+    `validate_backtest_exog`). This advice does not cover several series,
+    whose backtest drops the missing values of the target per series (its
+    checks cover their exogenous columns and the windows of
+    ForecasterDirectMultiVariate), nor ForecasterStats and
     ForecasterFoundation.
 
     Parameters

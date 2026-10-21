@@ -1734,7 +1734,9 @@ def validate_backtest_exog(
     missing values, a ForecasterFoundation model (which takes them as they
     are) and a baseline (which reads no exogenous variables) are not
     checked, nor data the generated code cannot read and a strategy that
-    cannot be split on it.
+    cannot be split on it. Unlike the future values of `forecast()`,
+    nothing warns with an estimator that accepts missing values: the
+    profile already notes the missing values of each column.
 
     Parameters
     ----------
@@ -2259,8 +2261,9 @@ def warn_backtest_missing_values(plan: ForecastPlan, profile: DataProfile) -> No
     missing values of the data (see `backtest_missing_values`). Where they
     are is not known without the data, so the warning says when the
     backtest fails and what avoids it, each case a condition: `backtest()`
-    checks every fold of the target before running (see
-    `_check_evaluated_target` and `validate_backtest_windows`).
+    checks every fold of the target and of the exogenous columns before
+    running (see `_check_evaluated_target`, `validate_backtest_windows` and
+    `validate_backtest_exog`).
 
     Parameters
     ----------

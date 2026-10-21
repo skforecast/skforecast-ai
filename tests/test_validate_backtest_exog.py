@@ -62,29 +62,45 @@ def _tolerant(estimator):
     )
 
 
+_IN_SECOND_FOLD = (
+    "The forecaster reads missing values of the exogenous variables to predict "
+    "1 of the 3 test folds ('promo': 1 value(s), such as '2006-11-01'). "
+)
+
+
 @pytest.mark.parametrize(
-    "plan, forecaster, remedy",
+    "plan, expected",
     [
         (
             plan_h2o_exog_ridge,
-            "ForecasterRecursive",
-            _tolerant("RandomForestRegressor"),
+            _IN_SECOND_FOLD
+            + "ForecasterRecursive with Ridge cannot use them, so its "
+            "predictions would be missing. Either they are filled in, after "
+            "asking the user, or the plan uses an estimator that accepts "
+            "missing values (such as 'RandomForestRegressor'), or the column "
+            "is left out of `exog_columns` when profiling.",
         ),
         (
             plan_h2o_exog_direct,
-            "ForecasterDirect",
-            _tolerant("RandomForestRegressor"),
+            _IN_SECOND_FOLD
+            + "ForecasterDirect with Ridge cannot use them, so its predictions "
+            "would be missing. Either they are filled in, after asking the "
+            "user, or the plan uses an estimator that accepts missing values "
+            "(such as 'RandomForestRegressor'), or the column is left out of "
+            "`exog_columns` when profiling.",
         ),
         (
             plan_h2o_exog_stats,
-            "ForecasterStats",
-            "or the column is left",
+            _IN_SECOND_FOLD
+            + "ForecasterStats with Arima cannot use them, so its predictions "
+            "would be missing. Either they are filled in, after asking the "
+            "user, or the column is left out of `exog_columns` when profiling.",
         ),
     ],
     ids=["recursive", "direct", "stats"],
 )
 def test_validate_backtest_exog_DataContentError_when_test_fold_reads_missing_exog(
-    plan, forecaster, remedy
+    plan, expected
 ):
     """
     Test that a missing value of 'promo' in a row of the second test fold
@@ -93,12 +109,6 @@ def test_validate_backtest_exog_DataContentError_when_test_fold_reads_missing_ex
     training rows (1999-05-01) is not read. ForecasterStats has no
     estimator to switch to.
     """
-    expected = _message(
-        where      = "1 of the 3 test folds",
-        found      = "'promo': 1 value(s), such as '2006-11-01'",
-        forecaster = forecaster,
-        remedy     = remedy,
-    ).replace(f"{forecaster} with Ridge", f"{forecaster} with {plan.estimator}")
     with pytest.raises(DataContentError, match=re.escape(expected)) as exc_info:
         validate_backtest_exog(data_h2o_exog, profile_h2o_exog, plan, cv_h2o())
 

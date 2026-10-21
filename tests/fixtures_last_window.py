@@ -524,3 +524,38 @@ def multiseries_exog_of(data: pd.DataFrame, **kwargs):
         },
     )
     return profile.data_profile, plan
+
+
+# --- ForecasterDirectMultiVariate on the items_sales series (wide) ---
+# The plan of ForecasterDirectMultiVariate on the three items_sales series
+# (level 'item_1') reads the lags 1 and 5 of every series; the 12 test
+# folds of `cv_items_sales()` start at the positions 84, 87, ..., 117, so a
+# value at the position 97 (2012-04-07) is lag 5 of the fold that starts at
+# 102, and the one at 98 (2012-04-08) is the last value before the fold
+# that starts at 99.
+plan_wide_multivariate_lgbm = plan_wide_multivariate.model_copy(
+    update={"estimator": "LGBMRegressor"}, deep=True
+)
+plan_wide_multivariate_lgbm_differenced = plan_wide_multivariate_lgbm.model_copy(
+    update={
+        "forecaster_kwargs": {
+            **plan_wide_multivariate_lgbm.forecaster_kwargs, "differentiation": 1
+        }
+    },
+    deep=True,
+)
+
+
+def wide_missing(column: str, position: int):
+    """
+    Return items_sales in wide format with `column` missing at `position`
+    (counting from 0), and its profile.
+    """
+    data = data_wide.copy()
+    data.iloc[position, data.columns.get_loc(column)] = np.nan
+    # Profiling a target with missing values warns; only the profile is
+    # needed.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=MissingValuesWarning)
+        profile = profile_of_wide(data)
+    return data, profile
