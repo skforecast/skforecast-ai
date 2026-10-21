@@ -1390,7 +1390,14 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     el panel (`first-forecast.ipynb` también). Su texto ya dice RMSE, como
     el README y la guía de instalación.
 
-- **D?. 3f-3: avisos de planes y estrategias** (2026-10-21). V17, V21 y
+- **D28. 3f-3: avisos de planes y estrategias** (2026-10-21), en
+  [#118](https://github.com/skforecast/skforecast-ai/pull/118). Revisión:
+  el script c_02 de la auditoría no se actualiza (es la prueba de entonces;
+  basta la ejecución protegida); "(refined by the LLM)" para lags y
+  ventanas que refinó el LLM; el `FutureExogNotice` no nombra las
+  categóricas que el modelo descarta, solo las columnas que lee; aceptar
+  `skip_folds` con ForecasterStats (o al menos `[]` como `None`) queda a
+  criterio de skforecast. V17, V21 y
   lo que quedaba de la revisión de
   [#107](https://github.com/skforecast/skforecast-ai/pull/107) (D18):
   - V17: skforecast 0.27 sigue rechazando `skip_folds` para
