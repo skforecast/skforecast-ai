@@ -4168,6 +4168,104 @@ _MIN_OBSERVATIONS = 50
 _SHOWN_SHORT_SERIES = 5
 
 
+# Start of the warnings about the exogenous columns, which
+# `plan_data_warnings` leaves out for a plan without exogenous variables.
+_EXOG_MISSING_NOTE = "Missing values in exogenous columns: "
+_NUMBERS_AS_TEXT_NOTE = "Numbers written as text in exogenous column "
+_MISSING_RATE_NOTE = "High missing value rate ("
+
+
+def missing_rate_warning(
+    n_observations: int,
+    missing_target: dict[str, int],
+    missing_exog: dict[str, int],
+) -> str | None:
+    """
+    Warn about a high rate of missing values in the columns that have any.
+
+    Parameters
+    ----------
+    n_observations : int
+        Number of observations of the shortest series, or the rows of wide
+        data.
+    missing_target : dict
+        Mapping of target/series name to NaN count, only those with any.
+    missing_exog : dict
+        Mapping of exogenous column name to count of missing values, only
+        those with any.
+
+    Returns
+    -------
+    warning : str, None
+        Text of the warning when more than 20 % of the values of those
+        columns are missing, otherwise None.
+    """
+    total_missing = sum(missing_target.values()) + sum(missing_exog.values())
+    if total_missing == 0:
+        return None
+    n_cols = len(missing_target) + len(missing_exog) or 1
+    missing_rate = total_missing / (n_observations * n_cols)
+    if missing_rate <= 0.2:
+        return None
+
+    return (
+        f"{_MISSING_RATE_NOTE}{missing_rate:.1%}). "
+        "Consider imputation before forecasting."
+    )
+
+
+def plan_data_warnings(data_profile: DataProfile, use_exog: bool) -> list[str]:
+    """
+    Warnings of the data that concern a plan.
+
+    A plan without exogenous variables never reads the exogenous columns,
+    so their warnings (their missing values, their numbers written as
+    text) are left out, and the rate of missing values is computed again
+    on the target alone, or left out when the target alone stays below it.
+
+    Parameters
+    ----------
+    data_profile : DataProfile
+        Profile of the data the plan is built from.
+    use_exog : bool
+        Whether the plan uses the exogenous variables (`plan.use_exog`).
+
+    Returns
+    -------
+    warnings : list of str
+        `data_profile.warnings`, without those of the exogenous columns
+        when `use_exog` is False, in the same order.
+
+    Notes
+    -----
+    The rate is counted on the observations of the shortest series (long
+    format) or of the series (single series), as the profile counts it,
+    and for wide format on the dates of its span, which are its rows unless
+    some dates are missing.
+    """
+    if use_exog or not data_profile.exog_columns:
+        return list(data_profile.warnings)
+
+    lengths = [info.length for info in data_profile.series_lengths.values()]
+    n_observations = (
+        data_profile.span_index_length if data_profile.data_format == "wide"
+        else min(lengths)
+    )
+    warnings = []
+    for warning in data_profile.warnings:
+        if warning.startswith((_EXOG_MISSING_NOTE, _NUMBERS_AS_TEXT_NOTE)):
+            continue
+        if warning.startswith(_MISSING_RATE_NOTE) and data_profile.missing_exog:
+            warning = missing_rate_warning(
+                n_observations, data_profile.missing_target, {}
+            )
+            if warning is None:
+                continue
+        warnings.append(warning)
+
+    return warnings
+
+
 def generate_warnings(
     n_observations: int,
     frequency: str | None,
@@ -4346,19 +4444,9 @@ def generate_warnings(
             f"{others}."
         )
 
-    total_target_missing = sum(missing_target.values())
-    total_exog_missing = sum(missing_exog.values())
-    total_missing = total_target_missing + total_exog_missing
-    if total_missing > 0:
-        n_cols = len(missing_target) + len(missing_exog)
-        if n_cols == 0:
-            n_cols = 1
-        missing_rate = total_missing / (n_observations * n_cols)
-        if missing_rate > 0.2:
-            warnings.append(
-                f"High missing value rate ({missing_rate:.1%}). "
-                "Consider imputation before forecasting."
-            )
+    rate_warning = missing_rate_warning(n_observations, missing_target, missing_exog)
+    if rate_warning is not None:
+        warnings.append(rate_warning)
 
     if missing_exog:
         shown = ", ".join(
@@ -4367,7 +4455,7 @@ def generate_warnings(
         if len(missing_exog) > 5:
             shown += f" (first 5 of {len(missing_exog)})"
         warnings.append(
-            f"Missing values in exogenous columns: {shown}. An estimator that "
+            f"{_EXOG_MISSING_NOTE}{shown}. An estimator that "
             f"does not accept missing values fails when it reads them."
         )
 
@@ -4384,7 +4472,7 @@ def generate_warnings(
             f"{', '.join(kinds[:-1])} and {kinds[-1]}"
         )
         warnings.append(
-            f"Numbers written as text in exogenous column {column!r}: {share} "
+            f"{_NUMBERS_AS_TEXT_NOTE}{column!r}: {share} "
             f"are numbers, once a final '%' and spaces are removed, or markers "
             f"of missing values (it holds {held}), so it is used as a "
             f"categorical variable with {n_levels} levels. If it is a numeric "

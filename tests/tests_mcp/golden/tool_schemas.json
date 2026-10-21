@@ -1096,7 +1096,7 @@
             }
           ],
           "default": null,
-          "description": "Whether the training window keeps its size when refitting (true) or grows (false). Null for false. Only with `refit` true or an integer: with `refit` false or null it is an error, as it would not run (ForecasterStats aside)."
+          "description": "Whether the training window keeps its size when refitting (true) or grows (false). Null for false. Only with `refit` true or an integer: with `refit` false or null nothing is refitted, so it has no effect and is rejected (`invalid_argument`); ForecasterStats aside, which is refitted in every fold."
         },
         "gap": {
           "anyOf": [
@@ -1129,7 +1129,7 @@
             }
           ],
           "default": null,
-          "description": "Folds are numbered from 0, and fold 0 always runs. An integer n keeps folds 0, n, 2n, ...; a list skips the folds at those numbers (each at least 1 and below the number of folds). Null for every fold."
+          "description": "Folds are numbered from 0, and fold 0 always runs. An integer n keeps folds 0, n, 2n, ...; a list skips the folds at those numbers (each at least 1 and below the number of folds). Null for every fold. Rejected for a ForecasterStats plan, which skforecast refits in every fold."
         },
         "allow_incomplete_fold": {
           "anyOf": [

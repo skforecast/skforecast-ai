@@ -327,6 +327,10 @@ def _exog_notices(plan: Any, profile: Any, forecast: bool) -> list[ToolNotice]:
     The hint of `forecast` arrives after an agent wrote the file of future
     values itself, which it does as soon as the summary of the plan names
     that file; and an agent that leaves the columns out seldom says so.
+    The notice of a plan names the columns its script reads
+    (`used_exog_columns`): not the categorical ones that ForecasterStats
+    or a foundation model without categorical covariates leaves out, which
+    `forecast` rejects in the file of a foundation model.
 
     Parameters
     ----------
@@ -340,12 +344,20 @@ def _exog_notices(plan: Any, profile: Any, forecast: bool) -> list[ToolNotice]:
     Returns
     -------
     notices : list of ToolNotice
-        One notice, or none: a plan without exogenous variables, a forecast
-        that uses them, or data without exogenous columns.
+        One notice, or none: a plan without exogenous variables (or whose
+        model reads none of the columns), a forecast that uses them, or
+        data without exogenous columns.
     """
 
-    columns = list(profile.data_profile.exog_columns)
-    if not columns or plan.use_exog == forecast:
+    from .._future_exog import used_exog_columns
+
+    if plan.use_exog == forecast:
+        return []
+    columns = (
+        list(profile.data_profile.exog_columns) if forecast
+        else used_exog_columns(plan, profile.data_profile)
+    )
+    if not columns:
         return []
     shown = ", ".join(repr(column) for column in columns[:5])
     if len(columns) > 5:
@@ -1557,6 +1569,53 @@ def _check_foundation_kwargs(
         )
 
 
+def _check_window_without_refit(
+    fixed_train_size: bool | None,
+    refit: Any,
+    forecaster: str,
+) -> None:
+    """
+    Reject a `fixed_train_size` for a strategy that trains the forecaster
+    once.
+
+    The core accepts it with an `IgnoredArgumentWarning`, as skforecast,
+    whose default is `fixed_train_size=True` with `refit=False`, accepts
+    it. An agent that passes it means a window that rolls between refits,
+    which never happens: the server rejects it, so the strategy is fixed
+    before a backtest is described as one with a fixed window.
+
+    Parameters
+    ----------
+    fixed_train_size : bool, None
+        Value given by the agent.
+    refit : bool, int, None
+        `refit` given by the agent; null trains once.
+    forecaster : str
+        Forecaster of the plan.
+
+    Returns
+    -------
+    None
+    """
+
+    from .._utils import window_without_refit
+
+    if window_without_refit(fixed_train_size, refit, forecaster):
+        shown = "null" if refit is None else json.dumps(refit)
+        raise ServerError(
+            f"`fixed_train_size` has no effect with `refit` {shown}: "
+            f"{forecaster} is not refitted between folds, so there is no "
+            f"training window to keep or grow.",
+            code  = "invalid_argument",
+            field = "fixed_train_size",
+            hint  = (
+                "Pass `refit: true` (or an integer) to refit it, with a fixed "
+                "(true) or growing (false) window, or leave "
+                "`fixed_train_size` out."
+            ),
+        )
+
+
 def _check_steps(steps: Any, profile: Any, argument: str) -> None:
     """
     Reject a horizon longer than the longest series of the profile.
@@ -1599,10 +1658,12 @@ def _check_steps(steps: Any, profile: Any, argument: str) -> None:
         )
 
 
-def _data_texts(data_profile: Any) -> list[str]:
+def _data_texts(data_profile: Any, use_exog: bool = True) -> list[str]:
     """
     Problems of the data to give as notices: the warnings the profile
-    records, and the missing values of the target.
+    records, and the missing values of the target. For a plan without
+    exogenous variables (`use_exog` False), not the warnings about the
+    exogenous columns (see `plan_data_warnings`).
 
     The profile only warns about missing values above a rate of 20 %, and
     says how many there are in its summary. Fewer already matter to the
@@ -1611,7 +1672,9 @@ def _data_texts(data_profile: Any) -> list[str]:
     accept them, both when the script runs, three calls later.
     """
 
-    texts = list(data_profile.warnings)
+    from ..profiling.data_profile import plan_data_warnings
+
+    texts = plan_data_warnings(data_profile, use_exog)
     missing = {name: n for name, n in data_profile.missing_target.items() if n > 0}
     if missing:
         shown = ", ".join(f"{name!r}: {n}" for name, n in list(missing.items())[:5])
@@ -1824,7 +1887,8 @@ def _default_compare_cost(
     Cost of the `compare` tool without candidates on a strategy, counted as
     `compare()` counts it (`count_comparison_cost`), from the candidates
     `resolve_default_candidates()` resolves: the candidates of the profile
-    (without a foundation model whose backend is not installed), the plan
+    (without a foundation model whose backend is not installed, nor
+    ForecasterStats when the strategy skips folds), the plan
     the strategy was created for when it is none of them, and without the
     alternatives above the budget of `compare()` (the recommended
     forecaster and the plan of the strategy always run), plus the baseline
@@ -1881,6 +1945,7 @@ def _default_compare_cost(
                      n_fits        = n_fits,
                      steps         = plan.steps,
                      n_folds       = n_folds,
+                     skip_folds    = cv_result.cv.skip_folds,
                  ).candidates
     candidates, _, _ = add_baseline_candidate(candidates, profile, interval)
     candidates = buildable_candidates(candidates, build_plan)
@@ -2218,7 +2283,9 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             texts = [
                 *_text_notices(new_plan.warnings, outcome_warnings, "plan"),
                 *_text_notices(
-                    _data_texts(source.profile.data_profile), outcome_warnings, "data"
+                    _data_texts(source.profile.data_profile, new_plan.use_exog),
+                    outcome_warnings,
+                    "data",
                 ),
             ]
             notices = build_notices(
@@ -2422,8 +2489,9 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         fixed_train_size: Annotated[bool | None, Field(description=(
             "Whether the training window keeps its size when refitting "
             "(true) or grows (false). Null for false. Only with `refit` true "
-            "or an integer: with `refit` false or null it is an error, as it "
-            "would not run (ForecasterStats aside)."
+            "or an integer: with `refit` false or null nothing is refitted, "
+            "so it has no effect and is rejected (`invalid_argument`); "
+            "ForecasterStats aside, which is refitted in every fold."
         ))] = None,
         gap: Annotated[int | None, Field(ge=0, description=(
             "Observations between the end of training and the test set. Null "
@@ -2434,7 +2502,8 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             "Folds are numbered from 0, and fold 0 always runs. An integer n "
             "keeps folds 0, n, 2n, ...; a list skips the folds at those "
             "numbers (each at least 1 and below the number of folds). Null "
-            "for every fold."
+            "for every fold. Rejected for a ForecasterStats plan, which "
+            "skforecast refits in every fold."
         ))] = None,
         allow_incomplete_fold: Annotated[bool | None, Field(description=(
             "Whether the last fold may have fewer than `steps` observations. "
@@ -2447,6 +2516,9 @@ def _build_tools(state: _ServerState) -> list[Tool]:
 
         _inputs.check_not_numeric_text(initial_train_size, "initial_train_size")
         plan_entry = store.get(plan_id, "plan_id", ("plan",))
+        _check_window_without_refit(
+            fixed_train_size, refit, plan_entry.obj.forecaster
+        )
 
         def work(control: CallControl):
             from .._utils import warn_long_inference, warn_long_training

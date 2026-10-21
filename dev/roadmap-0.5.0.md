@@ -1335,6 +1335,57 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     lo nombran. SKILL.md, `docs/api/mcp.md` y la guía de la CLI dicen que
     una estrategia sirve para cualquier orden.
 
+- **D?. 3f-3: avisos de planes y estrategias** (2026-10-21). V17, V21 y
+  lo que quedaba de la revisión de
+  [#107](https://github.com/skforecast/skforecast-ai/pull/107) (D18):
+  - V17: skforecast 0.27 sigue rechazando `skip_folds` para
+    ForecasterStats (cualquier valor que no sea None, `[]` incluido), así
+    que `create_cv()` lo rechaza con `InvalidInputError` en `skip_folds`
+    (`invalid_argument` en el MCP), y `backtest()` y `backtest_code()` con
+    un `TimeSeriesFold` que lo lleva fallan antes de ejecutar (campo `cv`),
+    como con el `gap` de un directo. Con `prompt`, una sugerencia del LLM
+    con `skip_folds` para Stats se reintenta. Un `compare()` sin
+    candidatos sobre una estrategia con `skip_folds` deja fuera a
+    ForecasterStats con un `UserWarning` y una frase en la explicación, y
+    el coste de `create_cv` (`compare_estimator_fits`) ya no lo cuenta. Un
+    candidato explícito de Stats falla con el error de `backtest()`.
+  - V21: el comportamiento correcto depende de la interfaz. En Python y la
+    CLI se queda el `IgnoredArgumentWarning`: `fixed_train_size=True` con
+    `refit=False` es el valor por defecto de `TimeSeriesFold`, y un error
+    rompería código que skforecast acepta. El MCP lo rechaza
+    (`invalid_argument` en `fixed_train_size`, salvo ForecasterStats, que
+    se reentrena en cada fold), como ya decía su esquema: el agente que lo
+    pasa espera una ventana que rueda entre reentrenamientos que no hay, y
+    un aviso no le impide describir así el backtest. Cambia la descripción
+    del esquema (decía que "no correría", y corre), junto con la de
+    `skip_folds`: son los dos únicos cambios del golden.
+  - `plan_data_warnings` (`profiling/data_profile.py`): un plan con
+    `use_exog=False` no lleva los avisos de las exógenas (faltantes por
+    columna, números escritos como texto) en `describe()`, el contexto de
+    `ask()` (`render_dataset_section` con el plan) ni las notices del
+    `plan` del MCP; el 20 % de faltantes se recalcula solo con el objetivo
+    (con datos anchos, sobre `span_index_length`, que son sus filas salvo
+    que falten fechas). Los datos de un `compare` y del perfil siguen
+    teniéndolos todos. Ningún golden cambia; el check de pago de
+    `check_ask_context.py` queda para la fase 7.
+  - `FutureExogNotice` sí se alcanzaba: con los modelos fundacionales que
+    el servidor corre sin `--allow-model` y no aceptan categóricas
+    (`soda-inria/tabicl-ts`, `theforecastingcompany/t0`, `Synthefy/Nori`)
+    y también con ForecasterStats, que solo lee las numéricas. Pedía la
+    columna categórica, que `forecast` rechaza en el fichero de un
+    fundacional. Ahora nombra `used_exog_columns`, y sin ninguna no hay
+    notice.
+  - D18 revisado: los lags y las ventanas que refinó el LLM se nombran
+    como "(refined by the LLM)" cuando el plan nuevo los pierde;
+    `transformer_exog` y `categorical_features` se nombran "(chosen by the
+    rules)" cuando el plan leía columnas numéricas o categóricas y el
+    forecaster nuevo no los usa (no autorregresivo; para las categóricas,
+    tampoco cuando el modelo nuevo las lee él mismo, como Chronos-2), salvo
+    con `use_exog` en la llamada o editados a mano. Las ediciones a mano y
+    las decisiones que se pierden van en un solo
+    `PlanEditsDiscardedWarning` (y una entrada de `plan.warnings`). Los
+    lags, las ventanas y el estimador de las reglas siguen sin nombrarse.
+
 ## Decisiones abiertas
 
 Se toman en el PR que las necesita y se pasan a la sección de arriba.

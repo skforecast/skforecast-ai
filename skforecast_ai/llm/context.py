@@ -17,6 +17,7 @@ from .._constants import (
     MAX_DESCRIBE_ITEMS,
     MAX_LEADERBOARD_ROWS,
 )
+from ..profiling.data_profile import plan_data_warnings
 from ..schemas import ComparisonResult, ForecastingProfile, ForecastPlan
 
 
@@ -424,6 +425,7 @@ def _summarize_dataframe(df: Any) -> str:
 def render_dataset_section(
     profile: ForecastingProfile | None,
     for_describe: bool = False,
+    plan: ForecastPlan | None = None,
 ) -> str:
     """
     Render the `<dataset>` section describing the profiled data.
@@ -437,6 +439,10 @@ def render_dataset_section(
         first `MAX_DESCRIBE_ITEMS` items of each list (target columns,
         exogenous columns, series with missing values, warnings) and says
         how many there are.
+    plan : ForecastPlan, default None
+        Plan the context describes with the data. A plan without exogenous
+        variables leaves out the warnings about the exogenous columns (see
+        `plan_data_warnings`), which do not concern it.
 
     Returns
     -------
@@ -560,7 +566,10 @@ def render_dataset_section(
     parts.append(
         f"- Index irregularities: {', '.join(irregularities) if irregularities else 'none detected'}"
     )
-    warnings_shown, suffix = _first_items(dp.warnings, for_describe)
+    data_warnings = (
+        dp.warnings if plan is None else plan_data_warnings(dp, plan.use_exog)
+    )
+    warnings_shown, suffix = _first_items(data_warnings, for_describe)
     for warning in warnings_shown:
         parts.append(f"- Data warning: {_free_text(warning)}")
     if suffix:
@@ -1485,7 +1494,7 @@ def build_context_message(
     """
 
     return join_sections([
-        render_dataset_section(profile, for_describe=for_describe),
+        render_dataset_section(profile, for_describe=for_describe, plan=plan),
         render_profile_decision_section(profile, for_describe=for_describe),
         render_plan_section(plan, for_describe=for_describe),
         render_cv_section(
