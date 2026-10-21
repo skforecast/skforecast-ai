@@ -307,7 +307,7 @@ def test_run_backtest_baseline_returns_metrics_and_conformal_intervals():
 
     assert list(result["metrics"].columns) == [
         "mean_absolute_error",
-        "mean_squared_error",
+        "root_mean_squared_error",
         "mean_absolute_scaled_error",
         "coverage",
         "interval_width",

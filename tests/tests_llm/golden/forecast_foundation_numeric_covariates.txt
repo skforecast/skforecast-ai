@@ -27,13 +27,13 @@ A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 100 ob
 - Preprocessing steps:
   - [informational] Categorical exogenous variables detected: ['weekday']. 'google/timesfm-3.0-pytorch' only accepts numeric covariates, so these columns are excluded. Encode them manually to include them.
 - Chosen by the user instead of the rules: forecaster, estimator
-- Plan: ForecasterFoundation + google/timesfm-3.0-pytorch. No lag or window features: the foundation model forecasts directly from the raw context window. Prediction intervals via native. Exogenous variables included. MAE is interpretable, robust to outliers, and works at any scale. The model reads up to 2048 observations of the series as context, so the whole history is used (the series has 100). The weights of 'google/timesfm-3.0-pytorch' are released under timesfm-non-commercial-license-v1.0, which restricts commercial use (https://huggingface.co/google/timesfm-3.0-pytorch/blob/main/LICENSE).
+- Plan: ForecasterFoundation + google/timesfm-3.0-pytorch. No lag or window features: the foundation model forecasts directly from the raw context window. Prediction intervals via native. Exogenous variables included. MAE is interpretable, robust to outliers, and works at any scale. MAPE is not computed: it divides each error by the actual value, and the target takes values at or around zero (from 0 to 99). The model reads up to 2048 observations of the series as context, so the whole history is used (the series has 100). The weights of 'google/timesfm-3.0-pytorch' are released under timesfm-non-commercial-license-v1.0, which restricts commercial use (https://huggingface.co/google/timesfm-3.0-pytorch/blob/main/LICENSE).
 
 Note: A validated Python script implementing this plan is generated separately. Do not generate code yourself.
 </forecast_plan>
 <evaluation_metrics>
- mean_absolute_error  mean_squared_error  mean_absolute_scaled_error
-                 2.5                9.25                         0.8
+ mean_absolute_error  root_mean_squared_error  mean_absolute_scaled_error
+                 2.5                   3.0414                         0.8
 </evaluation_metrics>
 <predictions>
 Total rows: 5 (all shown below).

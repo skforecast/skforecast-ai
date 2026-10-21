@@ -41,7 +41,9 @@ def test_tool_backtest_output_matches_python_api(tmp_path):
     Test that `backtest` runs the plan of the strategy as the Python API
     does: same summary, predictions and metrics (written to CSV files, not
     sent), cost, links and script. Its metrics include MASE, so a notice
-    gives the reference it is scaled by, which the summary does not.
+    gives the reference it is scaled by, which the summary does not. The
+    default panel has RMSE and not MSE, so the unit notice gives the unit of
+    RMSE and not that of MSE.
     """
     server, path = h2o_server(tmp_path)
     profile_id, plan_id, cv_id = cv_of(server, path, cv_arguments={"refit": True})
@@ -80,6 +82,8 @@ def test_tool_backtest_output_matches_python_api(tmp_path):
         "one-step naive forecast (repeat the previous value) on the training "
         "data"
     )
+    assert result["notices"][1]["message"].endswith(RMSE_UNIT)
+    assert MSE_UNIT not in result["notices"][1]["message"]
 
 
 def test_tool_backtest_another_plan_of_the_same_profile(tmp_path):

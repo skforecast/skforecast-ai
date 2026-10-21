@@ -414,7 +414,7 @@ class ForecastResult(SingleRunResult):
         Evaluation metrics, with the columns of the metrics of a backtest
         of the same plan: one column per metric of
         `plan.metrics_to_compute`, named as the metric (by default
-        `mean_absolute_error`, `mean_squared_error` and
+        `mean_absolute_error`, `root_mean_squared_error` and
         `mean_absolute_scaled_error`, plus `mean_absolute_percentage_error`
         when the target of no series takes values at or around zero). For
         single-series tasks this contains one row; for multi-series tasks

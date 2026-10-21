@@ -451,7 +451,7 @@ def test_backtest_output_when_baseline_plan():
     expected_metrics = pd.DataFrame(
         {
             "mean_absolute_error": [7.0],
-            "mean_squared_error": [49.0],
+            "root_mean_squared_error": [7.0],
             "mean_absolute_scaled_error": [7.0],
         }
     )

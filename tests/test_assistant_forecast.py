@@ -80,7 +80,7 @@ def test_forecast_output_when_single_series():
     assert result.code is not None
     assert isinstance(result.metrics, pd.DataFrame)
     assert list(result.metrics.columns) == [
-        "mean_absolute_error", "mean_squared_error", "mean_absolute_scaled_error"
+        "mean_absolute_error", "root_mean_squared_error", "mean_absolute_scaled_error"
     ]
     assert len(result.metrics) == 1
     assert result.metrics["mean_absolute_error"].iloc[0] > 0
@@ -379,9 +379,9 @@ def test_forecast_metrics_are_finite():
     )
 
     assert np.isfinite(result.metrics["mean_absolute_error"].iloc[0])
-    assert np.isfinite(result.metrics["mean_squared_error"].iloc[0])
+    assert np.isfinite(result.metrics["root_mean_squared_error"].iloc[0])
     assert result.metrics["mean_absolute_error"].iloc[0] > 0
-    assert result.metrics["mean_squared_error"].iloc[0] > 0
+    assert result.metrics["root_mean_squared_error"].iloc[0] > 0
 
 
 # =============================================================================
@@ -531,7 +531,7 @@ def test_forecast_evaluation_mode_returns_metrics():
 
     assert isinstance(result.metrics, pd.DataFrame)
     assert list(result.metrics.columns) == [
-        "mean_absolute_error", "mean_squared_error", "mean_absolute_scaled_error"
+        "mean_absolute_error", "root_mean_squared_error", "mean_absolute_scaled_error"
     ]
     assert result.plan.end_train is not None
 
@@ -901,7 +901,7 @@ def test_forecast_output_when_baseline_plan():
     )
     expected_metrics = pd.DataFrame({
         "mean_absolute_error":        [7.0],
-        "mean_squared_error":         [49.0],
+        "root_mean_squared_error":    [7.0],
         "mean_absolute_scaled_error": [7.0],
     })
     pd.testing.assert_frame_equal(
@@ -1960,7 +1960,7 @@ def test_forecast_metrics_have_the_columns_of_the_backtest(forecaster, levels):
     )
 
     metric_columns = [
-        "mean_absolute_error", "mean_squared_error", "mean_absolute_scaled_error"
+        "mean_absolute_error", "root_mean_squared_error", "mean_absolute_scaled_error"
     ]
     columns = metric_columns if levels is None else ["levels", *metric_columns]
     assert list(forecast.metrics.columns) == columns

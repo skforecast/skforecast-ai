@@ -919,7 +919,7 @@ def _emit_metrics_section(
     if metrics_to_compute is None:
         metrics_to_compute = [
             "mean_absolute_error",
-            "mean_squared_error",
+            "root_mean_squared_error",
             "mean_absolute_scaled_error",
         ]
 
@@ -952,7 +952,7 @@ def _emit_metrics_section_multiseries(
     if metrics_to_compute is None:
         metrics_to_compute = [
             "mean_absolute_error",
-            "mean_squared_error",
+            "root_mean_squared_error",
             "mean_absolute_scaled_error",
         ]
 
@@ -1003,7 +1003,7 @@ def _emit_metrics_section_foundation(
     if metrics_to_compute is None:
         metrics_to_compute = [
             "mean_absolute_error",
-            "mean_squared_error",
+            "root_mean_squared_error",
             "mean_absolute_scaled_error",
         ]
 

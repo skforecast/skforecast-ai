@@ -53,11 +53,11 @@ def test_run_forecast_single_series_returns_metrics():
     metrics = result["metrics"]
     assert isinstance(metrics, pd.DataFrame)
     assert list(metrics.columns) == [
-        "mean_absolute_error", "mean_squared_error", "mean_absolute_scaled_error"
+        "mean_absolute_error", "root_mean_squared_error", "mean_absolute_scaled_error"
     ]
     assert len(metrics) == 1
     assert metrics["mean_absolute_error"].iloc[0] > 0
-    assert metrics["mean_squared_error"].iloc[0] > 0
+    assert metrics["root_mean_squared_error"].iloc[0] > 0
     assert metrics["mean_absolute_scaled_error"].iloc[0] > 0
 
 
@@ -97,7 +97,7 @@ def test_run_forecast_multi_series_returns_predictions():
     assert list(metrics.columns) == [
         "levels",
         "mean_absolute_error",
-        "mean_squared_error",
+        "root_mean_squared_error",
         "mean_absolute_scaled_error",
     ]
     assert len(metrics) == n_series
@@ -155,7 +155,7 @@ def test_run_forecast_baseline_repeats_last_seasonal_period():
     assert list(predictions.columns) == ["pred", "lower_bound", "upper_bound"]
     np.testing.assert_allclose(predictions["pred"].to_numpy(), expected_pred)
     assert list(result["metrics"].columns) == [
-        "mean_absolute_error", "mean_squared_error", "mean_absolute_scaled_error"
+        "mean_absolute_error", "root_mean_squared_error", "mean_absolute_scaled_error"
     ]
     assert "ForecasterEquivalentDate" in result["rendered_code"].imports
 

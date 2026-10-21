@@ -7,6 +7,7 @@ from skforecast_ai import ForecastingAssistant
 from skforecast_ai.mcp import create_server
 from skforecast_ai.mcp.models import ToolNotice
 
+from ..fixtures_assistant import df_crossing_zero
 from .fixtures_mcp import (
     GAPS_WARNING,
     call,
@@ -289,6 +290,45 @@ def test_tool_plan_invalid_argument_when_steps_longer_than_the_series(
     )
     assert error["details"] == {"steps": steps, "longest_series": 204}
     assert content_of(longest)["kind"] == "plan"
+
+
+def test_tool_plan_invalid_argument_when_msle_and_target_below_minus_one(tmp_path):
+    """
+    Test that `mean_squared_log_error` on a target with values at or below
+    -1, which scikit-learn rejects when the script runs, is
+    `invalid_argument` on `metric` when the plan is built.
+    """
+    path = write_csv(tmp_path, "profit.csv", df_crossing_zero)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    profile_id = content_of(
+        call(
+            server,
+            "profile",
+            {"data_path": path, "target": "profit", "date_column": "date"},
+        )
+    )["id"]
+
+    error = error_of(
+        call(
+            server,
+            "plan",
+            {
+                "profile_id": profile_id,
+                "steps": 6,
+                "metric": "mean_squared_log_error",
+            },
+        ),
+        "plan",
+    )
+
+    assert (error["code"], error["field"]) == ("invalid_argument", "metric")
+    assert error["message"] == (
+        "`mean_squared_log_error` cannot be computed on this data: it takes "
+        "the logarithm of 1 plus each value, so it needs values above -1, "
+        "and the target has values down to -10. Use a metric without a "
+        "logarithm, such as `mean_absolute_error` or "
+        "`root_mean_squared_error`."
+    )
 
 
 def test_tool_plan_notices_of_the_plan_and_of_its_data(tmp_path):

@@ -33,7 +33,7 @@ def test_render_forecast_foundation_output_when_single_series():
 
     expected = (
         "import pandas as pd\n"
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n"
         "from skforecast.metrics import mean_absolute_scaled_error\n"
         "from skforecast.foundation import FoundationModel, ForecasterFoundation\n"
         "\n"
@@ -73,7 +73,7 @@ def test_render_forecast_foundation_output_when_single_series():
         "actual = series_test.iloc[:steps]\n"
         "pred = predictions['pred'].values\n"
         "mae = mean_absolute_error(actual, pred)\n"
-        "mse = mean_squared_error(actual, pred)\n"
+        "rmse = root_mean_squared_error(actual, pred)\n"
         "mase = mean_absolute_scaled_error(\n"
         "    y_true  = actual,\n"
         "    y_pred  = pred,\n"
@@ -81,7 +81,7 @@ def test_render_forecast_foundation_output_when_single_series():
         ")\n"
         "\n"
         'print(f"MAE  : {mae:.4f}")\n'
-        'print(f"MSE  : {mse:.4f}")\n'
+        'print(f"RMSE : {rmse:.4f}")\n'
         'print(f"MASE : {mase:.4f}")\n'
         "\n"
         "# NOTE: This script uses a train/test split for demonstration purposes.\n"
@@ -103,7 +103,7 @@ def test_render_forecast_foundation_output_when_quantiles_requested():
 
     expected = (
         "import pandas as pd\n"
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n"
         "from skforecast.metrics import mean_absolute_scaled_error\n"
         "from skforecast.foundation import FoundationModel, ForecasterFoundation\n"
         "\n"
@@ -146,7 +146,7 @@ def test_render_forecast_foundation_output_when_quantiles_requested():
         "actual = series_test.iloc[:steps]\n"
         "pred = predictions['pred'].values\n"
         "mae = mean_absolute_error(actual, pred)\n"
-        "mse = mean_squared_error(actual, pred)\n"
+        "rmse = root_mean_squared_error(actual, pred)\n"
         "mase = mean_absolute_scaled_error(\n"
         "    y_true  = actual,\n"
         "    y_pred  = pred,\n"
@@ -154,7 +154,7 @@ def test_render_forecast_foundation_output_when_quantiles_requested():
         ")\n"
         "\n"
         'print(f"MAE  : {mae:.4f}")\n'
-        'print(f"MSE  : {mse:.4f}")\n'
+        'print(f"RMSE : {rmse:.4f}")\n'
         'print(f"MASE : {mase:.4f}")\n'
         "\n"
         "# NOTE: This script uses a train/test split for demonstration purposes.\n"
@@ -180,7 +180,7 @@ def test_render_forecast_foundation_output_when_model_only_accepts_numeric_covar
 
     expected = (
         "import pandas as pd\n"
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n"
         "from skforecast.metrics import mean_absolute_scaled_error\n"
         "from skforecast.foundation import FoundationModel, ForecasterFoundation\n"
         "\n"
@@ -224,7 +224,7 @@ def test_render_forecast_foundation_output_when_model_only_accepts_numeric_covar
         "actual = series_test.iloc[:steps]\n"
         "pred = predictions['pred'].values\n"
         "mae = mean_absolute_error(actual, pred)\n"
-        "mse = mean_squared_error(actual, pred)\n"
+        "rmse = root_mean_squared_error(actual, pred)\n"
         "mase = mean_absolute_scaled_error(\n"
         "    y_true  = actual,\n"
         "    y_pred  = pred,\n"
@@ -232,7 +232,7 @@ def test_render_forecast_foundation_output_when_model_only_accepts_numeric_covar
         ")\n"
         "\n"
         'print(f"MAE  : {mae:.4f}")\n'
-        'print(f"MSE  : {mse:.4f}")\n'
+        'print(f"RMSE : {rmse:.4f}")\n'
         'print(f"MASE : {mase:.4f}")\n'
         "\n"
         "# NOTE: This script uses a train/test split for demonstration purposes.\n"
@@ -363,7 +363,7 @@ def test_render_forecast_foundation_output_when_multi_series():
 
     expected = (
         "import pandas as pd\n"
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n"
         "from skforecast.metrics import mean_absolute_scaled_error\n"
         "from skforecast.foundation import FoundationModel, ForecasterFoundation\n"
         "\n"
@@ -409,7 +409,7 @@ def test_render_forecast_foundation_output_when_multi_series():
         "    metrics_list.append({\n"
         '        "levels": level,\n'
         '        "mean_absolute_error": mean_absolute_error(actual, pred),\n'
-        '        "mean_squared_error": mean_squared_error(actual, pred),\n'
+        '        "root_mean_squared_error": root_mean_squared_error(actual, pred),\n'
         '        "mean_absolute_scaled_error": mean_absolute_scaled_error(\n'
         "            actual, pred, y_train=series_dict_train[level]\n"
         "        ),\n"
@@ -433,7 +433,7 @@ def test_render_forecast_foundation_output_when_multi_series_long_format():
 
     expected = (
         "import pandas as pd\n"
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n"
         "from skforecast.metrics import mean_absolute_scaled_error\n"
         "from skforecast.preprocessing import reshape_series_long_to_dict\n"
         "from skforecast.foundation import FoundationModel, ForecasterFoundation\n"
@@ -485,7 +485,7 @@ def test_render_forecast_foundation_output_when_multi_series_long_format():
         "    metrics_list.append({\n"
         '        "levels": level,\n'
         '        "mean_absolute_error": mean_absolute_error(actual, pred),\n'
-        '        "mean_squared_error": mean_squared_error(actual, pred),\n'
+        '        "root_mean_squared_error": root_mean_squared_error(actual, pred),\n'
         '        "mean_absolute_scaled_error": mean_absolute_scaled_error(\n'
         "            actual, pred, y_train=series_dict_train[level]\n"
         "        ),\n"
@@ -509,7 +509,7 @@ def test_render_forecast_foundation_output_when_multi_series_long_format_with_ex
 
     expected = (
         "import pandas as pd\n"
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n"
         "from skforecast.metrics import mean_absolute_scaled_error\n"
         "from skforecast.preprocessing import reshape_series_long_to_dict, reshape_exog_long_to_dict\n"
         "from skforecast.foundation import FoundationModel, ForecasterFoundation\n"
@@ -570,7 +570,7 @@ def test_render_forecast_foundation_output_when_multi_series_long_format_with_ex
         "    metrics_list.append({\n"
         '        "levels": level,\n'
         '        "mean_absolute_error": mean_absolute_error(actual, pred),\n'
-        '        "mean_squared_error": mean_squared_error(actual, pred),\n'
+        '        "root_mean_squared_error": root_mean_squared_error(actual, pred),\n'
         '        "mean_absolute_scaled_error": mean_absolute_scaled_error(\n'
         "            actual, pred, y_train=series_dict_train[level]\n"
         "        ),\n"
@@ -666,7 +666,7 @@ def test_render_forecast_foundation_output_when_multi_series_excludes_categorica
 
     expected = (
         "import pandas as pd\n"
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n"
         "from skforecast.metrics import mean_absolute_scaled_error\n"
         "from skforecast.foundation import FoundationModel, ForecasterFoundation\n"
         "\n"
@@ -717,7 +717,7 @@ def test_render_forecast_foundation_output_when_multi_series_excludes_categorica
         "    metrics_list.append({\n"
         '        "levels": level,\n'
         '        "mean_absolute_error": mean_absolute_error(actual, pred),\n'
-        '        "mean_squared_error": mean_squared_error(actual, pred),\n'
+        '        "root_mean_squared_error": root_mean_squared_error(actual, pred),\n'
         '        "mean_absolute_scaled_error": mean_absolute_scaled_error(\n'
         "            actual, pred, y_train=series_dict_train[level]\n"
         "        ),\n"

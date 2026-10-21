@@ -53,7 +53,7 @@ def test_render_forecast_single_series_output_when_no_exog():
 
     expected = (
         "import pandas as pd\n"
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n"
         "from skforecast.metrics import mean_absolute_scaled_error\n"
         "from lightgbm import LGBMRegressor\n"
         "from skforecast.recursive import ForecasterRecursive\n"
@@ -97,7 +97,7 @@ def test_render_forecast_single_series_output_when_no_exog():
         "# Evaluate on test set\n"
         "actual = data_test['sales'].iloc[:steps]\n"
         "mae = mean_absolute_error(actual, predictions)\n"
-        "mse = mean_squared_error(actual, predictions)\n"
+        "rmse = root_mean_squared_error(actual, predictions)\n"
         "mase = mean_absolute_scaled_error(\n"
         "    y_true  = actual,\n"
         "    y_pred  = predictions,\n"
@@ -105,7 +105,7 @@ def test_render_forecast_single_series_output_when_no_exog():
         ")\n"
         "\n"
         'print(f"MAE  : {mae:.4f}")\n'
-        'print(f"MSE  : {mse:.4f}")\n'
+        'print(f"RMSE : {rmse:.4f}")\n'
         'print(f"MASE : {mase:.4f}")\n'
         "\n"
         "# NOTE: This script uses a train/test split for demonstration purposes.\n"
@@ -124,7 +124,7 @@ def test_render_forecast_single_series_output_when_exog():
 
     expected = (
         "import pandas as pd\n"
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n"
         "from skforecast.metrics import mean_absolute_scaled_error\n"
         "from lightgbm import LGBMRegressor\n"
         "from skforecast.recursive import ForecasterRecursive\n"
@@ -169,7 +169,7 @@ def test_render_forecast_single_series_output_when_exog():
         "# Evaluate on test set\n"
         "actual = data_test['sales'].iloc[:steps]\n"
         "mae = mean_absolute_error(actual, predictions)\n"
-        "mse = mean_squared_error(actual, predictions)\n"
+        "rmse = root_mean_squared_error(actual, predictions)\n"
         "mase = mean_absolute_scaled_error(\n"
         "    y_true  = actual,\n"
         "    y_pred  = predictions,\n"
@@ -177,7 +177,7 @@ def test_render_forecast_single_series_output_when_exog():
         ")\n"
         "\n"
         'print(f"MAE  : {mae:.4f}")\n'
-        'print(f"MSE  : {mse:.4f}")\n'
+        'print(f"RMSE : {rmse:.4f}")\n'
         'print(f"MASE : {mase:.4f}")\n'
         "\n"
         "# NOTE: This script uses a train/test split for demonstration purposes.\n"
@@ -371,7 +371,7 @@ def test_render_forecast_single_series_output_when_intervals_requested():
 
     expected = (
         "import pandas as pd\n"
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n"
         "from skforecast.metrics import mean_absolute_scaled_error\n"
         "from lightgbm import LGBMRegressor\n"
         "from skforecast.recursive import ForecasterRecursive\n"
@@ -422,7 +422,7 @@ def test_render_forecast_single_series_output_when_intervals_requested():
         "# Evaluate on test set\n"
         "actual = data_test['sales'].iloc[:steps]\n"
         "mae = mean_absolute_error(actual, predictions['pred'])\n"
-        "mse = mean_squared_error(actual, predictions['pred'])\n"
+        "rmse = root_mean_squared_error(actual, predictions['pred'])\n"
         "mase = mean_absolute_scaled_error(\n"
         "    y_true  = actual,\n"
         "    y_pred  = predictions['pred'],\n"
@@ -430,7 +430,7 @@ def test_render_forecast_single_series_output_when_intervals_requested():
         ")\n"
         "\n"
         'print(f"MAE  : {mae:.4f}")\n'
-        'print(f"MSE  : {mse:.4f}")\n'
+        'print(f"RMSE : {rmse:.4f}")\n'
         'print(f"MASE : {mase:.4f}")\n'
         "\n"
         "# NOTE: This script uses a train/test split for demonstration purposes.\n"
@@ -451,7 +451,7 @@ def test_render_forecast_single_series_output_when_window_features():
 
     expected = (
         "import pandas as pd\n"
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n"
         "from skforecast.metrics import mean_absolute_scaled_error\n"
         "from lightgbm import LGBMRegressor\n"
         "from skforecast.preprocessing import RollingFeatures\n"
@@ -502,7 +502,7 @@ def test_render_forecast_single_series_output_when_window_features():
         "# Evaluate on test set\n"
         "actual = data_test['sales'].iloc[:steps]\n"
         "mae = mean_absolute_error(actual, predictions)\n"
-        "mse = mean_squared_error(actual, predictions)\n"
+        "rmse = root_mean_squared_error(actual, predictions)\n"
         "mase = mean_absolute_scaled_error(\n"
         "    y_true  = actual,\n"
         "    y_pred  = predictions,\n"
@@ -510,7 +510,7 @@ def test_render_forecast_single_series_output_when_window_features():
         ")\n"
         "\n"
         'print(f"MAE  : {mae:.4f}")\n'
-        'print(f"MSE  : {mse:.4f}")\n'
+        'print(f"RMSE : {rmse:.4f}")\n'
         'print(f"MASE : {mase:.4f}")\n'
         "\n"
         "# NOTE: This script uses a train/test split for demonstration purposes.\n"
@@ -529,7 +529,7 @@ def test_render_forecast_single_series_output_when_direct_strategy():
 
     expected = (
         "import pandas as pd\n"
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n"
         "from skforecast.metrics import mean_absolute_scaled_error\n"
         "from lightgbm import LGBMRegressor\n"
         "from skforecast.direct import ForecasterDirect\n"
@@ -574,7 +574,7 @@ def test_render_forecast_single_series_output_when_direct_strategy():
         "# Evaluate on test set\n"
         "actual = data_test['sales'].iloc[:steps]\n"
         "mae = mean_absolute_error(actual, predictions)\n"
-        "mse = mean_squared_error(actual, predictions)\n"
+        "rmse = root_mean_squared_error(actual, predictions)\n"
         "mase = mean_absolute_scaled_error(\n"
         "    y_true  = actual,\n"
         "    y_pred  = predictions,\n"
@@ -582,7 +582,7 @@ def test_render_forecast_single_series_output_when_direct_strategy():
         ")\n"
         "\n"
         'print(f"MAE  : {mae:.4f}")\n'
-        'print(f"MSE  : {mse:.4f}")\n'
+        'print(f"RMSE : {rmse:.4f}")\n'
         'print(f"MASE : {mase:.4f}")\n'
         "\n"
         "# NOTE: This script uses a train/test split for demonstration purposes.\n"
@@ -884,7 +884,7 @@ def test_render_forecast_single_series_output_when_exog_not_used():
 
     expected = (
         "import pandas as pd\n"
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n"
         "from skforecast.metrics import mean_absolute_scaled_error\n"
         "from lightgbm import LGBMRegressor\n"
         "from skforecast.recursive import ForecasterRecursive\n"
@@ -926,7 +926,7 @@ def test_render_forecast_single_series_output_when_exog_not_used():
         "# Evaluate on test set\n"
         "actual = data_test['sales'].iloc[:steps]\n"
         "mae = mean_absolute_error(actual, predictions)\n"
-        "mse = mean_squared_error(actual, predictions)\n"
+        "rmse = root_mean_squared_error(actual, predictions)\n"
         "mase = mean_absolute_scaled_error(\n"
         "    y_true  = actual,\n"
         "    y_pred  = predictions,\n"
@@ -934,7 +934,7 @@ def test_render_forecast_single_series_output_when_exog_not_used():
         ")\n"
         "\n"
         'print(f"MAE  : {mae:.4f}")\n'
-        'print(f"MSE  : {mse:.4f}")\n'
+        'print(f"RMSE : {rmse:.4f}")\n'
         'print(f"MASE : {mase:.4f}")\n'
         "\n"
         "# NOTE: This script uses a train/test split for demonstration purposes.\n"
@@ -956,7 +956,7 @@ def test_render_forecast_single_series_output_when_differentiation():
 
     expected = (
         "import pandas as pd\n"
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n"
         "from skforecast.metrics import mean_absolute_scaled_error\n"
         "from lightgbm import LGBMRegressor\n"
         "from skforecast.recursive import ForecasterRecursive\n"
@@ -999,7 +999,7 @@ def test_render_forecast_single_series_output_when_differentiation():
         "# Evaluate on test set\n"
         "actual = data_test['sales'].iloc[:steps]\n"
         "mae = mean_absolute_error(actual, predictions)\n"
-        "mse = mean_squared_error(actual, predictions)\n"
+        "rmse = root_mean_squared_error(actual, predictions)\n"
         "mase = mean_absolute_scaled_error(\n"
         "    y_true  = actual,\n"
         "    y_pred  = predictions,\n"
@@ -1007,7 +1007,7 @@ def test_render_forecast_single_series_output_when_differentiation():
         ")\n"
         "\n"
         'print(f"MAE  : {mae:.4f}")\n'
-        'print(f"MSE  : {mse:.4f}")\n'
+        'print(f"RMSE : {rmse:.4f}")\n'
         'print(f"MASE : {mase:.4f}")\n'
         "\n"
         "# NOTE: This script uses a train/test split for demonstration purposes.\n"
@@ -1031,7 +1031,7 @@ def test_render_forecast_single_series_output_when_feature_overrides():
 
     expected = (
         "import pandas as pd\n"
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n"
         "from skforecast.metrics import mean_absolute_scaled_error\n"
         "from sklearn.linear_model import Ridge\n"
         "from skforecast.preprocessing import CalendarFeatures\n"
@@ -1081,7 +1081,7 @@ def test_render_forecast_single_series_output_when_feature_overrides():
         "# Evaluate on test set\n"
         "actual = data_test['sales'].iloc[:steps]\n"
         "mae = mean_absolute_error(actual, predictions)\n"
-        "mse = mean_squared_error(actual, predictions)\n"
+        "rmse = root_mean_squared_error(actual, predictions)\n"
         "mase = mean_absolute_scaled_error(\n"
         "    y_true  = actual,\n"
         "    y_pred  = predictions,\n"
@@ -1089,7 +1089,7 @@ def test_render_forecast_single_series_output_when_feature_overrides():
         ")\n"
         "\n"
         'print(f"MAE  : {mae:.4f}")\n'
-        'print(f"MSE  : {mse:.4f}")\n'
+        'print(f"RMSE : {rmse:.4f}")\n'
         'print(f"MASE : {mase:.4f}")\n'
         "\n"
         "# NOTE: This script uses a train/test split for demonstration purposes.\n"

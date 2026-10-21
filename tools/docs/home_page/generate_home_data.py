@@ -114,6 +114,7 @@ BACKTEST_CONTEXT = 72
 METRIC_LABELS = {
     "mean_absolute_error": "MAE",
     "mean_squared_error": "MSE",
+    "root_mean_squared_error": "RMSE",
     "mean_absolute_scaled_error": "MASE",
     "root_mean_squared_scaled_error": "RMSSE",
 }
