@@ -439,12 +439,12 @@ def _missing_values_notices(plan: Any, profile: Any) -> list[ToolNotice]:
         f"not fill in, drop or write any of them yourself, in their file or in "
         f"a copy of it, unless they asked for exactly that. Ask before you do."
     )
-    if missing_values.target:
-        message += (
-            " `backtest` checks every test fold before running anything and "
-            "names the dates that make it fail: run it before changing the "
-            "plan or asking the user about the values."
-        )
+    # `backtest` checks the target and the exogenous columns of every fold.
+    message += (
+        " `backtest` checks every test fold before running anything and "
+        "names the dates that make it fail: run it before changing the "
+        "plan or asking the user about the values."
+    )
     if missing_values.estimator is not None:
         does = []
         if missing_values.exog:

@@ -73,7 +73,7 @@ NO_BACKTEST = (
         (
             plan_h2o_exog_ridge,
             profile_h2o_exog,
-            _leave("the exogenous columns")
+            _leave("the exogenous columns") + RUN
             + SWITCH.format(
                 does="lets the plan predict from the missing exogenous values"
             )
@@ -102,7 +102,8 @@ def test_missing_values_notices_output_when_backtest_can_fail_on_them(
     """
     Test that a plan whose backtest can fail on missing values gets one
     notice (source 'data') that leaves the values to the user, says that
-    `backtest` checks the folds of the target before running, names the
+    `backtest` checks the folds before running (those of the target and of
+    the exogenous columns), names the
     estimator of the rules (RandomForestRegressor, for 120 observations)
     only when the plan's cannot use them, with what it does not avoid (V16:
     a missing value inside a test fold fails with any estimator), and asks

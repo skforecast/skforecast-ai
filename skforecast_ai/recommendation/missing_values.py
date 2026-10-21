@@ -8,7 +8,7 @@
 from __future__ import annotations
 from typing import NamedTuple
 from .._constants import AUTOREG_FORECASTERS, NAN_TOLERANT_ESTIMATORS
-from ..profiling.data_profile import _daily_or_finer
+from ..profiling.data_profile import weekday_names
 from ..schemas import DataProfile, ForecastPlan
 from .forecaster_selection import (
     estimator_n_observations,
@@ -196,9 +196,11 @@ class BacktestMissingValues(NamedTuple):
     gaps : bool
         Whether the target has missing timestamps, which `asfreq()`
         restores as missing values.
-    closed_days : bool
-        Whether those missing timestamps may be days the business is
-        closed: the frequency is daily or finer.
+    closed_days : list of int
+        Days of the week (0 for Monday) that every missing timestamp falls
+        on when the target never has a date on them, the days a business
+        closed on them would fill with 0 (`DataProfile.closed_weekdays`).
+        Empty otherwise.
     cannot_predict : str, None
         Why the forecaster cannot predict from a missing value of the
         target (`"ForecasterRecursive with Ridge cannot predict from a
@@ -215,7 +217,7 @@ class BacktestMissingValues(NamedTuple):
 
     values: bool
     gaps: bool
-    closed_days: bool
+    closed_days: list[int]
     cannot_predict: str | None
     order: int
     exog: list[str]
@@ -251,10 +253,11 @@ def backtest_missing_values(
       predicts fails when the estimator does not accept missing values;
       `dropna_from_series` only drops the training rows.
 
-    `backtest()` checks the target on every fold before running (see
-    `validate_backtest_windows`); the exogenous columns are not checked.
-    Several series drop the missing values per series and are not
-    concerned, nor ForecasterStats and ForecasterFoundation.
+    `backtest()` checks every fold before running: the target (see
+    `validate_backtest_windows`) and the exogenous columns (see
+    `validate_backtest_exog`). Several series drop the missing values per
+    series and are not concerned, nor ForecasterStats and
+    ForecasterFoundation.
 
     Parameters
     ----------
@@ -297,7 +300,7 @@ def backtest_missing_values(
     return BacktestMissingValues(
         values         = bool(profile.missing_target),
         gaps           = profile.has_gaps,
-        closed_days    = profile.has_gaps and _daily_or_finer(profile.frequency)[0],
+        closed_days    = list(profile.closed_weekdays),
         cannot_predict = cannot_predict,
         order          = order,
         exog           = exog,
@@ -369,8 +372,11 @@ def backtest_missing_values_messages(
             )
         impute = "impute the target to backtest every fold."
         if missing_values.closed_days:
+            # The days of the profile, which every missing timestamp falls
+            # on: the longest message still fits in a notice of the server.
             sentences.append(
-                f"{closed_days_remedy('the missing dates')}; otherwise, {impute}"
+                f"{closed_days_remedy(weekday_names(missing_values.closed_days))}"
+                f", or {impute}"
             )
         else:
             sentences.append(_capitalized(impute))
@@ -381,7 +387,8 @@ def backtest_missing_values_messages(
         messages.append(
             f"The exogenous {columns} {'has' if them == 'it' else 'have'} "
             f"missing values, and {plan.forecaster} with {plan.estimator} cannot "
-            f"predict from them: `backtest()` fails on a test fold whose rows "
+            f"predict from them: `backtest()` checks every test fold before "
+            f"running and raises, naming the dates, when the rows it predicts "
             f"have one, and `dropna_from_series` only drops them from the "
             f"training data. "
             f"{_capitalized(tolerant_estimator_phrase(missing_values.estimator))} "

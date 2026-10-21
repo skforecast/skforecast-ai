@@ -8,13 +8,14 @@
 from __future__ import annotations
 import copy
 import warnings
+from typing import NamedTuple
 import numpy as np
 import pandas as pd
 from skforecast.model_selection import TimeSeriesFold
 
 from ._constants import AUTOREG_FORECASTERS, DIRECT_FORECASTERS, NAN_TOLERANT_ESTIMATORS
 from ._dates import row_dates, training_end
-from ._future_exog import _SHOWN, _per_series, _shown
+from ._future_exog import _SHOWN, _per_series, _shown, used_exog_columns
 from .exceptions import DataContentError, InvalidInputError
 from .profiling.data_profile import (
     _caller_stacklevel,
@@ -178,6 +179,7 @@ def _check_wide(
 def _target_frame(
     data: pd.DataFrame,
     profile: DataProfile,
+    columns: list[str] | None = None,
 ) -> tuple[pd.DataFrame, pd.Index] | None:
     """
     Return the target columns as the generated code reads them (in date
@@ -186,10 +188,15 @@ def _target_frame(
     index), and the index of the rows of the data. None when the data has
     not the target or the generated code cannot read it. The index of the
     rows holds every row, repeated dates and rows off the grid included.
+    `columns` reads other columns of the data the same way (the exogenous
+    variables of wide-format data), instead of the target.
     """
-    targets = profile.target if isinstance(profile.target, list) else [profile.target]
+    if columns is None:
+        columns = (
+            profile.target if isinstance(profile.target, list) else [profile.target]
+        )
     targets = list(dict.fromkeys(
-        target for target in targets if target in data.columns
+        column for column in columns if column in data.columns
     ))
     if not targets:
         return None
@@ -971,18 +978,49 @@ def validate_series_lengths(
             )
 
 
-def _series_never_forecast(
+class _SeriesFolds(NamedTuple):
+    """
+    Where a backtest of ForecasterRecursiveMultiSeries forecasts a series
+    (see `_series_in_folds`).
+
+    Attributes
+    ----------
+    forecast : numpy ndarray
+        Whether each fold forecasts the series, by its training window and
+        the dates of its last window.
+    clean : numpy ndarray
+        Whether the last window of each fold has no missing value between
+        the first and the last value of the series; True in every fold when
+        skforecast keeps the last windows with missing values.
+    length : int
+        Number of observations from its first to its last value.
+    ended : bool
+        Whether it ends before the window of the last fold.
+    absent : numpy ndarray
+        Positions on the span of its missing values between its first and
+        its last value, when skforecast drops the last windows with missing
+        values (empty otherwise).
+    """
+
+    forecast: np.ndarray
+    clean: np.ndarray
+    length: int
+    ended: bool
+    absent: np.ndarray
+
+
+def _series_in_folds(
     spans: dict,
     cv: TimeSeriesFold,
     window: int,
     long: bool,
     dropna: bool,
-) -> dict:
+) -> tuple[pd.DatetimeIndex, list, dict] | None:
     """
-    Return the series that ForecasterRecursiveMultiSeries forecasts in no
-    fold of a backtest, mapped to their number of observations from the
-    first to the last value, whether they end before the window of the
-    last fold, and the missing values that left them out (see below).
+    Return the span the folds of a backtest of ForecasterRecursiveMultiSeries
+    are split on, its folds (`TimeSeriesFold.split` with `as_pandas=False`)
+    and, for each series with a value, the folds that forecast it
+    (`_SeriesFolds`).
 
     skforecast forecasts a series in a fold when it was trained on it and
     it has a last window before the fold:
@@ -998,15 +1036,13 @@ def _series_never_forecast(
       series has the dates of the frame. When skforecast drops a last
       window with missing values (`dropna`), the window must also be
       inside the dates from the first to the last value of the series: a
-      series that starts late, or ends before the fold, is left out.
+      series that starts late, or ends before the fold, is left out, and
+      so is a series with a missing value between its first and its last
+      value in that window.
 
-    A missing value between the first and the last value of a series in a
-    last window drops it from that fold too (`dropna`): a series left out
-    of every fold it could be forecast in only for that is mapped to the
-    dates of those missing values as well (None for the others), so its
-    error says what fills them. It returns an empty dict when the strategy
-    cannot be split on the dates of the data (the check of the first
-    training window reports it).
+    A series whose dates are off the grid of the span is left out. It
+    returns None when the strategy cannot be split on the dates of the
+    data (the check of the first training window reports it).
     """
     # The folds are split on the dates of every series, from the earliest
     # first date to the latest last one, as skforecast splits a dict.
@@ -1017,7 +1053,7 @@ def _series_never_forecast(
             last = max(grid[-1] for grid in grids if len(grid))
             span = pd.date_range(first, last, freq=grids[0].freq)
         except (ValueError, TypeError, AttributeError):
-            return {}
+            return None
     else:
         span = grids[0]
     n_observations = len(span)
@@ -1033,13 +1069,13 @@ def _series_never_forecast(
                 X=pd.Series(np.zeros(n_observations), index=span), as_pandas=False
             )
     except (ValueError, TypeError):
-        return {}
+        return None
     if not folds:
-        return {}
+        return None
     train = np.array([fold[1] for fold in folds], dtype=int)
     last_window = np.array([fold[2] for fold in folds], dtype=int)
 
-    never = {}
+    series = {}
     for name, (dates, present) in spans.items():
         present = np.asarray(present, dtype=bool)
         if not present.any():
@@ -1075,28 +1111,68 @@ def _series_never_forecast(
                 - np.maximum(last_window[:, 0], start)
             )
             forecast &= inside >= window
-        length = int(values[-1] - values[0] + 1)
-        ended = bool(stop < last_window[-1, 1])
-        if not forecast.any():
-            never[_plain(name)] = (length, ended, None)
-            continue
+        absent = np.array([], dtype=int)
+        clean = np.ones(len(folds), dtype=bool)
         if dropna:
             # A missing value between the first and the last value of the
             # series in a last window drops it from that fold too.
             absent = np.flatnonzero(~present) + offset
             absent = absent[(absent > values[0]) & (absent < values[-1])]
-            in_window = (
+            clean = (
                 np.searchsorted(absent, last_window[:, 1])
                 - np.searchsorted(absent, last_window[:, 0])
-            )
-            if not (forecast & (in_window == 0)).any():
-                # The missing values that dropped it from the folds it would
-                # be forecast in otherwise.
-                read = np.unique(np.concatenate([
-                    absent[(absent >= low) & (absent < high)]
-                    for low, high in last_window[forecast]
-                ]))
-                never[_plain(name)] = (length, ended, span[read])
+            ) == 0
+        series[_plain(name)] = _SeriesFolds(
+            forecast = forecast,
+            clean    = clean,
+            length   = int(values[-1] - values[0] + 1),
+            ended    = bool(stop < last_window[-1, 1]),
+            absent   = absent,
+        )
+
+    return span, folds, series
+
+
+def _series_never_forecast(
+    spans: dict,
+    cv: TimeSeriesFold,
+    window: int,
+    long: bool,
+    dropna: bool,
+) -> dict:
+    """
+    Return the series that ForecasterRecursiveMultiSeries forecasts in no
+    fold of a backtest (see `_series_in_folds`), mapped to their number of
+    observations from the first to the last value, whether they end before
+    the window of the last fold, and the missing values that left them out.
+
+    A missing value between the first and the last value of a series in a
+    last window drops it from that fold too (`dropna`): a series left out
+    of every fold it could be forecast in only for that is mapped to the
+    dates of those missing values as well (None for the others), so its
+    error says what fills them. It returns an empty dict when the strategy
+    cannot be split on the dates of the data (the check of the first
+    training window reports it).
+    """
+    split = _series_in_folds(spans, cv, window, long, dropna)
+    if split is None:
+        return {}
+    span, folds, series = split
+    last_window = np.array([fold[2] for fold in folds], dtype=int)
+
+    never = {}
+    for name, info in series.items():
+        if not info.forecast.any():
+            never[name] = (info.length, info.ended, None)
+            continue
+        if dropna and not (info.forecast & info.clean).any():
+            # The missing values that dropped it from the folds it would be
+            # forecast in otherwise.
+            read = np.unique(np.concatenate([
+                info.absent[(info.absent >= low) & (info.absent < high)]
+                for low, high in last_window[info.forecast]
+            ]))
+            never[name] = (info.length, info.ended, span[read])
 
     return never
 
@@ -1484,7 +1560,8 @@ def validate_backtest_windows(
 ) -> None:
     """
     Check the values of the target that the forecaster reads to predict each
-    test fold of a backtest of a single series.
+    test fold of a backtest of a single series, or of the series of
+    ForecasterDirectMultiVariate.
 
     Every fold is predicted from the values before it, as a forecast is from
     the last ones, and `dropna_from_series` only drops the missing values
@@ -1492,15 +1569,20 @@ def validate_backtest_windows(
     which `asfreq()` restores as one) that a lag reads in a fold gave
     missing predictions and the metrics failed on them with "Input contains
     NaN", although the same plan forecasts when its last values are
-    complete. The rule is that of the prediction mode
+    complete. ForecasterDirectMultiVariate never leaves a series out of the
+    window it predicts from, so a missing value of any series there gave
+    missing predictions of its level, which the metrics left out without a
+    warning. The rule is that of the prediction mode
     (`validate_last_window`), applied to the window of each fold: an error
     when the estimator does not tolerate missing values, for
     ForecasterEquivalentDate and when the inverse of the differentiation
-    reads them; a warning with an estimator that tolerates them.
+    reads them (that of the level, for ForecasterDirectMultiVariate); a
+    warning with an estimator that tolerates them.
 
-    Several series are not checked: their backtest drops the missing values
-    per series. Data the generated code cannot read and a strategy that
-    cannot be split on it are left to the error of the generated code.
+    ForecasterRecursiveMultiSeries is not checked here: its backtest drops
+    the missing values per series (see `validate_series_lengths`). Data the
+    generated code cannot read and a strategy that cannot be split on it
+    are left to the error of the generated code.
 
     Parameters
     ----------
@@ -1517,7 +1599,12 @@ def validate_backtest_windows(
     -------
     None
     """
-    if profile.n_series != 1 or not isinstance(profile.target, str):
+    multivariate = plan.forecaster == "ForecasterDirectMultiVariate"
+    if multivariate:
+        if profile.data_format == "long" and profile.n_series > 1:
+            # The generated code cannot read it.
+            return
+    elif profile.n_series != 1 or not isinstance(profile.target, str):
         return
     if not profile.missing_target and not profile.has_gaps:
         return
@@ -1525,7 +1612,7 @@ def validate_backtest_windows(
     if frames is None:
         return
     frame = frames[0]
-    absent = frame[profile.target].isna().to_numpy()
+    absent = frame.isna().to_numpy()
     if not absent.any():
         return
 
@@ -1534,19 +1621,27 @@ def validate_backtest_windows(
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            folds = cv.split(X=frame[profile.target], as_pandas=True)
+            folds = cv.split(
+                X         = frame if multivariate else frame[profile.target],
+                as_pandas = True,
+            )
     except (ValueError, TypeError):
         # The generated script fails on this strategy with its own error.
         return
     finally:
         cv.verbose = original_verbose
 
-    _check_training_rows(frame.index, absent, folds, plan, profile)
+    if not multivariate:
+        _check_training_rows(frame.index, absent[:, 0], folds, plan, profile)
 
+    # The level of ForecasterDirectMultiVariate, as the generated code
+    # writes it (`_get_target_str`): the inverse of the differentiation
+    # reads only its values.
+    level = profile.target[0] if isinstance(profile.target, list) else profile.target
     # The positions read depend on the steps predicted from the window, the
     # gap included: fewer in an incomplete last fold.
     read_by_steps: dict[int, tuple[np.ndarray, int, int]] = {}
-    read: set[int] = set()
+    read: dict[object, set[int]] = {}
     by_differentiation = False
     n_folds = 0
     order = 0
@@ -1562,23 +1657,30 @@ def validate_backtest_windows(
         positions, order, size = read_by_steps[n_steps]
         if not size:
             return
-        in_fold, differentiation = _missing_read(
-            missing_window = absent[:start][::-1][:size],
-            positions      = positions,
-            order          = order,
-            plan           = plan,
-            inverse        = True,
-        )
-        if in_fold:
-            n_folds += 1
-            by_differentiation = by_differentiation or differentiation
-            read.update(start - position for position in in_fold)
+        in_fold = False
+        for column_position, column in enumerate(frame.columns):
+            found, differentiation = _missing_read(
+                missing_window = absent[:start, column_position][::-1][:size],
+                positions      = positions,
+                order          = order,
+                plan           = plan,
+                inverse        = column == level,
+            )
+            if found:
+                in_fold = True
+                by_differentiation = by_differentiation or differentiation
+                read.setdefault(column, set()).update(
+                    start - position for position in found
+                )
+        n_folds += in_fold
 
     if not read:
         return
+    columns = list(frame.columns)
     _report(
         missing   = {
-            _plain(profile.target): (frame.index[sorted(read)], by_differentiation)
+            _plain(column): (frame.index[sorted(read[column])], by_differentiation)
+            for column in columns if column in read
         },
         plan      = plan,
         profile   = profile,
@@ -1586,8 +1688,456 @@ def validate_backtest_windows(
         by_series = False,
         where     = f" {n_folds} of the {len(folds)} test folds",
         closed    = {
-            _plain(profile.target): _closed_weekdays_of(frame.index, ~absent, profile)
+            _plain(column): _closed_weekdays_of(
+                frame.index, ~absent[:, columns.index(column)], profile
+            )
+            for column in columns if column in read
         },
+    )
+
+
+def validate_backtest_exog(
+    data: pd.DataFrame,
+    profile: DataProfile,
+    plan: ForecastPlan,
+    cv: TimeSeriesFold,
+) -> None:
+    """
+    Check the values of the exogenous variables that the forecaster reads to
+    predict each test fold of a backtest.
+
+    `dropna_from_series` only drops the training rows that have a missing
+    value, and an estimator that does not accept missing values gives a
+    missing prediction from one: the metrics of a single series failed on
+    it with "Input contains NaN", and those of several series were computed
+    without it, without a warning. As `forecast()` does with the future
+    values (`validate_future_exog`), it raises before running, naming the
+    columns and the dates, when a prediction that the metrics score would
+    be missing:
+
+    - Every forecaster reads the row of each date it predicts. A direct
+      forecaster (a strategy with a gap is rejected for it) and
+      ForecasterStats read nothing else.
+    - A recursive forecaster also predicts the dates of the gap, and a
+      missing prediction is read again: by a lag, by a window feature all
+      of whose values are missing (the rolling statistics skip missing
+      values otherwise) and, with the differentiation, by every later step,
+      since its inverse adds them up.
+    - With several series, only the series a fold forecasts (see
+      `_series_in_folds`) and the dates where they have a value count: the
+      metrics leave out the others. In long format each series reads its
+      own exogenous values; in wide format they share them, and
+      ForecasterDirectMultiVariate is scored on its level.
+
+    A missing timestamp, which `asfreq()` restores as a row without values,
+    counts as a missing value of every column. An estimator that accepts
+    missing values, a ForecasterFoundation model (which takes them as they
+    are) and a baseline (which reads no exogenous variables) are not
+    checked, nor data the generated code cannot read and a strategy that
+    cannot be split on it.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Data the backtest runs on.
+    profile : DataProfile
+        Profiled dataset metadata.
+    plan : ForecastPlan
+        Plan to backtest.
+    cv : TimeSeriesFold
+        Strategy of the backtest, as the script runs it.
+
+    Returns
+    -------
+    None
+    """
+    if (
+        plan.estimator in NAN_TOLERANT_ESTIMATORS
+        or plan.forecaster == "ForecasterFoundation"
+    ):
+        return
+    columns = [
+        column for column in used_exog_columns(plan, profile)
+        if column in data.columns
+    ]
+    if not columns:
+        return
+    if not profile.has_gaps and not any(
+        profile.missing_exog.get(column) for column in columns
+    ):
+        return
+    read = _exog_folds(data, profile, plan, cv, columns)
+    if read is None:
+        return
+    n_folds, found, inserted = read
+    if not found:
+        return
+    n_columns = len({column for column, _ in found})
+    found = [text for _, text in found]
+
+    shown = "; ".join(found[:_SHOWN])
+    if len(found) > _SHOWN:
+        shown += f"; and {len(found) - _SHOWN} more"
+    timestamps = (
+        ", counting the missing timestamps that asfreq() restores as rows "
+        "without values" if inserted else ""
+    )
+    several = plan.task_type in ("multi_series", "multivariate")
+    scored = (
+        ", and skforecast would compute the metrics without them, without a "
+        "warning" if several else ""
+    )
+    estimator = tolerant_estimator_phrase(nan_tolerant_estimator(plan, profile))
+    or_tolerant = (
+        f", or the plan uses {estimator}"
+        if plan.forecaster in AUTOREG_FORECASTERS else ""
+    )
+    left_out = "the column is left" if n_columns == 1 else "the columns are left"
+    raise DataContentError(
+        f"The forecaster reads missing values of the exogenous variables to "
+        f"predict {n_folds} ({shown}){timestamps}. {plan.forecaster} with "
+        f"{plan.estimator} cannot use them, so its predictions would be "
+        f"missing{scored}. Either they are filled in, after asking the "
+        f"user{or_tolerant}, or {left_out} out of `exog_columns` when "
+        f"profiling.",
+        field = "data",
+    )
+
+
+def _exog_folds(
+    data: pd.DataFrame,
+    profile: DataProfile,
+    plan: ForecastPlan,
+    cv: TimeSeriesFold,
+    columns: list[str],
+) -> tuple[str, list[tuple[str, str]], bool] | None:
+    """
+    Find the missing exogenous values that make a scored prediction of a
+    backtest missing (see `validate_backtest_exog`). Return the test folds
+    they are in (`'2 of the 12 test folds'`), the missing values read of
+    each column (and series, in long format), as the column and its text,
+    and whether one of them is a missing timestamp; None when the data or
+    the strategy cannot be read.
+    """
+    multiseries = plan.forecaster == "ForecasterRecursiveMultiSeries"
+    long = profile.data_format == "long"
+    if long and profile.n_series > 1 and not multiseries:
+        # The generated code cannot read it.
+        return None
+    if multiseries:
+        spans = _series_spans(data, profile)
+        if spans is None:
+            return None
+        spans = {_plain(name): span_of for name, span_of in spans.items()}
+        _, _, window = _read_positions(plan, limit=np.iinfo(np.int64).max)
+        # The forecaster of the plan does not accept missing values, so
+        # skforecast drops the last windows that have one.
+        split = _series_in_folds(spans, cv, window, long, dropna=True)
+        if split is None:
+            return None
+        span, folds, in_folds = split
+        predicted = {
+            name: info.forecast & info.clean for name, info in in_folds.items()
+        }
+    else:
+        frames = _target_frame(data, profile)
+        if frames is None:
+            return None
+        frame = frames[0]
+        span = frame.index
+        level = (
+            profile.target[0] if isinstance(profile.target, list) else profile.target
+        )
+        spans = {level: (span, frame[level].notna().to_numpy())}
+        original_verbose = cv.verbose
+        cv.verbose = False
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                folds = cv.split(X=frame[level], as_pandas=False)
+        except (ValueError, TypeError):
+            # The generated script fails on this strategy with its own error.
+            return None
+        finally:
+            cv.verbose = original_verbose
+        predicted = {level: np.ones(len(folds), dtype=bool)}
+
+    exog = _exog_on_span(data, profile, columns, span, spans, long and multiseries)
+    if exog is None:
+        return None
+
+    recursive = plan.forecaster in ("ForecasterRecursive", "ForecasterRecursiveMultiSeries")
+    kwargs = plan.forecaster_kwargs
+    lags = kwargs.get("lags")
+    if isinstance(lags, int) and not isinstance(lags, bool):
+        lags = list(range(1, lags + 1))
+    else:
+        lags = [int(lag) for lag in lags or []]
+    windows = _window_sizes(kwargs.get("window_features"))
+    order = int(kwargs.get("differentiation") or 0)
+
+    # In wide format the series share the exogenous values (`None`).
+    per_series = long and multiseries
+    has_value = {
+        name: _on_span(present, dates, span, per_series)
+        for name, (dates, present) in spans.items()
+        if name in predicted
+    }
+    fold_numbers: set[int] = set()
+    read: dict[tuple, set[int]] = {}
+    inserted_read = False
+    for number, fold in enumerate(folds):
+        (test_start, _), (scored_start, scored_end) = fold[3], fold[4]
+        first = test_start if recursive else scored_start
+        in_fold = [name for name in predicted if predicted[name][number]]
+        for owner, (missing, inserted) in exog.items():
+            series = in_fold if owner is None else [owner] if owner in in_fold else []
+            if not series:
+                continue
+            rows = {
+                column: values[first:scored_end] for column, values in missing.items()
+            }
+            any_row = np.logical_or.reduce(list(rows.values()))
+            if not any_row.any():
+                continue
+            if recursive:
+                lost = _missing_predictions(any_row, lags, windows, order)
+            else:
+                lost = any_row
+            # The predictions the metrics score: those of the dates where a
+            # series forecast has a value.
+            scored = lost[scored_start - first:] & np.logical_or.reduce([
+                has_value[name][scored_start:scored_end] for name in series
+            ])
+            if not scored.any():
+                continue
+            fold_numbers.add(number)
+            last = scored_start + int(np.flatnonzero(scored)[-1])
+            for column, values in rows.items():
+                if recursive:
+                    positions = first + np.flatnonzero(values[:last - first + 1])
+                else:
+                    positions = scored_start + np.flatnonzero(
+                        values[scored_start - first:] & scored
+                    )
+                if len(positions):
+                    read.setdefault((column, owner), set()).update(
+                        int(position) for position in positions
+                    )
+                    inserted_read = inserted_read or bool(inserted[positions].any())
+
+    found = []
+    for column in columns:
+        for (read_column, owner), positions in read.items():
+            if read_column != column:
+                continue
+            of_series = "" if owner is None else f" of series {owner!r}"
+            dates = span[sorted(positions)]
+            found.append(
+                (column, f"{_plain(column)!r}{of_series}: {_where(dates)}")
+            )
+    where = f"{len(fold_numbers)} of the {len(folds)} test folds"
+
+    return where, found, inserted_read
+
+
+def _missing_predictions(
+    missing_rows: np.ndarray,
+    lags: list[int],
+    windows: list[int],
+    order: int,
+) -> np.ndarray:
+    """
+    Return which predictions of a recursive forecaster are missing, in the
+    order it predicts them, from the dates whose exogenous values are
+    missing (`missing_rows`): a missing prediction is read by the lags that
+    reach it, by a window feature whose values are all predictions and all
+    missing, and, with the differentiation, makes every later prediction
+    missing, as the inverse of the differentiation adds them up. The values
+    of the last window before the fold are taken as present: a missing one
+    that the predictions read raises before (`validate_backtest_windows`).
+    """
+    lost = np.asarray(missing_rows, dtype=bool).copy()
+    if order:
+        if lost.any():
+            lost[int(np.argmax(lost)):] = True
+        return lost
+    for position in range(len(lost)):
+        if lost[position]:
+            continue
+        if any(lag <= position and lost[position - lag] for lag in lags) or any(
+            1 <= size <= position and lost[position - size:position].all()
+            for size in windows
+        ):
+            lost[position] = True
+
+    return lost
+
+
+def _on_span(
+    values: np.ndarray,
+    dates: pd.DatetimeIndex,
+    span: pd.Index,
+    long: bool,
+) -> np.ndarray:
+    """
+    Return the values of a series on the positions of the span its backtest
+    is split on (False outside its dates): a series of long format is on
+    its own dates, every other on those of the span.
+    """
+    values = np.asarray(values, dtype=bool)
+    if not long:
+        return values
+    on_span = np.zeros(len(span), dtype=bool)
+    start = int(span.get_indexer([dates[0]])[0])
+    if start >= 0:
+        on_span[start:start + len(values)] = values[:len(span) - start]
+
+    return on_span
+
+
+def _exog_on_span(
+    data: pd.DataFrame,
+    profile: DataProfile,
+    columns: list[str],
+    span: pd.Index,
+    spans: dict,
+    long: bool,
+) -> dict | None:
+    """
+    Return, for each series that reads its own exogenous values (long
+    format, only those with a missing value) or under None for the values
+    every series shares, the missing values of each column on the positions
+    of the span, and which positions are missing timestamps (`asfreq()`
+    restores them as rows without values). None when the generated code
+    cannot read the data.
+    """
+    if not long:
+        frames = _target_frame(data, profile, columns)
+        if frames is None:
+            return None
+        frame, present_index = frames
+        if len(frame) != len(span) or not frame.index.equals(span):
+            return None
+        inserted = (
+            ~frame.index.isin(present_index)
+            if isinstance(frame.index, pd.DatetimeIndex)
+            else np.zeros(len(frame), dtype=bool)
+        )
+        missing = {
+            column: frame[column].isna().to_numpy() for column in frame.columns
+        }
+        return {None: (missing, np.asarray(inserted, dtype=bool))}
+
+    date_column, series_id = profile.date_column, profile.series_id_column
+    try:
+        dates = pd.DatetimeIndex(row_dates(data, date_column, profile.date_format))
+        rows = pd.DataFrame({
+            "series": data[series_id].to_numpy(),
+            "date": dates,
+            **{
+                f"missing_{position}": data[column].isna().to_numpy()
+                for position, column in enumerate(columns)
+            },
+        }).dropna(subset=["series", "date"])
+        rows = rows.drop_duplicates(["series", "date"], keep="first")
+    except (KeyError, ValueError, TypeError):
+        return None
+    row_dates_index = pd.DatetimeIndex(rows["date"])
+    exog = {}
+    for name, positions in rows.groupby("series", sort=False).indices.items():
+        name = _plain(name)
+        if name not in spans:
+            continue
+        flags = rows.iloc[positions]
+        if not any(flags[f"missing_{i}"].any() for i in range(len(columns))) and (
+            len(positions) == len(spans[name][0])
+        ):
+            # No missing value and no missing timestamp to read.
+            continue
+        grid = spans[name][0]
+        on_grid = grid.get_indexer(row_dates_index[positions])
+        found = on_grid >= 0
+        start = int(span.get_indexer([grid[0]])[0])
+        if start < 0:
+            continue
+        stop = min(start + len(grid), len(span))
+        inserted = np.zeros(len(span), dtype=bool)
+        inserted[start:stop] = True
+        inserted[start + on_grid[found]] = False
+        missing = {}
+        for i, column in enumerate(columns):
+            values = inserted.copy()
+            values[start + on_grid[found]] = flags[f"missing_{i}"].to_numpy()[found]
+            missing[column] = values
+        exog[name] = (missing, inserted)
+
+    return exog
+
+
+def validate_training_rows(
+    data: pd.DataFrame,
+    profile: DataProfile,
+    plan: ForecastPlan,
+) -> None:
+    """
+    Check that the forecast of a single series has rows to train on.
+
+    The forecaster of a plan whose estimator does not accept missing values
+    drops the training rows that read one (`dropna_from_series`), and
+    skforecast fails inside the script with "All samples have been removed
+    due to NaNs" when none is left, with an advice
+    (`dropna_from_series=False`) that the plan rejects for that estimator.
+    The rule is that of the folds of a backtest (see `_check_training_rows`),
+    applied to the rows the script trains on: the whole data in prediction
+    mode, the training partition (up to `plan.end_train`) in evaluation
+    mode.
+
+    Several series are not checked, nor data the generated code cannot
+    read.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Data the forecaster runs on.
+    profile : DataProfile
+        Profiled dataset metadata.
+    plan : ForecastPlan
+        Plan to run.
+
+    Returns
+    -------
+    None
+    """
+    if profile.n_series != 1 or not isinstance(profile.target, str):
+        return
+    if not profile.missing_target and not profile.has_gaps:
+        return
+    frames = _target_frame(data, profile)
+    if frames is None:
+        return
+    frame = frames[0]
+    if plan.end_train is not None:
+        if not isinstance(frame.index, pd.DatetimeIndex):
+            return
+        frame = frame.loc[
+            frame.index <= training_end(plan.end_train, frame.index.tz)
+        ]
+    absent = frame[profile.target].isna().to_numpy()
+    if not absent.any():
+        return
+
+    _check_training_rows(
+        index   = frame.index,
+        absent  = absent,
+        folds   = pd.DataFrame({
+                      "train_start": [0],
+                      "train_end": [len(frame)],
+                      "fit_forecaster": [True],
+                  }),
+        plan    = plan,
+        profile = profile,
+        run     = "forecast",
     )
 
 
@@ -1597,6 +2147,7 @@ def _check_training_rows(
     folds: pd.DataFrame,
     plan: ForecastPlan,
     profile: DataProfile,
+    run: str = "backtest",
 ) -> None:
     """
     Raise when every training row of a fold of a single series reads a
@@ -1610,9 +2161,10 @@ def _check_training_rows(
     lags and of its window features (whose statistics need every value of
     the window when training) and is dropped when its target is missing
     too. The training windows are those of the folds that train the
-    forecaster. The exogenous variables are not checked: the rows they
-    drop only make this check pass where skforecast fails, never the
-    other way round.
+    forecaster (a forecast is one fold, trained on all its rows). The
+    exogenous variables are not checked: the rows they drop only make this
+    check pass where skforecast fails, never the other way round. `run`
+    names what is trained in the message (`'backtest'`, `'forecast'`).
     """
     kwargs = plan.forecaster_kwargs
     if (
@@ -1690,7 +2242,7 @@ def _check_training_rows(
             else f"index {_plain(index[start])!r} to {_plain(index[end - 1])!r}"
         )
         raise DataContentError(
-            f"Every training row of the backtest from {span} reads a missing "
+            f"Every training row of the {run} from {span} reads a missing "
             f"value of the target ({_where(dates)}): {plan.forecaster} with "
             f"{plan.estimator} drops the rows whose lags, window features or "
             f"target read one (`dropna_from_series`), so skforecast would have "

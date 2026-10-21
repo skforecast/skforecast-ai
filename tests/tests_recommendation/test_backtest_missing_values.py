@@ -15,6 +15,7 @@ from ..fixtures_last_window import (
     plan_h2o_lgbm,
     plan_h2o_ridge,
     plan_single_closed_ridge,
+    plan_single_random_gaps_ridge,
     plan_wide_ridge,
     plans_h2o_without_lags,
     profile_h2o,
@@ -23,6 +24,7 @@ from ..fixtures_last_window import (
     profile_h2o_gaps,
     profile_h2o_missing_target,
     profile_single_closed,
+    profile_single_random_gaps,
     profile_wide,
 )
 
@@ -36,7 +38,7 @@ _RIDGE = "ForecasterRecursive with Ridge cannot predict from a missing value"
             plan_h2o_ridge,
             profile_h2o_gaps,
             BacktestMissingValues(
-                values=False, gaps=True, closed_days=False,
+                values=False, gaps=True, closed_days=[],
                 cannot_predict=_RIDGE, order=0, exog=[],
                 estimator="RandomForestRegressor",
             ),
@@ -45,7 +47,7 @@ _RIDGE = "ForecasterRecursive with Ridge cannot predict from a missing value"
             plan_h2o_ridge,
             profile_h2o_missing_target,
             BacktestMissingValues(
-                values=True, gaps=False, closed_days=False,
+                values=True, gaps=False, closed_days=[],
                 cannot_predict=_RIDGE, order=0, exog=[],
                 estimator="RandomForestRegressor",
             ),
@@ -54,7 +56,7 @@ _RIDGE = "ForecasterRecursive with Ridge cannot predict from a missing value"
             plan_h2o_direct,
             profile_h2o_gaps,
             BacktestMissingValues(
-                values=False, gaps=True, closed_days=False,
+                values=False, gaps=True, closed_days=[],
                 cannot_predict=(
                     "ForecasterDirect with Ridge cannot predict from a missing "
                     "value"
@@ -66,7 +68,7 @@ _RIDGE = "ForecasterRecursive with Ridge cannot predict from a missing value"
             plan_h2o_baseline,
             profile_h2o_gaps,
             BacktestMissingValues(
-                values=False, gaps=True, closed_days=False,
+                values=False, gaps=True, closed_days=[],
                 cannot_predict=(
                     "ForecasterEquivalentDate repeats it as a missing prediction"
                 ),
@@ -77,7 +79,7 @@ _RIDGE = "ForecasterRecursive with Ridge cannot predict from a missing value"
             plan_h2o_lgbm,
             profile_h2o_gaps,
             BacktestMissingValues(
-                values=False, gaps=True, closed_days=False,
+                values=False, gaps=True, closed_days=[],
                 cannot_predict=None, order=0, exog=[], estimator=None,
             ),
         ),
@@ -92,7 +94,7 @@ _RIDGE = "ForecasterRecursive with Ridge cannot predict from a missing value"
             ),
             profile_h2o_missing_target,
             BacktestMissingValues(
-                values=True, gaps=False, closed_days=False,
+                values=True, gaps=False, closed_days=[],
                 cannot_predict=None, order=2, exog=[], estimator=None,
             ),
         ),
@@ -100,7 +102,7 @@ _RIDGE = "ForecasterRecursive with Ridge cannot predict from a missing value"
             plan_h2o_exog_ridge,
             profile_h2o_exog,
             BacktestMissingValues(
-                values=False, gaps=False, closed_days=False,
+                values=False, gaps=False, closed_days=[],
                 cannot_predict=None, order=0, exog=["promo"],
                 estimator="RandomForestRegressor",
             ),
@@ -109,7 +111,7 @@ _RIDGE = "ForecasterRecursive with Ridge cannot predict from a missing value"
             plan_h2o_exog_ridge,
             profile_h2o_exog_missing_target,
             BacktestMissingValues(
-                values=True, gaps=False, closed_days=False,
+                values=True, gaps=False, closed_days=[],
                 cannot_predict=_RIDGE, order=0, exog=["promo"],
                 estimator="RandomForestRegressor",
             ),
@@ -118,7 +120,16 @@ _RIDGE = "ForecasterRecursive with Ridge cannot predict from a missing value"
             plan_single_closed_ridge,
             profile_single_closed,
             BacktestMissingValues(
-                values=False, gaps=True, closed_days=True,
+                values=False, gaps=True, closed_days=[6],
+                cannot_predict=_RIDGE, order=0, exog=[],
+                estimator="RandomForestRegressor",
+            ),
+        ),
+        (
+            plan_single_random_gaps_ridge,
+            profile_single_random_gaps,
+            BacktestMissingValues(
+                values=False, gaps=True, closed_days=[],
                 cannot_predict=_RIDGE, order=0, exog=[],
                 estimator="RandomForestRegressor",
             ),
@@ -134,6 +145,7 @@ _RIDGE = "ForecasterRecursive with Ridge cannot predict from a missing value"
         "ridge_exog",
         "ridge_target_and_exog",
         "closed_days_daily",
+        "random_gaps_daily",
     ],
 )
 def test_backtest_missing_values_output_when_backtest_can_fail(plan, profile, expected):
@@ -145,8 +157,9 @@ def test_backtest_missing_values_output_when_backtest_can_fail(plan, profile, ex
     (RandomForestRegressor, for 120 observations) to switch to; the
     differentiation is reported with its order; the exogenous columns with
     missing values count only for an estimator that cannot predict from
-    them; the missing timestamps of daily data may be days the business is
-    closed.
+    them; the missing timestamps of daily data are the closed days of the
+    profile when they all fall on a day of the week without dates (Sundays),
+    and no closed days otherwise.
     """
     missing_values = backtest_missing_values(plan, profile)
 

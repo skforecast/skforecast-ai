@@ -20,7 +20,7 @@ def test_backtest_missing_values_messages_output_when_target_and_exog():
     missing_values = BacktestMissingValues(
         values         = True,
         gaps           = False,
-        closed_days    = False,
+        closed_days    = [],
         cannot_predict = (
             "ForecasterRecursive with Ridge cannot predict from a missing value"
         ),
@@ -40,9 +40,11 @@ def test_backtest_missing_values_messages_output_when_target_and_exog():
         "avoids the error of a fold predicted from a missing value, not of a fold "
         "that holds one. Impute the target to backtest every fold.",
         "The exogenous columns 'promo', 'price' have missing values, and "
-        "ForecasterRecursive with Ridge cannot predict from them: `backtest()` fails on a test fold whose "
-        "rows have one, and `dropna_from_series` only drops them from the "
-        "training data. An estimator that accepts missing values (such as "
+        "ForecasterRecursive with Ridge cannot predict from them: `backtest()` "
+        "checks every test fold before running and raises, naming the dates, "
+        "when the rows it predicts have one, and `dropna_from_series` only "
+        "drops them from the training data. An estimator that accepts missing "
+        "values (such as "
         "'RandomForestRegressor') predicts from them; otherwise, fill them in "
         "the data, after asking the user, or leave them out of `exog_columns` "
         "when profiling.",
@@ -52,15 +54,17 @@ def test_backtest_missing_values_messages_output_when_target_and_exog():
 def test_backtest_missing_values_messages_fit_in_a_notice_of_the_mcp_server():
     """
     Test that the longest message of the target (missing values and missing
-    timestamps of daily data, the longest name of an estimator that does
-    not accept them, the differentiation, and the estimator of the rules
-    for small data) fits in a notice of the MCP server, which cuts the text
-    after `MAX_NOTICE_CHARS` and would lose the last remedy.
+    timestamps of daily data on the closed days with the longest names, the
+    longest name of an estimator that does not accept them, the
+    differentiation, and the estimator of the rules for small data) fits in
+    a notice of the MCP server, which cuts the text after `MAX_NOTICE_CHARS`
+    and would lose the last remedy. Daily data has at most three closed
+    days: a frequency needs half of its dates observed.
     """
     missing_values = BacktestMissingValues(
         values         = True,
         gaps           = True,
-        closed_days    = True,
+        closed_days    = [2, 3, 5],
         cannot_predict = (
             "ForecasterRecursive with GradientBoostingRegressor cannot predict "
             "from a missing value"
@@ -74,4 +78,8 @@ def test_backtest_missing_values_messages_fit_in_a_notice_of_the_mcp_server():
 
     assert len(messages) == 1
     assert len(messages[0]) <= MAX_NOTICE_CHARS
-    assert messages[0].endswith("otherwise, impute the target to backtest every fold.")
+    assert messages[0].endswith(
+        "If the business is closed on Wednesdays, Thursdays and Saturdays, fill "
+        "them with 0 in the data, after asking the user, or impute the target to "
+        "backtest every fold."
+    )

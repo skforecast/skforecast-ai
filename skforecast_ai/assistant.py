@@ -169,12 +169,14 @@ from ._future_exog import (
     validate_future_exog,
 )
 from ._last_window import (
+    validate_backtest_exog,
     validate_backtest_windows,
     warn_backtest_missing_values,
     validate_evaluation_partition,
     validate_infinite_target,
     validate_last_window,
     validate_series_lengths,
+    validate_training_rows,
 )
 from ._utils import (
     _check_direct_gap,
@@ -2710,6 +2712,11 @@ class ForecastingAssistant:
             plan      = plan,
             end_train = plan.end_train,
         )
+        validate_training_rows(
+            data    = data_df,
+            profile = profile.data_profile,
+            plan    = plan,
+        )
         # Last of the checks: it can warn, and a warning is not given for a
         # forecast that a later check rejects.
         validate_evaluation_partition(
@@ -3579,6 +3586,12 @@ class ForecastingAssistant:
             profile = profile.data_profile,
             plan    = plan,
             cv      = cv,
+        )
+        validate_backtest_exog(
+            data    = data_df,
+            profile = profile.data_profile,
+            plan    = plan,
+            cv      = _cv_in_time_zone(cv, data_df, profile.data_profile),
         )
 
         # Resolved CV parameters (with the fold and training counts) and their

@@ -6,7 +6,7 @@
 ################################################################################
 
 from __future__ import annotations
-from typing import ClassVar, Literal
+from typing import Annotated, ClassVar, Literal
 import pandas as pd
 from pydantic import BaseModel, Field, field_validator, model_validator
 from .._display import DisplayMixin, render_profile
@@ -168,6 +168,13 @@ class DataProfile(PickleDefaultsMixin, BaseModel):
     has_gaps : bool, default False
         Whether the datetime index has missing timestamps within its range
         (in long format, whether any series has them within its own range).
+    closed_weekdays : list, default []
+        Days of the week (0 for Monday) that every missing timestamp falls
+        on, when the data (each series, in long format) never has a date on
+        them, as a shop closed on Sundays: the days the note on missing
+        timestamps names. Empty when no timestamp is missing, when one of
+        them falls on a day of the week that has dates, or when the
+        frequency is coarser than a day.
     has_duplicate_timestamps : bool, default False
         Whether some timestamps appear in several identical rows, which the
         generated code drops. Timestamps repeated with different values
@@ -244,6 +251,9 @@ class DataProfile(PickleDefaultsMixin, BaseModel):
     frequency_is_set: bool = False
     index_is_monotonic: bool = True
     has_gaps: bool = False
+    closed_weekdays: list[Annotated[int, Field(ge=0, le=6)]] = Field(
+        default_factory=list
+    )
     has_duplicate_timestamps: bool = False
 
     # -- Exogenous --
