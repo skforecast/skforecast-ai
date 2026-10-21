@@ -58,6 +58,8 @@ REDIRECTION = re.compile(r"^(?:\d+|&)?(?:>>?|<<?|>&|<&)(.*)$")
 HEREDOC_START = re.compile(r"<<-?\s*['\"]?([A-Za-z_][A-Za-z0-9_]*)['\"]?")
 # git options that take a separate value before the subcommand.
 GIT_OPTIONS_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace"}
+# `git push` options that take a separate value.
+PUSH_OPTIONS_WITH_VALUE = {"-o", "--push-option", "--repo", "--receive-pack", "--exec"}
 FORCE_OPTIONS = ("--force", "--force-with-lease", "--force-if-includes")
 # Push every local branch (or mirror the repository), protected ones included.
 ALL_BRANCH_OPTIONS = {"--all", "--branches", "--mirror"}
@@ -157,6 +159,26 @@ def git_invocations(command: str) -> list[tuple[str, list[str]]]:
     return invocations
 
 
+def push_refspecs(args: list[str]) -> list[str]:
+    """
+    Refspecs of `git push <args>`: the positional arguments after the
+    remote, skipping the values of options such as `-o ci.skip`. With
+    `--repo` the remote is an option, so every positional is a refspec.
+    """
+
+    positional = []
+    i = 0
+    while i < len(args):
+        if args[i] in PUSH_OPTIONS_WITH_VALUE:
+            i += 2
+            continue
+        if not args[i].startswith("-"):
+            positional.append(args[i])
+        i += 1
+    has_repo = any(a == "--repo" or a.startswith("--repo=") for a in args)
+    return positional if has_repo else positional[1:]
+
+
 def push_targets(args: list[str], branch: str) -> list[str]:
     """
     Branch names a `git push` may write to. Flags and the remote name are
@@ -164,8 +186,7 @@ def push_targets(args: list[str], branch: str) -> list[str]:
     the current branch. No refspec means the current branch.
     """
 
-    positional = [a for a in args if not a.startswith("-")]
-    refspecs = positional[1:]  # positional[0] is the remote
+    refspecs = push_refspecs(args)
     if not refspecs:
         return [branch]
     targets = []
@@ -256,8 +277,7 @@ def forces(args: list[str]) -> bool:
             return True
         if arg.startswith("-") and not arg.startswith("--") and "f" in arg[1:]:
             return True
-    positional = [a for a in args if not a.startswith("-")]
-    return any(refspec.startswith("+") for refspec in positional[1:])
+    return any(refspec.startswith("+") for refspec in push_refspecs(args))
 
 
 def message_files(args: list[str]) -> list[str]:

@@ -95,6 +95,10 @@ SESSION_FOOTER = (
         ("feature/x", "cd repo && git push -u origin HEAD", True, 0),
         ("feature/x", "git push --follow-tags origin feature/x", False, 0),
         ("feature/x", "grep -n 'git push --force' notes.txt", False, 0),
+        ("0.4.x", "git push -o ci.skip origin", False, 2),
+        ("feature/x", "git push --repo origin 0.4.x", False, 2),
+        ("feature/x", "git push -o ci.skip origin +feature/x", False, 2),
+        ("feature/x", "git push -o ci.skip origin feature/x", False, 0),
         ("0.4.x", "git push origin 2>&1 | tail -3", False, 2),
         ("0.4.x", "git push origin > /tmp/push.log", False, 2),
         ("0.4.x", "git commit -m 'x'", True, 2),
@@ -130,7 +134,8 @@ SESSION_FOOTER = (
 def test_pre_bash_guard_exit_code(tmp_path, branch, command, remote, expected):
     """
     Test that the Bash guard blocks pushes to protected branches (also through
-    HEAD, @, --all and with the output redirected), every form of force push,
+    HEAD, @, --all, with push options and with the output redirected), every
+    form of force push,
     commits outside the naming
     convention in the cloud (also with a heredoc message), AI attribution in
     commit messages and PR bodies, and the paid context check, and lets the
@@ -152,6 +157,8 @@ def test_pre_bash_guard_exit_code(tmp_path, branch, command, remote, expected):
         ("claude/abc", "git push -u origin HEAD", False, 2),
         ("claude/abc", "git push", False, 2),
         ("claude/abc", "git push -u origin 2>&1 | tail -3", False, 2),
+        ("claude/abc", "git push -o ci.skip origin", False, 2),
+        ("claude/abc", "git push origin @", False, 2),
         ("fix/x", "git push origin HEAD:refs/heads/claude/abc", False, 2),
         ("worktree-fix-span", "git push -u origin HEAD", False, 2),
         ("claude/abc", "gh pr create --base 0.5.x --title t --body 'Adds x.'", False, 2),
