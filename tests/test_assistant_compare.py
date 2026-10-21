@@ -3455,25 +3455,26 @@ def test_compare_strategy_plan_row_when_plan_was_refined(monkeypatch):
     )
 
     assert list(result.results["name"]) == [
-        "ForecasterRecursive",
         "ForecasterStats",
+        "ForecasterRecursive",
         "Baseline (seasonal naive)",
         "ForecasterDirect",
         "Strategy plan",
     ]
     assert list(result.results["estimator"]) == [
-        "Ridge", "Arima", None, "Ridge", "LGBMRegressor"
+        "Arima", "Ridge", None, "Ridge", "LGBMRegressor"
     ]
     # The Arima fit of ForecasterStats ends where its optimizer stops, which
-    # moves in the fifth decimal from one CI runner to another (0.063813 and
-    # 0.063819); the other rows are exact to six decimals.
+    # moves in the fifth decimal from one machine to another; the other rows
+    # are exact to six decimals. Since skforecast 0.27, `freeze_params=True`
+    # keeps the model selected in the first fit, so Arima ranks first.
     maes = result.results["mean_absolute_error"].to_numpy()
     np.testing.assert_array_almost_equal(
-        maes[[0, 2, 3, 4]],
+        maes[[1, 2, 3, 4]],
         np.array([0.061982, 0.066072, 0.076281, 0.082949]),
         decimal=6,
     )
-    assert np.isclose(maes[1], 0.063817, atol=1e-5)
+    assert np.isclose(maes[0], 0.060668, atol=1e-5)
     assert result.strategy_plan_name == "Strategy plan"
     strategy_row = result.candidates["Strategy plan"]
     assert np.isclose(
@@ -3500,11 +3501,11 @@ def test_compare_strategy_plan_row_when_plan_was_refined(monkeypatch):
         "training up to 2003-04-01, trained once (no refit), 12-step horizon, "
         "6 folds. ForecasterStats is refitted in every fold on a fixed window "
         "(6 trainings): skforecast requires it for ARIMA models. Best: "
-        "'ForecasterRecursive' (ForecasterRecursive / Ridge) = 0.0620, 2.9% "
-        "ahead of 'ForecasterStats' (0.0638). 2 of 4 configurations beat the "
-        "baseline 'Baseline (seasonal naive)' (0.0661): 'ForecasterRecursive' "
-        "and 'ForecasterStats'. The best, 'ForecasterRecursive', beats it by "
-        "6.2%. " + _MISSING_BACKEND_NOTE
+        "'ForecasterStats' (ForecasterStats / Arima) = 0.0607, 2.1% ahead of "
+        "'ForecasterRecursive' (0.0620). 2 of 4 configurations beat the "
+        "baseline 'Baseline (seasonal naive)' (0.0661): 'ForecasterStats' and "
+        "'ForecasterRecursive'. The best, 'ForecasterStats', beats it by "
+        "8.2%. " + _MISSING_BACKEND_NOTE
     )
     assert result.cv_defaults_explanation == (
         "The strategy was created for the plan of row 'Strategy plan' "

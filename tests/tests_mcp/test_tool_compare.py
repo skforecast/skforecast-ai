@@ -923,8 +923,8 @@ def test_tool_compare_refined_plan_of_h2o_is_the_last_row_below_the_baseline(
         for line in text_of(result["files"]["leaderboard"]).splitlines()
     ]
     assert [(row[2], row[4]) for row in rows[1:]] == [
-        ("ForecasterRecursive", "Ridge"),
         ("ForecasterStats", "Arima"),
+        ("ForecasterRecursive", "Ridge"),
         ("Baseline (seasonal naive)", ""),
         ("ForecasterDirect", "Ridge"),
         ("Strategy plan", "LGBMRegressor"),
@@ -932,8 +932,8 @@ def test_tool_compare_refined_plan_of_h2o_is_the_last_row_below_the_baseline(
     assert round(float(rows[5][5]), 6) == 0.082949
     assert (
         "2 of 4 configurations beat the baseline 'Baseline (seasonal naive)' "
-        "(0.0661): 'ForecasterRecursive' and 'ForecasterStats'. The best, "
-        "'ForecasterRecursive', beats it by 6.2%."
+        "(0.0661): 'ForecasterStats' and 'ForecasterRecursive'. The best, "
+        "'ForecasterStats', beats it by 8.2%."
     ) in result["summary"]
 
 
