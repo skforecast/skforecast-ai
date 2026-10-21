@@ -314,6 +314,14 @@ def profile_of(data: pd.DataFrame):
     return _assistant.profile(data, target="x").data_profile
 
 
+def profile_of_wide(data: pd.DataFrame):
+    """
+    Return the `DataProfile` of wide-format `data` (every column a series,
+    dates in the index).
+    """
+    return _assistant.profile(data, target=list(data.columns)).data_profile
+
+
 # Months 30, 31 and 75 removed: the first two are read by no fold; the third
 # (2004-10-01) is read by the fold that starts at position 84.
 data_h2o_gaps = without_months(data_h2o, [30, 31, 75])

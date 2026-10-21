@@ -1866,7 +1866,9 @@ def _exog_folds(
     if exog is None:
         return None
 
-    recursive = plan.forecaster in ("ForecasterRecursive", "ForecasterRecursiveMultiSeries")
+    recursive = plan.forecaster in (
+        "ForecasterRecursive", "ForecasterRecursiveMultiSeries"
+    )
     kwargs = plan.forecaster_kwargs
     lags = kwargs.get("lags")
     if isinstance(lags, int) and not isinstance(lags, bool):

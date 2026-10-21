@@ -1448,6 +1448,76 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     `PlanEditsDiscardedWarning` (y una entrada de `plan.warnings`). Los
     lags, las ventanas y el estimador de las reglas siguen sin nombrarse.
 
+- **D?. 3f-2: los faltantes que quedaron de
+  [#105](https://github.com/skforecast/skforecast-ai/pull/105)** (D17)
+  (2026-10-21), en esta PR:
+  - Exógenas de cada fold (`validate_backtest_exog`, en `backtest()` tras
+    las comprobaciones del objetivo): con un estimador que no acepta
+    faltantes, `DataContentError` (`data`, con `DATA_VALUES_HINT` en el MCP)
+    cuando una predicción que las métricas puntúan sería NaN por una
+    exógena que falta, nombrando columnas (y serie, en largo) y fechas, como
+    `validate_future_exog`. Replica skforecast: cada fecha lee su fila; un
+    recursivo predice también el gap, y una predicción NaN la leen los lags
+    que la alcanzan, una ventana toda NaN y, con diferenciación, todos los
+    pasos siguientes; los directos (sin gap, D28) y ForecasterStats solo su
+    fila (Stats con un NaN en el gap no falla). Con varias series, solo las
+    que el fold pronostica (la regla de D15, ahora `_series_in_folds`) y las
+    fechas en que tienen valor; en ancho comparten las exógenas, en largo
+    cada serie las suyas; ForecasterDirectMultiVariate se puntúa en su
+    nivel. Una fecha que falta (`asfreq`) cuenta como faltante de todas las
+    columnas, y el mensaje lo dice. Con una serie el backtest fallaba en las
+    métricas ("Input contains NaN"); con varias (también DMV), skforecast
+    predice NaN sin error (la vía `np.dot` de los modelos lineales no pasa
+    por la comprobación de sklearn) y las métricas los descartaban sin
+    avisar: también es error, como en `forecast()` con las futuras. Un
+    estimador que acepta faltantes, un fundacional y el baseline no se
+    comprueban, y no avisan (pregunta en la PR). Las categorías de un fold
+    que su ventana de entrenamiento no tiene (el encoder las lee como NaN)
+    no se miran (pregunta en la PR). Contrastado con el backtest real en
+    unas 460 configuraciones al azar (una serie, ancho y largo; recursivo,
+    directo, Stats, multiserie y DMV; gap, lags, ventanas, diferenciación,
+    `refit`, fechas que faltan, series que empiezan tarde), sin diferencias.
+  - Filas de entrenamiento en `forecast()` y `forecast(test_size=...)`
+    (`validate_training_rows`, antes de `validate_evaluation_partition`): la
+    regla de `_check_training_rows` de D17 sobre las filas que entrena el
+    script, todos los datos o la partición hasta `end_train` ("Every
+    training row of the forecast from ..."). Contrastado con el
+    `forecast()` real en unas 450 configuraciones al azar (34 en que falla),
+    sin diferencias.
+  - El `MissingValuesWarning` de skforecast de las series que se quedan
+    fuera de algunos folds (#1415, #1427) no se captura. Para recibirlo, el
+    script tendría que correr con `suppress_warnings=False`, y entonces los
+    procesos de joblib (`n_jobs='auto'` paraleliza ForecasterRecursiveMultiSeries
+    con Ridge o RandomForest) imprimen en stdout los avisos de skforecast de
+    los ajustes y las predicciones de sus folds, fuera de cualquier filtro
+    del llamante: en el servidor MCP escribirían en el canal stdio del
+    protocolo, y en Python saldrían en la terminal. Reproducido con
+    skforecast puro. Se resuelve mejor en skforecast (nueva fila en
+    "Dependencia de skforecast 0.27.0"); hasta entonces no cambian ni el
+    script ni el runner.
+  - `DataProfile.closed_weekdays` (días de 0 a 6, vacío por defecto; un
+    perfil guardado sin el campo lo lee vacío): los días de
+    `regular_gap_weekdays` que ya calculaba la nota de fechas que faltan.
+    `create_cv` da el consejo de los días de cierre solo con ellos y los
+    nombra ("If the business is closed on Sundays, fill them with 0 in the
+    data, after asking the user, or impute the target to backtest every
+    fold."); con huecos al azar en datos diarios ya no lo da. ", or" en vez
+    de "; otherwise," para que el mensaje más largo (tres días, el máximo
+    con `'D'`, que necesita la mitad de sus fechas) quepa en un notice.
+  - ForecasterDirectMultiVariate: `validate_backtest_windows` mira cada
+    serie en la ventana de cada fold con la regla del modo de predicción
+    (la de `_check_wide`, que `forecast()` ya aplicaba): error con un
+    estimador que no acepta faltantes, aviso con uno que los acepta y error
+    con la diferenciación cuando falta uno de los últimos valores del nivel.
+    skforecast predecía NaN sin error y las métricas los descartaban.
+    Contrastado en 150 configuraciones al azar, sin diferencias. Sus filas
+    de entrenamiento no se miran.
+  - El `MissingValuesNotice` dice siempre que `backtest` comprueba los
+    folds (antes, solo con faltantes del objetivo), y el aviso de
+    `create_cv` de las exógenas, que `backtest()` las comprueba antes de
+    ejecutar. Ningún golden del contexto del LLM cambia, ni el de esquemas
+    del MCP.
+
 ## Decisiones abiertas
 
 Se toman en el PR que las necesita y se pasan a la sección de arriba.
@@ -1476,6 +1546,7 @@ arranque de las sesiones en la nube instala skforecast desde su rama
 | Sin issue ([#1425](https://github.com/skforecast/skforecast/pull/1425)) | `freeze_params=True` de `backtesting_stats` no congelaba nada: la selección automática de `Arima` y `Ets` se repetía en cada reentrenamiento (desde 0.20.0) | Los scripts de backtest de ForecasterStats ya pasaban `freeze_params=True`, así que ahora congelan de verdad: con `Arima` o `Ets` automáticos y reentrenamiento, las métricas cambian desde el segundo fold y corre más rápido (en h2o, ForecasterStats pasa a ganar a Ridge en `compare`). Tests con valores fijos actualizados y una línea en "Before upgrading". El coste de D19 y D23 sigue contando un ajuste por fold, que sigue siendo cierto (se reestiman los coeficientes) | Resuelto en `0.27.x` (2026-10-20) |
 | Sin issue ([#1427](https://github.com/skforecast/skforecast/pull/1427), encontrado en 5-0) | Un fold de `backtesting_forecaster_multiseries` sin ninguna serie falla con un error que no tiene que ver. Sin series que entrenar (`refit` con `fixed_train_size=True` en una ventana donde todas acabaron antes, o les quedan `window_size` valores o menos): `fit` falla con "all series must have a Pandas RangeIndex or DatetimeIndex with the same step/frequency ... Found frequencies: []", porque `check_preprocess_series` recibe un dict vacío. Sin series que predecir (ninguna tiene última ventana antes del fold): "`last_window` must have as many values as needed to generate the predictors". Reproducido con skforecast puro. Con o sin diferenciación, y también con un estimador que acepta faltantes. Debería saltarse ese fold con el `MissingValuesWarning` de las series descartadas, o fallar con un error que lo diga | Nada que rodear: la comprobación previa de D15 mira las series que ningún fold pronostica, no los folds sin ninguna serie; con el arreglo, el script corre o explica el fallo. skforecast salta ahora el fold sin series, lo nombra en el `MissingValuesWarning` de #1415 y da un `ValueError` claro si ningún fold puede pronosticarse. Su regla de entrenamientos (solo se entrena un fold de reentrenamiento si su bloque pronostica algo, `_select_fit_folds_multiseries`) cuenta menos que la de D19 en esos paneles: la de skforecast-ai sobrestima, lo que es conservador para el aviso y la confirmación de coste. Con `refit` intermitente las dos cuentan igual (skforecast-ai ya contaba los folds marcados para entrenar, no `int(len(folds) / refit)`) | Resuelto en `0.27.x` (2026-10-21) |
 | Sin issue ([#1430](https://github.com/skforecast/skforecast/pull/1430)) | `initial_train_size` se validaba contra la serie más larga en vez de contra el tramo de las series de un dict, y el split de un paso adelante de `ForecasterRecursiveMultiSeries` metía en el test series sin valores que evaluar | Nada: skforecast-ai ya trabaja sobre el tramo, y su comprobación previa de D15 rechaza antes de ejecutar el único caso que la validación antigua rechazaba por error (con un `initial_train_size` mayor que todas las series, alguna que empieza al principio del tramo acaba antes y ningún fold la pronostica). skforecast-ai no usa `OneStepAheadFold`; importará en el ajuste de hiperparámetros de la 0.6.0. Suite en verde contra su rama (2026-10-21) | Resuelto en `0.27.x` (2026-10-21) |
+| Sin issue (por abrir, encontrado en 3f-2) | El `MissingValuesWarning` de las series que no se pronostican en algunos folds ([#1415](https://github.com/skforecast/skforecast/pull/1415), [#1427](https://github.com/skforecast/skforecast/pull/1427)) solo sale con `suppress_warnings=False`, y con él los procesos de joblib de `backtesting_forecaster_multiseries` imprimen en stdout los avisos de skforecast de los ajustes y las predicciones de cada fold, fuera de los filtros del llamante (`warnings.catch_warnings` no llega a otro proceso). Que ese aviso, que habla del resultado y no de los datos, salga también con `suppress_warnings=True`, o que el backtest devuelva los niveles que pronostica cada fold | El runner del backtest lo captura y lo convierte en un aviso del resumen (un notice en el MCP), sin calcularlo (3f, D?. 3f-2) | Por abrir |
 
 Detalle de cada uno:
 

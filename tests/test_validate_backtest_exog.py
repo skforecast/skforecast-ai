@@ -423,15 +423,15 @@ def _scored_missing(predictions, data):
     """
     if "series" in data.columns:
         actual = data.set_index(["series", "date"])["value"]
-        values = [actual.get(key, np.nan) for key in zip(predictions["level"], predictions.index)]
+        keys = zip(predictions["level"], predictions.index)
+        values = [actual.get(key, np.nan) for key in keys]
     else:
         values = [
             data.loc[date, level] if date in data.index else np.nan
             for date, level in zip(predictions.index, predictions["level"])
         ]
-    return bool(
-        (predictions["pred"].isna().to_numpy() & pd.notna(np.array(values, dtype=float))).any()
-    )
+    observed = pd.notna(np.array(values, dtype=float))
+    return bool((predictions["pred"].isna().to_numpy() & observed).any())
 
 
 @pytest.mark.parametrize(
@@ -469,7 +469,9 @@ def test_validate_backtest_exog_matches_skforecast_when_gap_row_is_not_read(monk
     profile, plan = plan_exog_of(data, lags=[13], window_features=[])
     validate_backtest_exog(data, profile, plan, cv_h2o(gap=2))
 
-    predictions = _backtest_without_check(monkeypatch, data, profile, plan, cv_h2o(gap=2))
+    predictions = _backtest_without_check(
+        monkeypatch, data, profile, plan, cv_h2o(gap=2)
+    )
 
     assert not predictions["pred"].isna().any()
 
@@ -495,7 +497,8 @@ def test_validate_backtest_exog_matches_skforecast_when_several_series(
     cv = cv_items_sales()
     kwargs = {}
     if case.startswith("wide") or case == "multivariate":
-        data = with_missing_exog(data_wide_exog, [100 if case != "wide_unscored" else 101])
+        position = 101 if case == "wide_unscored" else 100
+        data = with_missing_exog(data_wide_exog, [position])
         if case == "wide_unscored":
             data.iloc[101, :3] = np.nan
         if case == "multivariate":

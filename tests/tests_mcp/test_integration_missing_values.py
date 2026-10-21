@@ -2,6 +2,7 @@
 
 import anyio
 import numpy as np
+import pandas as pd
 from mcp import Client
 
 from skforecast_ai.mcp import create_server
@@ -287,3 +288,214 @@ def test_server_backtest_when_missing_values_drop_a_series_from_every_fold(tmp_p
         "the data, after asking the user, or remove those series."
     )
     assert backtest["hint"] == DATA_VALUES_HINT
+
+
+def test_server_backtest_when_exogenous_values_are_missing_in_a_test_fold(tmp_path):
+    """
+    Test that a missing value of an exogenous column in a row that a test
+    fold predicts (2006-11-01) fails the backtest of a plan with Ridge
+    before running, naming the column and the date, with the hint that
+    leaves the values to the user, instead of the `execution_failed` of
+    "Input contains NaN"; `create_cv` says that `backtest` checks the folds
+    of the exogenous columns too. The one in the training rows is not read.
+    """
+    data = df_h2o_csv.iloc[-120:].reset_index(drop=True)
+    data["promo"] = np.arange(120.0)
+    data.loc[[10, 100], "promo"] = np.nan
+    path = write_csv(tmp_path, "monthly.csv", data)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    async def flow():
+        async with Client(server) as client:
+            profile = content_of(
+                await client.call_tool(
+                    "profile",
+                    {"data_path": path, "target": "x", "exog_columns": ["promo"]},
+                )
+            )
+            plan = content_of(
+                await client.call_tool(
+                    "plan", {"profile_id": profile["id"], "steps": 12}
+                )
+            )
+            cv = content_of(
+                await client.call_tool(
+                    "create_cv",
+                    {"plan_id": plan["id"], "initial_train_size": 84, "refit": False},
+                )
+            )
+            backtest = error_of(
+                await client.call_tool("backtest", {"cv_id": cv["id"]}), "backtest"
+            )
+            return cv, backtest
+
+    cv, backtest = anyio.run(flow)
+
+    notices = {notice["category"]: notice["message"] for notice in cv["notices"]}
+    assert RUN in notices["MissingValuesNotice"]
+    assert "`backtest()` checks every test fold before running and raises" in (
+        notices["UserWarning"]
+    )
+    assert (backtest["code"], backtest["field"]) == ("invalid_argument", "data_path")
+    assert backtest["message"] == (
+        "The forecaster reads missing values of the exogenous variables to "
+        "predict 1 of the 3 test folds ('promo': 1 value(s), such as "
+        "'2006-11-01'). ForecasterRecursive with Ridge cannot use them, so its "
+        "predictions would be missing. Either they are filled in, after asking "
+        "the user, or the plan uses an estimator that accepts missing values "
+        "(such as 'RandomForestRegressor'), or the column is left out of "
+        "`exog_columns` when profiling."
+    )
+    assert backtest["hint"] == DATA_VALUES_HINT
+
+
+def test_server_forecast_when_missing_values_leave_no_training_row(tmp_path):
+    """
+    Test that a forecast whose training rows all read a missing value of
+    the target (positions 13, 48, 83 and 93 of 120 months, and a rolling
+    mean of 36) fails before running, in prediction mode and with
+    `test_size`, with the remedies and the hint of the missing values,
+    instead of the `execution_failed` of "All samples have been removed due
+    to NaNs".
+    """
+    data = df_h2o_csv.iloc[-120:].reset_index(drop=True)
+    data.loc[[13, 48, 83, 93], "x"] = np.nan
+    path = write_csv(tmp_path, "monthly.csv", data)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    async def flow():
+        async with Client(server) as client:
+            profile = content_of(
+                await client.call_tool("profile", {"data_path": path, "target": "x"})
+            )
+            plan = content_of(
+                await client.call_tool(
+                    "plan", {"profile_id": profile["id"], "steps": 12}
+                )
+            )
+            future = error_of(
+                await client.call_tool("forecast", {"plan_id": plan["id"]}),
+                "forecast",
+            )
+            holdout = error_of(
+                await client.call_tool(
+                    "forecast", {"plan_id": plan["id"], "test_size": 12}
+                ),
+                "forecast",
+            )
+            return future, holdout
+
+    future, holdout = anyio.run(flow)
+
+    for error, end in ((future, "2008-06-01"), (holdout, "2007-06-01")):
+        assert (error["code"], error["field"]) == ("invalid_argument", "data_path")
+        assert error["message"] == (
+            f"Every training row of the forecast from 1998-07-01 to {end} reads "
+            f"a missing value of the target (4 value(s), such as '1999-08-01', "
+            f"'2002-07-01', '2005-06-01', '2006-04-01'): ForecasterRecursive "
+            f"with Ridge drops the rows whose lags, window features or target "
+            f"read one (`dropna_from_series`), so skforecast would have no row "
+            f"to train on. An estimator that accepts missing values (such as "
+            f"'RandomForestRegressor') trains on them; otherwise, use shorter "
+            f"lags and window features, which read fewer values, or fill in "
+            f"the missing values, after asking the user."
+        )
+        assert error["hint"] == DATA_VALUES_HINT
+
+
+def test_server_backtest_when_multivariate_window_has_missing_value(tmp_path):
+    """
+    Test that a missing value of a series that is not the level of
+    ForecasterDirectMultiVariate ('item_2', 2012-04-07), in the window of two
+    test folds, fails the backtest with Ridge before running: skforecast
+    never leaves a series out of that window, so the predictions of the
+    level were missing and its metrics left them out without a warning.
+    """
+    data = df_items_sales_wide.reset_index()
+    data.loc[97, "item_2"] = np.nan
+    path = write_csv(tmp_path, "wide.csv", data)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    async def flow():
+        async with Client(server) as client:
+            profile = content_of(
+                await client.call_tool(
+                    "profile",
+                    {"data_path": path, "target": ["item_1", "item_2", "item_3"]},
+                )
+            )
+            plan = content_of(
+                await client.call_tool(
+                    "plan",
+                    {
+                        "profile_id": profile["id"],
+                        "steps": 3,
+                        "forecaster": "ForecasterDirectMultiVariate",
+                        "estimator": "Ridge",
+                        "lags": 5,
+                        "window_features": [],
+                    },
+                )
+            )
+            cv = content_of(
+                await client.call_tool(
+                    "create_cv",
+                    {"plan_id": plan["id"], "initial_train_size": 84, "refit": False},
+                )
+            )
+            return error_of(
+                await client.call_tool("backtest", {"cv_id": cv["id"]}), "backtest"
+            )
+
+    backtest = anyio.run(flow)
+
+    assert (backtest["code"], backtest["field"]) == ("invalid_argument", "data_path")
+    assert backtest["message"] == (
+        "The forecaster reads missing values of the target to predict 2 of the "
+        "12 test folds ('item_2': 1 value(s), such as '2012-04-07'). "
+        "ForecasterDirectMultiVariate with Ridge cannot use them, so its "
+        "predictions would be missing. Either they are filled in, or the plan "
+        "uses an estimator that accepts missing values (such as "
+        "'RandomForestRegressor')."
+    )
+    assert backtest["hint"] == DATA_VALUES_HINT
+
+
+def test_server_create_cv_names_closed_days_of_the_profile(tmp_path):
+    """
+    Test that `create_cv` on daily data of a shop closed on Sundays names
+    the Sundays in the advice of the closed days, from the profile
+    (`closed_weekdays`), instead of a condition on the missing dates.
+    """
+    dates = pd.date_range("2023-01-02", periods=140, freq="D")
+    data = pd.DataFrame({"date": dates, "y": 10 + np.sin(np.arange(140))})
+    data = data.loc[data["date"].dt.dayofweek != 6]
+    path = write_csv(tmp_path, "shop.csv", data)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    async def flow():
+        async with Client(server) as client:
+            profile = content_of(
+                await client.call_tool("profile", {"data_path": path, "target": "y"})
+            )
+            plan = content_of(
+                await client.call_tool(
+                    "plan",
+                    {"profile_id": profile["id"], "steps": 7, "estimator": "Ridge"},
+                )
+            )
+            return content_of(
+                await client.call_tool("create_cv", {"plan_id": plan["id"]})
+            )
+
+    cv = anyio.run(flow)
+
+    warning = [
+        notice["message"] for notice in cv["notices"]
+        if notice["category"] == "UserWarning"
+    ]
+    assert len(warning) == 1
+    assert warning[0].endswith(
+        "If the business is closed on Sundays, fill them with 0 in the data, "
+        "after asking the user, or impute the target to backtest every fold."
+    )
