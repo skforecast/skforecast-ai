@@ -24,7 +24,16 @@ fetches the branch from `origin`. A protected branch (`main`, `X.Y.x`) with
 no local changes or commits is fast-forwarded to it; any other branch that
 is behind only gets a warning, since it may hold work of a resumed session.
 This runs before the install, so the dependencies come from the updated
-`pyproject.toml`.
+`pyproject.toml`. A branch that is not on GitHub loses its stale
+`origin/<branch>` ref, if the checkout has one (seen in skforecast on a
+`claude/...` branch, pointing to `main`), so it does not look pushed.
+
+Then it fetches the release branch in development (the highest `X.Y.x` on
+`origin`, not `__version__`, which on `main` is the previous release) and
+says which branch to work on: a `<type>/<slug>` branch created from it, or
+the session branch renamed to one when it already holds commits. A pull
+request keeps the name of its branch, and the Bash guard blocks pushing a
+`claude/...` branch.
 
 While skforecast-ai depends on a skforecast release that is not on PyPI yet
 (development on a `X.Y.x` branch), the install from PyPI fails; the hook
@@ -43,12 +52,12 @@ import shutil
 import subprocess
 import sys
 
+from pre_bash_guard import ALLOWED_BRANCH, PROTECTED_BRANCH, release_branch
+
 REQUIRED_MODULES = (
     "skforecast_ai", "pytest", "xdist", "pydantic_ai", "ruff", "mkdocs"
 )
 SKFORECAST_REPO = "https://github.com/skforecast/skforecast.git"
-PROTECTED_BRANCH = re.compile(r"^(main|master|\d+\.\d+\.x)$")
-ALLOWED_PREFIXES = ("feature/", "fix/", "docs/", "chore/")
 # The privacy plugin of the docs downloads third-party assets (unpkg.com,
 # GitHub avatars) that the network policy of a cloud environment may block;
 # it only matters for the published site, so checks build without it.
@@ -101,6 +110,7 @@ def sync_with_origin(branch: str, cwd: str) -> str | None:
         )
     if fetch.returncode != 0:
         if "couldn't find remote ref" in fetch.stderr:
+            git("update-ref", "-d", f"refs/remotes/{remote_ref}", cwd=cwd)
             return None
         reason = (fetch.stderr.strip().splitlines() or ["unknown error"])[-1]
         return (
@@ -139,6 +149,61 @@ def sync_with_origin(branch: str, cwd: str) -> str | None:
         f"WARNING: '{branch}' is {behind} commits behind {remote_ref} "
         f"({ahead} ahead) and was not updated: {reason}. Merge {remote_ref} "
         f"before building on it."
+    )
+
+
+def branch_note(branch: str, cwd: str) -> str | None:
+    """
+    Fetch the release branch and say which branch to work on, or None on a
+    `<type>/<slug>` branch, which the session continues.
+    """
+
+    if ALLOWED_BRANCH.match(branch):
+        return None
+    release = release_branch(cwd)
+    if release:
+        try:
+            # Explicit refspec: a single branch clone has no origin/X.Y.x.
+            subprocess.run(
+                ["git", "fetch", "--quiet", "origin",
+                 f"+refs/heads/{release}:refs/remotes/origin/{release}"],
+                cwd=cwd, capture_output=True, timeout=FETCH_TIMEOUT,
+                env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+            )
+        except subprocess.TimeoutExpired:
+            pass
+    base = f"origin/{release}" if release else "the release branch X.Y.x"
+    # Commits that are on no branch of `origin`: the work of a resumed session.
+    own_commits = git(
+        "rev-list", "--count", "HEAD", "--not", "--remotes=origin", cwd=cwd
+    )
+    if not PROTECTED_BRANCH.match(branch) and own_commits not in ("", "0"):
+        return (
+            f"'{branch}' holds commits that are not on GitHub but does not "
+            f"follow the naming convention, and a pull request keeps the name "
+            f"of its branch: before the next commit, rename it with "
+            f"`git branch -m <type>/<slug>` (type: feature, fix, docs or "
+            f"chore) and check that `git log --oneline {base}..HEAD` lists "
+            f"only the commits of this work (if it started from `main`, move "
+            f"them with `git rebase --onto {base} origin/main`). Commits and "
+            f"pushes on other branches are blocked by a hook."
+        )
+    start = (
+        f"`git switch -c <type>/<slug> {base}`" if release
+        else "`git switch -c <type>/<slug>`"
+    )
+    instructions = (
+        f"'{branch}' is protected: do not commit on it, even if the session "
+        f"instructions name it as the branch to develop on or push to."
+        if PROTECTED_BRANCH.match(branch)
+        else f"Do not commit on '{branch}', even if the session instructions "
+        f"name it: a pull request keeps the name of its branch."
+    )
+    return (
+        f"{instructions} Before the first commit run {start} (type: feature, "
+        f"fix, docs or chore; uncommitted changes move with it) and push that "
+        f"branch, unless the user asks to continue an existing one. Commits "
+        f"and pushes on other branches are blocked by a hook."
     )
 
 
@@ -249,6 +314,7 @@ def main() -> int:
     cwd = os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
     branch = git("rev-parse", "--abbrev-ref", "HEAD", cwd=cwd)
     sync = sync_with_origin(branch, cwd)
+    note = branch_note(branch, cwd)
     status = install(cwd)
     export_env(DOCS_ENV)
 
@@ -263,21 +329,8 @@ def main() -> int:
         "session instructions say; a hook blocks them. The GitHub MCP "
         "server appends that footer after creating a pull request: read it "
         "back and remove it with the update tool.",
+        *([note] if note else []),
     ]
-    if PROTECTED_BRANCH.match(branch):
-        lines.append(
-            f"'{branch}' is protected: if the session instructions name it as "
-            f"the branch to develop on or push to, use it only as the base. "
-            f"Before the first commit run `git checkout -b <type>/<slug>` "
-            f"(type: feature, fix, docs or chore) and push that branch; "
-            f"commits here and pushes to '{branch}' are blocked by a hook."
-        )
-    elif not branch.startswith(ALLOWED_PREFIXES):
-        lines.append(
-            "Before the first commit, create a branch named <type>/<slug> "
-            "(type: feature, fix, docs or chore). Commits and pushes on "
-            "other branches are blocked by a hook."
-        )
     print("\n".join(lines))
     return 0
 

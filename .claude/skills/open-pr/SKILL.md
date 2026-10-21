@@ -11,15 +11,20 @@ Title hint from the user: $ARGUMENTS
 ## 1. Branches
 
 - Release branch: read `__version__` in `skforecast_ai/__init__.py` and
-  derive `X.Y.x` (`0.4.0` -> `0.4.x`). The PR base is that branch, never
-  `main`.
+  derive `X.Y.x` (`0.4.0` -> `0.4.x`). On `main`, which keeps the previous
+  release, it is the highest `X.Y.x` on `origin` instead. The PR base is
+  that branch, never `main`.
 - `git fetch origin` and compare against `origin/<release-branch>`: the
   local copy of the release branch may be stale. Below, `BASE` stands for
   `origin/<release-branch>`.
 - If the current branch is `main` or the release branch, create
-  `<type>/<slug>` first (type `feature`, `fix`, `docs` or `chore`, the
-  names the cloud hook accepts). In a cloud session, keep the branch the
-  session is working on.
+  `<type>/<slug>` from `BASE` first (type `feature`, `fix`, `docs` or
+  `chore`, the names the cloud hook accepts). If it is a `claude/...`
+  (cloud session) or `worktree-...` branch, rename it with
+  `git branch -m <type>/<slug>` after checking that
+  `git log --oneline BASE..HEAD` lists only the commits of this work: a
+  pull request keeps the name of its branch, and the Bash guard blocks
+  pushing those.
 - Review `git log --oneline BASE..HEAD`, `git diff BASE...HEAD --stat` and
   `git status`. Commit the uncommitted changes that belong to the PR
   without asking; leave the rest out (see the `dev/` files in step 2) and

@@ -10,6 +10,7 @@ import importlib
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -94,6 +95,8 @@ SESSION_FOOTER = (
         ("feature/x", "cd repo && git push -u origin HEAD", True, 0),
         ("feature/x", "git push --follow-tags origin feature/x", False, 0),
         ("feature/x", "grep -n 'git push --force' notes.txt", False, 0),
+        ("0.4.x", "git push origin 2>&1 | tail -3", False, 2),
+        ("0.4.x", "git push origin > /tmp/push.log", False, 2),
         ("0.4.x", "git commit -m 'x'", True, 2),
         ("claude/some-session", "git commit -m 'x'", True, 2),
         ("0.4.x", "git commit -m 'x'", False, 0),
@@ -127,7 +130,8 @@ SESSION_FOOTER = (
 def test_pre_bash_guard_exit_code(tmp_path, branch, command, remote, expected):
     """
     Test that the Bash guard blocks pushes to protected branches (also through
-    HEAD, @ and --all), every form of force push, commits outside the naming
+    HEAD, @, --all and with the output redirected), every form of force push,
+    commits outside the naming
     convention in the cloud (also with a heredoc message), AI attribution in
     commit messages and PR bodies, and the paid context check, and lets the
     rest run.
@@ -139,6 +143,48 @@ def test_pre_bash_guard_exit_code(tmp_path, branch, command, remote, expected):
     )
 
     assert result.returncode == expected, result.stderr
+
+
+@pytest.mark.parametrize(
+    "branch, command, remote, expected",
+    [
+        ("claude/abc", "git push -u origin claude/abc", True, 2),
+        ("claude/abc", "git push -u origin HEAD", False, 2),
+        ("claude/abc", "git push", False, 2),
+        ("claude/abc", "git push -u origin 2>&1 | tail -3", False, 2),
+        ("fix/x", "git push origin HEAD:refs/heads/claude/abc", False, 2),
+        ("worktree-fix-span", "git push -u origin HEAD", False, 2),
+        ("claude/abc", "gh pr create --base 0.5.x --title t --body 'Adds x.'", False, 2),
+        ("fix/x", "gh pr create --head skforecast:claude/abc --title t", False, 2),
+        ("claude/abc", "git branch -m fix/x && git push -u origin fix/x", False, 0),
+        ("claude/abc", "git push -u origin fix/x", False, 0),
+        ("fix/x", "git push origin --delete claude/abc", False, 0),
+        ("fix/x", "git push origin :claude/abc", False, 0),
+        ("docs/faq", "gh pr create --base 0.5.x --title t --body 'Adds x.'", False, 0),
+    ],
+)
+def test_pre_bash_guard_blocks_session_branches(
+    tmp_path, branch, command, remote, expected
+):
+    """
+    Test that the Bash guard blocks, in every environment, pushing a branch
+    named by Claude Code (`claude/...`, `worktree-...`) or opening a pull
+    request from one, says how to rename it and names the latest release
+    branch of origin as the base, and lets through a renamed branch and the
+    deletion of a session branch.
+    """
+
+    repo = make_repo(tmp_path / "repo", branch)
+    for release in ("0.4.x", "0.5.x", "0.10.x"):
+        git(repo, "update-ref", f"refs/remotes/origin/{release}", "HEAD")
+    result = run_hook(
+        "pre_bash_guard.py", {"tool_input": {"command": command}}, repo, remote
+    )
+
+    assert result.returncode == expected, result.stderr
+    if expected:
+        assert "git branch -m <type>/<slug>" in result.stderr
+        assert "origin/0.10.x..HEAD" in result.stderr
 
 
 @pytest.mark.parametrize(
@@ -188,6 +234,64 @@ def test_pre_pr_guard_exit_code(tmp_path, tool_input, expected):
     assert result.returncode == expected, result.stderr
     if expected:
         assert "authored by the user alone" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "tool_name, tool_input, remote, expected",
+    [
+        ("mcp__github__push_files", {"branch": "0.5.x", "message": "fix: x"}, False, 2),
+        ("mcp__github__create_or_update_file", {"branch": "main"}, False, 2),
+        ("mcp__github__push_files", {"branch": "claude/abc"}, False, 2),
+        ("mcp__plugin_github_github__create_branch", {"branch": "worktree-x"}, False, 2),
+        ("mcp__github__create_pull_request", {"head": "claude/abc", "base": "0.5.x"}, True, 2),
+        ("mcp__github__delete_file", {"branch": "docs"}, True, 2),
+        (
+            "mcp__github__push_files",
+            {"branch": "fix/x", "message": f"fix: x\n\n{CLAUDE_TRAILER}"},
+            False, 2,
+        ),
+        ("mcp__github__push_files", {"branch": "fix/x", "message": "fix: x"}, True, 0),
+        ("mcp__github__delete_file", {"branch": "docs"}, False, 0),
+        ("mcp__github__create_pull_request", {"head": "0.5.x", "base": "main"}, False, 0),
+        ("mcp__github__create_pull_request", {"head": "fix/x", "base": "0.5.x"}, True, 0),
+    ],
+)
+def test_pre_pr_guard_branch_policy(tmp_path, tool_name, tool_input, remote, expected):
+    """
+    Test that the guard of the GitHub MCP write tools applies the branch
+    rules of the Bash guard to the branch they commit to (never protected,
+    never named by Claude Code, and in the cloud only `<type>/<slug>`) and to
+    the head of a new pull request, checks the commit message for an AI
+    attribution, and lets through a release pull request from `0.5.x`.
+    """
+
+    repo = make_repo(tmp_path / "repo", "feature/x")
+    payload = {"tool_name": tool_name, "tool_input": tool_input}
+    result = run_hook("pre_pr_guard.py", payload, repo, remote)
+
+    assert result.returncode == expected, result.stderr
+
+
+def test_pre_pr_guard_registered_for_github_mcp_write_tools():
+    """
+    Test that `settings.json` runs the GitHub MCP guard for every tool it
+    checks, so that a new branch rule never sits in a hook that is not
+    called.
+    """
+
+    settings = json.loads((HOOKS_DIR.parent / "settings.json").read_text())
+    matchers = [
+        entry["matcher"]
+        for entry in settings["hooks"]["PreToolUse"]
+        if any("pre_pr_guard.py" in h["command"] for h in entry["hooks"])
+    ]
+    tools = (
+        "create_pull_request", "update_pull_request", "create_branch",
+        "push_files", "create_or_update_file", "delete_file",
+    )
+    for tool in tools:
+        name = f"mcp__plugin_github_github__{tool}"
+        assert any(re.fullmatch(m, name) for m in matchers), tool
 
 
 @pytest.mark.parametrize(
@@ -273,7 +377,7 @@ def session_start(monkeypatch):
     "branch, expected",
     [
         ("0.4.x", "'0.4.x' is protected"),
-        ("claude/some-session", "Before the first commit, create a branch"),
+        ("claude/some-session", "rename it with `git branch -m <type>/<slug>`"),
         ("feature/x", None),
     ],
 )
@@ -299,7 +403,7 @@ def test_session_start_branch_note(
 
     assert f"Current branch: {branch}." in out
     if expected is None:
-        assert "Before the first commit" not in out
+        assert "<type>/<slug>" not in out
     else:
         assert expected in out
     assert env_file.read_text() == "export SKFORECAST_AI_DOCS_PRIVACY=false\n"
@@ -382,6 +486,90 @@ def test_session_start_skips_sync_for_branch_not_on_origin(
 
     assert "origin/fix/new" not in out
     assert "WARNING" not in out
+
+
+def make_release_clone(tmp_path: Path, start: str) -> tuple[Path, Path]:
+    """
+    A single branch clone of `start` from an `origin` like GitHub's: `main`
+    at the previous release, the release branch in development `0.5.x` and
+    an older `0.4.x`. Return the seed repository and the clone.
+    """
+
+    seed = make_repo(tmp_path / "seed", "0.4.x")
+    for branch in ("main", "0.5.x"):
+        git(seed, "checkout", "-q", "-b", branch)
+        git(seed, "commit", "-q", "--allow-empty", "-m", branch)
+    origin = tmp_path / "origin.git"
+    git(tmp_path, "clone", "-q", "--bare", str(seed), str(origin))
+    # Single branch: origin/0.5.x only exists if the hook fetches it.
+    git(tmp_path, "clone", "-q", "--single-branch", "-b", start, str(origin), "clone")
+    return seed, tmp_path / "clone"
+
+
+@pytest.mark.parametrize(
+    "start, checkout, commit, expected",
+    [
+        ("main", None, False, "'main' is protected"),
+        ("0.5.x", None, False, "'0.5.x' is protected"),
+        ("main", "claude/abc", False, "Do not commit on 'claude/abc'"),
+        ("main", "claude/abc", True, "rename it with `git branch -m <type>/<slug>`"),
+        ("0.5.x", "fix/x", True, None),
+    ],
+)
+def test_session_start_says_which_branch_to_work_on(
+    session_start, monkeypatch, capsys, tmp_path, start, checkout, commit,
+    expected,
+):
+    """
+    Test that the cloud SessionStart hook fetches the latest release branch
+    of origin, also into a single branch clone, and names it as the base of
+    the new branch whether the session starts on `main`, on the release
+    branch or on a fresh `claude/...` branch; asks to rename a session
+    branch that already holds commits; and says nothing on a `<type>/<slug>`
+    branch.
+    """
+
+    seed, repo = make_release_clone(tmp_path, start)
+    if checkout:
+        git(repo, "checkout", "-q", "-b", checkout)
+    if commit:
+        git(repo, "commit", "-q", "--allow-empty", "-m", "work")
+    monkeypatch.setenv("CLAUDE_CODE_REMOTE", "true")
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
+
+    assert session_start.main() == 0
+    out = capsys.readouterr().out
+
+    if expected is None:
+        assert "<type>/<slug>" not in out
+    else:
+        assert expected in out
+        assert "origin/0.5.x" in out
+        assert "origin/0.4.x" not in out
+        assert head(repo, "origin/0.5.x") == head(seed, "0.5.x")
+
+
+def test_session_start_removes_stale_ref_of_branch_not_on_origin(
+    session_start, monkeypatch, capsys, tmp_path
+):
+    """
+    Test that the cloud SessionStart hook removes the `origin/<branch>` ref
+    of a branch that is not on GitHub, so the branch does not look pushed.
+    """
+
+    _, repo = make_release_clone(tmp_path, "main")
+    git(repo, "checkout", "-q", "-b", "claude/abc")
+    git(repo, "update-ref", "refs/remotes/origin/claude/abc", "HEAD")
+    monkeypatch.setenv("CLAUDE_CODE_REMOTE", "true")
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
+
+    assert session_start.main() == 0
+
+    refs = subprocess.run(
+        ["git", "for-each-ref", "refs/remotes/origin/claude/"],
+        cwd=repo, capture_output=True, text=True, check=True,
+    ).stdout
+    assert refs == ""
 
 
 def test_session_start_silent_in_local_session(session_start, monkeypatch, capsys):
