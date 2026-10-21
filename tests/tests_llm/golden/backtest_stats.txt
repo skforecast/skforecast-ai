@@ -39,11 +39,11 @@ Note: A validated Python script implementing this plan is generated separately. 
 - n_fits: 6
 </backtesting_strategy>
 <deterministic_summary>
-Initial training up to 2003-04-01, fixed window, refit every fold (6 trainings), 12-step horizon, 6 folds. ForecasterStats is refitted in every fold whatever `refit` says: skforecast requires it for ARIMA models. Results: mean_absolute_error: 0.0612, mean_squared_error: 0.0061, mean_absolute_scaled_error: 0.8514.
+Initial training up to 2003-04-01, fixed window, refit every fold (6 trainings), 12-step horizon, 6 folds. ForecasterStats is refitted in every fold whatever `refit` says: skforecast requires it for ARIMA models. Results: mean_absolute_error: 0.0612, root_mean_squared_error: 0.0781, mean_absolute_scaled_error: 0.8514.
 </deterministic_summary>
 <evaluation_metrics>
- mean_absolute_error  mean_squared_error  mean_absolute_scaled_error
-              0.0612              0.0061                      0.8514
+ mean_absolute_error  root_mean_squared_error  mean_absolute_scaled_error
+              0.0612                   0.0781                      0.8514
 </evaluation_metrics>
 <predictions>
 Total rows: 62. Only the first 5 and last 5 rows are shown; the 52 interior rows were not provided. Do not describe trends, growth, or progression across the horizon from these rows, and do not compare an early row against a late row as if they were adjacent. Use the per-column summary below for any statement about the full set of rows.

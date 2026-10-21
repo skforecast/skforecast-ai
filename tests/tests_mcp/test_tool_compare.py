@@ -1085,9 +1085,9 @@ def test_tool_compare_output_when_interval_adds_coverage_without_changing_rankin
     plain_leaderboard = text_of(plain["files"]["leaderboard"]).splitlines()
 
     assert leaderboard[0] == (
-        ",rank,name,forecaster,estimator,mean_absolute_error,mean_squared_error,"
-        "mean_absolute_scaled_error,mean_absolute_percentage_error,coverage,"
-        "interval_width"
+        ",rank,name,forecaster,estimator,mean_absolute_error,"
+        "root_mean_squared_error,mean_absolute_scaled_error,"
+        "mean_absolute_percentage_error,coverage,interval_width"
     )
     assert [line.split(",")[2] for line in leaderboard[1:]] == [
         line.split(",")[2] for line in plain_leaderboard[1:]

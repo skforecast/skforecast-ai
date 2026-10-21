@@ -138,7 +138,7 @@ class TestSelectMetricSingleSeries:
         assert metric == "mean_absolute_error"
         assert metrics == [
             "mean_absolute_error",
-            "mean_squared_error",
+            "root_mean_squared_error",
             "mean_absolute_scaled_error",
         ]
 
@@ -158,19 +158,44 @@ class TestSelectMetricSingleSeries:
         _, _, metrics = select_metric(profile_single_no_zeros)
         assert metrics == [
             "mean_absolute_error",
-            "mean_squared_error",
+            "root_mean_squared_error",
             "mean_absolute_scaled_error",
             "mean_absolute_percentage_error",
         ]
 
     def test_single_series_always_includes_core_metrics(self):
         """
-        Test that MAE, MSE, and MASE are always included for regression tasks.
+        Test that MAE, RMSE, and MASE are always included for regression
+        tasks, and MSE is not: it is in the squared units of the target.
         """
         _, _, metrics = select_metric(profile_single_no_zeros)
         assert "mean_absolute_error" in metrics
-        assert "mean_squared_error" in metrics
+        assert "root_mean_squared_error" in metrics
         assert "mean_absolute_scaled_error" in metrics
+        assert "mean_squared_error" not in metrics
+
+    def test_single_series_crossing_zero_explains_mape_left_out(self):
+        """
+        Test that the explanation says, in one sentence after the one of the
+        primary metric, why MAPE is left out, with the range of the target.
+        """
+        _, explanation, _ = select_metric(profile_single_crossing_zero)
+        assert explanation == (
+            "MAE is interpretable, robust to outliers, and works at any "
+            "scale. MAPE is not computed: it divides each error by the actual "
+            "value, and the target takes values at or around zero (from -10 "
+            "to 10)."
+        )
+
+    def test_single_series_no_zeros_explanation_without_mape_sentence(self):
+        """
+        Test that the explanation says nothing about MAPE when it is in the
+        panel.
+        """
+        _, explanation, _ = select_metric(profile_single_no_zeros)
+        assert explanation == (
+            "MAE is interpretable, robust to outliers, and works at any scale."
+        )
 
 
 class TestSelectMetricMultiSeries:
@@ -200,9 +225,21 @@ class TestSelectMetricMultiSeries:
         assert metric == "mean_absolute_scaled_error"
         assert metrics == [
             "mean_absolute_error",
-            "mean_squared_error",
+            "root_mean_squared_error",
             "mean_absolute_scaled_error",
         ]
+
+    def test_multi_series_one_crossing_zero_explains_mape_left_out(self):
+        """
+        Test that, with several series, the explanation names the series
+        that crosses zero with its range.
+        """
+        _, explanation, _ = select_metric(profile_multi_series_crossing_zero)
+        assert explanation.endswith(
+            " MAPE is not computed: it divides each error by the actual value, "
+            "and the target takes values at or around zero in series "
+            "'series_2' (from -5 to 50)."
+        )
 
     def test_multi_series_no_zeros_includes_mape(self):
         """

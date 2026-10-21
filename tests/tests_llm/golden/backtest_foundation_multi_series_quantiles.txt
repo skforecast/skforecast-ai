@@ -27,7 +27,7 @@ The dataset contains 2 series, so a multi-series forecaster (ForecasterRecursive
 - Interval method: native
 - Primary metric: mean_absolute_scaled_error
 - Chosen by the user instead of the rules: forecaster
-- Plan: ForecasterFoundation + autogluon/chronos-2-small. No lag or window features: the foundation model forecasts directly from the raw context window. Prediction intervals via native. MASE is scale-independent, enabling fair comparison across differently-scaled series. The model reads up to 8192 observations of each series as context, so the whole history is used (the longest series has 100).
+- Plan: ForecasterFoundation + autogluon/chronos-2-small. No lag or window features: the foundation model forecasts directly from the raw context window. Prediction intervals via native. MASE is scale-independent, enabling fair comparison across differently-scaled series. MAPE is not computed: it divides each error by the actual value, and the target takes values at or around zero in series 'store_a' (from 0 to 99). The model reads up to 8192 observations of each series as context, so the whole history is used (the longest series has 100).
 
 Note: A validated Python script implementing this plan is generated separately. Do not generate code yourself.
 </forecast_plan>
@@ -42,9 +42,9 @@ Note: A validated Python script implementing this plan is generated separately. 
 Backtested with 6 folds of 5 steps each, starting from an initial training window of 70 observations, without refitting.
 </deterministic_summary>
 <evaluation_metrics>
- levels  mean_absolute_error  mean_squared_error  mean_absolute_scaled_error
-store_a                  2.5                9.25                         0.8
-store_b                  3.5               16.50                         1.2
+ levels  mean_absolute_error  root_mean_squared_error  mean_absolute_scaled_error
+store_a                  2.5                   3.0414                         0.8
+store_b                  3.5                   4.0620                         1.2
 </evaluation_metrics>
 <predictions>
 Total rows: 40. Only the first 5 and last 5 rows are shown; the 30 interior rows were not provided. Do not describe trends, growth, or progression across the horizon from these rows, and do not compare an early row against a late row as if they were adjacent. Use the per-column summary below for any statement about the full set of rows.

@@ -193,7 +193,7 @@ predictions_backtest_multi = pd.DataFrame(
 metrics_single = pd.DataFrame(
     {
         "mean_absolute_error":        [2.5],
-        "mean_squared_error":         [9.25],
+        "root_mean_squared_error":    [3.0414],
         "mean_absolute_scaled_error": [0.8],
     }
 )
@@ -202,7 +202,7 @@ metrics_multi = pd.DataFrame(
     {
         "levels":                     ["store_a", "store_b"],
         "mean_absolute_error":        [2.5, 3.5],
-        "mean_squared_error":         [9.25, 16.5],
+        "root_mean_squared_error":    [3.0414, 4.062],
         "mean_absolute_scaled_error": [0.8, 1.2],
     }
 )
@@ -285,7 +285,7 @@ predictions_stats = pd.DataFrame(
 )
 metrics_stats = pd.DataFrame({
     "mean_absolute_error":        [0.0612],
-    "mean_squared_error":         [0.0061],
+    "root_mean_squared_error":    [0.0781],
     "mean_absolute_scaled_error": [0.8514],
 })
 explanation_stats = _build_backtest_explanation(cv_stats.explanation, metrics_stats)
@@ -302,7 +302,7 @@ predictions_backtest_interval = predictions_backtest.assign(
 )
 metrics_interval_single = pd.DataFrame({
     "mean_absolute_error":        [12.5],
-    "mean_squared_error":         [231.25],
+    "root_mean_squared_error":    [15.2069],
     "mean_absolute_scaled_error": [0.8],
     "coverage":                   [0.775],
     "interval_width":             [40.0],
@@ -321,7 +321,7 @@ predictions_backtest_multi_interval = predictions_backtest_multi.assign(
 metrics_interval_multi = pd.DataFrame({
     "levels": ["store_a", "store_b", "average", "weighted_average", "pooling"],
     "mean_absolute_error":        [10.5, 25.5, 18.0, 18.0, 18.0],
-    "mean_squared_error":         [150.25, 900.5, 525.375, 525.375, 525.375],
+    "root_mean_squared_error":    [12.2577, 30.0083, 21.133, 21.133, 22.9211],
     "mean_absolute_scaled_error": [0.7, 1.4, 1.05, 1.05, 1.05],
     "coverage":                   [0.8, 0.45, 0.625, 0.625, 0.625],
     "interval_width":             [40.0, 60.0, 50.0, 50.0, 50.0],
@@ -386,14 +386,15 @@ predictions_multi_long_exog = pd.DataFrame(
     index=pd.DatetimeIndex([date for date, _ in _long_levels]),
 )
 # The three metrics of the plan. The weighted averages weigh each series
-# by its 14, 14 and 8 rows; the pooled MAE and MSE equal them.
+# by its 14, 14 and 8 rows; the pooled MAE equals them, and the pooled RMSE
+# is the root of the pooled squared errors.
 metrics_multi_long_exog = pd.DataFrame({
     "levels": [
         "store_a", "store_b", "store_c", "average", "weighted_average",
         "pooling",
     ],
     "mean_absolute_error":        [1.21, 1.35, 1.48, 1.3467, 1.3244, 1.3244],
-    "mean_squared_error":         [2.31, 2.86, 3.12, 2.7633, 2.7039, 2.7039],
+    "root_mean_squared_error":    [1.5199, 1.6912, 1.7664, 1.6592, 1.6413, 1.6444],
     "mean_absolute_scaled_error": [0.62, 0.68, 0.74, 0.6800, 0.6700, 0.6650],
 })
 code_multi_long_exog = assistant.forecast_code(

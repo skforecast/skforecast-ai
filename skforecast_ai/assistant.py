@@ -9,6 +9,7 @@ import contextlib
 import hashlib
 import json
 import numbers
+import re
 import sys
 import warnings
 from collections import OrderedDict
@@ -112,6 +113,7 @@ from .recommendation import (
     build_forecaster_kwargs,
     check_exog_usage,
     check_first_window,
+    check_metric_domain,
     compute_series_pacf,
     cv_as_executed,
     derive_cv_defaults,
@@ -436,6 +438,38 @@ def _candidate_failed(name: str, exc: Exception) -> CandidateFailure:
     )
 
     return failure
+
+
+# Start of the warning about a MAPE asked for on a target at or around zero,
+# which `compare()` silences in the plan of each candidate to give it once.
+_MEANINGLESS_MAPE = (
+    "`mean_absolute_percentage_error` has no meaning on this data"
+)
+
+
+def _meaningless_mape_message(
+    metrics: list[str] | None,
+    data_profile: DataProfile,
+) -> str | None:
+    """
+    Say that the MAPE asked for has no meaning on a target that takes values
+    at or around zero, the target the rules leave it out for. None when the
+    metrics were not chosen, do not include MAPE, or the target is away
+    from zero.
+    """
+
+    if metrics is None or "mean_absolute_percentage_error" not in metrics:
+        return None
+    near_zero = describe_series_near_zero(data_profile)
+    if near_zero is None:
+        return None
+
+    return (
+        f"{_MEANINGLESS_MAPE}: it divides each error by the actual value, and "
+        f"{near_zero}, so its value can reach the trillions. It is computed "
+        f"as requested; judge the model by a metric that does not divide by "
+        f"the actual value, such as `mean_absolute_error`."
+    )
 
 
 def _check_frequency_known(forecaster: str, data_profile: DataProfile) -> None:
@@ -1030,10 +1064,12 @@ class ForecastingAssistant:
             takes values at or around zero is computed, with a
             `UserWarning` whose text also goes to `plan.warnings`: it
             divides by the actual value, so its value means nothing there.
+            `'mean_squared_log_error'` on a target with values at or below
+            -1, outside the domain of its logarithm, raises `ValueError`.
             If None, the metric is selected from the data (MAE for one
-            series, MASE for several) and the default panel is computed,
-            without MAPE when the target of any series touches or crosses
-            zero.
+            series, MASE for several) and the default panel is computed:
+            MAE, RMSE, MASE and MAPE, without MAPE when the target of any
+            series touches or crosses zero (the explanation says why).
         use_exog : bool, default None
             Whether the plan uses the exogenous columns of the profile.
             False leaves them out (`forecast()` then takes no `exog`); True
@@ -1099,8 +1135,10 @@ class ForecastingAssistant:
             `ForecasterFoundation`, also if `estimator` is not a model
             supported by skforecast, if `estimator_kwargs` contains
             `'model_id'`, or if the model cannot predict `interval`. Also if
-            `metric` is empty, repeats a metric or names one outside the
-            regression metrics of skforecast.
+            `metric` is empty, repeats a metric, names one outside the
+            regression metrics of skforecast, or includes
+            `'mean_squared_log_error'` on a target with values at or below
+            -1.
         TypeError
             If `metric` is not a str or a list of str.
         """
@@ -1148,6 +1186,8 @@ class ForecastingAssistant:
         dropna_override = dropna_from_series
 
         data_profile = profile.data_profile
+        if metric_override is not None:
+            check_metric_domain(metric_override, data_profile)
 
         fc = profile.forecaster
         unrecommended = False
@@ -1648,21 +1688,8 @@ class ForecastingAssistant:
 
         # MAPE asked for by the caller on a target the rules leave it out
         # for: their choice, so it is computed, but its value means nothing.
-        mape_message = None
-        near_zero = describe_series_near_zero(data_profile)
-        if (
-            metric_override is not None
-            and "mean_absolute_percentage_error" in metric_override
-            and near_zero is not None
-        ):
-            mape_message = (
-                f"`mean_absolute_percentage_error` has no meaning on this "
-                f"data: it divides each error by the actual value, and "
-                f"{near_zero}, so its value can reach the trillions. It is "
-                f"computed as requested; judge the model by a metric that "
-                f"does not divide by the actual value, such as "
-                f"`mean_absolute_error`."
-            )
+        mape_message = _meaningless_mape_message(metric_override, data_profile)
+        if mape_message is not None:
             plan_warnings.append(mape_message)
 
         # The decisions the caller made instead of the rules: None asks for
@@ -3675,7 +3702,10 @@ class ForecastingAssistant:
         metric : str, list of str, default None
             Metric(s) computed per candidate. When a list is passed, the
             first metric is used to rank the table. When None, the plan
-            default metric (and its metric panel) is used.
+            default metric (and its metric panel) is used. MAPE on a target
+            that takes values at or around zero is computed, with one
+            `UserWarning` for the comparison (the `warnings` of the plan of
+            each candidate keep it).
         interval : list of float, default None
             Prediction interval quantiles as a two-element list
             `[lower, upper]` computed for every candidate. When None, no
@@ -3779,7 +3809,9 @@ class ForecastingAssistant:
         TypeError
             If `progress_callback` is not callable.
         ValueError
-            If `metric` is an empty list or repeats a metric, or if
+            If `metric` is an empty list or repeats a metric, if it includes
+            `'mean_squared_log_error'` on a target with values at or below
+            -1 (the plan of every candidate would fail), or if
             `candidates` is empty,
             contains a malformed entry, repeats a name, mixes forecaster
             families whose metrics are not comparable (multi-series with
@@ -3891,6 +3923,8 @@ class ForecastingAssistant:
             )
         else:
             metric_override = resolve_metric_override(metric)
+            # Checked once here: the plan of every candidate would fail.
+            check_metric_domain(metric_override, profile.data_profile)
             ranking_metric = metric_override[0]
             metric_columns = metric_override
         # With an interval, the coverage and the width that skforecast
@@ -3973,26 +4007,38 @@ class ForecastingAssistant:
         # ranked last, and runs nothing.
         plans: dict[str, ForecastPlan] = {}
         failures: dict[str, CandidateFailure] = {}
+        # A MAPE with no meaning on this target is a property of the
+        # comparison, not of a candidate: it is warned once below, not by
+        # the plan of each candidate (its `warnings` keep it).
+        mape_message = _meaningless_mape_message(
+            metric_override, profile.data_profile
+        )
         for name, config in candidate_configs:
             try:
                 # The metric of the comparison is a decision of each plan,
                 # so it is validated and carried over like any override.
-                cand_plan = self.plan(
-                    profile            = profile,
-                    steps              = steps,
-                    forecaster         = config.get("forecaster"),
-                    estimator          = config.get("estimator"),
-                    estimator_kwargs   = config.get("estimator_kwargs"),
-                    lags               = config.get("lags"),
-                    window_features    = config.get("window_features"),
-                    use_exog           = config.get("use_exog"),
-                    differentiation    = config.get("differentiation"),
-                    calendar_features  = config.get("calendar_features"),
-                    target_transformer = config.get("target_transformer"),
-                    dropna_from_series = config.get("dropna_from_series"),
-                    interval           = interval,
-                    metric             = metric_override,
-                )
+                with warnings.catch_warnings():
+                    warnings.filterwarnings(
+                        "ignore",
+                        message  = re.escape(_MEANINGLESS_MAPE),
+                        category = UserWarning,
+                    )
+                    cand_plan = self.plan(
+                        profile            = profile,
+                        steps              = steps,
+                        forecaster         = config.get("forecaster"),
+                        estimator          = config.get("estimator"),
+                        estimator_kwargs   = config.get("estimator_kwargs"),
+                        lags               = config.get("lags"),
+                        window_features    = config.get("window_features"),
+                        use_exog           = config.get("use_exog"),
+                        differentiation    = config.get("differentiation"),
+                        calendar_features  = config.get("calendar_features"),
+                        target_transformer = config.get("target_transformer"),
+                        dropna_from_series = config.get("dropna_from_series"),
+                        interval           = interval,
+                        metric             = metric_override,
+                    )
             except Exception as exc:
                 failures[name] = _candidate_failed(name, exc)
                 continue
@@ -4018,6 +4064,8 @@ class ForecastingAssistant:
                     if field == "metric"
                 ]
             plans[name] = cand_plan
+        if mape_message is not None:
+            warnings.warn(mape_message, UserWarning, stacklevel=2)
 
         # The candidates run one after another, so the thresholds of an
         # expensive run apply to their total, counted once here before

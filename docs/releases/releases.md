@@ -29,6 +29,7 @@ The main changes in this release are:
     + `plan()` of wide-format data whose series start or end with missing values may choose another estimator: `DataProfile.n_total_observations` no longer counts those values. See **Changed**.
     + [<code>ForecastingAssistant.backtest()</code>][assistant] of ForecasterRecursiveMultiSeries raises `insufficient_data` for a series that no fold forecasts, which it left out before, and `invalid_argument` when its missing values are the cause. See **Fixed**.
     + `plan()` of a target that takes values at or around zero, also one that crosses it with negative values, leaves MAPE out of the default metrics and so of the generated script. Pass it in `metric` to compute it anyway. See **Fixed**.
+    + `plan()` without `metric` computes `root_mean_squared_error` instead of `mean_squared_error`: the generated scripts, the metrics of `forecast()` and `backtest()` and the table of `compare()` have that column instead. Pass `mean_squared_error` in `metric` to keep it. See **Changed**.
     + The `compare` tool of the MCP server reports in `cost.n_fits` the trainings of all its candidates instead of those of the shared strategy, and its `cost` counts the candidates that fail while running too. See **Fixed**.
 
     + [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` of ForecasterStats with an automatic `Arima` or `Ets` and a strategy that refits give other metrics from the second fold, and run faster: skforecast 0.27 keeps the model selected in the first fit, which the scripts already asked for with `freeze_params=True` ([#116](https://github.com/skforecast/skforecast-ai/pull/116)).
@@ -96,6 +97,8 @@ The main changes in this release are:
 
 + The metrics of [<code>ForecastingAssistant.forecast()</code>][assistant] with `test_size` have the columns of those of `backtest()`, in [<code>ForecastResult</code>][results], the CLI and the MCP server: the names of the metrics (`mean_absolute_error` instead of `MAE`...) and `levels` instead of `series`, which a single series no longer has. The scripts of several series print the table with those columns ([#114](https://github.com/skforecast/skforecast-ai/pull/114)).
 
++ The default metrics of [<code>ForecastingAssistant.plan()</code>][assistant] have RMSE (`root_mean_squared_error`, in the units of the target) instead of MSE, in squared units: MAE, RMSE and MASE, plus MAPE away from zero. The generated scripts and the metrics of every result change; the metric that ranks and chooses does not.
+
 
 **Fixed**
 
@@ -135,7 +138,9 @@ The main changes in this release are:
 
 + Fixed an issue in [<code>ForecastingAssistant.plan()</code>][assistant] and `refine_plan()` where `ForecasterDirectMultiVariate` got the estimator chosen for the series pooled (`LGBMRegressor` from 250 observations), which on few dates per step predicted a constant. The rule now counts the dates the series share, and the explanation says so ([#102](https://github.com/skforecast/skforecast-ai/pull/102)).
 
-+ Fixed an issue in [<code>ForecastingAssistant.plan()</code>][assistant] where the default metrics of a target that crosses zero with negative values (profits, temperatures) included MAPE, which reached values such as 3e13. MAPE is now left out when any series touches or crosses zero; asked for in `metric`, it comes with a warning, and the MCP server says it has no meaning instead of asking to multiply it by 100 ([#104](https://github.com/skforecast/skforecast-ai/pull/104)).
++ Fixed an issue in [<code>ForecastingAssistant.plan()</code>][assistant] where the default metrics of a target that crosses zero (profits, temperatures) included MAPE, which reached values such as 3e13. MAPE is now left out when any series touches or crosses zero, and the explanation says why; asked for in `metric`, it comes with a warning (one per comparison in `compare()`), and the MCP server says it has no meaning instead of asking to multiply it by 100 ([#104](https://github.com/skforecast/skforecast-ai/pull/104)).
+
++ Fixed an issue in [<code>ForecastingAssistant.plan()</code>][assistant] where `mean_squared_log_error` on a target with values at or below -1 failed when the script ran. The plan now raises `ValueError` (`invalid_argument` in the MCP server), and `compare()` raises it once instead of failing every candidate.
 
 + `ForecasterStats` with an interval other than 95 % (`[0.1, 0.9]`, say) returned the 95 % interval in [<code>ForecastingAssistant.forecast()</code>][assistant], `backtest()` and `compare()`. Fixed by skforecast 0.27, now required, with a test that pins it ([#112](https://github.com/skforecast/skforecast-ai/pull/112)).
 

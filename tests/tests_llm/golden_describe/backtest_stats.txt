@@ -37,11 +37,11 @@ A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 204 ob
 - n_fits: 6
 </backtesting_strategy>
 <deterministic_summary>
-Initial training up to 2003-04-01, fixed window, refit every fold (6 trainings), 12-step horizon, 6 folds. ForecasterStats is refitted in every fold whatever `refit` says: skforecast requires it for ARIMA models. Results: mean_absolute_error: 0.0612, mean_squared_error: 0.0061, mean_absolute_scaled_error: 0.8514.
+Initial training up to 2003-04-01, fixed window, refit every fold (6 trainings), 12-step horizon, 6 folds. ForecasterStats is refitted in every fold whatever `refit` says: skforecast requires it for ARIMA models. Results: mean_absolute_error: 0.0612, root_mean_squared_error: 0.0781, mean_absolute_scaled_error: 0.8514.
 </deterministic_summary>
 <evaluation_metrics>
- mean_absolute_error  mean_squared_error  mean_absolute_scaled_error
-              0.0612              0.0061                      0.8514
+ mean_absolute_error  root_mean_squared_error  mean_absolute_scaled_error
+              0.0612                   0.0781                      0.8514
 </evaluation_metrics>
 <predictions>
 Shape: 62 rows x 2 columns

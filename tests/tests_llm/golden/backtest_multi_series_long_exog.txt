@@ -49,16 +49,16 @@ Note: A validated Python script implementing this plan is generated separately. 
 - n_fits: 1
 </backtesting_strategy>
 <deterministic_summary>
-Using 84% of data (76 observations) for initial training, trained once (no refit), 7-step horizon, 2 folds. Results (average across series): mean_absolute_error: 1.3467, mean_squared_error: 2.7633, mean_absolute_scaled_error: 0.6800.
+Using 84% of data (76 observations) for initial training, trained once (no refit), 7-step horizon, 2 folds. Results (average across series): mean_absolute_error: 1.3467, root_mean_squared_error: 1.6592, mean_absolute_scaled_error: 0.6800.
 </deterministic_summary>
 <evaluation_metrics>
-          levels  mean_absolute_error  mean_squared_error  mean_absolute_scaled_error
-         store_a               1.2100              2.3100                       0.620
-         store_b               1.3500              2.8600                       0.680
-         store_c               1.4800              3.1200                       0.740
-         average               1.3467              2.7633                       0.680
-weighted_average               1.3244              2.7039                       0.670
-         pooling               1.3244              2.7039                       0.665
+          levels  mean_absolute_error  root_mean_squared_error  mean_absolute_scaled_error
+         store_a               1.2100                   1.5199                       0.620
+         store_b               1.3500                   1.6912                       0.680
+         store_c               1.4800                   1.7664                       0.740
+         average               1.3467                   1.6592                       0.680
+weighted_average               1.3244                   1.6413                       0.670
+         pooling               1.3244                   1.6444                       0.665
 </evaluation_metrics>
 <predictions>
 Total rows: 36. Only the first 5 and last 5 rows are shown; the 26 interior rows were not provided. Do not describe trends, growth, or progression across the horizon from these rows, and do not compare an early row against a late row as if they were adjacent. Use the per-column summary below for any statement about the full set of rows.
