@@ -131,6 +131,45 @@ def missing_foundation_backend(
     return frozenset(foundation), note
 
 
+def stats_skip_folds_exclusion(
+    profile: ForecastingProfile,
+    skip_folds: object,
+) -> tuple[frozenset[str], str | None]:
+    """
+    Find the `ForecasterStats` candidate that a strategy with `skip_folds`
+    cannot run.
+
+    skforecast refits `ForecasterStats` in every fold and rejects any
+    `skip_folds` for it, so `compare()` without `candidates` would run it
+    only for it to fail, after counting its cost. It is left out instead,
+    and the note says why.
+
+    Parameters
+    ----------
+    profile : ForecastingProfile
+        Profile whose forecaster candidates feed the automatic comparison.
+    skip_folds : int, list, None
+        `skip_folds` of the shared strategy.
+
+    Returns
+    -------
+    excluded : frozenset of str
+        `ForecasterStats` when the strategy skips folds and the profile
+        recommends it as a candidate, else empty.
+    note : str, None
+        Sentence explaining the exclusion, or None when nothing is left out.
+    """
+
+    if skip_folds is None or "ForecasterStats" not in profile.forecaster_candidates:
+        return frozenset(), None
+    note = (
+        f"ForecasterStats left out: the strategy has `skip_folds={skip_folds!r}`, "
+        f"which skforecast does not allow for it (it refits ForecasterStats "
+        f"in every fold)."
+    )
+    return frozenset({"ForecasterStats"}), note
+
+
 def resolve_compare_candidates(
     candidates: list[tuple[str, CandidateConfig]] | None,
     profile: ForecastingProfile,
@@ -433,6 +472,9 @@ class DefaultCandidates(NamedTuple):
     budget_note : str, None
         Which candidates were left out for exceeding the fit budget, see
         `exclude_costly_candidates()`.
+    skip_folds_note : str, None
+        Why `ForecasterStats` was left out of a strategy with `skip_folds`,
+        see `stats_skip_folds_exclusion()`.
     """
 
     candidates: list[tuple[str, CandidateConfig]]
@@ -440,6 +482,7 @@ class DefaultCandidates(NamedTuple):
     backend_note: str | None
     strategy_note: str | None
     budget_note: str | None
+    skip_folds_note: str | None = None
 
 
 def resolve_default_candidates(
@@ -449,6 +492,7 @@ def resolve_default_candidates(
     n_fits: int,
     steps: int,
     n_folds: int,
+    skip_folds: object = None,
 ) -> DefaultCandidates:
     """
     Resolve the candidates of `compare()` without `candidates`.
@@ -456,7 +500,8 @@ def resolve_default_candidates(
     The one sequence that decides what such a comparison runs, shared by
     `compare()` and by the cost the MCP server announces in `create_cv`, so
     the two never disagree: the candidates of the profile without a
-    foundation model whose backend is not installed, the plan of the
+    foundation model whose backend is not installed (nor `ForecasterStats`
+    when the strategy skips folds), the plan of the
     strategy when it is none of them, and without the alternatives above
     the fit budget (the recommended forecaster and the plan of the strategy
     always run). The baseline is added afterwards.
@@ -478,6 +523,8 @@ def resolve_default_candidates(
         Forecast horizon of each fold.
     n_folds : int
         Number of folds of the shared strategy.
+    skip_folds : int, list, default None
+        `skip_folds` of the shared strategy.
 
     Returns
     -------
@@ -487,7 +534,12 @@ def resolve_default_candidates(
     """
 
     excluded, backend_note = missing_foundation_backend(profile)
-    candidates = resolve_compare_candidates(None, profile, exclude=excluded)
+    skipped, skip_folds_note = stats_skip_folds_exclusion(profile, skip_folds)
+    candidates = resolve_compare_candidates(
+                     candidates = None,
+                     profile    = profile,
+                     exclude    = excluded | skipped,
+                 )
     strategy_name = None
     strategy_note = None
     if strategy_plan is not None:
@@ -507,11 +559,12 @@ def resolve_default_candidates(
     )
 
     return DefaultCandidates(
-        candidates    = candidates,
-        strategy_name = strategy_name,
-        backend_note  = backend_note,
-        strategy_note = strategy_note,
-        budget_note   = budget_note,
+        candidates      = candidates,
+        strategy_name   = strategy_name,
+        backend_note    = backend_note,
+        strategy_note   = strategy_note,
+        budget_note     = budget_note,
+        skip_folds_note = skip_folds_note,
     )
 
 
@@ -915,6 +968,7 @@ def build_comparison_explanation(
     strategy_row: str | None = None,
     strategy_note: str | None = None,
     interval: list[float] | None = None,
+    skip_folds_note: str | None = None,
 ) -> str:
     """
     Build the deterministic `compare()` summary explanation.
@@ -957,6 +1011,9 @@ def build_comparison_explanation(
         Prediction interval of the comparison. When given, the summary says
         that the table carries its measured coverage and width next to its
         nominal coverage, and that they do not rank.
+    skip_folds_note : str, default None
+        Sentence explaining why `ForecasterStats` was left out of a
+        strategy with `skip_folds`, appended as is.
 
     Returns
     -------
@@ -1077,6 +1134,8 @@ def build_comparison_explanation(
         parts.append(strategy_note)
     if backend_note is not None:
         parts.append(backend_note)
+    if skip_folds_note is not None:
+        parts.append(skip_folds_note)
     if budget_note is not None:
         parts.append(budget_note)
     if any_error:

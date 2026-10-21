@@ -238,7 +238,9 @@ class CodeGenerationResult(
         return LLMContext(
             text                = join_sections([
                                       render_dataset_section(
-                                          self.profile, for_describe=for_describe
+                                          self.profile,
+                                          for_describe = for_describe,
+                                          plan         = self.plan,
                                       ),
                                       render_profile_decision_section(
                                           self.profile, for_describe=for_describe
@@ -358,7 +360,9 @@ class SingleRunResult(
         return LLMContext(
             text    = join_sections([
                           render_dataset_section(
-                              self.profile, for_describe=for_describe
+                              self.profile,
+                              for_describe = for_describe,
+                              plan         = self.plan,
                           ),
                           render_profile_decision_section(
                               self.profile, for_describe=for_describe

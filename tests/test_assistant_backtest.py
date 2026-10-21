@@ -961,6 +961,31 @@ def test_backtest_InvalidInputError_when_direct_forecaster_with_gap():
     assert exc_info.value.field == "cv"
 
 
+def test_backtest_InvalidInputError_when_forecaster_stats_with_skip_folds():
+    """
+    Test that backtest() rejects, before running, a ForecasterStats plan with
+    a cv that skips folds, with `cv` as field: skforecast refits it in every
+    fold and rejects any `skip_folds`.
+    """
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, forecaster="ForecasterStats")
+    cv = TimeSeriesFold(steps=5, initial_train_size=70, skip_folds=2, verbose=False)
+
+    err_msg = re.escape(
+        "`skip_folds=2` is not allowed for ForecasterStats: skforecast refits "
+        "it in every fold and rejects any `skip_folds`, an empty list "
+        "included. Use a strategy without `skip_folds`, or another forecaster."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.backtest(
+            data=df_no_exog, target="sales", date_column="date", cv=cv,
+            profile=profile, plan=plan, show_progress=False,
+        )
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "cv"
+
+
 @pytest.mark.parametrize(
     "forecaster, gap",
     [("ForecasterRecursive", 2), ("ForecasterDirect", 0)],

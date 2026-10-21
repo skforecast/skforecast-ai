@@ -178,6 +178,7 @@ from ._last_window import (
 )
 from ._utils import (
     _check_direct_gap,
+    _check_stats_skip_folds,
     _check_cv_matches_profile,
     _check_evaluated_target,
     _check_plan_matches_profile,
@@ -207,6 +208,8 @@ from ._utils import (
     _revalidate_plan,
     discarded_plan_edits,
     dropped_plan_decisions,
+    STATS_FEWER_FOLDS,
+    stats_skip_folds_issue,
     plan_override_value,
     recorded_data_path,
     structure_differences,
@@ -1800,10 +1803,12 @@ class ForecastingAssistant:
         when they are in `plan.overridden_fields` (and when the new forecaster can apply
         them); otherwise the rules decide them again. What is left out
         this way is named in a `PlanEditsDiscardedWarning` when it changes
-        the plan: a value with an effect that the user chose, or a decision
-        about the data that the rules made (`use_exog`, `differentiation`,
-        `calendar_features`, `target_transformer`, `dropna_from_series`) and
-        the new forecaster cannot take. The
+        the plan: a value with an effect that the user chose (or the LLM
+        refined, for `lags` and `window_features`), or a decision about the
+        data that the rules made (`use_exog`, `differentiation`,
+        `calendar_features`, `target_transformer`, `dropna_from_series`, and
+        the `transformer_exog` and `categorical_features` of the exogenous
+        columns it read) and the new forecaster cannot take. The
         `llm_refined_fields` marks of the original plan are kept for the
         fields whose value is carried over unchanged. The `end_train` split
         boundary is not kept: a refined plan starts in prediction mode, so
@@ -1850,7 +1855,7 @@ class ForecastingAssistant:
             LLM mode, the agent's reasoning is appended to `plan.explanation`.
             The plan is rebuilt with `plan()`, so its `warnings` are those of
             that call (the ones of `plan` are not carried over), plus the
-            text of a `PlanEditsDiscardedWarning`; the warnings about the
+            text of the `PlanEditsDiscardedWarning`; the warnings about the
             `prompt` that this method emits are not added to them. Its
             `overridden_fields` names the overrides passed with a value and
             those of `plan` whose value the refined plan keeps.
@@ -1867,12 +1872,15 @@ class ForecastingAssistant:
             compared, nor the fields overridden in the call. Also when the
             refined plan leaves out decisions of `plan` that its forecaster
             or its estimator cannot take (the `estimator_kwargs` of
-            another estimator, the differentiation, calendar features or
-            target transformer of an autoregressive plan switched to
-            `ForecasterStats`, `ForecasterFoundation` or the baseline): it
-            names them and who chose them. A value without effect (no
-            differencing, an empty list of calendar features, `'none'`) and
-            one the rules decide again are not named.
+            another estimator, the differentiation, calendar features,
+            target transformer, lags refined by the LLM, or the
+            `transformer_exog` and `categorical_features` of an
+            autoregressive plan switched to `ForecasterStats`,
+            `ForecasterFoundation` or the baseline): it names them and who
+            chose them. A value without effect (no differencing, an empty
+            list of calendar features, `'none'`) and one the rules decide
+            again are not named, nor the lags, window features and
+            estimator the rules chose. Both are said in a single warning.
         """
 
         allowed_keys = REFINE_PLAN_OVERRIDE_KEYS
@@ -2111,11 +2119,14 @@ class ForecastingAssistant:
             refined       = refined_plan,
             explicit_keys = explicit_keys,
             discarded     = discarded or [],
+            data_profile  = profile.data_profile,
         )
-        for message in (message, dropped):
-            if message is not None:
-                refined_plan.warnings.append(message)
-                warnings.warn(message, PlanEditsDiscardedWarning, stacklevel=2)
+        # One warning for everything the refined plan leaves out.
+        texts = [text for text in (message, dropped) if text is not None]
+        if texts:
+            message = " ".join(texts)
+            refined_plan.warnings.append(message)
+            warnings.warn(message, PlanEditsDiscardedWarning, stacklevel=2)
 
         if reasoning is not None:
             refined_plan.explanation += (
@@ -2819,7 +2830,9 @@ class ForecastingAssistant:
             For example, if `skip_folds=3` and there are 10 folds, the returned folds are
             0, 3, 6, and 9. If `skip_folds=[1, 2, 3]`, the returned folds are 0, 4, 5, 6, 7,
             8, and 9. A list with an index beyond the folds of the strategy
-            raises `ValueError`.
+            raises `ValueError`. So does any value, an empty list included,
+            for a `ForecasterStats` plan: skforecast refits it in every fold
+            and rejects `skip_folds`.
         allow_incomplete_fold : bool, default None
             Whether to allow the last fold to include fewer observations than `steps`.
             If `False`, the last fold is excluded if it is incomplete.
@@ -2964,6 +2977,14 @@ class ForecastingAssistant:
             refit            = defaults.get("refit"),
             forecaster       = plan.forecaster,
         )
+        # skforecast rejects it when the plan is backtested, a call later.
+        issue = stats_skip_folds_issue(plan.forecaster, defaults.get("skip_folds"))
+        if issue is not None:
+            raise InvalidInputError(
+                f"{issue}. Leave `skip_folds` out to backtest this plan.",
+                field = "skip_folds",
+                hint  = STATS_FEWER_FOLDS,
+            )
 
         # Same construction and validation path the LLM loop uses, so a
         # configuration that passed there cannot fail here. Resolves a
@@ -3095,7 +3116,9 @@ class ForecastingAssistant:
             describe data of the same structure (format, target, series,
             frequency, exogenous columns), or `ValueError` is raised. A
             direct forecaster with a `gap` raises `ValueError`: each fold
-            would ask it for `steps + gap` steps. So does a first training
+            would ask it for `steps + gap` steps. So does a `ForecasterStats`
+            plan with any `skip_folds`, which skforecast rejects for it, and
+            a first training
             window with fewer observations than the forecaster needs: more
             than its window size, or at least its window size plus `steps`
             for a direct forecaster.
@@ -3252,6 +3275,7 @@ class ForecastingAssistant:
         profile = _with_data_path(profile, data)
         # The script would fail, as `backtest()` says before running it.
         _check_direct_gap(plan, cv)
+        _check_stats_skip_folds(plan, cv)
         check_first_window(plan, cv, profile.data_profile, strict=False)
 
         code = render_backtesting_script(
@@ -3322,7 +3346,9 @@ class ForecastingAssistant:
             describe data of the same structure (format, target, series,
             frequency, exogenous columns), or `ValueError` is raised. A
             direct forecaster with a `gap` raises `ValueError`: each fold
-            would ask it for `steps + gap` steps. So does a first training
+            would ask it for `steps + gap` steps. So does a `ForecasterStats`
+            plan with any `skip_folds`, which skforecast rejects for it, and
+            a first training
             window with fewer observations than the forecaster needs: more
             than its window size, or at least its window size plus `steps`
             for a direct forecaster.
@@ -3538,6 +3564,7 @@ class ForecastingAssistant:
             prediction = False,
         )
         _check_direct_gap(plan, cv)
+        _check_stats_skip_folds(plan, cv)
         check_first_window(plan, cv, profile.data_profile)
         # After the first training window: a window too short for every
         # series is reported by that check, with its own remedies.
@@ -3689,7 +3716,9 @@ class ForecastingAssistant:
             the same family as the recommended forecaster (with several
             series, `ForecasterRecursiveMultiSeries` and
             `ForecasterFoundation`); when that leaves a single forecaster,
-            its estimator candidates are compared instead. When `cv` is a
+            its estimator candidates are compared instead. `ForecasterStats`
+            is left out, with a `UserWarning`, when `cv` has `skip_folds`,
+            which skforecast does not allow for it. When `cv` is a
             `CVResult` created for a plan that makes other decisions than
             all of those candidates (one refined with another estimator,
             lags or window features, for example), that plan runs too, as
@@ -3954,6 +3983,7 @@ class ForecastingAssistant:
         backend_note = None
         strategy_note = None
         budget_note = None
+        skip_folds_note = None
         if candidates is None:
 
             def build_plan(config: CandidateConfig) -> ForecastPlan:
@@ -3974,14 +4004,18 @@ class ForecastingAssistant:
                           n_fits        = n_fits,
                           steps         = steps,
                           n_folds       = cv_config["n_folds"],
+                          skip_folds    = cv.skip_folds,
                       )
             candidate_configs = default.candidates
             strategy_name = default.strategy_name
             backend_note = default.backend_note
             strategy_note = default.strategy_note
             budget_note = default.budget_note
+            skip_folds_note = default.skip_folds_note
             if backend_note is not None:
                 warnings.warn(backend_note, MissingBackendWarning, stacklevel=2)
+            if skip_folds_note is not None:
+                warnings.warn(skip_folds_note, UserWarning, stacklevel=2)
             if strategy_note is not None:
                 # Left out (no row), or run without values edited by hand.
                 category = (
@@ -4219,18 +4253,19 @@ class ForecastingAssistant:
             warnings.warn(low_coverage, IntervalCoverageWarning, stacklevel=2)
 
         explanation = build_comparison_explanation(
-            n_candidates   = len(candidate_configs),
-            ranked         = ranked_sorted,
-            ranking_metric = ranking_metric,
-            any_error      = bool(failures),
-            cv_explanation = cv_explanation,
-            baseline_name  = baseline_name,
-            baseline_note  = baseline_note,
-            backend_note   = backend_note,
-            budget_note    = budget_note,
-            strategy_row   = strategy_row,
-            strategy_note  = strategy_note,
-            interval       = interval,
+            n_candidates    = len(candidate_configs),
+            ranked          = ranked_sorted,
+            ranking_metric  = ranking_metric,
+            any_error       = bool(failures),
+            cv_explanation  = cv_explanation,
+            baseline_name   = baseline_name,
+            baseline_note   = baseline_note,
+            backend_note    = backend_note,
+            budget_note     = budget_note,
+            strategy_row    = strategy_row,
+            strategy_note   = strategy_note,
+            interval        = interval,
+            skip_folds_note = skip_folds_note,
         )
 
         return ComparisonResult(

@@ -11,6 +11,7 @@ from .._utils import (
     _validate_lags,
     _validate_max_window_size,
     _validate_window_features,
+    stats_skip_folds_issue,
 )
 from ..exceptions import InvalidInputError
 from .._constants import DIRECT_FORECASTERS
@@ -209,7 +210,9 @@ def configure_cv_with_llm(
     the plan is backtested, unless the caller passed `initial_train_size`
     explicitly: that value replaces the one of the LLM, so the suggestion
     is not retried (nor its other parameters lost) for a size that never
-    runs. Retries up to 2 times on validation failure, then falls back to
+    runs. A `skip_folds` for a `ForecasterStats` plan, which `create_cv()`
+    rejects, is retried in the same way unless the caller passed it.
+    Retries up to 2 times on validation failure, then falls back to
     deterministic defaults with a warning.
 
     Parameters
@@ -308,6 +311,16 @@ def configure_cv_with_llm(
                     f"the dataset context is {deps.min_train_size} "
                     f"observations: use at least that",
                     field = "initial_train_size",
+                )
+            # `create_cv()` rejects it, and an explicit `skip_folds` there.
+            issue = (
+                None if "skip_folds" in explicit
+                else stats_skip_folds_issue(plan.forecaster, cv.skip_folds)
+            )
+            if issue is not None:
+                raise InvalidInputError(
+                    f"{issue}. Set skip_folds to null",
+                    field = "skip_folds",
                 )
 
             return defaults

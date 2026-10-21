@@ -3,8 +3,17 @@
 import pytest
 
 from skforecast_ai import ForecastingAssistant
+from skforecast_ai.mcp import create_server
 
-from .fixtures_mcp import call, content_of, error_of, h2o_server, profile_and_plan
+from ..fixtures_assistant import df_single
+from .fixtures_mcp import (
+    call,
+    content_of,
+    error_of,
+    h2o_server,
+    profile_and_plan,
+    write_csv,
+)
 
 
 def _planned(tmp_path, **plan_arguments):
@@ -262,3 +271,44 @@ def test_tool_refine_plan_notice_names_left_out_decisions(
         notice["category"] == "PlanEditsDiscardedWarning"
         for notice in cleared_plan["notices"]
     )
+
+
+def test_tool_refine_plan_names_the_dropped_decisions_in_a_single_notice(tmp_path):
+    """
+    Test that switching a Ridge recursive plan with a numeric exogenous
+    column to ForecasterStats leaves out several decisions of the rules (the
+    calendar features, the target transformer and the `transformer_exog`
+    that scales the numeric column), and that the response has a single
+    `PlanEditsDiscardedWarning` notice that names all of them, with the same
+    text in the one warning the plan carries. A hand edit cannot be made
+    through the tools, which never edit a stored plan, so the case of edits
+    discarded by hand together with these is not exercised here.
+    """
+    path = write_csv(
+        tmp_path,
+        "single.csv",
+        df_single.assign(date=df_single["date"].dt.strftime("%Y-%m-%d")),
+    )
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, plan_id = profile_and_plan(server, path, target="sales", steps=10)
+
+    refined = content_of(
+        call(
+            server,
+            "refine_plan",
+            {"plan_id": plan_id, "overrides": {"forecaster": "ForecasterStats"}},
+        )
+    )
+
+    expected = (
+        "refine_plan() left out the values of the plan that ForecasterStats "
+        "does not take: calendar_features=['day_of_week', 'weekend', 'month'] "
+        "(chosen by the rules), target_transformer='StandardScaler' (chosen by "
+        "the rules), transformer_exog='StandardScaler' (chosen by the rules)."
+    )
+    notices = [n for n in refined["notices"] if n["category"] == "PlanEditsDiscardedWarning"]
+    assert [(n["source"], n["message"], n["count"]) for n in notices] == [
+        ("plan", expected, 1)
+    ]
+    assert expected in refined["summary"]
+    assert refined["summary"].count("refine_plan() left out") == 1

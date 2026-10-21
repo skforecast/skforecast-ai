@@ -867,9 +867,10 @@ def test_refine_plan_output_feature_overrides_kept_while_they_apply():
     """
     Test that chosen calendar features, scaling and NaN handling are kept
     by a refinement of another field and dropped by a switch to
-    ForecasterStats, which takes none of them. The warning names only
-    `dropna_from_series=True`: no calendar features and no transformer
-    are what ForecasterStats does anyway.
+    ForecasterStats, which takes none of them. The warning names
+    `dropna_from_series=True` and the scaler of the exogenous variables
+    that the rules chose (`transformer_exog`): no calendar features and no
+    transformer are what ForecasterStats does anyway.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
@@ -881,7 +882,8 @@ def test_refine_plan_output_feature_overrides_kept_while_they_apply():
     kept = assistant.refine_plan(profile, plan, steps=12)
     expected = (
         "refine_plan() left out the values of the plan that ForecasterStats "
-        "does not take: dropna_from_series=True (chosen by the user)."
+        "does not take: dropna_from_series=True (chosen by the user), "
+        "transformer_exog='StandardScaler' (chosen by the rules)."
     )
     with pytest.warns(PlanEditsDiscardedWarning) as record:
         stats = assistant.refine_plan(profile, plan, forecaster="ForecasterStats")
@@ -988,20 +990,23 @@ def test_refine_plan_PlanEditsDiscardedWarning_when_exog_columns_edited_by_hand(
             "ForecasterStats",
             "differentiation=1 (chosen by the user), "
             "calendar_features=['month'] (chosen by the user), "
-            "target_transformer='StandardScaler' (chosen by the user)",
+            "target_transformer='StandardScaler' (chosen by the user), "
+            "transformer_exog='StandardScaler' (chosen by the rules)",
         ),
         (
             "ForecasterFoundation",
             "differentiation=1 (chosen by the user), "
             "calendar_features=['month'] (chosen by the user), "
-            "target_transformer='StandardScaler' (chosen by the user)",
+            "target_transformer='StandardScaler' (chosen by the user), "
+            "transformer_exog='StandardScaler' (chosen by the rules)",
         ),
         (
             "ForecasterEquivalentDate",
             "use_exog=True (chosen by the rules), "
             "differentiation=1 (chosen by the user), "
             "calendar_features=['month'] (chosen by the user), "
-            "target_transformer='StandardScaler' (chosen by the user)",
+            "target_transformer='StandardScaler' (chosen by the user), "
+            "transformer_exog='StandardScaler' (chosen by the rules)",
         ),
     ],
     ids=lambda dt: f"forecaster, expected_items: {dt}",
@@ -1054,8 +1059,9 @@ def test_refine_plan_PlanEditsDiscardedWarning_when_forecaster_drops_rule_decisi
     Test that the decisions about the data that the rules made (calendar
     features, target transformer, rows with missing values dropped, the
     exogenous variables) are named when the new forecaster does not take
-    them, while the lags, the window features and the estimator the rules
-    chose, which belong to the forecaster being replaced, are not.
+    them, followed by the scaler of the exogenous variables, while the lags,
+    the window features and the estimator the rules chose, which belong to
+    the forecaster being replaced, are not.
     """
     assistant = ForecastingAssistant()
     with pytest.warns(MissingValuesWarning):
@@ -1073,7 +1079,8 @@ def test_refine_plan_PlanEditsDiscardedWarning_when_forecaster_drops_rule_decisi
         f"does not take: {exog_item}"
         f"calendar_features=['day_of_week', 'weekend', 'month'] (chosen by the "
         f"rules), target_transformer='StandardScaler' (chosen by the rules), "
-        f"dropna_from_series=True (chosen by the rules)."
+        f"dropna_from_series=True (chosen by the rules), "
+        f"transformer_exog='StandardScaler' (chosen by the rules)."
     )
     with warnings.catch_warnings(record=True) as record:
         warnings.simplefilter("always")
@@ -1114,6 +1121,124 @@ def test_refine_plan_PlanEditsDiscardedWarning_names_chosen_lags_and_estimator()
         assistant.refine_plan(profile, plan, forecaster="ForecasterEquivalentDate")
 
 
+def test_refine_plan_PlanEditsDiscardedWarning_names_transformer_exog_when_stats():
+    """
+    Test that switching a Ridge plan on data with a numeric exogenous column
+    to ForecasterStats names the scaler of the exogenous variables
+    (`transformer_exog`) that the rules chose and ForecasterStats does not
+    use, in the warning and in the `warnings` of the refined plan.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(
+        profile, steps=10, calendar_features=[], target_transformer="none"
+    )
+
+    expected = (
+        "refine_plan() left out the values of the plan that ForecasterStats "
+        "does not take: transformer_exog='StandardScaler' (chosen by the rules)."
+    )
+    with pytest.warns(PlanEditsDiscardedWarning, match=re.escape(expected)):
+        refined = assistant.refine_plan(profile, plan, forecaster="ForecasterStats")
+
+    assert plan.forecaster_kwargs["transformer_exog"] == "StandardScaler"
+    assert plan.estimator == "Ridge"
+    assert refined.warnings == [expected]
+
+
+def test_refine_plan_no_PlanEditsDiscardedWarning_for_transformer_exog_without_exog():
+    """
+    Test that switching to ForecasterStats on data without exogenous columns
+    does not warn about `transformer_exog`: the plan never read any.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    plan = assistant.plan(
+        profile, steps=10, calendar_features=[], target_transformer="none"
+    )
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        refined = assistant.refine_plan(profile, plan, forecaster="ForecasterStats")
+
+    assert refined.warnings == []
+
+
+def test_refine_plan_PlanEditsDiscardedWarning_single_when_edits_and_left_out_decisions():
+    """
+    Test that values edited by hand and decisions left out by the new
+    forecaster produce a single `PlanEditsDiscardedWarning` (and a single
+    entry in the `warnings` of the refined plan), whose text is the text of
+    the edits, a space and the text of the decisions left out.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+    edited = plan.model_copy(
+        update={"metrics_to_compute": ["mean_squared_error"]}, deep=True
+    )
+
+    edits = (
+        "refine_plan() rebuilds the plan with plan(), so these values of the "
+        "plan, which differ from what plan() builds for it, were discarded: "
+        "['metrics_to_compute']. Pass the ones that `refine_plan()` accepts "
+        "(['calendar_features', 'differentiation', 'dropna_from_series', "
+        "'estimator', 'estimator_kwargs', 'forecaster', 'interval', 'lags', "
+        "'metric', 'steps', 'target_transformer', 'use_exog', "
+        "'window_features']) as overrides to keep them."
+    )
+    left_out = (
+        "refine_plan() left out the values of the plan that ForecasterStats "
+        "does not take: calendar_features=['day_of_week', 'weekend', 'month'] "
+        "(chosen by the rules), target_transformer='StandardScaler' (chosen by "
+        "the rules), transformer_exog='StandardScaler' (chosen by the rules)."
+    )
+    with pytest.warns(PlanEditsDiscardedWarning) as record:
+        refined = assistant.refine_plan(
+            profile, edited, forecaster="ForecasterStats"
+        )
+
+    assert [str(warning.message) for warning in record] == [f"{edits} {left_out}"]
+    assert refined.warnings == [f"{edits} {left_out}"]
+
+
+def test_refine_plan_PlanEditsDiscardedWarning_single_when_kwargs_edited_and_left_out():
+    """
+    Test that a key of `forecaster_kwargs` edited by hand together with the
+    decisions left out by the new forecaster gives a single warning that
+    names both, the edit first.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(
+        profile, steps=10, calendar_features=[], target_transformer="none"
+    )
+    edited = plan.model_copy(
+        update={
+            "forecaster_kwargs": {**plan.forecaster_kwargs, "dropna_from_series": True},
+        },
+        deep=True,
+    )
+
+    with pytest.warns(PlanEditsDiscardedWarning) as record:
+        refined = assistant.refine_plan(
+            profile, edited, forecaster="ForecasterStats"
+        )
+
+    messages = [str(warning.message) for warning in record]
+    assert len(messages) == 1
+    assert messages[0].startswith(
+        "refine_plan() rebuilds the plan with plan(), so these values of the "
+        "plan, which differ from what plan() builds for it, were discarded: "
+        "[\"forecaster_kwargs['dropna_from_series']\"]."
+    )
+    assert messages[0].endswith(
+        " refine_plan() left out the values of the plan that ForecasterStats "
+        "does not take: transformer_exog='StandardScaler' (chosen by the rules)."
+    )
+    assert refined.warnings == messages
+
+
 def test_refine_plan_no_PlanEditsDiscardedWarning_when_nothing_is_left_out():
     """
     Test that a switch between autoregressive forecasters, which carries
@@ -1147,6 +1272,7 @@ def test_refine_plan_no_PlanEditsDiscardedWarning_when_nothing_is_left_out():
             differentiation    = None,
             calendar_features  = None,
             target_transformer = None,
+            use_exog           = False,
         )
 
     assert direct.estimator_kwargs == {"alpha": 2.0}

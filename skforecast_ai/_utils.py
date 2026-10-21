@@ -23,6 +23,7 @@ from skforecast.model_selection import TimeSeriesFold
 
 from ._constants import (
     AUTOREG_FORECASTERS,
+    CATEGORICAL_FORECASTERS,
     DIRECT_FORECASTERS,
     EXOG_FILE_ATTR,
     LONG_INFERENCE_WINDOWS,
@@ -609,6 +610,7 @@ def dropped_plan_decisions(
     refined: ForecastPlan,
     explicit_keys: set[str],
     discarded: list[str],
+    data_profile: DataProfile,
 ) -> str | None:
     """
     Text of the warning that names the decisions of a plan that
@@ -616,13 +618,22 @@ def dropped_plan_decisions(
 
     A decision is named when the plan holds a value with an effect (not
     None, `False`, `'none'` or an empty list or dict) that the refined plan
-    does not hold, and either the user chose it (`plan.overridden_fields`)
-    or the rules made a decision about the data (`use_exog`,
-    `differentiation`, `calendar_features`, `target_transformer`,
-    `dropna_from_series`) that the refined forecaster cannot take. A value
-    that the rules decide again for the refined forecaster is not named,
-    nor a key overridden in the call, nor one already named as an edit by
-    hand in `discarded`.
+    does not hold, and either the user chose it (`plan.overridden_fields`),
+    the LLM refined it (`lags` and `window_features` in
+    `plan.llm_refined_fields`, which count as chosen by the user) or the
+    rules made a decision about the data (`use_exog`, `differentiation`,
+    `calendar_features`, `target_transformer`, `dropna_from_series`) that
+    the refined forecaster cannot take. A value that the rules decide again
+    for the refined forecaster is not named, nor a key overridden in the
+    call, nor one already named as an edit by hand in `discarded`.
+
+    `transformer_exog` and `categorical_features`, which the rules set in
+    `forecaster_kwargs` and `plan()` does not take, are named the same way
+    when they had an effect (the plan read numeric or categorical exogenous
+    columns) and the refined forecaster does not use them: one that is not
+    autoregressive, or for `categorical_features` one that does not take
+    categorical features either, nor reads those columns itself (a
+    foundation model with categorical covariates does).
 
     Parameters
     ----------
@@ -634,6 +645,9 @@ def dropped_plan_decisions(
         Keys overridden in the call.
     discarded : list of str
         Fields of `plan` named as edited by hand (`discarded_plan_edits`).
+    data_profile : DataProfile
+        Profile of the data both plans are built from, which says which
+        exogenous columns are categorical.
 
     Returns
     -------
@@ -655,7 +669,10 @@ def dropped_plan_decisions(
         if _is_neutral(value) or value == plan_override_value(refined, name):
             continue
         chosen = name in plan.overridden_fields
-        if not chosen:
+        # Lags and window features the LLM refined at the request of the
+        # user are the choice of the user, not of the rules.
+        refined_by_llm = not chosen and name in plan.llm_refined_fields
+        if not chosen and not refined_by_llm:
             # A decision of the rules is decided again when the refined
             # forecaster takes it; it is left out only when it cannot.
             takes = (
@@ -665,7 +682,10 @@ def dropped_plan_decisions(
             )
             if name not in _DATA_DECISIONS or takes:
                 continue
-        chosen_by = f"(chosen by the {'user' if chosen else 'rules'})"
+        chosen_by = (
+            "(refined by the LLM)" if refined_by_llm
+            else f"(chosen by the {'user' if chosen else 'rules'})"
+        )
         if name == "estimator_kwargs" and refined.estimator is not None:
             kwargs_text = (
                 f"refine_plan() left out the estimator_kwargs of the plan, "
@@ -675,6 +695,8 @@ def dropped_plan_decisions(
             )
         else:
             not_taken.append(f"{name}={value!r} {chosen_by}")
+    if "use_exog" not in explicit_keys:
+        not_taken += _dropped_exog_settings(plan, refined, discarded, data_profile)
 
     texts = []
     if not_taken:
@@ -686,6 +708,55 @@ def dropped_plan_decisions(
         texts.append(kwargs_text)
 
     return " ".join(texts) or None
+
+
+def _dropped_exog_settings(
+    plan: ForecastPlan,
+    refined: ForecastPlan,
+    discarded: list[str],
+    data_profile: DataProfile,
+) -> list[str]:
+    """
+    The `transformer_exog` and `categorical_features` of a plan that had an
+    effect and that the refined forecaster does not use, as
+    `dropped_plan_decisions` names them (see there).
+    """
+    from ._future_exog import used_exog_columns
+
+    if not plan.use_exog:
+        return []
+    used = used_exog_columns(plan, data_profile)
+    categorical = [
+        column for column in used if column in data_profile.categorical_exog
+    ]
+    used_by_refined = used_exog_columns(refined, data_profile)
+    takes = {
+        # Scales the numeric columns; an autoregressive forecaster that does
+        # not hold it had it decided again by the rules for its estimator.
+        "transformer_exog": (
+            len(used) > len(categorical),
+            refined.forecaster in AUTOREG_FORECASTERS,
+        ),
+        "categorical_features": (
+            bool(categorical),
+            refined.forecaster in CATEGORICAL_FORECASTERS
+            or set(categorical) <= set(used_by_refined),
+        ),
+    }
+    named = []
+    for key, (had_effect, used_by_new) in takes.items():
+        value = plan.forecaster_kwargs.get(key)
+        if (
+            _is_neutral(value)
+            or not had_effect
+            or used_by_new
+            or value == refined.forecaster_kwargs.get(key)
+            or f"forecaster_kwargs['{key}']" in discarded
+        ):
+            continue
+        named.append(f"{key}={value!r} (chosen by the rules)")
+
+    return named
 
 
 def resolve_interval_method(task_type: str, interval: list[float] | None) -> str | None:
@@ -2237,6 +2308,41 @@ def _check_cv_matches_profile(cv: CVResult, data_profile: DataProfile) -> None:
         )
 
 
+def window_without_refit(
+    fixed_train_size: bool | None,
+    refit: object,
+    forecaster: str,
+) -> bool:
+    """
+    Whether a `fixed_train_size` is passed for a strategy that trains the
+    forecaster once, where it has no effect.
+
+    Parameters
+    ----------
+    fixed_train_size : bool, None
+        Value passed by the caller; None when not passed.
+    refit : bool, int, None
+        `refit` of the strategy; None counts as False, its default.
+    forecaster : str
+        Forecaster of the plan. `ForecasterStats`, which skforecast refits
+        in every fold, is never trained once.
+
+    Returns
+    -------
+    without_refit : bool
+        True when `fixed_train_size` is passed and the forecaster is
+        trained once.
+    """
+    if fixed_train_size is None or forecaster == "ForecasterStats":
+        return False
+    refits = refit is True or (
+        isinstance(refit, numbers.Integral)
+        and not isinstance(refit, bool)
+        and refit > 0
+    )
+    return not refits
+
+
 def _warn_window_without_refit(
     fixed_train_size: bool | None,
     refit: object,
@@ -2263,14 +2369,7 @@ def _warn_window_without_refit(
     -------
     None
     """
-    if fixed_train_size is None or forecaster == "ForecasterStats":
-        return
-    refits = refit is True or (
-        isinstance(refit, numbers.Integral)
-        and not isinstance(refit, bool)
-        and refit > 0
-    )
-    if not refits:
+    if window_without_refit(fixed_train_size, refit, forecaster):
         warnings.warn(
             f"`fixed_train_size={fixed_train_size!r}` has no effect: with "
             f"`refit={refit!r}` the forecaster is trained once, on a single "
@@ -2332,6 +2431,71 @@ def _check_direct_gap(plan: ForecastPlan, cv: TimeSeriesFold) -> None:
         raise InvalidInputError(
             f"{issue}. Use a strategy without gap, or a recursive forecaster.",
             field = "cv",
+        )
+
+
+def stats_skip_folds_issue(forecaster: str, skip_folds: object) -> str | None:
+    """
+    Say why a `ForecasterStats` plan cannot be backtested with a strategy
+    that skips folds, or return None when it can.
+
+    skforecast refits `ForecasterStats` in every fold and rejects any
+    `skip_folds` other than None for it, an empty list included.
+
+    Parameters
+    ----------
+    forecaster : str
+        Forecaster of the plan.
+    skip_folds : int, list, None
+        `skip_folds` of the strategy.
+
+    Returns
+    -------
+    issue : str, None
+        What fails, or None when the plan is not `ForecasterStats` or the
+        strategy runs every fold.
+    """
+    if forecaster != "ForecasterStats" or skip_folds is None:
+        return None
+
+    return (
+        f"`skip_folds={skip_folds!r}` is not allowed for ForecasterStats: "
+        f"skforecast refits it in every fold and rejects any `skip_folds`, "
+        f"an empty list included"
+    )
+
+
+# Ways to run fewer folds without `skip_folds`, named by the errors about
+# `ForecasterStats`.
+STATS_FEWER_FOLDS = (
+    "For fewer folds, use a later `initial_train_size` or a larger "
+    "`fold_stride`."
+)
+
+
+def _check_stats_skip_folds(plan: ForecastPlan, cv: TimeSeriesFold) -> None:
+    """
+    Raise when a `ForecasterStats` plan is backtested with a strategy that
+    skips folds (see `stats_skip_folds_issue`).
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan to backtest.
+    cv : TimeSeriesFold
+        Strategy of the backtest.
+
+    Returns
+    -------
+    None
+    """
+    issue = stats_skip_folds_issue(plan.forecaster, cv.skip_folds)
+    if issue is not None:
+        raise InvalidInputError(
+            f"{issue}. Use a strategy without `skip_folds`, or another "
+            f"forecaster.",
+            field = "cv",
+            hint  = STATS_FEWER_FOLDS,
         )
 
 

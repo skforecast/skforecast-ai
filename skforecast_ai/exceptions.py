@@ -494,9 +494,12 @@ class PlanEditsDiscardedWarning(UserWarning):
     It is warned too when the refined plan leaves out decisions of the plan
     that its forecaster or its estimator cannot take: the `estimator_kwargs`
     written for another estimator, or the differentiation, the calendar
-    features and the target transformer of an autoregressive plan switched
-    to `ForecasterStats`, `ForecasterFoundation` or the baseline. The
-    warning names each value and whether the user or the rules chose it.
+    features, the target transformer, the lags refined by the LLM and the
+    `transformer_exog` and `categorical_features` of an autoregressive plan
+    switched to `ForecasterStats`, `ForecasterFoundation` or the baseline.
+    The warning names each value and whether the user, the LLM or the rules
+    chose it. Edits by hand and decisions left out are named in a single
+    warning.
 
     `compare()` without `candidates` warns it too when the plan of its
     `CVResult` runs as the row `'Strategy plan'`, which `plan()` rebuilds
