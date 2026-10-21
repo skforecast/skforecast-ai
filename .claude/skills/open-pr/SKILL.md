@@ -18,8 +18,8 @@ Title hint from the user: $ARGUMENTS
   local copy of the release branch may be stale. Below, `BASE` stands for
   `origin/<release-branch>`.
 - If the current branch is `main` or the release branch, create
-  `<type>/<slug>` from `BASE` first (type `feature`, `fix`, `docs` or
-  `chore`, the names the cloud hook accepts). If it is a `claude/...`
+  `<type>/<slug>` from `BASE` first (type `feature`, `fix`, `docs`,
+  `chore` or `perf`, the names the cloud hook accepts). If it is a `claude/...`
   (cloud session) or `worktree-...` branch, rename it with
   `git branch -m <type>/<slug>` after checking that
   `git log --oneline BASE..HEAD` lists only the commits of this work: a
@@ -87,8 +87,7 @@ ones before merge.
   other account with `gh auth login`), or open the PR from the link
   printed by `git push`. Never switch accounts yourself.
 - Push the branch with `git push -u origin <branch>` (a local session asks
-  for confirmation; a cloud session's hook blocks pushes to `main` and
-  `X.Y.x`).
+  for confirmation; the Bash guard blocks pushes to `main`).
 - Write the body to a file in the scratchpad:
   - Maintainers (Javier Escobar Ortiz, Joaquin Amat Rodrigo, as in
     `pyproject.toml`; compare with `git config user.name`): a

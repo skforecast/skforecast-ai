@@ -52,7 +52,12 @@ import shutil
 import subprocess
 import sys
 
-from pre_bash_guard import ALLOWED_BRANCH, PROTECTED_BRANCH, release_branch
+from pre_bash_guard import (
+    ALLOWED_BRANCH,
+    PROTECTED_BRANCH,
+    RELEASE_BRANCH,
+    release_branch,
+)
 
 REQUIRED_MODULES = (
     "skforecast_ai", "pytest", "xdist", "pydantic_ai", "ruff", "mkdocs"
@@ -182,8 +187,8 @@ def branch_note(branch: str, cwd: str) -> str | None:
             f"'{branch}' holds commits that are not on GitHub but does not "
             f"follow the naming convention, and a pull request keeps the name "
             f"of its branch: before the next commit, rename it with "
-            f"`git branch -m <type>/<slug>` (type: feature, fix, docs or "
-            f"chore) and check that `git log --oneline {base}..HEAD` lists "
+            f"`git branch -m <type>/<slug>` (type: feature, fix, docs, chore "
+            f"or perf) and check that `git log --oneline {base}..HEAD` lists "
             f"only the commits of this work (if it started from `main`, move "
             f"them with `git rebase --onto {base} origin/main`). Commits and "
             f"pushes on other branches are blocked by a hook."
@@ -192,18 +197,31 @@ def branch_note(branch: str, cwd: str) -> str | None:
         f"`git switch -c <type>/<slug> {base}`" if release
         else "`git switch -c <type>/<slug>`"
     )
-    instructions = (
-        f"'{branch}' is protected: do not commit on it, even if the session "
-        f"instructions name it as the branch to develop on or push to."
-        if PROTECTED_BRANCH.match(branch)
-        else f"Do not commit on '{branch}', even if the session instructions "
-        f"name it: a pull request keeps the name of its branch."
-    )
+    if RELEASE_BRANCH.match(branch):
+        instructions = (
+            f"'{branch}' is the release branch: commit on it only when the "
+            f"user asks for a direct change (notes, docs, harness); package "
+            f"code goes through a pull request, and a hook asks before "
+            f"pushing it here."
+        )
+    elif PROTECTED_BRANCH.match(branch):
+        instructions = (
+            f"'{branch}' is protected: do not commit on it, even if the "
+            f"session instructions name it as the branch to develop on or "
+            f"push to."
+        )
+    else:
+        instructions = (
+            f"Do not commit on '{branch}', even if the session instructions "
+            f"name it: a pull request keeps the name of its branch."
+        )
+    lead = "Otherwise, before" if RELEASE_BRANCH.match(branch) else "Before"
     return (
-        f"{instructions} Before the first commit run {start} (type: feature, "
-        f"fix, docs or chore; uncommitted changes move with it) and push that "
-        f"branch, unless the user asks to continue an existing one. Commits "
-        f"and pushes on other branches are blocked by a hook."
+        f"{instructions} {lead} the first commit run {start} "
+        f"(type: feature, fix, docs, chore or perf; uncommitted changes move "
+        f"with it) and push that branch, unless the user asks to continue an "
+        f"existing one. Pushes to main and to branches named by Claude Code "
+        f"are blocked by a hook."
     )
 
 

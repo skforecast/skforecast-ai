@@ -14,11 +14,13 @@ after this check; `post_pr_footer.py` has it removed.
 
 The tools that commit write to GitHub directly, past the Bash guard, so the
 same branch rules apply to their `branch` (and to the `head` of a new pull
-request): never `main` or `X.Y.x`, never a branch named by Claude Code
-(`claude/...`, `worktree-...`), and in a cloud session only `feature/...`,
-`fix/...`, `docs/...` or `chore/...`.
+request): never `main`, never a branch named by Claude Code (`claude/...`,
+`worktree-...`), the user confirms package files written to a release
+branch (`X.Y.x`), and in a cloud session only `<type>/<slug>` or the
+release branch.
 
-Exit code 2 blocks the call and sends the reason back to Claude.
+Exit code 2 blocks the call and sends the reason back to Claude; package
+files on a release branch print an `ask` decision instead.
 """
 
 import json
@@ -29,8 +31,11 @@ import sys
 from pre_bash_guard import (
     AI_ATTRIBUTION,
     ALLOWED_BRANCH,
-    PROTECTED_BRANCH,
+    MAIN_BRANCH,
+    RELEASE_BRANCH,
     SESSION_BRANCH,
+    ask,
+    package_ask,
     session_branch_message,
 )
 
@@ -53,19 +58,30 @@ def branch_error(tool_name: str, tool_input: dict, cwd: str) -> str | None:
     for name in (branch, head):
         if SESSION_BRANCH.match(name):
             return session_branch_message(name, cwd)
-    if PROTECTED_BRANCH.match(branch):
+    if MAIN_BRANCH.match(branch):
         return (
-            f"Blocked: committing to {branch} is not allowed. Work on a "
-            f"feature/, fix/, docs/ or chore/ branch; the author merges into "
-            f"protected branches."
+            f"Blocked: {branch} only changes when the release branch is "
+            f"merged into it at release time. Commit to a <type>/<slug> "
+            f"branch and open the pull request against the release branch."
         )
-    if remote and branch and not ALLOWED_BRANCH.match(branch):
+    allowed = ALLOWED_BRANCH.match(branch) or RELEASE_BRANCH.match(branch)
+    if remote and branch and not allowed:
         return (
             f"Blocked: branch '{branch}' does not follow the naming "
             f"convention. Use a branch named <type>/<short-slug> with type "
-            f"feature, fix, docs or chore."
+            f"feature, fix, docs, chore or perf."
         )
     return None
+
+
+def written_paths(tool_input: dict) -> list[str]:
+    """Paths that a GitHub MCP commit tool writes (`path`, `files[].path`)."""
+
+    files = tool_input.get("files") or []
+    paths = [tool_input.get("path")] + [
+        f.get("path") for f in files if isinstance(f, dict)
+    ]
+    return [p for p in paths if isinstance(p, str)]
 
 
 def main() -> int:
@@ -90,6 +106,10 @@ def main() -> int:
     if error:
         print(error, file=sys.stderr)
         return 2
+    branch = str(tool_input.get("branch") or "")
+    if BRANCH_TOOL.search(tool_name) and RELEASE_BRANCH.match(branch):
+        reason = package_ask(branch, written_paths(tool_input))
+        return ask([reason] if reason else [])
     return 0
 
 

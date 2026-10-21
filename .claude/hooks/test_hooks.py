@@ -77,12 +77,16 @@ SESSION_FOOTER = (
 @pytest.mark.parametrize(
     "branch, command, remote, expected",
     [
-        ("0.4.x", "git push origin HEAD", False, 2),
-        ("0.4.x", "git push origin @", False, 2),
-        ("0.4.x", "git push", False, 2),
+        ("main", "git push origin HEAD", False, 2),
+        ("main", "git push origin @", False, 2),
+        ("main", "git push", False, 2),
         ("main", "git push -u origin main", False, 2),
-        ("feature/x", "git push origin HEAD:0.4.x", False, 2),
+        ("feature/x", "git push origin HEAD:main", False, 2),
         ("feature/x", "git push origin :0.4.x", False, 2),
+        ("feature/x", "git push origin --delete 0.4.x", False, 2),
+        ("feature/x", "git push origin -d main", False, 2),
+        ("0.4.x", "git commit -m 'x'", True, 0),
+        ("perf/x", "git commit -m 'x'", True, 0),
         ("feature/x", "git push --force origin feature/x", False, 2),
         ("feature/x", "git push origin feature/x --force", False, 2),
         ("feature/x", "git push -uf origin feature/x", False, 2),
@@ -95,17 +99,17 @@ SESSION_FOOTER = (
         ("feature/x", "cd repo && git push -u origin HEAD", True, 0),
         ("feature/x", "git push --follow-tags origin feature/x", False, 0),
         ("feature/x", "grep -n 'git push --force' notes.txt", False, 0),
-        ("0.4.x", "git push -o ci.skip origin", False, 2),
-        ("feature/x", "git push --repo origin 0.4.x", False, 2),
+        ("main", "git push -o ci.skip origin", False, 2),
+        ("feature/x", "git push --repo origin main", False, 2),
         ("feature/x", "git push -o ci.skip origin +feature/x", False, 2),
         ("feature/x", "git push -o ci.skip origin feature/x", False, 0),
-        ("0.4.x", "grep -c x <<<EOF\ngit push origin 0.4.x", False, 2),
-        ("0.4.x", "git push origin 2>&1 | tail -3", False, 2),
-        ("0.4.x", "git push origin > /tmp/push.log", False, 2),
-        ("0.4.x", "git commit -m 'x'", True, 2),
+        ("main", "grep -c x <<<EOF\ngit push origin main", False, 2),
+        ("main", "git push origin 2>&1 | tail -3", False, 2),
+        ("main", "git push origin > /tmp/push.log", False, 2),
+        ("main", "git commit -m 'x'", True, 2),
         ("claude/some-session", "git commit -m 'x'", True, 2),
         ("0.4.x", "git commit -m 'x'", False, 0),
-        ("0.4.x", HEREDOC_COMMIT.format(trailer="Body."), True, 2),
+        ("main", HEREDOC_COMMIT.format(trailer="Body."), True, 2),
         ("feature/x", HEREDOC_COMMIT.format(trailer="Body."), True, 0),
         ("feature/x", HEREDOC_COMMIT.format(trailer=CLAUDE_TRAILER), True, 2),
         ("feature/x", HEREDOC_COMMIT.format(trailer=CLAUDE_TRAILER), False, 2),
@@ -134,13 +138,12 @@ SESSION_FOOTER = (
 )
 def test_pre_bash_guard_exit_code(tmp_path, branch, command, remote, expected):
     """
-    Test that the Bash guard blocks pushes to protected branches (also through
-    HEAD, @, --all, with push options, after a here-string and with the
-    output redirected), every form of force push,
-    commits outside the naming
-    convention in the cloud (also with a heredoc message), AI attribution in
-    commit messages and PR bodies, and the paid context check, and lets the
-    rest run.
+    Test that the Bash guard blocks pushes to `main` (also through HEAD, @,
+    --all, with push options, after a here-string and with the output
+    redirected), deleting `main` or a release branch, every form of force
+    push, commits in the cloud outside `<type>/<slug>` and the release branch
+    (also with a heredoc message), AI attribution in commit messages and PR
+    bodies, and the paid context check, and lets the rest run.
     """
 
     repo = make_repo(tmp_path / "repo", branch)
@@ -195,6 +198,77 @@ def test_pre_bash_guard_blocks_session_branches(
         assert "origin/0.10.x..HEAD" in result.stderr
 
 
+def make_release_change(tmp_path: Path, path: str) -> Path:
+    """
+    A clone on the release branch `0.5.x` with one commit, not pushed yet,
+    that changes `path`.
+    """
+
+    origin = tmp_path / "origin.git"
+    seed = make_repo(tmp_path / "seed", "0.5.x")
+    git(tmp_path, "clone", "-q", "--bare", str(seed), str(origin))
+    git(tmp_path, "clone", "-q", "-b", "0.5.x", str(origin), "clone")
+    repo = tmp_path / "clone"
+    (repo / path).parent.mkdir(parents=True, exist_ok=True)
+    (repo / path).write_text("x\n")
+    git(repo, "add", path)
+    git(repo, "commit", "-q", "-m", "change")
+    return repo
+
+
+@pytest.mark.parametrize(
+    "path, command, asks",
+    [
+        ("skforecast_ai/assistant.py", "git push origin 0.5.x", "skforecast_ai/assistant.py"),
+        ("tests/test_x.py", "git push", "tests/test_x.py"),
+        ("pyproject.toml", "git push origin HEAD:0.5.x", "pyproject.toml"),
+        ("dev/roadmap-0.5.0.md", "git push origin 0.5.x", None),
+        (".claude/hooks/x.py", "git push", None),
+        ("docs/index.md", "git push -u origin HEAD 2>&1", None),
+    ],
+)
+def test_pre_bash_guard_asks_before_pushing_package_code_to_release_branch(
+    tmp_path, path, command, asks
+):
+    """
+    Test that the Bash guard lets a push to the release branch through, and
+    asks the user first, naming the files, only when its commits change what
+    ships or is tested (`skforecast_ai/`, `tests/`, `pyproject.toml`), in a
+    cloud session too.
+    """
+
+    repo = make_release_change(tmp_path, path)
+    result = run_hook(
+        "pre_bash_guard.py", {"tool_input": {"command": command}}, repo, True
+    )
+
+    assert result.returncode == 0, result.stderr
+    if asks is None:
+        assert result.stdout == ""
+    else:
+        decision = json.loads(result.stdout)["hookSpecificOutput"]
+        assert decision["permissionDecision"] == "ask"
+        assert f"release branch '0.5.x' without a pull request ({asks})" in (
+            decision["permissionDecisionReason"]
+        )
+
+
+def test_pre_bash_guard_asks_when_release_branch_not_fetched(tmp_path):
+    """
+    Test that the Bash guard asks before a push to a release branch whose
+    `origin` ref is not known, since its commits cannot be checked.
+    """
+
+    repo = make_repo(tmp_path / "repo", "0.5.x")
+    result = run_hook(
+        "pre_bash_guard.py", {"tool_input": {"command": "git push"}}, repo, False
+    )
+
+    assert result.returncode == 0, result.stderr
+    reason = json.loads(result.stdout)["hookSpecificOutput"]["permissionDecisionReason"]
+    assert "origin/0.5.x is not fetched" in reason
+
+
 @pytest.mark.parametrize(
     "command",
     ["git commit -F msg.txt", "git commit --file=msg.txt", "gh pr create --body-file msg.txt"],
@@ -247,7 +321,7 @@ def test_pre_pr_guard_exit_code(tmp_path, tool_input, expected):
 @pytest.mark.parametrize(
     "tool_name, tool_input, remote, expected",
     [
-        ("mcp__github__push_files", {"branch": "0.5.x", "message": "fix: x"}, False, 2),
+        ("mcp__github__push_files", {"branch": "main", "message": "fix: x"}, False, 2),
         ("mcp__github__create_or_update_file", {"branch": "main"}, False, 2),
         ("mcp__github__push_files", {"branch": "claude/abc"}, False, 2),
         ("mcp__plugin_github_github__create_branch", {"branch": "worktree-x"}, False, 2),
@@ -278,6 +352,40 @@ def test_pre_pr_guard_branch_policy(tmp_path, tool_name, tool_input, remote, exp
     result = run_hook("pre_pr_guard.py", payload, repo, remote)
 
     assert result.returncode == expected, result.stderr
+
+
+@pytest.mark.parametrize(
+    "tool_name, tool_input, asks",
+    [
+        (
+            "mcp__github__push_files",
+            {"branch": "0.5.x", "files": [{"path": "skforecast_ai/cli.py"}]},
+            True,
+        ),
+        ("mcp__github__create_or_update_file", {"branch": "0.5.x", "path": "pyproject.toml"}, True),
+        ("mcp__github__push_files", {"branch": "0.5.x", "files": [{"path": "dev/notes.md"}]}, False),
+        ("mcp__github__delete_file", {"branch": "0.5.x", "path": "docs/x.md"}, False),
+    ],
+)
+def test_pre_pr_guard_asks_before_package_files_on_release_branch(
+    tmp_path, tool_name, tool_input, asks
+):
+    """
+    Test that the guard of the GitHub MCP commit tools lets a write to the
+    release branch through, also in the cloud, and asks the user first only
+    when the paths it writes are package code.
+    """
+
+    repo = make_repo(tmp_path / "repo", "feature/x")
+    payload = {"tool_name": tool_name, "tool_input": tool_input}
+    result = run_hook("pre_pr_guard.py", payload, repo, True)
+
+    assert result.returncode == 0, result.stderr
+    if asks:
+        decision = json.loads(result.stdout)["hookSpecificOutput"]
+        assert decision["permissionDecision"] == "ask"
+    else:
+        assert result.stdout == ""
 
 
 def test_pre_pr_guard_registered_for_github_mcp_write_tools():
@@ -384,7 +492,7 @@ def session_start(monkeypatch):
 @pytest.mark.parametrize(
     "branch, expected",
     [
-        ("0.4.x", "'0.4.x' is protected"),
+        ("0.4.x", "'0.4.x' is the release branch"),
         ("claude/some-session", "rename it with `git branch -m <type>/<slug>`"),
         ("feature/x", None),
     ],
@@ -518,7 +626,7 @@ def make_release_clone(tmp_path: Path, start: str) -> tuple[Path, Path]:
     "start, checkout, commit, expected",
     [
         ("main", None, False, "'main' is protected"),
-        ("0.5.x", None, False, "'0.5.x' is protected"),
+        ("0.5.x", None, False, "'0.5.x' is the release branch"),
         ("main", "claude/abc", False, "Do not commit on 'claude/abc'"),
         ("main", "claude/abc", True, "rename it with `git branch -m <type>/<slug>`"),
         ("0.5.x", "fix/x", True, None),

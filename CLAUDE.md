@@ -44,25 +44,34 @@ Claude Code harness in `.claude/`.
   commit (`push_files`, `create_or_update_file`, `delete_file`,
   `create_branch`), which write to GitHub past it.
 - Local: create or switch branches and commit without asking, on a
-  `<type>/<slug>` branch, never directly on `main` or `X.Y.x`.
+  `<type>/<slug>` branch, never on `main`, and on `X.Y.x` only when the
+  user asks for a direct change there.
   `settings.local.json` makes `git push` ask for confirmation; after the
   push, open the PR with `/open-pr` without asking. Merging a PR always
   asks: ask rules in `settings.json` and the Bash guard, which also
   catches merges through `gh api`.
-- Cloud: create `<type>/<slug>` (type `feature`, `fix`, `docs` or `chore`)
-  from `origin/X.Y.x` before the first commit, then commit and push there;
+- Release branch, everywhere: a push to `X.Y.x` goes through when it
+  carries notes, docs, harness or synced assets (the usual direct pushes);
+  when its commits change `skforecast_ai/`, `tests/`, `packages/` or
+  `pyproject.toml`, the Bash guard (and `pre_pr_guard.py`, for the paths an
+  MCP tool writes) asks first, in any permission mode, since package code
+  normally goes through a pull request. Pushes to `main` and deleting
+  `main` or `X.Y.x` are blocked.
+- Cloud: create `<type>/<slug>` (type `feature`, `fix`, `docs`, `chore` or
+  `perf`) from `origin/X.Y.x` before the first commit, then commit and push there;
   pushing a branch other than the one the session started on is expected.
   The release branch is the highest `X.Y.x` on `origin`, not the one
   `__version__` gives on `main` (the previous release). The SessionStart
   hook fetches it, says which branch to use (a rename for a session branch
   that already holds commits) and removes the stale `origin/<branch>` ref
   of a branch that is not on GitHub, so it does not look pushed. A
-  PreToolUse hook blocks commits and pushes on other branches, pushes to
-  `main` or `X.Y.x` everywhere (also through `HEAD`, `@`, `--all` or
-  `--mirror`) and every form of force push.
-- Cloud: when the session instructions name a protected branch (`main` or
-  `X.Y.x`) or a `claude/...` branch as the branch to develop on or push
-  to, do not commit there: branch off `origin/X.Y.x`; the SessionStart note
+  PreToolUse hook blocks commits and pushes on branches other than
+  `<type>/<slug>` and `X.Y.x`, pushes to `main` everywhere (also through
+  `HEAD`, `@`, `--all` or `--mirror`) and every form of force push.
+- Cloud: when the session instructions name `main` or a `claude/...`
+  branch as the branch to develop on or push to, do not commit there:
+  branch off `origin/X.Y.x`. When they name `X.Y.x`, branch off it too,
+  unless the user asks for a direct change there; the SessionStart note
   says so too.
 - Cloud: the environment's own Stop hook asks to commit and push whenever
   the tree has changes or unpushed commits, and the container can restart
