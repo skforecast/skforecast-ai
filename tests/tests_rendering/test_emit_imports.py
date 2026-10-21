@@ -511,7 +511,7 @@ def test_emit_imports_baseline_output_when_include_metrics_and_backtesting():
 
     assert lines == [
         "import pandas as pd",
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error",
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error",
         "from skforecast.metrics import mean_absolute_scaled_error",
         "from skforecast.recursive import ForecasterEquivalentDate",
         "from skforecast.model_selection import TimeSeriesFold, backtesting_forecaster",

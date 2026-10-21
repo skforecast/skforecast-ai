@@ -47,6 +47,7 @@ from .forecaster_selection import (
     select_task_type_from_forecaster,
 )
 from .metric_selection import (
+    check_metric_domain,
     describe_series_near_zero,
     select_metric,
     series_near_zero,
@@ -73,6 +74,7 @@ __all__ = [
     "build_forecaster_kwargs",
     "check_exog_usage",
     "check_first_window",
+    "check_metric_domain",
     "compute_series_pacf",
     "count_cv_fits",
     "count_cv_folds",

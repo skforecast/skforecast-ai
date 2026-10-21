@@ -429,7 +429,8 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
    nube lo bloquea (en #104 se quedó colgado más de una hora). Después,
    volver a grabar las salidas de `ask()` de
    `agentic-forecasting.ipynb` y `agentic-forecasting-step-by-step.ipynb`,
-   que llaman porcentaje a MAPE (#104).
+   que llaman porcentaje a MAPE (#104), y las de esos dos y de
+   `first-forecast.ipynb`, que muestran MSE en el panel por defecto (3f-1).
 2. Check con agentes de `tools/mcp/` (cambian el SKILL, el coste y las
    descripciones: está en "When to run it"), al menos con sonnet y con haiku
    en los escenarios críticos. Debe incluir un escenario con un CSV de Excel
@@ -438,15 +439,28 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
    con cotas iguales y lo cuenta (pendiente desde `96f4cdc`). El escenario
    `expensive_run` gana un check que marque un `confirm_cost` pasado antes
    de que el usuario conteste (4b, #113).
-3. Comprobaciones a mano (abajo).
-4. skforecast 0.27.0 publicado con todo lo de "Dependencia de skforecast
+3. Los datos de las animaciones de la portada y de la documentación
+   (`tools/docs/home_page/generate_home_data.py`, que escribe
+   `docs/overrides/partials/home-data.json` y los `*-data.js` de
+   `docs/animations/`) no se pueden regenerar: el script para cuando una
+   cifra citada en las respuestas de `ask()` escritas a mano ya no cuadra,
+   y en `0.5.x` el MAE del backtest pasó de 49.5 a 45.8 (visto en #117,
+   también sin ella). La causa probable son los cambios de skforecast 0.27
+   (el modelo congelado de ForecasterStats, #1425; los folds saltados,
+   #1427) y los de esta release. Hay que volver a escribir a mano esas
+   respuestas con las cifras nuevas (no se graban de un modelo) y
+   regenerar los datos, también los de `generate_agent_session_data.py` y
+   `generate_mcp_overview_data.py` si cambian, después de que el
+   comportamiento quede cerrado.
+4. Comprobaciones a mano (abajo).
+5. skforecast 0.27.0 publicado con todo lo de "Dependencia de skforecast
    0.27.0" resuelto, `/sync-skforecast-assets` (lo lanzas tú) y la suite
    contra la 0.27.0 de PyPI. `pyproject.toml` pide ya `skforecast>=0.27.0`
    (2026-10-18): hasta que esté en PyPI, las sesiones en la nube instalan
    skforecast de su rama `0.27.x` y el entorno local también.
-5. `/release-note consolidate`, bump de versión (`/release-bump`) y
+6. `/release-note consolidate`, bump de versión (`/release-bump`) y
    publicación.
-6. Tras publicar: Deploy y Make Release en Glama y apuntar el TDQS nuevo
+7. Tras publicar: Deploy y Make Release en Glama y apuntar el TDQS nuevo
    (paso 8 del plan de descripciones).
 
 ## Decisiones tomadas
@@ -1334,6 +1348,47 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     `differentiation` de `CandidateArgs`; las instrucciones del servidor no
     lo nombran. SKILL.md, `docs/api/mcp.md` y la guía de la CLI dicen que
     una estrategia sirve para cualquier orden.
+- **D27. 3f-1: RMSE en el panel por defecto y lo que quedó de #104**
+  (2026-10-21), en
+  [#117](https://github.com/skforecast/skforecast-ai/pull/117). Revisión:
+  el umbral de MSLE es el de sklearn (un valor `<= -1`, no "cualquier valor
+  negativo" como decía 3f); un plan que llega a `backtest()` o `forecast()`
+  no se vuelve a comprobar contra las métricas (ya se comprobó al crearlo);
+  con ForecasterDirectMultiVariate las reglas de MAPE y MSLE miran todas
+  las series aunque solo se evalúe una, y se deja así; no se propone a
+  skforecast comprobar el dominio de la métrica en `backtesting_forecaster`
+  (skforecast-ai ya lo hace en el plan). Concreta D24 y las preguntas 1, 3 y 4 de la revisión de
+  [#104](https://github.com/skforecast/skforecast-ai/pull/104) (D16):
+  - Panel por defecto: MAE, `root_mean_squared_error` y MASE, más MAPE
+    lejos del cero, en ese orden (RMSE ocupa el sitio del MSE). La métrica
+    que ordena y elige no cambia. El script del backtest lo pasa por
+    nombre; el del forecast con `test_size` lo importa de
+    `sklearn.metrics`. Cambian todos los scripts por defecto (88 líneas de
+    los goldens de renderizado, todas MSE por RMSE) y el valor por defecto
+    de `ForecastPlan.metrics_to_compute`. El `MetricUnitNotice` del panel
+    por defecto da la unidad de RMSE; la de MSE sale solo cuando se pide.
+  - La explicación del plan añade, tras la frase de la métrica, "MAPE is
+    not computed: it divides each error by the actual value, and ..." con
+    el rango que da `describe_series_near_zero`. Llega al contexto del LLM
+    (la explicación del plan) y cambia sus goldens; las fixtures de
+    métricas de `tests/fixtures_llm.py` pasan a RMSE, como el panel real.
+  - `compare()` con MAPE pedido en un objetivo cerca del cero: el aviso de
+    cada plan se silencia y `compare()` da uno solo, tras construir los
+    planes y antes de contar el coste, con candidatos por defecto y
+    explícitos (antes, uno por candidato en los dos casos: los planes se
+    construyen otra vez fuera de `resolve_default_candidates`). Los
+    `warnings` de cada plan lo conservan. Sigue siendo un `UserWarning`
+    (pregunta 5 de #104 sin decidir).
+  - MSLE con un objetivo con algún valor `<= -1` (el dominio que rechaza
+    sklearn desde 1.6, la mínima): `InvalidInputError` con `field='metric'`
+    al construir el plan (`check_metric_domain`, en `metric_selection.py`),
+    y en `compare()` una sola vez antes de los candidatos. Valores entre -1
+    y 0 se aceptan, como sklearn; una predicción `<= -1` sobre un objetivo
+    por encima sigue fallando dentro del script.
+  - Pendiente para la fase 7: el check de pago de `check_ask_context.py` y
+    volver a grabar las salidas de los tres notebooks, que muestran MSE en
+    el panel (`first-forecast.ipynb` también). Su texto ya dice RMSE, como
+    el README y la guía de instalación.
 
 - **D?. 3f-3: avisos de planes y estrategias** (2026-10-21). V17, V21 y
   lo que quedaba de la revisión de

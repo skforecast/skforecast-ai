@@ -113,7 +113,7 @@ def test_tool_forecast_evaluation_plan_is_not_registered(tmp_path):
             "sales",
             [
                 "mean_absolute_error",
-                "mean_squared_error",
+                "root_mean_squared_error",
                 "mean_absolute_scaled_error",
             ],
         ),
@@ -123,7 +123,7 @@ def test_tool_forecast_evaluation_plan_is_not_registered(tmp_path):
             [
                 "levels",
                 "mean_absolute_error",
-                "mean_squared_error",
+                "root_mean_squared_error",
                 "mean_absolute_scaled_error",
             ],
         ),

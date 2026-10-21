@@ -1054,6 +1054,69 @@ def test_standalone_scripts_match_forecast_and_backtest_when_metric_is_rmse(
     )
 
 
+@pytest.mark.parametrize(
+    "frame, target, levels",
+    [
+        (df_single.assign(sales=df_single["sales"] + 1.0), "sales", None),
+        (
+            df_multi_wide.assign(
+                series_a=df_multi_wide["series_a"] + 1.0,
+                series_b=df_multi_wide["series_b"] + 1.0,
+            ),
+            ["series_a", "series_b"],
+            ["series_a", "series_b"],
+        ),
+    ],
+    ids=["single series", "multi series"],
+)
+def test_standalone_scripts_match_forecast_and_backtest_with_default_panel(
+    tmp_path, frame, target, levels
+):
+    """
+    Test that the default panel (MAE, RMSE, MASE and MAPE on a target away
+    from zero, without MSE) runs in the scripts of forecast_code()
+    (evaluation mode) and backtest_code() (RMSE by name) as files: the
+    backtest script gives the metrics of backtest(), with several series
+    the forecast script gives the metrics of forecast(), and both have the
+    columns of the panel.
+    """
+    csv_path = tmp_path / "data.csv"
+    frame.to_csv(csv_path, index=False)
+    assistant = ForecastingAssistant()
+    cv = TimeSeriesFold(steps=5, initial_train_size=60, refit=False)
+    inputs = {"data": csv_path, "target": target, "date_column": "date"}
+
+    forecast_code = assistant.forecast_code(**inputs, steps=5, test_size=5).code
+    forecast = assistant.forecast(**inputs, steps=5, test_size=5)
+    backtest_code = assistant.backtest_code(**inputs, cv=cv).code
+    backtest = assistant.backtest(**inputs, cv=cv, show_progress=False)
+
+    panel = [
+        "mean_absolute_error",
+        "root_mean_squared_error",
+        "mean_absolute_scaled_error",
+        "mean_absolute_percentage_error",
+    ]
+    assert forecast_code == forecast.code
+    assert backtest_code == backtest.code
+    assert re.search(r"(?<!root_)mean_squared_error", forecast_code) is None
+    assert re.search(r"(?<!root_)mean_squared_error", backtest_code) is None
+    assert f"metric            = {panel!r}," in backtest_code
+    columns = panel if levels is None else ["levels", *panel]
+    assert list(forecast.metrics.columns) == columns
+    assert list(backtest.metrics.columns) == columns
+    if levels is not None:
+        pd.testing.assert_frame_equal(
+            _run_standalone(forecast_code, tmp_path, variable="metrics_df"),
+            forecast.metrics,
+        )
+    pd.testing.assert_frame_equal(
+        _run_standalone(backtest_code, tmp_path, variable="metrics"),
+        backtest.metrics,
+    )
+    _assert_same_predictions(_run_standalone(forecast_code, tmp_path), forecast.predictions)
+
+
 def test_standalone_scripts_match_forecast_and_backtest_when_target_crosses_zero(
     tmp_path,
 ):
@@ -1080,7 +1143,7 @@ def test_standalone_scripts_match_forecast_and_backtest_when_target_crosses_zero
     assert "mean_absolute_percentage_error" not in backtest_code
     assert list(forecast.metrics.columns) == [
         "mean_absolute_error",
-        "mean_squared_error",
+        "root_mean_squared_error",
         "mean_absolute_scaled_error",
     ]
     assert list(backtest.metrics.columns) == list(forecast.metrics.columns)

@@ -69,6 +69,7 @@ from tests.fixtures_datasets import (
     df_items_sales_long,
 )
 from tests.fixtures_assistant import (
+    df_crossing_zero,
     df_multi_wide,
     df_no_exog,
     df_single,
@@ -368,7 +369,7 @@ def test_compare_output_when_single_series():
         "forecaster",
         "estimator",
         "mean_absolute_error",
-        "mean_squared_error",
+        "root_mean_squared_error",
         "mean_absolute_scaled_error",
     ]
     assert list(result.results.columns) == expected_cols
@@ -605,6 +606,82 @@ def test_compare_output_when_metric_is_rmse():
     np.testing.assert_allclose(
         ranking_values, np.sqrt(result.results["mean_squared_error"].to_numpy())
     )
+
+
+@pytest.mark.parametrize(
+    "candidates",
+    [None, _LIGHT_CANDIDATES],
+    ids=["default candidates", "explicit candidates"],
+)
+def test_compare_UserWarning_once_when_mape_requested_and_target_crosses_zero(
+    candidates,
+):
+    """
+    Test that MAPE requested on a target that crosses zero gives one
+    UserWarning for the comparison, not one per candidate, with default and
+    explicit candidates; the plan of each candidate keeps its text.
+    """
+    profile = assistant.profile(
+        data=df_crossing_zero, target="profit", date_column="date"
+    ).model_copy(update={
+        "forecaster_candidates": ["ForecasterRecursive", "ForecasterDirect"],
+        "estimator_candidates": ["Ridge"],
+    })
+
+    warn_msg = (
+        "`mean_absolute_percentage_error` has no meaning on this data: it "
+        "divides each error by the actual value, and the target takes values "
+        "at or around zero (from -10 to 10), so its value can reach the "
+        "trillions. It is computed as requested; judge the model by a metric "
+        "that does not divide by the actual value, such as "
+        "`mean_absolute_error`."
+    )
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = assistant.compare(
+            data=df_crossing_zero,
+            cv=_single_cv(),
+            target="profit",
+            date_column="date",
+            profile=profile,
+            candidates=candidates,
+            metric=["mean_absolute_error", "mean_absolute_percentage_error"],
+            show_progress=False,
+        )
+
+    mape_warnings = [
+        str(w.message) for w in caught
+        if "`mean_absolute_percentage_error`" in str(w.message)
+    ]
+    assert mape_warnings == [warn_msg]
+    assert len(result.results) == 3
+    assert result.best_candidate.plan.warnings == [warn_msg]
+
+
+def test_compare_ValueError_when_msle_requested_and_target_below_minus_one():
+    """
+    Test that MSLE on a target with values at or below -1 is rejected once,
+    before any candidate is planned, instead of failing every candidate.
+    """
+    err_msg = re.escape(
+        "`mean_squared_log_error` cannot be computed on this data: it takes "
+        "the logarithm of 1 plus each value, so it needs values above -1, "
+        "and the target has values down to -10."
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", category=CandidateFailedWarning)
+        with pytest.raises(ValueError, match=err_msg) as info:
+            assistant.compare(
+                data=df_crossing_zero,
+                cv=_single_cv(),
+                target="profit",
+                date_column="date",
+                candidates=_LIGHT_CANDIDATES,
+                metric="mean_squared_log_error",
+                show_progress=False,
+            )
+
+    assert info.value.field == "metric"
 
 
 # =============================================================================
@@ -1879,7 +1956,7 @@ def test_compare_output_when_baseline_added_by_default():
     assert baseline_row["forecaster"] == "ForecasterEquivalentDate"
     assert baseline_row["estimator"] is None
     assert baseline_row["mean_absolute_error"] == 7.0
-    assert baseline_row["mean_squared_error"] == 49.0
+    assert baseline_row["root_mean_squared_error"] == 7.0
     assert baseline_row["mean_absolute_scaled_error"] == 7.0
 
     baseline_plan = result.candidates["Baseline (seasonal naive)"].plan
@@ -4187,7 +4264,7 @@ def test_compare_output_when_interval_adds_coverage_columns_without_changing_ran
     assert len(records) == 1
     assert list(result.results.columns) == [
         "rank", "name", "forecaster", "estimator", "mean_absolute_error",
-        "mean_squared_error", "mean_absolute_scaled_error",
+        "root_mean_squared_error", "mean_absolute_scaled_error",
         "mean_absolute_percentage_error", "coverage", "interval_width",
     ]
     assert list(result.results["name"]) == list(plain.results["name"])

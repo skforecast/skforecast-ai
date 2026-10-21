@@ -65,8 +65,8 @@ print(result.metrics)
 If the installation works, it prints one row of metrics:
 
 ```
-   mean_absolute_error  mean_squared_error  mean_absolute_scaled_error  \
-0             0.078442            0.008933                    0.802828
+   mean_absolute_error  root_mean_squared_error  mean_absolute_scaled_error  \
+0             0.078442                 0.094514                    0.802828
 
    mean_absolute_percentage_error
 0                        0.088608

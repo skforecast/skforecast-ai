@@ -28,7 +28,7 @@ The dataset contains 2 series, so a multi-series forecaster (ForecasterRecursive
 - Prediction interval: [0.1, 0.9] (80% nominal coverage)
 - Interval method: bootstrapping
 - Primary metric: mean_absolute_scaled_error
-- Plan: ForecasterRecursiveMultiSeries + Ridge. Lags: [1, 2, 3, 4, 5, 7]. Window features: ['mean(window=3)', 'std(window=3)', 'mean(window=7)', 'mean(window=21)']. Calendar features: ['day_of_week', 'weekend', 'month'] (cyclical encoding). Prediction intervals via bootstrapping. MASE is scale-independent, enabling fair comparison across differently-scaled series.
+- Plan: ForecasterRecursiveMultiSeries + Ridge. Lags: [1, 2, 3, 4, 5, 7]. Window features: ['mean(window=3)', 'std(window=3)', 'mean(window=7)', 'mean(window=21)']. Calendar features: ['day_of_week', 'weekend', 'month'] (cyclical encoding). Prediction intervals via bootstrapping. MASE is scale-independent, enabling fair comparison across differently-scaled series. MAPE is not computed: it divides each error by the actual value, and the target takes values at or around zero in series 'store_a' (from 0 to 99).
 </forecast_plan>
 <backtesting_strategy>
 - steps: 5
@@ -39,15 +39,15 @@ The dataset contains 2 series, so a multi-series forecaster (ForecasterRecursive
 - n_folds: 6
 </backtesting_strategy>
 <deterministic_summary>
-Backtested with 6 folds of 5 steps each, starting from an initial training window of 70 observations, without refitting. Results (average across series): mean_absolute_error: 18.0000, mean_squared_error: 525.3750, mean_absolute_scaled_error: 1.0500. Prediction interval [0.1, 0.9] (nominal coverage 80 %), share of the actual values inside it (coverage) and mean width in the units of each series (interval_width), by series: 'store_a' 80 % of 20 predictions, width 40.0000; 'store_b' 45 % of 20 predictions, width 60.0000; average across series 62.5 %, width 50.0000.
+Backtested with 6 folds of 5 steps each, starting from an initial training window of 70 observations, without refitting. Results (average across series): mean_absolute_error: 18.0000, root_mean_squared_error: 21.1330, mean_absolute_scaled_error: 1.0500. Prediction interval [0.1, 0.9] (nominal coverage 80 %), share of the actual values inside it (coverage) and mean width in the units of each series (interval_width), by series: 'store_a' 80 % of 20 predictions, width 40.0000; 'store_b' 45 % of 20 predictions, width 60.0000; average across series 62.5 %, width 50.0000.
 </deterministic_summary>
 <evaluation_metrics>
-          levels  mean_absolute_error  mean_squared_error  mean_absolute_scaled_error  coverage  interval_width
-         store_a                 10.5             150.250                        0.70     0.800            40.0
-         store_b                 25.5             900.500                        1.40     0.450            60.0
-         average                 18.0             525.375                        1.05     0.625            50.0
-weighted_average                 18.0             525.375                        1.05     0.625            50.0
-         pooling                 18.0             525.375                        1.05     0.625            50.0
+          levels  mean_absolute_error  root_mean_squared_error  mean_absolute_scaled_error  coverage  interval_width
+         store_a                 10.5                  12.2577                        0.70     0.800            40.0
+         store_b                 25.5                  30.0083                        1.40     0.450            60.0
+         average                 18.0                  21.1330                        1.05     0.625            50.0
+weighted_average                 18.0                  21.1330                        1.05     0.625            50.0
+         pooling                 18.0                  22.9211                        1.05     0.625            50.0
 </evaluation_metrics>
 <predictions>
 Shape: 40 rows x 4 columns

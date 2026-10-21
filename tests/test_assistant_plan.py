@@ -595,10 +595,12 @@ def test_plan_output_when_baseline_forecaster():
     assert plan.explanation == (
         "Plan: ForecasterEquivalentDate. No lag or window features: the "
         "baseline repeats past values and learns nothing from the data. MAE "
-        "is interpretable, robust to outliers, and works at any scale. "
-        "Baseline: seasonal naive, each step repeats the value observed 7 "
-        "steps earlier (one seasonal period). Exogenous variables ['promo'] "
-        "are not used: the baseline only repeats past target values."
+        "is interpretable, robust to outliers, and works at any scale. MAPE "
+        "is not computed: it divides each error by the actual value, and the "
+        "target takes values at or around zero (from 0 to 99). Baseline: "
+        "seasonal naive, each step repeats the value observed 7 steps "
+        "earlier (one seasonal period). Exogenous variables ['promo'] are "
+        "not used: the baseline only repeats past target values."
     )
 
 
@@ -1711,7 +1713,7 @@ def test_plan_output_default_panel_without_mape_when_target_crosses_zero(
     """
     Test that the default panel leaves MAPE out, without a warning, when the
     target of a series crosses zero (the minimum is negative), also when
-    only one series of several does.
+    only one series of several does, and that the explanation says why.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=data, target=target, date_column="date")
@@ -1723,10 +1725,82 @@ def test_plan_output_default_panel_without_mape_when_target_crosses_zero(
     assert plan.metric == expected_metric
     assert plan.metrics_to_compute == [
         "mean_absolute_error",
-        "mean_squared_error",
+        "root_mean_squared_error",
         "mean_absolute_scaled_error",
     ]
     assert plan.warnings == []
+    assert (
+        " MAPE is not computed: it divides each error by the actual value, "
+        "and the target takes values at or around zero"
+    ) in plan.explanation
+
+
+def test_plan_output_default_panel_with_rmse_and_mape_when_target_positive():
+    """
+    Test that the default panel of a positive target is MAE, RMSE, MASE and
+    MAPE, without MSE, and that the explanation says nothing about MAPE.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_single_positive, target="sales", date_column="date"
+    )
+
+    plan = assistant.plan(profile, steps=6)
+
+    assert plan.metric == "mean_absolute_error"
+    assert plan.metrics_to_compute == [
+        "mean_absolute_error",
+        "root_mean_squared_error",
+        "mean_absolute_scaled_error",
+        "mean_absolute_percentage_error",
+    ]
+    assert "MAPE" not in plan.explanation
+
+
+@pytest.mark.parametrize(
+    "metric",
+    [
+        "mean_squared_log_error",
+        ["mean_absolute_error", "mean_squared_log_error"],
+    ],
+    ids=["primary", "also computed"],
+)
+def test_plan_ValueError_when_msle_requested_and_target_below_minus_one(metric):
+    """
+    Test that MSLE on a target with values at or below -1, which sklearn
+    rejects when the script runs, raises `ValueError` with `field='metric'`
+    when the plan is built.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_crossing_zero, target="profit", date_column="date"
+    )
+
+    err_msg = re.escape(
+        "`mean_squared_log_error` cannot be computed on this data: it takes "
+        "the logarithm of 1 plus each value, so it needs values above -1, "
+        "and the target has values down to -10. Use a metric without a "
+        "logarithm, such as `mean_absolute_error` or "
+        "`root_mean_squared_error`."
+    )
+    with pytest.raises(ValueError, match=err_msg) as info:
+        assistant.plan(profile, steps=6, metric=metric)
+
+    assert info.value.field == "metric"
+
+
+def test_plan_output_when_msle_requested_and_target_positive():
+    """
+    Test that MSLE on a positive target is computed as requested.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_single_positive, target="sales", date_column="date"
+    )
+
+    plan = assistant.plan(profile, steps=6, metric="mean_squared_log_error")
+
+    assert plan.metrics_to_compute == ["mean_squared_log_error"]
 
 
 @pytest.mark.parametrize(

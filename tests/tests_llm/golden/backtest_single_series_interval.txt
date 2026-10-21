@@ -25,7 +25,7 @@ A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 100 ob
 - Prediction interval: [0.1, 0.9] (80% nominal coverage)
 - Interval method: bootstrapping
 - Primary metric: mean_absolute_error
-- Plan: ForecasterRecursive + Ridge. Lags: [1, 2, 3, 4, 5, 7]. Window features: ['mean(window=3)', 'std(window=3)', 'mean(window=7)', 'mean(window=21)']. Calendar features: ['day_of_week', 'weekend', 'month'] (cyclical encoding). Prediction intervals via bootstrapping. MAE is interpretable, robust to outliers, and works at any scale.
+- Plan: ForecasterRecursive + Ridge. Lags: [1, 2, 3, 4, 5, 7]. Window features: ['mean(window=3)', 'std(window=3)', 'mean(window=7)', 'mean(window=21)']. Calendar features: ['day_of_week', 'weekend', 'month'] (cyclical encoding). Prediction intervals via bootstrapping. MAE is interpretable, robust to outliers, and works at any scale. MAPE is not computed: it divides each error by the actual value, and the target takes values at or around zero (from 0 to 99).
 
 Note: A validated Python script implementing this plan is generated separately. Do not generate code yourself.
 </forecast_plan>
@@ -38,11 +38,11 @@ Note: A validated Python script implementing this plan is generated separately. 
 - n_folds: 6
 </backtesting_strategy>
 <deterministic_summary>
-Backtested with 6 folds of 5 steps each, starting from an initial training window of 70 observations, without refitting. Results: mean_absolute_error: 12.5000, mean_squared_error: 231.2500, mean_absolute_scaled_error: 0.8000. Prediction interval [0.1, 0.9] (nominal coverage 80 %): 77.5 % of the 40 actual values fell inside it (coverage: 0.7750), with a mean width of 40.0000 in the units of the target (interval_width).
+Backtested with 6 folds of 5 steps each, starting from an initial training window of 70 observations, without refitting. Results: mean_absolute_error: 12.5000, root_mean_squared_error: 15.2069, mean_absolute_scaled_error: 0.8000. Prediction interval [0.1, 0.9] (nominal coverage 80 %): 77.5 % of the 40 actual values fell inside it (coverage: 0.7750), with a mean width of 40.0000 in the units of the target (interval_width).
 </deterministic_summary>
 <evaluation_metrics>
- mean_absolute_error  mean_squared_error  mean_absolute_scaled_error  coverage  interval_width
-                12.5              231.25                         0.8     0.775            40.0
+ mean_absolute_error  root_mean_squared_error  mean_absolute_scaled_error  coverage  interval_width
+                12.5                  15.2069                         0.8     0.775            40.0
 </evaluation_metrics>
 <predictions>
 Total rows: 40. Only the first 5 and last 5 rows are shown; the 30 interior rows were not provided. Do not describe trends, growth, or progression across the horizon from these rows, and do not compare an early row against a late row as if they were adjacent. Use the per-column summary below for any statement about the full set of rows.

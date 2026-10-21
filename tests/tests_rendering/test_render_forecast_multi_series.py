@@ -31,7 +31,7 @@ def test_render_forecast_multi_series_output_when_wide_format():
 
     expected = (
         "import pandas as pd\n"
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n"
         "from skforecast.metrics import mean_absolute_scaled_error\n"
         "from lightgbm import LGBMRegressor\n"
         "from skforecast.recursive import ForecasterRecursiveMultiSeries\n"
@@ -76,7 +76,7 @@ def test_render_forecast_multi_series_output_when_wide_format():
         "    metrics_list.append({\n"
         '        "levels": series_name,\n'
         '        "mean_absolute_error": mean_absolute_error(actual, pred),\n'
-        '        "mean_squared_error": mean_squared_error(actual, pred),\n'
+        '        "root_mean_squared_error": root_mean_squared_error(actual, pred),\n'
         '        "mean_absolute_scaled_error": mean_absolute_scaled_error(\n'
         "            actual, pred, y_train=series_dict_train[series_name]\n"
         "        ),\n"
@@ -102,7 +102,7 @@ def test_render_forecast_multi_series_output_when_long_format():
 
     expected = (
         "import pandas as pd\n"
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n"
         "from skforecast.metrics import mean_absolute_scaled_error\n"
         "from lightgbm import LGBMRegressor\n"
         "from skforecast.preprocessing import reshape_series_long_to_dict\n"
@@ -153,7 +153,7 @@ def test_render_forecast_multi_series_output_when_long_format():
         "    metrics_list.append({\n"
         '        "levels": series_name,\n'
         '        "mean_absolute_error": mean_absolute_error(actual, pred),\n'
-        '        "mean_squared_error": mean_squared_error(actual, pred),\n'
+        '        "root_mean_squared_error": root_mean_squared_error(actual, pred),\n'
         '        "mean_absolute_scaled_error": mean_absolute_scaled_error(\n'
         "            actual, pred, y_train=series_dict_train[series_name]\n"
         "        ),\n"
@@ -182,7 +182,7 @@ def test_render_forecast_multivariate_output_when_wide_format():
 
     expected = (
         "import pandas as pd\n"
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n"
         "from skforecast.metrics import mean_absolute_scaled_error\n"
         "from lightgbm import LGBMRegressor\n"
         "from skforecast.direct import ForecasterDirectMultiVariate\n"
@@ -219,7 +219,7 @@ def test_render_forecast_multivariate_output_when_wide_format():
         "# Evaluate on test set\n"
         "actual = data_test['series_a'].iloc[:steps]\n"
         "mae = mean_absolute_error(actual, predictions['pred'])\n"
-        "mse = mean_squared_error(actual, predictions['pred'])\n"
+        "rmse = root_mean_squared_error(actual, predictions['pred'])\n"
         "mase = mean_absolute_scaled_error(\n"
         "    y_true  = actual,\n"
         "    y_pred  = predictions['pred'],\n"
@@ -227,7 +227,7 @@ def test_render_forecast_multivariate_output_when_wide_format():
         ")\n"
         "\n"
         'print(f"MAE  : {mae:.4f}")\n'
-        'print(f"MSE  : {mse:.4f}")\n'
+        'print(f"RMSE : {rmse:.4f}")\n'
         'print(f"MASE : {mase:.4f}")\n'
         "\n"
         "# NOTE: This script uses a train/test split for demonstration purposes.\n"
@@ -249,7 +249,7 @@ def test_render_forecast_multi_series_output_when_wide_format_with_exog():
 
     expected = (
         "import pandas as pd\n"
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n"
         "from skforecast.metrics import mean_absolute_scaled_error\n"
         "from lightgbm import LGBMRegressor\n"
         "from skforecast.recursive import ForecasterRecursiveMultiSeries\n"
@@ -298,7 +298,7 @@ def test_render_forecast_multi_series_output_when_wide_format_with_exog():
         "    metrics_list.append({\n"
         '        "levels": series_name,\n'
         '        "mean_absolute_error": mean_absolute_error(actual, pred),\n'
-        '        "mean_squared_error": mean_squared_error(actual, pred),\n'
+        '        "root_mean_squared_error": root_mean_squared_error(actual, pred),\n'
         '        "mean_absolute_scaled_error": mean_absolute_scaled_error(\n'
         "            actual, pred, y_train=series_dict_train[series_name]\n"
         "        ),\n"
@@ -322,7 +322,7 @@ def test_render_forecast_multi_series_output_when_long_format_with_exog():
 
     expected = (
         "import pandas as pd\n"
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n"
         "from skforecast.metrics import mean_absolute_scaled_error\n"
         "from lightgbm import LGBMRegressor\n"
         "from skforecast.preprocessing import reshape_series_long_to_dict, reshape_exog_long_to_dict\n"
@@ -382,7 +382,7 @@ def test_render_forecast_multi_series_output_when_long_format_with_exog():
         "    metrics_list.append({\n"
         '        "levels": series_name,\n'
         '        "mean_absolute_error": mean_absolute_error(actual, pred),\n'
-        '        "mean_squared_error": mean_squared_error(actual, pred),\n'
+        '        "root_mean_squared_error": root_mean_squared_error(actual, pred),\n'
         '        "mean_absolute_scaled_error": mean_absolute_scaled_error(\n'
         "            actual, pred, y_train=series_dict_train[series_name]\n"
         "        ),\n"
@@ -571,7 +571,7 @@ def test_render_forecast_multivariate_output_when_exog_not_used(profile):
 
     expected_evaluation = (
         "import pandas as pd\n"
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n"
         "from skforecast.metrics import mean_absolute_scaled_error\n"
         "from lightgbm import LGBMRegressor\n"
         "from skforecast.direct import ForecasterDirectMultiVariate\n"
@@ -609,7 +609,7 @@ def test_render_forecast_multivariate_output_when_exog_not_used(profile):
         "# Evaluate on test set\n"
         "actual = data_test['series_a'].iloc[:steps]\n"
         "mae = mean_absolute_error(actual, predictions['pred'])\n"
-        "mse = mean_squared_error(actual, predictions['pred'])\n"
+        "rmse = root_mean_squared_error(actual, predictions['pred'])\n"
         "mase = mean_absolute_scaled_error(\n"
         "    y_true  = actual,\n"
         "    y_pred  = predictions['pred'],\n"
@@ -617,7 +617,7 @@ def test_render_forecast_multivariate_output_when_exog_not_used(profile):
         ")\n"
         "\n"
         'print(f"MAE  : {mae:.4f}")\n'
-        'print(f"MSE  : {mse:.4f}")\n'
+        'print(f"RMSE : {rmse:.4f}")\n'
         'print(f"MASE : {mase:.4f}")\n'
         "\n"
         "# NOTE: This script uses a train/test split for demonstration purposes.\n"

@@ -12,8 +12,9 @@ and explain the results; the server decides and computes. Never invent a
 number: every figure you report must come from a response or one of its
 files. Do not derive one either: no percentage, difference or ratio that a
 response does not give ("45% better" from a metric, a margin between two
-candidates), nor a root mean squared error from `mean_squared_error`: pass
-`root_mean_squared_error` in `metric` of `plan` to have it computed.
+candidates), nor a root mean squared error from `mean_squared_error`: the
+default metrics include `root_mean_squared_error`, and a `metric` of `plan`
+of your own can list it.
 
 ## Workflow
 

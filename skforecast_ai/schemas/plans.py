@@ -490,7 +490,7 @@ class ForecastPlan(PickleDefaultsMixin, DisplayMixin, BaseModel):
     metric : str, default 'mean_absolute_error'
         Recommended primary evaluation metric (string name matching
         sklearn/skforecast naming conventions).
-    metrics_to_compute : list, default ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error']
+    metrics_to_compute : list, default ['mean_absolute_error', 'root_mean_squared_error', 'mean_absolute_scaled_error']
         Full list of metrics to evaluate in generated code.
     use_exog : bool, default False
         Whether to include exogenous variables.
@@ -552,7 +552,11 @@ class ForecastPlan(PickleDefaultsMixin, DisplayMixin, BaseModel):
     interval_method: Literal["bootstrapping", "conformal", "native"] | None = None
     metric: str = "mean_absolute_error"
     metrics_to_compute: list[str] = Field(
-        default_factory=lambda: ["mean_absolute_error", "mean_squared_error", "mean_absolute_scaled_error"]
+        default_factory=lambda: [
+            "mean_absolute_error",
+            "root_mean_squared_error",
+            "mean_absolute_scaled_error",
+        ]
     )
     use_exog: bool = False
     preprocessing_steps: list[PreprocessingStep] = Field(default_factory=list)

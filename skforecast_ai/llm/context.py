@@ -508,7 +508,7 @@ def render_dataset_section(
         )
 
     # Scale of the target. Needed to judge MAPE (unreliable near zero) and
-    # to put MAE and MSE in perspective, both rules the role prompt sets.
+    # to put MAE and RMSE in perspective, both rules the role prompt sets.
     for series, stats in _limited(dp.target_stats.items(), MAX_STATS_SERIES):
         if not stats:
             continue
