@@ -1450,7 +1450,8 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
 
 - **D?. 3f-2: los faltantes que quedaron de
   [#105](https://github.com/skforecast/skforecast-ai/pull/105)** (D17)
-  (2026-10-21), en esta PR:
+  (2026-10-21), en
+  [#119](https://github.com/skforecast/skforecast-ai/pull/119):
   - Exógenas de cada fold (`validate_backtest_exog`, en `backtest()` tras
     las comprobaciones del objetivo): con un estimador que no acepta
     faltantes, `DataContentError` (`data`, con `DATA_VALUES_HINT` en el MCP)
