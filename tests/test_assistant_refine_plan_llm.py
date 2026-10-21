@@ -189,6 +189,44 @@ def test_refine_plan_prompt_success(monkeypatch):
     assert call_count["n"] == 1
 
 
+def test_refine_plan_PlanEditsDiscardedWarning_names_lags_refined_by_the_llm(
+    monkeypatch,
+):
+    """
+    Test that lags and window features suggested by the LLM, which count as
+    chosen by the user, are named as refined by the LLM when a later
+    refine_plan() switches to ForecasterStats, which does not take them.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(
+        profile, steps=10, calendar_features=[], target_transformer="none"
+    )
+
+    overrides = PlanOverrides(
+        lags=[1, 2, 7],
+        window_features=[WindowFeature(stats=["mean"], window_size=7)],
+        reasoning="Weekly seasonality drives the 7-lag and 7-window choice.",
+    )
+    agent, _ = _make_fake_agent([overrides])
+    monkeypatch.setattr(assistant, "_plan_refinement_agent", agent)
+    monkeypatch.setattr(assistant, "_resolve_model", _mock_resolve_model)
+    refined = assistant.refine_plan(profile, plan, prompt="Strong weekly cycles.")
+
+    expected = (
+        "refine_plan() left out the values of the plan that ForecasterStats "
+        "does not take: lags=[1, 2, 7] (refined by the LLM), "
+        "window_features=[{'stats': ['mean'], 'window_size': 7}] (refined by "
+        "the LLM), transformer_exog='StandardScaler' (chosen by the rules)."
+    )
+    with pytest.warns(PlanEditsDiscardedWarning) as record:
+        stats = assistant.refine_plan(profile, refined, forecaster="ForecasterStats")
+
+    assert refined.llm_refined_fields == ["lags", "window_features"]
+    assert [str(warning.message) for warning in record] == [expected]
+    assert stats.warnings == [expected]
+
+
 # =============================================================================
 # Tests: Category-A conflict (explicit lags/window_features + prompt)
 # =============================================================================

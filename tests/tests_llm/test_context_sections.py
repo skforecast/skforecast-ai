@@ -38,6 +38,21 @@ profile_categorical = assistant.profile(
     date_column="date",
 )
 plan_categorical = assistant.plan(profile_categorical, steps=5)
+# Data whose exogenous column has missing values, so the profile holds a
+# warning about it; the plan without exogenous variables does not read it.
+profile_exog_missing = assistant.profile(
+    data=df_single.assign(
+        promo=np.where(np.arange(len(df_single)) < 5, np.nan, df_single["promo"])
+    ),
+    target="sales",
+    date_column="date",
+)
+plan_exog_missing = assistant.plan(profile_exog_missing, steps=5)
+plan_exog_missing_no_exog = plan_exog_missing.model_copy(update={"use_exog": False})
+_EXOG_MISSING_WARNING = (
+    "- Data warning: Missing values in exogenous columns: 'promo': 5. An "
+    "estimator that does not accept missing values fails when it reads them."
+)
 
 # `11.5` is an interior value: not the minimum, the maximum, or the mean,
 # so it can only reach the context through a row-level rendering.
@@ -225,6 +240,58 @@ def test_render_dataset_section_reports_categorical_exog():
     section = render_dataset_section(profile_categorical)
 
     assert "- Categorical exogenous columns: weather" in section
+
+
+def test_render_dataset_section_data_warning_of_exog_without_plan():
+    """
+    Test that the warnings about the exogenous columns are rendered when no
+    plan is given.
+    """
+    section = render_dataset_section(profile_exog_missing)
+
+    assert _EXOG_MISSING_WARNING in section
+
+
+def test_render_dataset_section_data_warning_of_exog_when_plan_uses_exog():
+    """
+    Test that the warnings about the exogenous columns are rendered for a
+    plan that uses the exogenous variables.
+    """
+    assert plan_exog_missing.use_exog is True
+
+    section = render_dataset_section(profile_exog_missing, plan=plan_exog_missing)
+
+    assert _EXOG_MISSING_WARNING in section
+
+
+def test_render_dataset_section_data_warning_of_exog_left_out_when_plan_has_no_exog():
+    """
+    Test that the warnings about the exogenous columns are not rendered for
+    a plan with `use_exog` False, which never reads them.
+    """
+    section = render_dataset_section(
+        profile_exog_missing, plan=plan_exog_missing_no_exog
+    )
+
+    assert "- Data warning:" not in section
+    assert "Missing values in exogenous columns" not in section
+
+
+def test_build_context_message_data_warning_of_exog_follows_the_plan():
+    """
+    Test that build_context_message passes the plan to the dataset section:
+    the warning about the exogenous columns is rendered with a plan that
+    uses them and left out with one that does not.
+    """
+    with_exog = build_context_message(
+        profile=profile_exog_missing, plan=plan_exog_missing
+    )
+    without_exog = build_context_message(
+        profile=profile_exog_missing, plan=plan_exog_missing_no_exog
+    )
+
+    assert _EXOG_MISSING_WARNING in with_exog
+    assert "- Data warning:" not in without_exog
 
 
 def test_render_profile_decision_section_reports_temporal_structure():
