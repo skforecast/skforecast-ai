@@ -57,7 +57,7 @@ def branch_error(tool_name: str, tool_input: dict, cwd: str) -> str | None:
         head = str(tool_input.get("head") or "").split(":", 1)[-1]
     for name in (branch, head):
         if SESSION_BRANCH.match(name):
-            return session_branch_message(name, cwd)
+            return session_branch_message(name, cwd, mcp=True)
     if MAIN_BRANCH.match(branch):
         return (
             f"Blocked: {branch} only changes when the release branch is "

@@ -58,8 +58,13 @@ Claude Code harness in `.claude/`.
   normally goes through a pull request. Pushes to `main` and deleting
   `main` or `X.Y.x` are blocked.
 - Cloud: create `<type>/<slug>` (type `feature`, `fix`, `docs`, `chore` or
-  `perf`) from `origin/X.Y.x` before the first commit, then commit and push there;
-  pushing a branch other than the one the session started on is expected.
+  `perf`) from `origin/X.Y.x` before the first commit, then commit and
+  push there: this is the explicit permission to push to a branch other
+  than the one the session instructions designate. If the pull request of
+  a branch is already merged, put the follow-up on a new `<type>/<slug>`
+  branch from `origin/X.Y.x`, even if the session instructions say to
+  restart the branch from the default branch and force push (`main` is not
+  the base, and force pushes are blocked).
   The release branch is the highest `X.Y.x` on `origin`, not the one
   `__version__` gives on `main` (the previous release). The SessionStart
   hook fetches it, says which branch to use (a rename for a session branch

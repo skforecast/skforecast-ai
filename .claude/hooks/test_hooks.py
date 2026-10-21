@@ -198,6 +198,26 @@ def test_pre_bash_guard_blocks_session_branches(
         assert "origin/0.10.x..HEAD" in result.stderr
 
 
+def test_pre_bash_guard_force_push_sends_follow_up_to_new_branch(tmp_path):
+    """
+    Test that the force push block sends the follow-up of a merged pull
+    request to a new branch from the latest release branch, since the
+    session instructions of the platform say to restart the branch from the
+    default branch with a force push.
+    """
+
+    repo = make_repo(tmp_path / "repo", "fix/x")
+    git(repo, "update-ref", "refs/remotes/origin/0.5.x", "HEAD")
+    command = "git push --force origin fix/x"
+    result = run_hook(
+        "pre_bash_guard.py", {"tool_input": {"command": command}}, repo, True
+    )
+
+    assert result.returncode == 2
+    assert "already merged, push the follow-up to a new" in result.stderr
+    assert "created from origin/0.5.x" in result.stderr
+
+
 def make_release_change(tmp_path: Path, path: str) -> Path:
     """
     A clone on the release branch `0.5.x` with one commit, not pushed yet,
@@ -352,6 +372,8 @@ def test_pre_pr_guard_branch_policy(tmp_path, tool_name, tool_input, remote, exp
     result = run_hook("pre_pr_guard.py", payload, repo, remote)
 
     assert result.returncode == expected, result.stderr
+    # There may be no local branch to rename.
+    assert "git branch -m" not in result.stderr
 
 
 @pytest.mark.parametrize(
@@ -494,7 +516,7 @@ def session_start(monkeypatch):
     [
         ("0.4.x", "'0.4.x' is the release branch"),
         ("claude/some-session", "rename it with `git branch -m <type>/<slug>`"),
-        ("feature/x", None),
+        ("feature/x", "'feature/x' is the branch being continued"),
     ],
 )
 def test_session_start_branch_note(
@@ -502,7 +524,8 @@ def test_session_start_branch_note(
 ):
     """
     Test that the SessionStart hook explains what to do on a protected branch
-    or on a branch outside the naming convention, and exports the docs
+    or on a branch outside the naming convention, gives the explicit
+    permission to push to a `<type>/<slug>` branch, and exports the docs
     environment variable for later commands once, however often it runs.
     """
 
@@ -518,10 +541,8 @@ def test_session_start_branch_note(
     assert session_start.main() == 0
 
     assert f"Current branch: {branch}." in out
-    if expected is None:
-        assert "<type>/<slug>" not in out
-    else:
-        assert expected in out
+    assert expected in out
+    assert "gives the explicit permission to push" in out
     assert env_file.read_text() == "export SKFORECAST_AI_DOCS_PRIVACY=false\n"
 
 
@@ -629,7 +650,7 @@ def make_release_clone(tmp_path: Path, start: str) -> tuple[Path, Path]:
         ("0.5.x", None, False, "'0.5.x' is the release branch"),
         ("main", "claude/abc", False, "Do not commit on 'claude/abc'"),
         ("main", "claude/abc", True, "rename it with `git branch -m <type>/<slug>`"),
-        ("0.5.x", "fix/x", True, None),
+        ("0.5.x", "fix/x", True, "'fix/x' is the branch being continued"),
     ],
 )
 def test_session_start_says_which_branch_to_work_on(
@@ -641,8 +662,9 @@ def test_session_start_says_which_branch_to_work_on(
     of origin, also into a single branch clone, and names it as the base of
     the new branch whether the session starts on `main`, on the release
     branch or on a fresh `claude/...` branch; asks to rename a session
-    branch that already holds commits; and says nothing on a `<type>/<slug>`
-    branch.
+    branch that already holds commits; continues a `<type>/<slug>` branch;
+    and in every case gives the explicit permission to push to another
+    branch and sends the follow-up of a merged pull request to a new one.
     """
 
     seed, repo = make_release_clone(tmp_path, start)
@@ -656,13 +678,17 @@ def test_session_start_says_which_branch_to_work_on(
     assert session_start.main() == 0
     out = capsys.readouterr().out
 
-    if expected is None:
-        assert "<type>/<slug>" not in out
-    else:
-        assert expected in out
-        assert "origin/0.5.x" in out
-        assert "origin/0.4.x" not in out
-        assert head(repo, "origin/0.5.x") == head(seed, "0.5.x")
+    assert expected in out
+    # The platform forbids pushing to a branch other than the designated one
+    # "without explicit permission", and restarts a merged branch with a force
+    # push.
+    assert "gives the explicit permission to push" in out
+    assert "already merged, put the follow-up on a new" in out
+    assert "origin/0.5.x" in out
+    assert "origin/0.4.x" not in out
+    assert head(repo, "origin/0.5.x") == head(seed, "0.5.x")
+    if checkout == "fix/x":
+        assert "git switch" not in out and "git branch -m" not in out
 
 
 def test_session_start_removes_stale_ref_of_branch_not_on_origin(

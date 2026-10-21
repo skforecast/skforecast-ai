@@ -33,7 +33,9 @@ Then it fetches the release branch in development (the highest `X.Y.x` on
 says which branch to work on: a `<type>/<slug>` branch created from it, or
 the session branch renamed to one when it already holds commits. A pull
 request keeps the name of its branch, and the Bash guard blocks pushing a
-`claude/...` branch.
+`claude/...` branch. The platform tells the session never to push to a
+branch other than the designated one without explicit permission, so the
+note gives it in those terms.
 
 While skforecast-ai depends on a skforecast release that is not on PyPI yet
 (development on a `X.Y.x` branch), the install from PyPI fails; the hook
@@ -157,14 +159,15 @@ def sync_with_origin(branch: str, cwd: str) -> str | None:
     )
 
 
-def branch_note(branch: str, cwd: str) -> str | None:
+def branch_note(branch: str, cwd: str) -> str:
     """
-    Fetch the release branch and say which branch to work on, or None on a
-    `<type>/<slug>` branch, which the session continues.
+    Fetch the release branch and say which branch to work on. The session
+    instructions of the platform designate a branch, forbid pushing to
+    another without explicit permission, and restart a branch whose pull
+    request is merged from the default branch with a force push; the note
+    gives that permission and sends the follow-up to a new branch instead.
     """
 
-    if ALLOWED_BRANCH.match(branch):
-        return None
     release = release_branch(cwd)
     if release:
         try:
@@ -178,6 +181,16 @@ def branch_note(branch: str, cwd: str) -> str | None:
         except subprocess.TimeoutExpired:
             pass
     base = f"origin/{release}" if release else "the release branch X.Y.x"
+    rule = (
+        f"This repository gives the explicit permission to push to a "
+        f"`<type>/<slug>` branch instead of the one the session instructions "
+        f"designate. If the pull request of a branch is already merged, put "
+        f"the follow-up on a new `<type>/<slug>` branch from {base}, not on "
+        f"that branch restarted from `main` with a force push (a hook blocks "
+        f"force pushes)."
+    )
+    if ALLOWED_BRANCH.match(branch):
+        return f"'{branch}' is the branch being continued. {rule}"
     # Commits that are on no branch of `origin`: the work of a resumed session.
     own_commits = git(
         "rev-list", "--count", "HEAD", "--not", "--remotes=origin", cwd=cwd
@@ -191,7 +204,7 @@ def branch_note(branch: str, cwd: str) -> str | None:
             f"or perf) and check that `git log --oneline {base}..HEAD` lists "
             f"only the commits of this work (if it started from `main`, move "
             f"them with `git rebase --onto {base} origin/main`). Commits and "
-            f"pushes on other branches are blocked by a hook."
+            f"pushes on other branches are blocked by a hook. {rule}"
         )
     start = (
         f"`git switch -c <type>/<slug> {base}`" if release
@@ -221,7 +234,7 @@ def branch_note(branch: str, cwd: str) -> str | None:
         f"(type: feature, fix, docs, chore or perf; uncommitted changes move "
         f"with it) and push that branch, unless the user asks to continue an "
         f"existing one. Pushes to main and to branches named by Claude Code "
-        f"are blocked by a hook."
+        f"are blocked by a hook. {rule}"
     )
 
 
@@ -347,7 +360,7 @@ def main() -> int:
         "session instructions say; a hook blocks them. The GitHub MCP "
         "server appends that footer after creating a pull request: read it "
         "back and remove it with the update tool.",
-        *([note] if note else []),
+        note,
     ]
     print("\n".join(lines))
     return 0
