@@ -211,7 +211,8 @@ def configure_cv_with_llm(
     explicitly: that value replaces the one of the LLM, so the suggestion
     is not retried (nor its other parameters lost) for a size that never
     runs. A `skip_folds` for a `ForecasterStats` plan, which `create_cv()`
-    rejects, is retried in the same way unless the caller passed it. Retries up to 2 times on validation failure, then falls back to
+    rejects, is retried in the same way unless the caller passed it.
+    Retries up to 2 times on validation failure, then falls back to
     deterministic defaults with a warning.
 
     Parameters

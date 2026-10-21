@@ -536,7 +536,9 @@ def resolve_default_candidates(
     excluded, backend_note = missing_foundation_backend(profile)
     skipped, skip_folds_note = stats_skip_folds_exclusion(profile, skip_folds)
     candidates = resolve_compare_candidates(
-                     None, profile, exclude=excluded | skipped
+                     candidates = None,
+                     profile    = profile,
+                     exclude    = excluded | skipped,
                  )
     strategy_name = None
     strategy_note = None
