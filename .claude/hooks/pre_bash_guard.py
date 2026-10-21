@@ -54,8 +54,11 @@ ENV_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 # A redirection (`2>&1`, `>log`, `> log`), which is not an argument; group 1 is
 # empty when the target is the next word.
 REDIRECTION = re.compile(r"^(?:\d+|&)?(?:>>?|<<?|>&|<&)(.*)$")
-# `<<EOF`, `<<-EOF`, `<<'EOF'` or `<<"EOF"`; the group is the delimiter.
-HEREDOC_START = re.compile(r"<<-?\s*['\"]?([A-Za-z_][A-Za-z0-9_]*)['\"]?")
+# `<<EOF`, `<<-EOF`, `<<'EOF'` or `<<"EOF"`, not a here-string (`<<<word`);
+# the group is the delimiter.
+HEREDOC_START = re.compile(
+    r"(?<!<)<<(?!<)-?\s*['\"]?([A-Za-z_][A-Za-z0-9_]*)['\"]?"
+)
 # git options that take a separate value before the subcommand.
 GIT_OPTIONS_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace"}
 # `git push` options that take a separate value.

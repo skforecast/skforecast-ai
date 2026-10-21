@@ -99,6 +99,7 @@ SESSION_FOOTER = (
         ("feature/x", "git push --repo origin 0.4.x", False, 2),
         ("feature/x", "git push -o ci.skip origin +feature/x", False, 2),
         ("feature/x", "git push -o ci.skip origin feature/x", False, 0),
+        ("0.4.x", "grep -c x <<<EOF\ngit push origin 0.4.x", False, 2),
         ("0.4.x", "git push origin 2>&1 | tail -3", False, 2),
         ("0.4.x", "git push origin > /tmp/push.log", False, 2),
         ("0.4.x", "git commit -m 'x'", True, 2),
@@ -134,8 +135,8 @@ SESSION_FOOTER = (
 def test_pre_bash_guard_exit_code(tmp_path, branch, command, remote, expected):
     """
     Test that the Bash guard blocks pushes to protected branches (also through
-    HEAD, @, --all, with push options and with the output redirected), every
-    form of force push,
+    HEAD, @, --all, with push options, after a here-string and with the
+    output redirected), every form of force push,
     commits outside the naming
     convention in the cloud (also with a heredoc message), AI attribution in
     commit messages and PR bodies, and the paid context check, and lets the
