@@ -108,7 +108,7 @@ _SKILL_TOKEN_ESTIMATES: dict[str, int] = {
     "backtesting-configuration": 2641,
     "baseline-forecasting": 1929,
     "choosing-a-forecaster": 3034,
-    "complete-api-reference": 12649,
+    "complete-api-reference": 12655,
     "deep-learning-forecasting": 6216,
     "drift-detection": 1249,
     "feature-engineering": 11003,
@@ -119,7 +119,7 @@ _SKILL_TOKEN_ESTIMATES: dict[str, int] = {
     "hyperparameter-optimization": 5893,
     "metric-selection": 6099,
     "prediction-intervals": 4952,
-    "statistical-models": 4264,
+    "statistical-models": 4363,
     "troubleshooting-common-errors": 2587,
 }
 
