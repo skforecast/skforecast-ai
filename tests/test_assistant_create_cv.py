@@ -994,7 +994,7 @@ def test_create_cv_llm_all_retries_fail_deterministic_fallback(monkeypatch):
     assert len(llm_warnings) == 1
 
 
-def _make_cv_params(initial_train_size, reasoning: str) -> CVParams:
+def _make_cv_params(initial_train_size, reasoning: str, skip_folds=None) -> CVParams:
     """Build CVParams around `initial_train_size` with neutral defaults."""
     return CVParams(
         initial_train_size    = initial_train_size,
@@ -1002,15 +1002,18 @@ def _make_cv_params(initial_train_size, reasoning: str) -> CVParams:
         fixed_train_size      = False,
         gap                   = 0,
         fold_stride           = None,
-        skip_folds            = None,
+        skip_folds            = skip_folds,
         allow_incomplete_fold = True,
         reasoning             = reasoning,
     )
 
 
 def _install_fake_cv_agent(monkeypatch, assistant, outputs: list[CVParams]) -> dict:
-    """Install a fake CV agent yielding `outputs` in order (last one repeats)."""
-    call_count = {"n": 0}
+    """
+    Install a fake CV agent yielding `outputs` in order (last one repeats).
+    The returned dict counts the calls (`n`) and keeps the messages (`messages`).
+    """
+    call_count = {"n": 0, "messages": []}
 
     class _FakeResult:
         def __init__(self, params):
@@ -1020,6 +1023,7 @@ def _install_fake_cv_agent(monkeypatch, assistant, outputs: list[CVParams]) -> d
         async def run(self, msg, **kw):
             i = min(call_count["n"], len(outputs) - 1)
             call_count["n"] += 1
+            call_count["messages"].append(msg)
             return _FakeResult(outputs[i])
 
     monkeypatch.setattr(assistant, "_cv_agent", _FakeAgent())
@@ -1485,6 +1489,149 @@ def test_create_cv_output_when_skip_folds_in_range():
     cv = assistant.create_cv(profile, plan, skip_folds=[1, 2]).cv
 
     assert cv.skip_folds == [1, 2]
+
+
+@pytest.mark.parametrize(
+    "skip_folds, shown",
+    [(2, "2"), ([1], "[1]"), ([], "[]")],
+    ids=["integer", "list", "empty_list"],
+)
+def test_create_cv_InvalidInputError_when_forecaster_stats_with_skip_folds(
+    skip_folds, shown
+):
+    """
+    Test that create_cv() rejects any explicit `skip_folds` for a
+    ForecasterStats plan, an empty list included, with `skip_folds` as field:
+    skforecast refits it in every fold and would reject the strategy when
+    the plan is backtested.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(profile, steps=12, forecaster="ForecasterStats")
+
+    err_msg = re.escape(
+        f"`skip_folds={shown}` is not allowed for ForecasterStats: skforecast "
+        f"refits it in every fold and rejects any `skip_folds`, an empty "
+        f"list included. Leave `skip_folds` out to backtest this plan."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.create_cv(profile, plan, skip_folds=skip_folds)
+
+    assert exc_info.value.field == "skip_folds"
+    assert exc_info.value.hint == (
+        "For fewer folds, use a later `initial_train_size` or a larger "
+        "`fold_stride`."
+    )
+
+
+def test_create_cv_output_when_forecaster_is_not_stats_and_skip_folds_given():
+    """
+    Test that a plan that is not ForecasterStats keeps an explicit
+    `skip_folds`, an empty list included.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(profile, steps=12, forecaster="ForecasterRecursive")
+
+    assert assistant.create_cv(profile, plan, skip_folds=[1]).cv.skip_folds == [1]
+    assert assistant.create_cv(profile, plan, skip_folds=[]).cv.skip_folds == []
+
+
+def test_create_cv_llm_retry_then_success_when_stats_with_skip_folds(monkeypatch):
+    """
+    Test that a `skip_folds` suggested by the LLM for a ForecasterStats plan
+    is caught inside the LLM retry loop, the retry message names the issue,
+    and the second suggestion, without it, is used.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(profile, steps=12, forecaster="ForecasterStats")
+
+    calls = _install_fake_cv_agent(
+        monkeypatch,
+        assistant,
+        [
+            _make_cv_params(150, "Skips a fold.", skip_folds=[1]),
+            _make_cv_params(150, "Fixed after retry."),
+        ],
+    )
+
+    result = assistant.create_cv(profile, plan, prompt="Forecast ahead")
+
+    assert calls["n"] == 2
+    assert result.cv.skip_folds is None
+    assert result.cv.initial_train_size == 150
+    assert result.llm_configured is True
+    assert calls["messages"][1] == (
+        "Forecast ahead\n\n[RETRY 1/2] Your previous configuration failed "
+        "validation: `skip_folds=[1]` is not allowed for ForecasterStats: "
+        "skforecast refits it in every fold and rejects any `skip_folds`, an "
+        "empty list included. Set skip_folds to null. The dataset has 204 "
+        "observations and steps=12. Fix the parameters."
+    )
+
+
+def test_create_cv_llm_deterministic_fallback_when_stats_with_skip_folds(
+    monkeypatch
+):
+    """
+    Test that a ForecasterStats plan whose every LLM suggestion has
+    `skip_folds` exhausts the retries and degrades to the deterministic
+    defaults with a UserWarning that names the issue.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(profile, steps=12, forecaster="ForecasterStats")
+
+    calls = _install_fake_cv_agent(
+        monkeypatch,
+        assistant,
+        [_make_cv_params(150, "Skips a fold.", skip_folds=[1])],
+    )
+
+    warn_msg = re.escape(
+        "LLM CV configuration failed after 3 attempts (last error: "
+        "`skip_folds=[1]` is not allowed for ForecasterStats: skforecast "
+        "refits it in every fold and rejects any `skip_folds`, an empty list "
+        "included. Set skip_folds to null). Falling back to deterministic "
+        "defaults."
+    )
+    with pytest.warns(UserWarning, match=warn_msg):
+        result = assistant.create_cv(profile, plan, prompt="Forecast ahead")
+
+    assert calls["n"] == 3
+    assert result.cv.skip_folds is None
+    assert result.llm_configured is False
+
+
+def test_create_cv_InvalidInputError_when_llm_and_explicit_skip_folds_for_stats(
+    monkeypatch
+):
+    """
+    Test that an explicit `skip_folds` for a ForecasterStats plan is not
+    retried with the LLM (it replaces the suggestion): the model is called
+    once and create_cv() raises as it does without a prompt.
+    """
+    assistant = ForecastingAssistant(llm="openai:fake-model")
+    profile = assistant.profile(data=df_h2o, target="x")
+    plan = assistant.plan(profile, steps=12, forecaster="ForecasterStats")
+
+    calls = _install_fake_cv_agent(
+        monkeypatch,
+        assistant,
+        [_make_cv_params(150, "Skips a fold.", skip_folds=[1])],
+    )
+
+    err_msg = re.escape(
+        "`skip_folds=2` is not allowed for ForecasterStats: skforecast refits "
+        "it in every fold and rejects any `skip_folds`, an empty list "
+        "included. Leave `skip_folds` out to backtest this plan."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.create_cv(profile, plan, prompt="Forecast ahead", skip_folds=2)
+
+    assert calls["n"] == 1
+    assert exc_info.value.field == "skip_folds"
 
 
 def test_create_cv_output_when_plan_has_differentiation():

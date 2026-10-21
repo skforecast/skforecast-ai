@@ -1116,3 +1116,41 @@ def test_tool_compare_output_when_interval_adds_coverage_without_changing_rankin
         "and its mean width in the units of the target (interval_width); they "
         "do not change the ranking."
     ) in result["summary"]
+
+
+def test_tool_compare_without_candidates_leaves_stats_out_when_skip_folds(
+    tmp_path, monkeypatch
+):
+    """
+    Test that `compare` without candidates on a strategy with `skip_folds`
+    runs no ForecasterStats, which skforecast refits in every fold and rejects
+    `skip_folds` for: its row is not in the leaderboard, the fits of the
+    cost are those of the other candidates (Ridge 1, ForecasterDirect 12),
+    and a notice and the summary say why.
+    """
+    monkeypatch.setattr(
+        "skforecast_ai.execution.comparison.foundation_backend_installed",
+        lambda info: False,
+    )
+    server, path = h2o_server(tmp_path)
+    _, plan_id = profile_and_plan(server, path, steps=12)
+    cv = content_of(call(server, "create_cv", {"plan_id": plan_id, "skip_folds": 2}))
+
+    result = content_of(call(server, "compare", {"cv_id": cv["id"]}))
+
+    note = (
+        "ForecasterStats left out: the strategy has `skip_folds=2`, which "
+        "skforecast does not allow for it (it refits ForecasterStats in every "
+        "fold)."
+    )
+    leaderboard = text_of(result["files"]["leaderboard"]).splitlines()
+    assert [line.split(",")[2] for line in leaderboard[1:]] == [
+        "ForecasterRecursive", "Baseline (seasonal naive)", "ForecasterDirect",
+    ]
+    assert result["cost"] == {
+        "n_folds": 3, "n_fits": 3, "estimator_fits": 13, "inference_windows": 0
+    }
+    assert [
+        n["message"] for n in result["notices"] if "ForecasterStats" in n["message"]
+    ] == [note]
+    assert note in result["summary"]

@@ -1050,3 +1050,139 @@ def test_tool_create_cv_notice_of_few_residuals_of_a_series_that_starts_later(
             count    = 1,
         )
     ]
+
+
+@pytest.mark.parametrize(
+    "fixed_train_size, refit, shown",
+    [
+        (True, None, "null"),
+        (False, None, "null"),
+        (True, False, "false"),
+        (False, False, "false"),
+    ],
+    ids=lambda dt: f"{dt}",
+)
+def test_tool_create_cv_invalid_argument_when_fixed_train_size_without_refit(
+    tmp_path, fixed_train_size, refit, shown
+):
+    """
+    Test that a `fixed_train_size` (true or false) with `refit` null or false
+    for a plan that is not ForecasterStats is `invalid_argument` on
+    `fixed_train_size`, with a message that names the `refit` it got and a
+    hint that says how to refit or to leave it out, and that nothing is
+    registered.
+    """
+    server, _, _, plan_id = _planned(tmp_path, steps=12)
+
+    error = error_of(
+        call(
+            server, "create_cv",
+            {"plan_id": plan_id, "fixed_train_size": fixed_train_size, "refit": refit},
+        ),
+        "create_cv",
+    )
+
+    kinds = [o["kind"] for o in content_of(call(server, "list_objects", {}))["objects"]]
+    assert (error["code"], error["field"]) == ("invalid_argument", "fixed_train_size")
+    assert error["message"] == (
+        f"`fixed_train_size` has no effect with `refit` {shown}: "
+        f"ForecasterRecursive is not refitted between folds, so there is no "
+        f"training window to keep or grow."
+    )
+    assert error["hint"] == (
+        "Pass `refit: true` (or an integer) to refit it, with a fixed (true) or "
+        "growing (false) window, or leave `fixed_train_size` out."
+    )
+    assert kinds == ["plan", "profile"]
+
+
+@pytest.mark.parametrize(
+    "plan_arguments, cv_arguments",
+    [
+        ({"steps": 12}, {"fixed_train_size": True, "refit": True}),
+        ({"steps": 12}, {"fixed_train_size": False, "refit": True}),
+        ({"steps": 12}, {"fixed_train_size": True, "refit": 2}),
+        ({"steps": 12}, {"fixed_train_size": False, "refit": 2}),
+        ({"steps": 12}, {"refit": False}),
+        ({"steps": 12, "forecaster": "ForecasterStats"}, {"fixed_train_size": True}),
+    ],
+    ids=lambda dt: f"{dt}",
+)
+def test_tool_create_cv_fixed_train_size_accepted_when_refit_or_stats(
+    tmp_path, plan_arguments, cv_arguments
+):
+    """
+    Test that `fixed_train_size` is accepted when the strategy refits (`refit`
+    true or an integer, with a fixed or a growing window) and for a
+    ForecasterStats plan with `refit` null, which skforecast refits in every
+    fold, and that a strategy without `fixed_train_size` is not affected by
+    `refit` false.
+    """
+    server, _, _, plan_id = _planned(tmp_path, **plan_arguments)
+
+    result = content_of(
+        call(server, "create_cv", {"plan_id": plan_id, **cv_arguments})
+    )
+
+    assert result["kind"] == "cv"
+    assert result["links"]["plan_id"] == plan_id
+
+
+@pytest.mark.parametrize(
+    "skip_folds, shown",
+    [(2, "2"), ([], "[]"), ([1, 3], "[1, 3]")],
+    ids=lambda dt: f"{dt}",
+)
+def test_tool_create_cv_invalid_argument_when_skip_folds_of_a_stats_plan(
+    tmp_path, skip_folds, shown
+):
+    """
+    Test that any `skip_folds` (an integer, an empty list or a list of folds)
+    for a ForecasterStats plan, which skforecast refits in every fold and
+    rejects it for, is `invalid_argument` on `skip_folds`, with a hint that
+    names the ways to run fewer folds, and that nothing is registered.
+    """
+    server, _, _, plan_id = _planned(tmp_path, steps=12, forecaster="ForecasterStats")
+
+    error = error_of(
+        call(server, "create_cv", {"plan_id": plan_id, "skip_folds": skip_folds}),
+        "create_cv",
+    )
+
+    kinds = [o["kind"] for o in content_of(call(server, "list_objects", {}))["objects"]]
+    assert (error["code"], error["field"]) == ("invalid_argument", "skip_folds")
+    assert error["message"] == (
+        f"`skip_folds={shown}` is not allowed for ForecasterStats: skforecast "
+        f"refits it in every fold and rejects any `skip_folds`, an empty list "
+        f"included. Leave `skip_folds` out to backtest this plan."
+    )
+    assert error["hint"] == (
+        "For fewer folds, use a later `initial_train_size` or a larger "
+        "`fold_stride`."
+    )
+    assert kinds == ["plan", "profile"]
+
+
+def test_tool_create_cv_compare_cost_leaves_stats_out_when_skip_folds(
+    tmp_path, monkeypatch
+):
+    """
+    Test that the cost of a `compare` without candidates on a strategy with
+    `skip_folds` of a recursive plan does not count ForecasterStats, which
+    the profile of h2o lists as a candidate and skforecast would reject: the
+    default strategy (6 folds) fits Ridge 1, ForecasterDirect 12 and
+    ForecasterStats 6 estimators, and with `skip_folds=2` (folds 0, 2 and 4)
+    only the first two.
+    """
+    monkeypatch.setattr(
+        "skforecast_ai.execution.comparison.foundation_backend_installed",
+        lambda info: False,
+    )
+    server, _, _, plan_id = _planned(tmp_path, steps=12)
+
+    without = content_of(call(server, "create_cv", {"plan_id": plan_id}))
+    skipping = content_of(call(server, "create_cv", {"plan_id": plan_id, "skip_folds": 2}))
+
+    assert without["cost"]["compare_estimator_fits"] == 19
+    assert skipping["cost"]["n_folds"] == 3
+    assert skipping["cost"]["compare_estimator_fits"] == 13

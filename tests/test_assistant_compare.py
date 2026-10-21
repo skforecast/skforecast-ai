@@ -1309,6 +1309,42 @@ def test_compare_LongTrainingWarning_when_automatic_candidate_exceeds_fit_budget
     assert result.explanation.endswith(budget_note)
 
 
+def test_compare_UserWarning_when_automatic_stats_and_strategy_skips_folds():
+    """
+    Test that compare() without candidates leaves ForecasterStats out when
+    the strategy has `skip_folds`, which skforecast does not allow for it,
+    warns with UserWarning and records the reason in the explanation, instead
+    of failing the candidate. ForecasterRecursive runs with the skipped
+    folds.
+    """
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    profile.forecaster_candidates = ["ForecasterRecursive", "ForecasterStats"]
+    profile.estimator_candidates = ["Ridge"]
+    cv = TimeSeriesFold(
+        steps=5, initial_train_size=70, skip_folds=[1], verbose=False
+    )
+
+    skip_folds_note = (
+        "ForecasterStats left out: the strategy has `skip_folds=[1]`, which "
+        "skforecast does not allow for it (it refits ForecasterStats in every "
+        "fold)."
+    )
+    with pytest.warns(UserWarning, match=re.escape(skip_folds_note)):
+        result = assistant.compare(
+            data          = df_no_exog,
+            cv            = cv,
+            target        = "sales",
+            date_column   = "date",
+            profile       = profile,
+            show_progress = False,
+            baseline      = False,
+        )
+
+    assert list(result.results["name"]) == ["ForecasterRecursive"]
+    assert result.failures == {}
+    assert result.explanation.endswith(skip_folds_note)
+
+
 def test_compare_LongTrainingWarning_when_automatic_stats_exceeds_fit_budget(
     monkeypatch,
 ):
@@ -1778,6 +1814,35 @@ def test_build_comparison_explanation_notes_stats_is_refitted_in_every_fold(
         f"refitted in every fold on a {window} window (6 trainings): "
         "skforecast requires it for ARIMA models. Best: 'stats'"
     ) in explanation
+
+
+def test_build_comparison_explanation_notes_stats_left_out_for_skip_folds():
+    """
+    Test that the explanation ends with the note of the `skip_folds` that
+    left ForecasterStats out of the automatic candidates, after the sentence
+    of the best configuration.
+    """
+    ranked = [
+        _ranked_entry("recursive", "ForecasterRecursive", 1.0),
+        _ranked_entry("direct", "ForecasterDirect", 2.0),
+    ]
+    skip_folds_note = (
+        "ForecasterStats left out: the strategy has `skip_folds=[1]`, which "
+        "skforecast does not allow for it (it refits ForecasterStats in every "
+        "fold)."
+    )
+
+    explanation = build_comparison_explanation(
+        n_candidates    = 2,
+        ranked          = ranked,
+        ranking_metric  = "mean_absolute_error",
+        any_error       = False,
+        cv_explanation  = "Folds.",
+        skip_folds_note = skip_folds_note,
+    )
+
+    assert explanation.endswith(skip_folds_note)
+    assert explanation.count(skip_folds_note) == 1
 
 
 # =============================================================================
