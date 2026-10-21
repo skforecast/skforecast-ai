@@ -439,15 +439,28 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
    con cotas iguales y lo cuenta (pendiente desde `96f4cdc`). El escenario
    `expensive_run` gana un check que marque un `confirm_cost` pasado antes
    de que el usuario conteste (4b, #113).
-3. Comprobaciones a mano (abajo).
-4. skforecast 0.27.0 publicado con todo lo de "Dependencia de skforecast
+3. Los datos de las animaciones de la portada y de la documentación
+   (`tools/docs/home_page/generate_home_data.py`, que escribe
+   `docs/overrides/partials/home-data.json` y los `*-data.js` de
+   `docs/animations/`) no se pueden regenerar: el script para cuando una
+   cifra citada en las respuestas de `ask()` escritas a mano ya no cuadra,
+   y en `0.5.x` el MAE del backtest pasó de 49.5 a 45.8 (visto en #117,
+   también sin ella). La causa probable son los cambios de skforecast 0.27
+   (el modelo congelado de ForecasterStats, #1425; los folds saltados,
+   #1427) y los de esta release. Hay que volver a escribir a mano esas
+   respuestas con las cifras nuevas (no se graban de un modelo) y
+   regenerar los datos, también los de `generate_agent_session_data.py` y
+   `generate_mcp_overview_data.py` si cambian, después de que el
+   comportamiento quede cerrado.
+4. Comprobaciones a mano (abajo).
+5. skforecast 0.27.0 publicado con todo lo de "Dependencia de skforecast
    0.27.0" resuelto, `/sync-skforecast-assets` (lo lanzas tú) y la suite
    contra la 0.27.0 de PyPI. `pyproject.toml` pide ya `skforecast>=0.27.0`
    (2026-10-18): hasta que esté en PyPI, las sesiones en la nube instalan
    skforecast de su rama `0.27.x` y el entorno local también.
-5. `/release-note consolidate`, bump de versión (`/release-bump`) y
+6. `/release-note consolidate`, bump de versión (`/release-bump`) y
    publicación.
-6. Tras publicar: Deploy y Make Release en Glama y apuntar el TDQS nuevo
+7. Tras publicar: Deploy y Make Release en Glama y apuntar el TDQS nuevo
    (paso 8 del plan de descripciones).
 
 ## Decisiones tomadas
@@ -1335,8 +1348,16 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     `differentiation` de `CandidateArgs`; las instrucciones del servidor no
     lo nombran. SKILL.md, `docs/api/mcp.md` y la guía de la CLI dicen que
     una estrategia sirve para cualquier orden.
-- **D?. 3f-1: RMSE en el panel por defecto y lo que quedó de #104**
-  (2026-10-21). Concreta D24 y las preguntas 1, 3 y 4 de la revisión de
+- **D27. 3f-1: RMSE en el panel por defecto y lo que quedó de #104**
+  (2026-10-21), en
+  [#117](https://github.com/skforecast/skforecast-ai/pull/117). Revisión:
+  el umbral de MSLE es el de sklearn (un valor `<= -1`, no "cualquier valor
+  negativo" como decía 3f); un plan que llega a `backtest()` o `forecast()`
+  no se vuelve a comprobar contra las métricas (ya se comprobó al crearlo);
+  con ForecasterDirectMultiVariate las reglas de MAPE y MSLE miran todas
+  las series aunque solo se evalúe una, y se deja así; no se propone a
+  skforecast comprobar el dominio de la métrica en `backtesting_forecaster`
+  (skforecast-ai ya lo hace en el plan). Concreta D24 y las preguntas 1, 3 y 4 de la revisión de
   [#104](https://github.com/skforecast/skforecast-ai/pull/104) (D16):
   - Panel por defecto: MAE, `root_mean_squared_error` y MASE, más MAPE
     lejos del cero, en ese orden (RMSE ocupa el sitio del MSE). La métrica
