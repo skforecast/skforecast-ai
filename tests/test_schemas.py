@@ -1316,6 +1316,48 @@ def test_data_profile_ValidationError_when_csv_dialect_not_valid(
         )
 
 
+def test_data_profile_output_when_json_has_no_closed_weekdays():
+    """
+    Test that a profile saved before `closed_weekdays` existed loads without
+    closed days, that the field defaults to an empty list, and that the
+    days survive a JSON round trip.
+    """
+    profile = DataProfile(
+        n_series        = 1,
+        series_lengths  = {"y": 100},
+        target          = "y",
+        index_type      = "datetime",
+        frequency       = "D",
+        has_gaps        = True,
+        closed_weekdays = [5, 6],
+    )
+    saved = profile.model_dump(mode="json")
+    del saved["closed_weekdays"]
+
+    old = DataProfile.model_validate_json(json.dumps(saved))
+    restored = DataProfile.model_validate_json(profile.model_dump_json())
+
+    assert old.closed_weekdays == []
+    assert restored.closed_weekdays == [5, 6]
+    assert restored == profile
+
+
+@pytest.mark.parametrize("weekday", [-1, 7], ids=["negative", "after_sunday"])
+def test_data_profile_ValidationError_when_closed_weekday_not_a_day(weekday):
+    """
+    Test that a day of the week outside 0 (Monday) to 6 (Sunday) raises a
+    ValidationError.
+    """
+    with pytest.raises(ValidationError, match="closed_weekdays"):
+        DataProfile(
+            n_series        = 1,
+            series_lengths  = {"y": 100},
+            target          = "y",
+            index_type      = "datetime",
+            closed_weekdays = [weekday],
+        )
+
+
 def test_data_profile_output_when_json_has_no_csv_thousands():
     """
     Test that a profile saved before `csv_thousands` existed loads without

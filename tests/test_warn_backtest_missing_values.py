@@ -12,6 +12,7 @@ from tests.fixtures_last_window import (
     plan_h2o_lgbm,
     plan_h2o_ridge,
     plan_single_closed_ridge,
+    plan_single_random_gaps_ridge,
     plans_h2o_without_lags,
     profile_h2o,
     profile_h2o_exog,
@@ -19,6 +20,7 @@ from tests.fixtures_last_window import (
     profile_h2o_gaps,
     profile_h2o_missing_target,
     profile_single_closed,
+    profile_single_random_gaps,
     profile_wide,
     plan_wide_ridge,
 )
@@ -48,9 +50,10 @@ TRAINING_ROWS = (
 IMPUTE = " Impute the target to backtest every fold."
 EXOG = (
     "The exogenous column 'promo' has missing values, and ForecasterRecursive "
-    "with Ridge cannot predict from them: `backtest()` fails on a test fold "
-    "whose rows have one, and `dropna_from_series` only drops them from the "
-    "training data. An estimator that accepts missing values (such as "
+    "with Ridge cannot predict from them: `backtest()` checks every test fold "
+    "before running and raises, naming the dates, when the rows it predicts "
+    "have one, and `dropna_from_series` only drops them from the training "
+    "data. An estimator that accepts missing values (such as "
     "'RandomForestRegressor') predicts from them; otherwise, fill them in the "
     "data, after asking the user, or leave it out of `exog_columns` when "
     "profiling."
@@ -154,9 +157,19 @@ def _create_strategy(plan, profile):
                 f"value",
             )
             + TRAINING_ROWS
-            + " If the business is closed on the missing dates, fill them "
-              "with 0 in the data, after asking the user; otherwise, impute "
-              "the target to backtest every fold.",
+            + " If the business is closed on Sundays, fill them with 0 in the "
+              "data, after asking the user, or impute the target to backtest "
+              "every fold.",
+        ),
+        (
+            plan_single_random_gaps_ridge,
+            profile_single_random_gaps,
+            _target(
+                GAPS,
+                f"{HOLDS}; and when a test fold is predicted from one, since "
+                f"ForecasterRecursive with Ridge cannot predict from a missing "
+                f"value",
+            ) + TRAINING_ROWS + IMPUTE,
         ),
     ],
     ids=[
@@ -169,6 +182,7 @@ def _create_strategy(plan, profile):
         "nan_in_exog_ridge",
         "nan_in_target_and_exog_ridge",
         "closed_days_daily",
+        "random_gaps_daily",
     ],
 )
 def test_warn_backtest_missing_values_UserWarning_when_backtest_can_fail_on_them(
@@ -184,7 +198,9 @@ def test_warn_backtest_missing_values_UserWarning_when_backtest_can_fail_on_them
     with LGBMRegressor; a missing exogenous value fails with Ridge, in a
     warning of its own after the one of the target. The estimator offered is the one of the rules for 120 observations
     (RandomForestRegressor), and only where it avoids the error; daily data
-    with missing timestamps gets the advice of the closed days first.
+    whose missing timestamps all fall on a day of the week without dates
+    gets the advice of the closed days, naming the day, and daily data with
+    missing timestamps on other days does not.
     """
     expected = [expected] if isinstance(expected, str) else list(expected)
     # Every warning is compared below: a `match` would re-emit the others.

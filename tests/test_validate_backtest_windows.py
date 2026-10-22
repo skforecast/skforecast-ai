@@ -1,15 +1,21 @@
 # Unit test validate_backtest_windows
 
 import re
+import warnings
 
 import pytest
+from skforecast.exceptions import MissingValuesWarning
 from skforecast.model_selection import TimeSeriesFold
 
+import skforecast_ai.assistant as assistant_module
+from skforecast_ai import ForecastingAssistant
 from skforecast_ai._last_window import validate_backtest_windows
 from skforecast_ai.exceptions import DataContentError, InvalidInputError
 
 from tests.fixtures_last_window import (
+    _assistant,
     cv_h2o,
+    cv_items_sales,
     data_h2o,
     data_h2o_gaps,
     data_h2o_no_training_row,
@@ -22,6 +28,9 @@ from tests.fixtures_last_window import (
     plan_h2o_no_training_row_ridge,
     plan_h2o_ridge,
     plan_single_closed_ridge,
+    plan_wide_multivariate,
+    plan_wide_multivariate_lgbm,
+    plan_wide_multivariate_lgbm_differenced,
     plan_wide_ridge,
     plans_h2o_without_lags,
     profile_h2o,
@@ -30,6 +39,7 @@ from tests.fixtures_last_window import (
     profile_of,
     profile_single_closed,
     profile_wide,
+    wide_missing,
     with_missing,
     without_months,
 )
@@ -320,3 +330,138 @@ def test_validate_backtest_windows_DataContentError_names_closed_days_of_trainin
             plan,
             TimeSeriesFold(steps=3, initial_train_size=40, verbose=False),
         )
+
+
+# =============================================================================
+# Tests: ForecasterDirectMultiVariate
+# =============================================================================
+def _multivariate_message(column, date, why):
+    """Return the error of a missing value that a fold of DMV reads."""
+    return (
+        f"The forecaster reads missing values of the target to predict 1 of "
+        f"the 12 test folds ({column!r}: 1 value(s), such as '{date}'). {why}"
+    )
+
+
+@pytest.mark.parametrize("column", ["item_1", "item_2"], ids=["level", "other_series"])
+def test_validate_backtest_windows_DataContentError_when_multivariate_window_has_missing(
+    column,
+):
+    """
+    Test that a missing value in the window of a fold of
+    ForecasterDirectMultiVariate raises for Ridge, in its level and in any
+    other series: skforecast never leaves a series out of the window, so
+    the predictions of the level would be missing, and its metrics would
+    leave them out without a warning.
+    """
+    data, profile = wide_missing(column, 97)
+
+    expected = _multivariate_message(
+        column, "2012-04-07",
+        "ForecasterDirectMultiVariate with Ridge cannot use them, so its "
+        "predictions would be missing. Either they are filled in, or the plan "
+        "uses an estimator that accepts missing values (such as "
+        "'RandomForestRegressor').",
+    )
+    with pytest.raises(DataContentError, match=re.escape(expected)) as exc_info:
+        validate_backtest_windows(
+            data, profile, plan_wide_multivariate, cv_items_sales()
+        )
+
+    assert (exc_info.value.code, exc_info.value.field) == ("invalid_argument", "data")
+
+
+@pytest.mark.parametrize(
+    "plan, column, position",
+    [
+        (plan_wide_multivariate_lgbm, "item_2", 97),
+        (plan_wide_multivariate_lgbm_differenced, "item_2", 98),
+    ],
+    ids=["lgbm", "lgbm_differentiation_other_series"],
+)
+def test_validate_backtest_windows_UserWarning_when_multivariate_estimator_tolerates(
+    plan, column, position
+):
+    """
+    Test that LGBMRegressor only warns, also with the differentiation when
+    the missing value is the last one of a series other than the level,
+    whose inverse is not computed.
+    """
+    data, profile = wide_missing(column, position)
+
+    expected = (
+        f"The forecaster reads missing values of the target to predict 1 of "
+        f"the 12 test folds ({column!r}: 1 value(s), such as "
+        f"'{data.index[position].date()}'). LGBMRegressor treats them as "
+        f"missing values; check that they are meant to be missing."
+    )
+    with pytest.warns(UserWarning, match=re.escape(expected)):
+        validate_backtest_windows(data, profile, plan, cv_items_sales())
+
+
+def test_validate_backtest_windows_DataContentError_when_multivariate_inverse_reads_missing():
+    """
+    Test that, with the differentiation, the last value of the level before
+    a fold raises whatever the estimator: the inverse of the
+    differentiation starts from it.
+    """
+    data, profile = wide_missing("item_1", 98)
+
+    expected = _multivariate_message(
+        "item_1", "2012-04-08",
+        "The differentiation of ForecasterDirectMultiVariate reads the last 1 "
+        "value(s), so its predictions would be missing. Those values have to "
+        "be filled in before predicting.",
+    )
+    with pytest.raises(DataContentError, match=re.escape(expected)):
+        validate_backtest_windows(
+            data, profile, plan_wide_multivariate_lgbm_differenced, cv_items_sales()
+        )
+
+
+def test_validate_backtest_windows_passes_when_multivariate_missing_is_not_read():
+    """
+    Test that a missing value of ForecasterDirectMultiVariate that no window
+    reads (in the first training rows) passes.
+    """
+    data, profile = wide_missing("item_2", 30)
+
+    assert validate_backtest_windows(
+        data, profile, plan_wide_multivariate, cv_items_sales()
+    ) is None
+
+
+@pytest.mark.parametrize(
+    "plan, column, position, missing",
+    [
+        (plan_wide_multivariate, "item_2", 97, True),
+        (plan_wide_multivariate_lgbm, "item_2", 97, False),
+        (plan_wide_multivariate_lgbm_differenced, "item_1", 98, True),
+        (plan_wide_multivariate_lgbm_differenced, "item_2", 98, False),
+    ],
+    ids=["ridge", "lgbm", "lgbm_differentiation_level", "lgbm_differentiation_other"],
+)
+def test_validate_backtest_windows_matches_skforecast_for_multivariate(
+    monkeypatch, plan, column, position, missing
+):
+    """
+    Test that the backtest of skforecast predicts a missing value of the
+    level, which its metrics leave out without an error, exactly where the
+    check raises (with a tolerant estimator, it only warns).
+    """
+    data, profile = wide_missing(column, position)
+    monkeypatch.setattr(
+        assistant_module, "validate_backtest_windows", lambda **kwargs: None
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=MissingValuesWarning)
+        profile_result = _assistant.profile(data, target=list(data.columns))
+
+    result = ForecastingAssistant().backtest(
+        data, cv=cv_items_sales(), profile=profile_result, plan=plan,
+        show_progress=False,
+    )
+
+    predictions = result.predictions
+    scored = data["item_1"].reindex(predictions.index).notna().to_numpy()
+    assert bool((predictions["pred"].isna().to_numpy() & scored).any()) is missing

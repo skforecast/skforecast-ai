@@ -372,6 +372,7 @@ def test_create_data_profile_output_when_has_gaps_true():
 
     assert profile.frequency == "D"
     assert profile.has_gaps is True
+    assert profile.closed_weekdays == []
     assert profile.warnings == [
         "Missing timestamps: 3 timestamps of frequency 'D' are missing from "
         "the date range. asfreq() inserts them as rows with missing values."
@@ -385,7 +386,8 @@ def test_create_data_profile_output_when_daily_data_closed_on_sundays():
     gaps: the Sundays are counted as missing timestamps, and the warning
     says that they all fall on Sundays, that a forecast predicts Sundays
     too, and that a business closed on them can fill them with 0, after
-    asking the user. In long format, each shop is read on its own range.
+    asking the user. The profile keeps those days (`closed_weekdays`), which
+    `create_cv` names. In long format, each shop is read on its own range.
     """
     dates = pd.date_range("2023-01-02", periods=364, freq="D")
     dates = dates[dates.dayofweek != 6]
@@ -401,6 +403,8 @@ def test_create_data_profile_output_when_daily_data_closed_on_sundays():
 
     assert profile.frequency == "D"
     assert profile.has_gaps is True
+    assert profile.closed_weekdays == [6]
+    assert profile_long.closed_weekdays == [6]
     assert profile.warnings == [
         "Missing timestamps: 51 timestamps of frequency 'D' are missing from "
         "the date range, all of them on Sundays, when the data never has a "
@@ -426,6 +430,7 @@ def test_create_data_profile_output_when_has_gaps_false():
     )
     profile = create_data_profile(df, target="y")
     assert profile.has_gaps is False
+    assert profile.closed_weekdays == []
 
 
 @pytest.mark.parametrize(

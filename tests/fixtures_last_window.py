@@ -314,6 +314,14 @@ def profile_of(data: pd.DataFrame):
     return _assistant.profile(data, target="x").data_profile
 
 
+def profile_of_wide(data: pd.DataFrame):
+    """
+    Return the `DataProfile` of wide-format `data` (every column a series,
+    dates in the index).
+    """
+    return _assistant.profile(data, target=list(data.columns)).data_profile
+
+
 # Months 30, 31 and 75 removed: the first two are read by no fold; the third
 # (2004-10-01) is read by the fold that starts at position 84.
 data_h2o_gaps = without_months(data_h2o, [30, 31, 75])
@@ -368,6 +376,21 @@ plan_single_closed_ridge = _assistant.plan(
     _profile_single_closed, estimator="Ridge", **_single_kwargs
 )
 
+# --- Daily single series with missing timestamps on several days ---
+# data_single without 2023-01-10 (a Tuesday) and 2023-02-02 (a Thursday):
+# frequency 'D' with 2 missing timestamps on days of the week that have
+# dates, so they are not the closed days of D9.
+data_single_random_gaps = data_single.loc[
+    ~data_single["date"].isin(pd.to_datetime(["2023-01-10", "2023-02-02"]))
+].reset_index(drop=True)
+_profile_single_random_gaps = _assistant.profile(
+    data_single_random_gaps, target="y", date_column="date"
+)
+profile_single_random_gaps = _profile_single_random_gaps.data_profile
+plan_single_random_gaps_ridge = _assistant.plan(
+    _profile_single_random_gaps, estimator="Ridge", **_single_kwargs
+)
+
 # --- No training row left (h2o, 120 months) ---
 # The target missing at the positions 13 and 50 (counting from 0). The plan
 # with Ridge reads a rolling mean of 36, whose statistic needs every value of
@@ -387,3 +410,152 @@ plan_h2o_no_training_row_ridge = _assistant.plan(
 plan_h2o_no_training_row_lgbm = _assistant.plan(
     _profile_h2o_no_training_row, steps=12, estimator="LGBMRegressor"
 )
+
+# --- No training row left in a forecast (h2o, 120 months) ---
+# The target missing at the positions 13, 48, 83 and 93 (counting from 0):
+# with the rolling mean of 36 of the plan, every training row of the whole
+# data reads one, and so does every row up to 2007-06-01, the end of the
+# training partition of `test_size=12`. The last window of the plan (the 13
+# values the lags read before a forecast of 12 steps) reads none of them.
+data_h2o_no_forecast_row = with_missing(
+    data_h2o, [120 - position for position in (13, 48, 83, 93)], column="x"
+)
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", category=MissingValuesWarning)
+    _profile_h2o_no_forecast_row = _assistant.profile(
+        data_h2o_no_forecast_row, target="x"
+    )
+profile_h2o_no_forecast_row = _profile_h2o_no_forecast_row.data_profile
+plan_h2o_no_forecast_row_ridge = _assistant.plan(
+    _profile_h2o_no_forecast_row, steps=12
+)
+plan_h2o_no_forecast_row_lgbm = _assistant.plan(
+    _profile_h2o_no_forecast_row, steps=12, estimator="LGBMRegressor"
+)
+
+# --- Missing exogenous values in the test folds of a backtest ---
+# `data_h2o_exog` has 'promo' missing at 1999-05-01 (training rows) and
+# 2006-11-01 (position 100, in the second of the 3 test folds of `cv_h2o()`).
+plan_h2o_exog_direct = _assistant.plan(
+    _profile_h2o_exog, steps=12, forecaster="ForecasterDirect"
+)
+plan_h2o_exog_stats = _assistant.plan(
+    _profile_h2o_exog, steps=12, forecaster="ForecasterStats"
+)
+plan_h2o_exog_foundation = _assistant.plan(
+    _profile_h2o_exog, steps=12, forecaster="ForecasterFoundation"
+)
+plan_h2o_exog_baseline = _assistant.plan(
+    _profile_h2o_exog, steps=12, forecaster="ForecasterEquivalentDate"
+)
+
+
+def with_missing_exog(data: pd.DataFrame, positions: list[int], column: str = "promo"):
+    """
+    Return a copy of `data` with a complete exogenous column `column` (when
+    it has none) missing at `positions` (counting from 0).
+    """
+    data = data.copy()
+    if column not in data.columns:
+        data[column] = np.arange(len(data), dtype=float)
+    data.iloc[positions, data.columns.get_loc(column)] = np.nan
+    return data
+
+
+def plan_exog_of(data: pd.DataFrame, **kwargs):
+    """
+    Return the profile of `data` (target 'x', dates in the index, the
+    exogenous column 'promo') and a plan of 12 steps built from it with
+    `kwargs`.
+    """
+    # Profiling a target with missing values warns; only the profile is
+    # needed.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=MissingValuesWarning)
+        profile = _assistant.profile(data, target="x", exog_columns=["promo"])
+    return profile.data_profile, _assistant.plan(profile, steps=12, **kwargs)
+
+
+# The items_sales data (wide and long) with an exogenous column 'promo' and
+# a plan of 3 steps with Ridge and the lags 1 to 5; `cv_items_sales()` has
+# 12 test folds that start at the positions 84, 87, ..., 117.
+data_wide_exog = data_wide.assign(promo=np.arange(120.0))
+data_long_exog = data_long.assign(
+    promo=np.arange(len(data_long), dtype=float)
+)
+_multiseries_exog_kwargs = {
+    "steps": 3,
+    "estimator": "Ridge",
+    "lags": 5,
+    "window_features": [],
+}
+
+
+def multiseries_exog_of(data: pd.DataFrame, **kwargs):
+    """
+    Return the profile of items_sales data with the exogenous column 'promo'
+    (wide or long format) and a plan of ForecasterRecursiveMultiSeries with
+    `_multiseries_exog_kwargs` and `kwargs`.
+    """
+    # Profiling a target with missing values warns; only the profile is
+    # needed.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=MissingValuesWarning)
+        if "series" in data.columns:
+            profile = _assistant.profile(
+                data,
+                target           = "value",
+                date_column      = "date",
+                series_id_column = "series",
+                exog_columns     = ["promo"],
+            )
+        else:
+            profile = _assistant.profile(
+                data,
+                target       = ["item_1", "item_2", "item_3"],
+                exog_columns = ["promo"],
+            )
+    plan = _assistant.plan(
+        profile,
+        **{
+            "forecaster": "ForecasterRecursiveMultiSeries",
+            **_multiseries_exog_kwargs,
+            **kwargs,
+        },
+    )
+    return profile.data_profile, plan
+
+
+# --- ForecasterDirectMultiVariate on the items_sales series (wide) ---
+# The plan of ForecasterDirectMultiVariate on the three items_sales series
+# (level 'item_1') reads the lags 1 and 5 of every series; the 12 test
+# folds of `cv_items_sales()` start at the positions 84, 87, ..., 117, so a
+# value at the position 97 (2012-04-07) is lag 5 of the fold that starts at
+# 102, and the one at 98 (2012-04-08) is the last value before the fold
+# that starts at 99.
+plan_wide_multivariate_lgbm = plan_wide_multivariate.model_copy(
+    update={"estimator": "LGBMRegressor"}, deep=True
+)
+plan_wide_multivariate_lgbm_differenced = plan_wide_multivariate_lgbm.model_copy(
+    update={
+        "forecaster_kwargs": {
+            **plan_wide_multivariate_lgbm.forecaster_kwargs, "differentiation": 1
+        }
+    },
+    deep=True,
+)
+
+
+def wide_missing(column: str, position: int):
+    """
+    Return items_sales in wide format with `column` missing at `position`
+    (counting from 0), and its profile.
+    """
+    data = data_wide.copy()
+    data.iloc[position, data.columns.get_loc(column)] = np.nan
+    # Profiling a target with missing values warns; only the profile is
+    # needed.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=MissingValuesWarning)
+        profile = profile_of_wide(data)
+    return data, profile

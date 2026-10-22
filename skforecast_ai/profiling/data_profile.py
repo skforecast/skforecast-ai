@@ -648,6 +648,13 @@ def create_data_profile(
         data, target, exog_columns, data_format, series_id_column
     )
     target_stats = compute_target_stats(data, target, data_format, series_id_column)
+    gap_weekdays = (
+        regular_gap_weekdays(
+            series_dates if series_dates is not None else datetime_index,
+            frequency,
+        )
+        if has_gaps else []
+    )
 
     warnings = generate_warnings(
         representative_n,
@@ -672,13 +679,7 @@ def create_data_profile(
             else None
         ),
         numbers_as_text        = numbers_as_text,
-        gap_weekdays           = (
-            regular_gap_weekdays(
-                series_dates if series_dates is not None else datetime_index,
-                frequency,
-            )
-            if has_gaps else None
-        ),
+        gap_weekdays           = gap_weekdays,
         series_observations    = (
             {name: info["length"] for name, info in series_lengths.items()}
             if n_series > 1 else None
@@ -746,6 +747,7 @@ def create_data_profile(
         frequency_is_set=frequency_is_set,
         index_is_monotonic=index_is_monotonic,
         has_gaps=has_gaps,
+        closed_weekdays=gap_weekdays,
         has_duplicate_timestamps=has_duplicate_timestamps,
         # Exogenous
         exog_columns=exog_columns,
