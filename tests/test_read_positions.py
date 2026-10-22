@@ -1,5 +1,6 @@
 # Unit test _read_positions
 
+import re
 import warnings
 
 import numpy as np
@@ -128,9 +129,11 @@ def test_read_positions_output_equals_skforecast_missing_predictions(
     direct, lags, windows, differentiation, steps
 ):
     """
-    Test that a missing value at a position gives missing predictions with
-    Ridge in skforecast exactly when the position is read (the positions of
-    `_read_positions` and the window features of `_missing_read`), for
+    Test that a missing value at a position makes the prediction of Ridge in
+    skforecast fail exactly when the position is read (the positions of
+    `_read_positions` and the window features of `_missing_read`), on the
+    differentiation for the last `order` values and on the predictors
+    otherwise, and gives no missing prediction when it is not read, for
     recursive and direct forecasters, so the check cannot drift from
     skforecast.
     """
@@ -145,6 +148,11 @@ def test_read_positions_output_equals_skforecast_missing_predictions(
     )
     positions, order, size = _read_positions(plan, limit=len(_y))
 
+    predictor_msg = re.escape("Input X contains NaN in the predictors")
+    differentiation_msg = re.escape(
+        "With `differentiation`, the predictions are reverted to the original "
+        "scale from the last"
+    )
     for position in range(1, size + 2):
         missing_window = np.arange(1, size + 2) == position
         read, _ = _missing_read(missing_window, positions, order, plan, inverse=True)
@@ -166,9 +174,17 @@ def test_read_positions_output_equals_skforecast_missing_predictions(
         # skforecast warns about the missing value the test inserts.
         with pytest.warns(MissingValuesWarning):
             forecaster.fit(y=y)
-            predictions = forecaster.predict(steps=steps)
-
-        assert (read == [position]) == bool(predictions.isna().any()), position
+            if read != [position]:
+                predictions = forecaster.predict(steps=steps)
+                assert not predictions.isna().any(), position
+            else:
+                # The last `order` values revert the differentiation, which
+                # skforecast checks before the predictors.
+                err_msg = (
+                    differentiation_msg if position <= order else predictor_msg
+                )
+                with pytest.raises(ValueError, match=err_msg):
+                    forecaster.predict(steps=steps)
 
 
 @pytest.mark.parametrize(

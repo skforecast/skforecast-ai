@@ -457,15 +457,17 @@ def test_validate_backtest_exog_matches_skforecast_when_single_series_fails(
     monkeypatch, position, kwargs, gap
 ):
     """
-    Test that the backtest of skforecast fails on the metrics ("Input
-    contains NaN") exactly where the check raises before running.
+    Test that the backtest of skforecast fails on the metrics (missing
+    predictions at dates with observed values) exactly where the check
+    raises before running.
     """
     data = with_missing_exog(data_h2o, [position])
     profile, plan = plan_exog_of(data, **kwargs)
     with pytest.raises(DataContentError):
         validate_backtest_exog(data, profile, plan, cv_h2o(gap=gap))
 
-    with pytest.raises(ForecastExecutionError, match="Input contains NaN"):
+    err_msg = re.escape("backtesting predictions are NaN at dates with observed values")
+    with pytest.raises(ForecastExecutionError, match=err_msg):
         _backtest_without_check(monkeypatch, data, profile, plan, cv_h2o(gap=gap))
 
 
