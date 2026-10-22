@@ -1563,6 +1563,7 @@ arranque de las sesiones en la nube instala skforecast desde su rama
 | Sin issue ([#1430](https://github.com/skforecast/skforecast/pull/1430)) | `initial_train_size` se validaba contra la serie más larga en vez de contra el tramo de las series de un dict, y el split de un paso adelante de `ForecasterRecursiveMultiSeries` metía en el test series sin valores que evaluar | Nada: skforecast-ai ya trabaja sobre el tramo, y su comprobación previa de D15 rechaza antes de ejecutar el único caso que la validación antigua rechazaba por error (con un `initial_train_size` mayor que todas las series, alguna que empieza al principio del tramo acaba antes y ningún fold la pronostica). skforecast-ai no usa `OneStepAheadFold`; importará en el ajuste de hiperparámetros de la 0.6.0. Suite en verde contra su rama (2026-10-21) | Resuelto en `0.27.x` (2026-10-21) |
 | No hace falta (encontrado en 3f-2) | El `MissingValuesWarning` de las series que no se pronostican en algunos folds ([#1415](https://github.com/skforecast/skforecast/pull/1415), [#1427](https://github.com/skforecast/skforecast/pull/1427)) solo sale con `suppress_warnings=False`, y con él los procesos de joblib de `backtesting_forecaster_multiseries` imprimen en stdout los avisos de skforecast de los ajustes y las predicciones de cada fold, fuera de los filtros del llamante (`warnings.catch_warnings` no llega a otro proceso). Que ese aviso, que habla del resultado y no de los datos, salga también con `suppress_warnings=True`, o que el backtest devuelva los niveles que pronostica cada fold | Nada que pedir: las predicciones de un backtest multiserie ya llevan `level` y `fold`, así que skforecast-ai sabe de ellas en qué folds se pronosticó cada serie, sin `suppress_warnings=False` ni el problema de joblib (punto de la fase 5, D29) | Descartado (2026-10-22) |
 | Sin issue, en evaluación en una sesión de skforecast (encontrado en 3f-2, 2026-10-22) | Con varias series y un estimador lineal, una exógena que falta en la predicción da predicciones NaN sin ningún error: el camino rápido de predicción (`np.dot`) se salta la comprobación de NaN de sklearn, y el NaN se propaga a los pasos recursivos. Después, las métricas multiserie descartan esas predicciones sin avisar. Reproducido con skforecast puro (10 predicciones NaN, métricas sin ellas, ningún aviso ni con `suppress_warnings=False`) | Nada que rodear: la comprobación previa de 3f-2 (D29) ya lo evita antes de ejecutar para las causas que conoce; con el arreglo, skforecast deja de dar métricas incorrectas por sí mismo | En evaluación |
+| Sin issue ([#1431](https://github.com/skforecast/skforecast/pull/1431)) | Las búsquedas de hiperparámetros ordenaban los candidatos por la tarea del forecaster (minimizar en regresión) y no por la métrica: con una métrica de "mayor es mejor" (`r2_score`) elegían el peor candidato. Ahora la dirección se deduce de la métrica (`_metric_greater_is_better`) | Nada: skforecast-ai no lanza búsquedas, y todas sus métricas son de "menor es mejor", así que `compare` sigue ordenando ascendente. Suite en verde contra su rama (2026-10-22). Importará en el ajuste de hiperparámetros de la 0.6.0. Cambian los skills `hyperparameter-optimization` y `metric-selection` y `llms-base.txt`: hay que sincronizarlos cuando entre | Se mergea en `0.27.x` (entra en 0.27.0) |
 
 Detalle de cada uno:
 
@@ -1721,6 +1722,12 @@ series que acaban o empiezan tarde
 ([#1430](https://github.com/skforecast/skforecast/pull/1430)), y que un
 candidato que no puede evaluar nada se salte en vez de parar la búsqueda
 (anotado en el roadmap de skforecast 0.27, `BUG-search-short-series.md`).
+Desde skforecast 0.27
+([#1431](https://github.com/skforecast/skforecast/pull/1431)) las búsquedas
+siguen la dirección de la métrica (maximizan las `*_score`): el ranking de
+skforecast-ai, que hoy ordena siempre ascendente porque todas sus métricas
+son de "menor es mejor", tendrá que seguir la misma regla si se admite
+alguna métrica de "mayor es mejor".
 
 ### Intervalos multiserie: residuos fuera de muestra
 
