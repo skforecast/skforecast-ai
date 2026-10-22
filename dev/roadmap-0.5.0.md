@@ -409,6 +409,20 @@ pequeños; se pueden agrupar en dos o tres PR.
 - **El backtest de ForecasterFoundation** solo rechaza las series sin
   valores: falta mirar si descarta también series sin contexto suficiente
   antes de un fold (pregunta 2 de #103).
+- **Series que faltan en algunos folds** (de la revisión de
+  [#119](https://github.com/skforecast/skforecast-ai/pull/119), D29): una
+  serie que se queda fuera de algunos folds (no de todos) hace que sus
+  métricas y la media usen menos folds sin decirlo. Las predicciones de un
+  backtest multiserie ya llevan `level` y `fold`: el runner compara en qué
+  folds se pronosticó cada serie con aquellos en que tenía valores y lo
+  dice en el resumen (y en un notice del MCP), sin `suppress_warnings=False`
+  ni pedir nada a skforecast. Es leer el resultado, como la cobertura de
+  D22. *[LLM]* si cambia el resumen.
+- **Avisos pequeños de faltantes** (de la revisión de #119, D29):
+  `backtest()` avisa, sin fallar, de una exógena que falta en un fold con
+  un estimador que acepta faltantes, como ya hace `forecast()` con las
+  exógenas futuras; y se comprueban por fold las categorías de una
+  exógena que la ventana de entrenamiento del fold no tiene (caso raro).
 
 ## Fase 6. Descripciones de las herramientas y SKILL.md
 
@@ -1448,7 +1462,7 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     `PlanEditsDiscardedWarning` (y una entrada de `plan.warnings`). Los
     lags, las ventanas y el estimador de las reglas siguen sin nombrarse.
 
-- **D?. 3f-2: los faltantes que quedaron de
+- **D29. 3f-2: los faltantes que quedaron de
   [#105](https://github.com/skforecast/skforecast-ai/pull/105)** (D17)
   (2026-10-21), en
   [#119](https://github.com/skforecast/skforecast-ai/pull/119):
@@ -1547,7 +1561,8 @@ arranque de las sesiones en la nube instala skforecast desde su rama
 | Sin issue ([#1425](https://github.com/skforecast/skforecast/pull/1425)) | `freeze_params=True` de `backtesting_stats` no congelaba nada: la selección automática de `Arima` y `Ets` se repetía en cada reentrenamiento (desde 0.20.0) | Los scripts de backtest de ForecasterStats ya pasaban `freeze_params=True`, así que ahora congelan de verdad: con `Arima` o `Ets` automáticos y reentrenamiento, las métricas cambian desde el segundo fold y corre más rápido (en h2o, ForecasterStats pasa a ganar a Ridge en `compare`). Tests con valores fijos actualizados y una línea en "Before upgrading". El coste de D19 y D23 sigue contando un ajuste por fold, que sigue siendo cierto (se reestiman los coeficientes) | Resuelto en `0.27.x` (2026-10-20) |
 | Sin issue ([#1427](https://github.com/skforecast/skforecast/pull/1427), encontrado en 5-0) | Un fold de `backtesting_forecaster_multiseries` sin ninguna serie falla con un error que no tiene que ver. Sin series que entrenar (`refit` con `fixed_train_size=True` en una ventana donde todas acabaron antes, o les quedan `window_size` valores o menos): `fit` falla con "all series must have a Pandas RangeIndex or DatetimeIndex with the same step/frequency ... Found frequencies: []", porque `check_preprocess_series` recibe un dict vacío. Sin series que predecir (ninguna tiene última ventana antes del fold): "`last_window` must have as many values as needed to generate the predictors". Reproducido con skforecast puro. Con o sin diferenciación, y también con un estimador que acepta faltantes. Debería saltarse ese fold con el `MissingValuesWarning` de las series descartadas, o fallar con un error que lo diga | Nada que rodear: la comprobación previa de D15 mira las series que ningún fold pronostica, no los folds sin ninguna serie; con el arreglo, el script corre o explica el fallo. skforecast salta ahora el fold sin series, lo nombra en el `MissingValuesWarning` de #1415 y da un `ValueError` claro si ningún fold puede pronosticarse. Su regla de entrenamientos (solo se entrena un fold de reentrenamiento si su bloque pronostica algo, `_select_fit_folds_multiseries`) cuenta menos que la de D19 en esos paneles: la de skforecast-ai sobrestima, lo que es conservador para el aviso y la confirmación de coste. Con `refit` intermitente las dos cuentan igual (skforecast-ai ya contaba los folds marcados para entrenar, no `int(len(folds) / refit)`) | Resuelto en `0.27.x` (2026-10-21) |
 | Sin issue ([#1430](https://github.com/skforecast/skforecast/pull/1430)) | `initial_train_size` se validaba contra la serie más larga en vez de contra el tramo de las series de un dict, y el split de un paso adelante de `ForecasterRecursiveMultiSeries` metía en el test series sin valores que evaluar | Nada: skforecast-ai ya trabaja sobre el tramo, y su comprobación previa de D15 rechaza antes de ejecutar el único caso que la validación antigua rechazaba por error (con un `initial_train_size` mayor que todas las series, alguna que empieza al principio del tramo acaba antes y ningún fold la pronostica). skforecast-ai no usa `OneStepAheadFold`; importará en el ajuste de hiperparámetros de la 0.6.0. Suite en verde contra su rama (2026-10-21) | Resuelto en `0.27.x` (2026-10-21) |
-| Sin issue (por abrir, encontrado en 3f-2) | El `MissingValuesWarning` de las series que no se pronostican en algunos folds ([#1415](https://github.com/skforecast/skforecast/pull/1415), [#1427](https://github.com/skforecast/skforecast/pull/1427)) solo sale con `suppress_warnings=False`, y con él los procesos de joblib de `backtesting_forecaster_multiseries` imprimen en stdout los avisos de skforecast de los ajustes y las predicciones de cada fold, fuera de los filtros del llamante (`warnings.catch_warnings` no llega a otro proceso). Que ese aviso, que habla del resultado y no de los datos, salga también con `suppress_warnings=True`, o que el backtest devuelva los niveles que pronostica cada fold | El runner del backtest lo captura y lo convierte en un aviso del resumen (un notice en el MCP), sin calcularlo (3f, D?. 3f-2) | Por abrir |
+| No hace falta (encontrado en 3f-2) | El `MissingValuesWarning` de las series que no se pronostican en algunos folds ([#1415](https://github.com/skforecast/skforecast/pull/1415), [#1427](https://github.com/skforecast/skforecast/pull/1427)) solo sale con `suppress_warnings=False`, y con él los procesos de joblib de `backtesting_forecaster_multiseries` imprimen en stdout los avisos de skforecast de los ajustes y las predicciones de cada fold, fuera de los filtros del llamante (`warnings.catch_warnings` no llega a otro proceso). Que ese aviso, que habla del resultado y no de los datos, salga también con `suppress_warnings=True`, o que el backtest devuelva los niveles que pronostica cada fold | Nada que pedir: las predicciones de un backtest multiserie ya llevan `level` y `fold`, así que skforecast-ai sabe de ellas en qué folds se pronosticó cada serie, sin `suppress_warnings=False` ni el problema de joblib (punto de la fase 5, D29) | Descartado (2026-10-22) |
+| Sin issue, en evaluación en una sesión de skforecast (encontrado en 3f-2, 2026-10-22) | Con varias series y un estimador lineal, una exógena que falta en la predicción da predicciones NaN sin ningún error: el camino rápido de predicción (`np.dot`) se salta la comprobación de NaN de sklearn, y el NaN se propaga a los pasos recursivos. Después, las métricas multiserie descartan esas predicciones sin avisar. Reproducido con skforecast puro (10 predicciones NaN, métricas sin ellas, ningún aviso ni con `suppress_warnings=False`) | Nada que rodear: la comprobación previa de 3f-2 (D29) ya lo evita antes de ejecutar para las causas que conoce; con el arreglo, skforecast deja de dar métricas incorrectas por sí mismo | En evaluación |
 
 Detalle de cada uno:
 
@@ -1566,7 +1581,7 @@ Detalle de cada uno:
   ni con `suppress_warnings=False`, cuando una serie no se puede pronosticar
   en ningún fold: su fila de métricas sale NaN, no aparece en las
   predicciones y la fila `average` se calcula sin ella.
-- **Serie con `window_size` observaciones en un fold** (2b), por abrir.
+- **Serie con `window_size` observaciones en un fold** (2b), resuelto en `0.27.x` (#1410, #1418).
   `_extract_data_folds_multiseries` (`model_selection/_utils.py`) descarta
   del entrenamiento de un fold las series con `< window_size` observaciones
   de su primer a su último valor, pero `fit` exige más de `window_size`: una
