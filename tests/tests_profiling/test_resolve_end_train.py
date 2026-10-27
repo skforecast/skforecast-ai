@@ -233,3 +233,97 @@ def test_resolve_end_train_output_when_daily_and_monthly_data_keep_the_date_only
 
     assert daily == "2023-04-03"
     assert monthly == "2007-06-01"
+
+
+@pytest.mark.parametrize(
+    "test_size",
+    [
+        "2024-04-09T00:00:00Z",
+        "2024-04-09T00:00:00+00:00",
+        "2024-04-09T02:00:00+02:00",
+        "2024-04-09",
+        pd.Timestamp("2024-04-09", tz="UTC"),
+    ],
+    ids=["Z", "+00:00", "+02:00", "without_zone", "tz_timestamp"],
+)
+def test_resolve_end_train_output_when_time_zone_of_the_profile(test_size):
+    """
+    Test that, with the time zone of the profile (its `start_date` has
+    none), a date with a time zone is placed on the dates in their zone and
+    one without is read as a local time of the data, as `create_cv` places
+    an `initial_train_size` (G04: a date with a time zone raised TypeError).
+    `end_train` is a local time, without the zone.
+    """
+    end_train = resolve_end_train(
+        start_date     = "2024-03-20",
+        frequency      = "h",
+        n_observations = 24 * 30,
+        test_size      = test_size,
+        time_zone      = "UTC",
+    )
+
+    assert end_train == "2024-04-08 23:00:00"
+
+
+def test_resolve_end_train_output_when_time_zone_with_daylight_saving_change():
+    """
+    Test that, in a zone with a daylight saving change, the position of a
+    date is the one it has in the data: the local times skip 02:00 on
+    2023-03-26 in Madrid, so a test set of the last 2 hours (05:00 and
+    06:00) ends training at 04:00 (the regular grid without the zone gave
+    03:00, an hour early).
+    """
+    by_size = resolve_end_train(
+        start_date     = "2023-03-26",
+        frequency      = "h",
+        n_observations = 6,
+        test_size      = 2,
+        time_zone      = "Europe/Madrid",
+    )
+    by_date = resolve_end_train(
+        start_date     = "2023-03-26",
+        frequency      = "h",
+        n_observations = 6,
+        test_size      = "2023-03-26 05:00:00",
+        time_zone      = "Europe/Madrid",
+    )
+
+    assert by_size == "2023-03-26 04:00:00"
+    assert by_date == "2023-03-26 04:00:00"
+
+
+@pytest.mark.parametrize(
+    "time_zone, reason",
+    [
+        (None, "the dates of the data have none"),
+        (
+            "Not/AZone",
+            "the dates of the data cannot be rebuilt in their time zone "
+            "(Not/AZone)",
+        ),
+    ],
+    ids=["no_zone", "unusable_zone"],
+)
+def test_resolve_end_train_InvalidInputError_when_date_with_time_zone_and_data_without(
+    time_zone, reason
+):
+    """
+    Test that a date with a time zone on dates without one is
+    `InvalidInputError` on `test_size` saying to drop the zone, instead of
+    a TypeError from comparing them (G04).
+    """
+    err_msg = re.escape(
+        f"`test_size` ('2024-04-09T00:00:00Z') has a time zone, and {reason}. "
+        f"Pass the first date of the test set without the time zone, such as "
+        f"'2024-04-09'."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        resolve_end_train(
+            start_date     = "2024-03-20",
+            frequency      = "h",
+            n_observations = 24 * 30,
+            test_size      = "2024-04-09T00:00:00Z",
+            time_zone      = time_zone,
+        )
+
+    assert exc_info.value.field == "test_size"

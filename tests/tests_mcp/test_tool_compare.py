@@ -236,7 +236,7 @@ def test_tool_compare_code_and_failures_of_the_candidates(tmp_path):
     assert direct["code"] == expected.candidates["direct"].code
     assert failure["candidate"] == "bad"
     assert failure["text"].startswith(
-        "Candidate 'bad' failed: ValueError: 'NoSuchEstimator' is not a "
+        "Candidate 'bad' failed: InvalidInputError: 'NoSuchEstimator' is not a "
         "supported estimator."
     )
     assert "Traceback:\n" in failure["text"]
@@ -346,6 +346,21 @@ def test_tool_compare_cancelled_between_candidates(tmp_path, monkeypatch):
             {"candidates": [{"name": "a", "config": {"steps": 3}}]},
             "candidates[0].config.steps",
         ),
+        (
+            {
+                "candidates": [
+                    {
+                        "name": "a",
+                        "config": {
+                            "window_features": [
+                                {"stats": ["mean"], "window_size": 3, "size": 6}
+                            ]
+                        },
+                    }
+                ]
+            },
+            "candidates[0].config.window_features",
+        ),
         ({"candidates": [{"name": "a"}, {"name": "a"}]}, "candidates"),
         ({"interval": [0.9, 0.1]}, "interval"),
     ],
@@ -355,8 +370,8 @@ def test_tool_compare_invalid_argument(tmp_path, arguments, field):
     """
     Test that `compare` rejects a metric outside the regression metrics or
     an empty list of them, a candidate name with a control character, an
-    unknown key of a candidate, repeated names and an invalid interval,
-    before any candidate runs.
+    unknown key of a candidate or of one of its window features, repeated
+    names and an invalid interval, before any candidate runs.
     """
     server, path = h2o_server(tmp_path)
     _, _, cv_id = cv_of(server, path)
@@ -371,7 +386,9 @@ def test_tool_compare_all_candidates_failed_keeps_the_failures(tmp_path):
     """
     Test that a comparison whose candidates all fail is
     `all_candidates_failed`, with the id of a failure that holds the
-    traceback of every candidate.
+    traceback of every candidate, and that an error of skforecast-ai keeps
+    its class and its message (V32: it was named `ValueError` and its
+    message was left out).
     """
     server, path = h2o_server(tmp_path)
     _, _, cv_id = cv_of(server, path)
@@ -394,7 +411,11 @@ def test_tool_compare_all_candidates_failed_keeps_the_failures(tmp_path):
 
     assert error["code"] == "all_candidates_failed"
     assert error["message"].startswith("All 1 candidate configuration(s) failed to run")
-    assert failure["text"].startswith("Candidate 'bad' failed: ValueError:")
+    assert failure["text"].startswith("Candidate 'bad' failed: InvalidInputError:")
+    assert (
+        "\n\n  - bad: InvalidInputError: 'NoSuchEstimator' is not a supported "
+        "estimator." in error["message"]
+    )
 
 
 def test_tool_compare_default_candidates_of_the_profile(tmp_path):

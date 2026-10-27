@@ -19,6 +19,7 @@ from .._constants import (
     MIN_RESIDUALS_PER_BIN,
     ML_TASK_TYPES,
 )
+from .._dates import aware_index
 from ..schemas import DataProfile, ForecastingProfile, ForecastPlan
 from ..exceptions import InvalidInputError, InvalidInputTypeError
 
@@ -139,6 +140,67 @@ def default_initial_train_size(
         "window_size": window_size,
         "steps": steps,
     }
+
+
+def check_default_folds_fit(
+    plan: ForecastPlan,
+    data_profile: DataProfile,
+) -> None:
+    """
+    Raise when the data cannot hold two folds of `steps` after the default
+    `initial_train_size`.
+
+    `default_initial_train_size` lowers the default so that two folds of
+    `steps` remain, a bound that does not apply when `steps` is at least
+    half the observations: the default then falls outside the data and
+    skforecast rejects an `initial_train_size` that the caller did not
+    pass. Checked before the strategy is built, when `initial_train_size`
+    is left to the default.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan of the strategy.
+    data_profile : DataProfile
+        Profile of the data.
+
+    Returns
+    -------
+    None
+    """
+    n_observations = data_profile.span_index_length
+    steps = plan.steps
+    if n_observations - 2 * steps >= 1:
+        return
+
+    # The longest horizon whose two folds leave the first training window
+    # the forecaster needs (`training_length_needed`, which grows with the
+    # steps of a direct forecaster), one observation without a window.
+    needed = training_length_needed(plan)
+    if needed is None:
+        max_steps = (n_observations - 1) // 2
+    elif plan.forecaster in DIRECT_FORECASTERS:
+        max_steps = (n_observations - (needed[0] - steps)) // 3
+    else:
+        max_steps = (n_observations - needed[0]) // 2
+    fewer = (
+        f"Keeping the rest of the plan, at most {max_steps} `steps` leave two "
+        f"folds and the first training window it needs: make a plan with that "
+        f"horizon, or use more data. "
+        if max_steps >= 1 else "Use more data. "
+    )
+    raise InvalidInputError(
+        f"The data has {n_observations} observations, too few for a backtest "
+        f"of {steps} steps: its two folds take {2 * steps}, and at least one "
+        f"observation is needed before them to train on.",
+        code  = "insufficient_data",
+        field = "plan",
+        hint  = (
+            f"{fewer}To evaluate a single window, the last `steps` "
+            f"observations, use `forecast` with `test_size` instead: one "
+            f"hold-out, not a backtest."
+        ),
+    )
 
 
 def cv_fields_without_effect(
@@ -614,35 +676,13 @@ def _local_index(
     autumn, as the dates of the data do, so the position of a date is the
     one it has in the data. A zone pandas cannot use gives the regular grid.
     """
-    aware = _aware_index(start_date, n_observations, frequency, time_zone)
+    aware = aware_index(start_date, n_observations, frequency, time_zone)
     if aware is None:
         return pd.date_range(
             start=start_date, periods=n_observations, freq=frequency
         )
 
     return aware.tz_localize(None)
-
-
-def _aware_index(
-    start_date: str,
-    n_observations: int,
-    frequency: str,
-    time_zone: str | None,
-) -> pd.DatetimeIndex | None:
-    """
-    Rebuild the dates of the data in their time zone, or return None when
-    they have none or pandas cannot build the grid in it.
-    """
-    if time_zone is None:
-        return None
-    try:
-        return pd.date_range(
-            start   = pd.Timestamp(start_date).tz_localize(time_zone),
-            periods = n_observations,
-            freq    = frequency,
-        )
-    except Exception:
-        return None
 
 
 def _split_folds(
@@ -727,7 +767,7 @@ def _split_folds(
         date = pd.Timestamp(its)
         aware = None
         if date.tz is not None:
-            aware = _aware_index(start_date, n_observations, frequency, time_zone)
+            aware = aware_index(start_date, n_observations, frequency, time_zone)
         if aware is not None:
             # A date with its own time zone is placed by skforecast on the
             # dates in their zone, as in the script, which gets it as given.
@@ -1378,6 +1418,38 @@ def plan_window_size(plan: ForecastPlan) -> int | None:
     return None
 
 
+def training_length_needed(plan: ForecastPlan) -> tuple[int, str] | None:
+    """
+    Fewest observations the forecaster of a plan can be trained on, and why.
+
+    skforecast needs more observations than the window size of the
+    forecaster (`plan_window_size`), and a direct forecaster, which trains
+    one estimator per step, at least the window size plus `steps`.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan to train.
+
+    Returns
+    -------
+    needed : tuple of (int, str), None
+        The number of observations and the reason, written to follow
+        "needs at least N"; None for the forecasters without a window
+        (ForecasterStats and the foundation models).
+    """
+    window_size = plan_window_size(plan)
+    if window_size is None:
+        return None
+    if plan.forecaster in DIRECT_FORECASTERS:
+        return window_size + plan.steps, (
+            f"its window size, {window_size}, plus the {plan.steps} steps it "
+            f"is trained to predict"
+        )
+
+    return window_size + 1, f"more than its window size, {window_size}"
+
+
 def first_window_issue(
     plan: ForecastPlan,
     cv: TimeSeriesFold,
@@ -1408,9 +1480,10 @@ def first_window_issue(
     issue : str, None
         What fails, or None.
     """
-    window_size = plan_window_size(plan)
-    if window_size is None:
+    needed = training_length_needed(plan)
+    if needed is None:
         return None
+    needed, reason = needed
     # skforecast splits the dates of every series, from the earliest first
     # date in long format, where `start_date` is the latest one.
     folds = _split_folds(
@@ -1424,15 +1497,6 @@ def first_window_issue(
         return None
     train_start, train_end = folds[0][1]
     n_train = train_end - train_start
-    if plan.forecaster in DIRECT_FORECASTERS:
-        needed = window_size + plan.steps
-        reason = (
-            f"its window size, {window_size}, plus the {plan.steps} steps it "
-            f"is trained to predict"
-        )
-    else:
-        needed = window_size + 1
-        reason = f"more than its window size, {window_size}"
     if n_train >= needed:
         return None
 
@@ -1598,7 +1662,7 @@ def _series_span_positions(
             # The series of wide data are on the dates of the frame, which
             # can start before the first value of every series.
             span = (
-                _aware_index(
+                aware_index(
                     data_profile.span_start_date, n_observations,
                     data_profile.frequency, data_profile.time_zone,
                 )

@@ -16,6 +16,7 @@ import pandas as pd
 from dateutil import parser as dateutil_parser
 from skforecast.exceptions import IgnoredArgumentWarning
 from .._dates import (
+    aware_index,
     date_positions,
     day_month_formats,
     first_date,
@@ -6356,14 +6357,15 @@ def resolve_end_train(
     frequency: str | None,
     n_observations: int,
     test_size: int | float | str | pd.Timestamp,
+    time_zone: str | None = None,
 ) -> str:
     """
     Resolve a ``test_size`` specification into an ``end_train`` boundary.
 
     Rebuilds the datetime index from ``start_date``, ``frequency`` and
     ``n_observations`` (the same reconstruction convention used elsewhere
-    for date-based cross-validation), then converts ``test_size`` into the
-    last training timestamp.
+    for date-based cross-validation), in the time zone of the data when it
+    has one, then converts ``test_size`` into the last training timestamp.
 
     Parameters
     ----------
@@ -6380,19 +6382,25 @@ def resolve_end_train(
         - float in ``(0, 1)``: the last fraction ``test_size`` of the
           observations form the test set.
         - str or pandas Timestamp: the first timestamp of the test set
-          (the split boundary).
+          (the split boundary). A date without time zone is read in the
+          zone of the data; one with a time zone is placed on the dates in
+          their zone, and is rejected when the data has none.
+    time_zone : str, default None
+        Time zone of the dates of the data (`DataProfile.time_zone`).
 
     Returns
     -------
     end_train : str
         Last datetime (inclusive) of the training set, formatted with
-        `_format_split_ts`.
+        `_format_split_ts`, as the local time of the data without its time
+        zone: the script reads it in the zone of its index.
 
     Raises
     ------
-    ValueError
+    InvalidInputError
         If a datetime index cannot be reconstructed, or ``test_size`` is
-        out of range or leaves an empty train or test set.
+        out of range, leaves an empty train or test set, or is a date with
+        a time zone while the dates of the data have none.
     """
     if start_date is None or frequency is None:
         raise InvalidInputError(
@@ -6406,7 +6414,8 @@ def resolve_end_train(
             ),
         )
 
-    index = pd.date_range(start=start_date, periods=n_observations, freq=frequency)
+    aware, local = _split_indexes(start_date, frequency, n_observations, time_zone)
+    index = local
     n = len(index)
 
     # bool is a subclass of int; reject it explicitly to avoid silent misuse.
@@ -6436,8 +6445,9 @@ def resolve_end_train(
         boundary_idx = n - n_test - 1
     elif isinstance(test_size, (str, pd.Timestamp)):
         try:
-            # A date without time zone is read in the zone of the data.
-            ts = training_end(test_size, index.tz)
+            # A date without time zone is read in the zone of the dates
+            # when `start_date` carries one.
+            ts = training_end(test_size, local.tz)
         except (ValueError, TypeError) as exc:
             raise InvalidInputError(
                 f"`test_size` is text that is not a date: {test_size!r}. Pass "
@@ -6445,7 +6455,33 @@ def resolve_end_train(
                 f"test set, such as '2023-03-01'.",
                 field = "test_size",
             ) from exc
-        if not index[0] < ts <= index[-1]:
+        if ts.tz is not None and local.tz is None:
+            # Placed on the dates in their zone, as `create_cv` places an
+            # `initial_train_size` with a time zone of its own.
+            if aware is None:
+                zone = (
+                    "the dates of the data have none" if time_zone is None
+                    else f"the dates of the data cannot be rebuilt in "
+                         f"their time zone ({time_zone})"
+                )
+                raise InvalidInputError(
+                    f"`test_size` ({test_size!r}) has a time zone, and "
+                    f"{zone}. Pass the first date of the test set without the "
+                    f"time zone, such as "
+                    f"'{_format_split_ts(ts.tz_localize(None))}'.",
+                    field = "test_size",
+                )
+            index = aware
+        try:
+            inside = index[0] < ts <= index[-1]
+        except TypeError as exc:
+            raise InvalidInputError(
+                f"`test_size` ({test_size!r}) cannot be compared with the "
+                f"dates of the data. Pass the first date of the test set as "
+                f"written in the data, such as '{local[-1]}'.",
+                field = "test_size",
+            ) from exc
+        if not inside:
             raise InvalidInputError(
                 f"Timestamp `test_size` ({ts}) must fall within the data "
                 f"range, after {index[0]} and no later than {index[-1]}, so "
@@ -6462,7 +6498,31 @@ def resolve_end_train(
         )
 
     return _format_split_ts(
-        index[boundary_idx], with_time=bool((index != index.normalize()).any())
+        local[boundary_idx], with_time=bool((local != local.normalize()).any())
+    )
+
+
+def _split_indexes(
+    start_date: str,
+    frequency: str,
+    n_observations: int,
+    time_zone: str | None,
+) -> tuple[pd.DatetimeIndex | None, pd.DatetimeIndex]:
+    """
+    Rebuild the dates a `test_size` is placed on, as `create_cv` places an
+    `initial_train_size`: in the time zone of the data (`aware_index`, None
+    without a zone pandas can use) and as local times without zone. The
+    local times skip an hour at the spring daylight saving change and
+    repeat one in autumn, as the dates of the data do; without a zone they
+    are the regular grid from `start_date`, in the zone of `start_date`
+    when it has one (a `DataProfile` stores it without).
+    """
+    aware = aware_index(start_date, n_observations, frequency, time_zone)
+    if aware is not None:
+        return aware, aware.tz_localize(None)
+
+    return None, pd.date_range(
+        start=start_date, periods=n_observations, freq=frequency
     )
 
 
@@ -6471,6 +6531,7 @@ def count_test_observations(
     frequency: str | None,
     n_observations: int,
     end_train: str,
+    time_zone: str | None = None,
 ) -> int | None:
     """
     Count the observations after a train/test split boundary.
@@ -6487,7 +6548,9 @@ def count_test_observations(
     n_observations : int
         Number of observations spanned by the dataset.
     end_train : str
-        Last timestamp of the training set.
+        Last timestamp of the training set, a local time of the data.
+    time_zone : str, default None
+        Time zone of the dates of the data (`DataProfile.time_zone`).
 
     Returns
     -------
@@ -6498,6 +6561,6 @@ def count_test_observations(
     if start_date is None or frequency is None:
         return None
 
-    index = pd.date_range(start=start_date, periods=n_observations, freq=frequency)
+    _, local = _split_indexes(start_date, frequency, n_observations, time_zone)
 
-    return int((index > training_end(end_train, index.tz)).sum())
+    return int((local > training_end(end_train, local.tz)).sum())

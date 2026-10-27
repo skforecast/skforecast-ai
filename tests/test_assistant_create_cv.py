@@ -1394,6 +1394,31 @@ def test_create_cv_InvalidInputError_code_and_field(
     assert exc_info.value.field == expected_field
 
 
+def test_create_cv_InvalidInputError_when_default_initial_train_size_leaves_no_two_folds():
+    """
+    Test that, without `initial_train_size`, a horizon of half the data or
+    more is `insufficient_data` on the plan before the strategy is built,
+    instead of the error of skforecast on an `initial_train_size` that was
+    not passed (V31); with `initial_train_size`, the error of the folds.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(df_h2o, target="x")
+    plan = assistant.plan(profile, steps=110)
+
+    err_msg = re.escape(
+        "The data has 204 observations, too few for a backtest of 110 steps: "
+        "its two folds take 220, and at least one observation is needed before "
+        "them to train on."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.create_cv(profile, plan)
+    with pytest.raises(InvalidInputError, match="At least 2 are required"):
+        assistant.create_cv(profile, plan, initial_train_size=100)
+
+    assert exc_info.value.code == "insufficient_data"
+    assert exc_info.value.field == "plan"
+
+
 # =============================================================================
 # Tests: early input checks
 # =============================================================================

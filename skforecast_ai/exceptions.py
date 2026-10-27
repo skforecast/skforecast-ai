@@ -199,39 +199,6 @@ class DataNotFoundError(SkforecastAIError, FileNotFoundError):
     default_code: ErrorCode = "data_not_found"
 
 
-def _reported_type_name(exc: BaseException) -> str:
-    """
-    Class name under which an exception is reported in failure summaries.
-
-    The input errors of skforecast-ai are reported under the built-in class
-    they derive from (`ValueError`, `TypeError`, `FileNotFoundError`), the
-    one raised for them before the hierarchy existed, so the summaries of
-    `compare()` (and the message of `AllCandidatesFailedError` built from
-    them) keep their text. Any other exception keeps its own name.
-
-    Parameters
-    ----------
-    exc : BaseException
-        Exception to name.
-
-    Returns
-    -------
-    name : str
-        Class name to report.
-    """
-
-    # InvalidInputTypeError first: it is also an InvalidInputError.
-    for error_class, name in (
-        (InvalidInputTypeError, "TypeError"),
-        (InvalidInputError, "ValueError"),
-        (DataNotFoundError, "FileNotFoundError"),
-    ):
-        if isinstance(exc, error_class):
-            return name
-
-    return type(exc).__name__
-
-
 class LLMRequiredError(SkforecastAIError):
     """
     Raised when a method that requires an LLM is called without one.

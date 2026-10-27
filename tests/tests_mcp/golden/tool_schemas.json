@@ -376,20 +376,7 @@
           "anyOf": [
             {
               "items": {
-                "additionalProperties": {
-                  "anyOf": [
-                    {
-                      "items": {
-                        "type": "string"
-                      },
-                      "type": "array"
-                    },
-                    {
-                      "type": "integer"
-                    }
-                  ]
-                },
-                "type": "object"
+                "$ref": "#/$defs/WindowFeatureArgs"
               },
               "type": "array"
             },
@@ -506,6 +493,41 @@
         "steps"
       ],
       "$defs": {
+        "WindowFeatureArgs": {
+          "additionalProperties": false,
+          "description": "One window size and the statistics computed over it; no other key is accepted.",
+          "properties": {
+            "stats": {
+              "description": "Statistics computed over the window.",
+              "items": {
+                "enum": [
+                  "mean",
+                  "std",
+                  "min",
+                  "max",
+                  "sum",
+                  "median",
+                  "ratio_min_max",
+                  "coef_variation",
+                  "ewm"
+                ],
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "window_size": {
+              "description": "Number of observations of the window.",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "stats",
+            "window_size"
+          ],
+          "type": "object"
+        },
         "Metric": {
           "enum": [
             "mean_squared_error",
@@ -756,20 +778,7 @@
               "anyOf": [
                 {
                   "items": {
-                    "additionalProperties": {
-                      "anyOf": [
-                        {
-                          "items": {
-                            "type": "string"
-                          },
-                          "type": "array"
-                        },
-                        {
-                          "type": "integer"
-                        }
-                      ]
-                    },
-                    "type": "object"
+                    "$ref": "#/$defs/WindowFeatureArgs"
                   },
                   "type": "array"
                 },
@@ -874,6 +883,41 @@
               "description": "Whether to drop the training rows with missing values; false fails when the data has missing values and the estimator does not accept them. Machine learning forecasters only. Null lets the rule decide again. Omitted, a choice made before is kept."
             }
           },
+          "type": "object"
+        },
+        "WindowFeatureArgs": {
+          "additionalProperties": false,
+          "description": "One window size and the statistics computed over it; no other key is accepted.",
+          "properties": {
+            "stats": {
+              "description": "Statistics computed over the window.",
+              "items": {
+                "enum": [
+                  "mean",
+                  "std",
+                  "min",
+                  "max",
+                  "sum",
+                  "median",
+                  "ratio_min_max",
+                  "coef_variation",
+                  "ewm"
+                ],
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "window_size": {
+              "description": "Number of observations of the window.",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "stats",
+            "window_size"
+          ],
           "type": "object"
         },
         "Metric": {
@@ -1623,20 +1667,7 @@
               "anyOf": [
                 {
                   "items": {
-                    "additionalProperties": {
-                      "anyOf": [
-                        {
-                          "items": {
-                            "type": "string"
-                          },
-                          "type": "array"
-                        },
-                        {
-                          "type": "integer"
-                        }
-                      ]
-                    },
-                    "type": "object"
+                    "$ref": "#/$defs/WindowFeatureArgs"
                   },
                   "type": "array"
                 },
@@ -1723,6 +1754,41 @@
               "description": "Whether to drop the training rows with missing values; false fails when the data has missing values and the estimator does not accept them. Machine learning forecasters only. Null for the rule."
             }
           },
+          "type": "object"
+        },
+        "WindowFeatureArgs": {
+          "additionalProperties": false,
+          "description": "One window size and the statistics computed over it; no other key is accepted.",
+          "properties": {
+            "stats": {
+              "description": "Statistics computed over the window.",
+              "items": {
+                "enum": [
+                  "mean",
+                  "std",
+                  "min",
+                  "max",
+                  "sum",
+                  "median",
+                  "ratio_min_max",
+                  "coef_variation",
+                  "ewm"
+                ],
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "window_size": {
+              "description": "Number of observations of the window.",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "stats",
+            "window_size"
+          ],
           "type": "object"
         },
         "Metric": {
@@ -2184,7 +2250,7 @@
             }
           ],
           "default": null,
-          "description": "Name of the failed candidate of a comparison."
+          "description": "Name of the failed candidate, required with the id of a comparison; null with a `failure_id`."
         }
       },
       "required": [

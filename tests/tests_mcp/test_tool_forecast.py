@@ -11,7 +11,7 @@ from skforecast_ai.mcp.models import ToolNotice
 
 from ..fixtures_assistant import df_crossing_zero, df_multi_wide, df_single
 from ..fixtures_csv_dialect import df_dialect, write_dialect
-from ..fixtures_datasets import df_items_sales_long
+from ..fixtures_datasets import df_hourly_madrid_spring, df_items_sales_long
 from .fixtures_mcp import (
     DATA_VALUES_HINT,
     MSE_UNIT,
@@ -1010,3 +1010,87 @@ def test_tool_forecast_no_unmeasured_notice_when_plan_refined_with_another_metri
     assert "- Primary metric: mean_squared_error" in refined["summary"]
     assert other_metric["notices"] == []
     assert _categories(unmeasured) == ["UnmeasuredPlanNotice"]
+
+
+@pytest.mark.parametrize(
+    "test_size",
+    ["2023-03-27T22:00:00Z", "2023-03-27T22:00:00+00:00", "2023-03-27 22:00:00"],
+    ids=["Z", "+00:00", "without_zone"],
+)
+def test_tool_forecast_output_when_test_size_is_a_date_with_time_zone(
+    tmp_path, test_size
+):
+    """
+    Test that `forecast` on data in UTC reads a `test_size` date written
+    with `Z`, with `+00:00` or without zone as the same first date of the
+    test set, instead of an `internal_error` that says not to retry (G04).
+    """
+    frame = df_hourly_madrid_spring.tz_convert("UTC").reset_index(names="date")
+    path = write_csv(tmp_path, "hourly_utc.csv", frame)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, plan_id = profile_and_plan(server, path, target="y", steps=19)
+
+    result = content_of(
+        call(server, "forecast", {"plan_id": plan_id, "test_size": test_size})
+    )
+
+    assert result["kind"] == "forecast"
+    assert "2023-03-27 21:00:00" in result["summary"]
+
+
+def test_tool_forecast_invalid_argument_when_test_size_has_time_zone_and_data_has_none(
+    tmp_path,
+):
+    """
+    Test that a `test_size` date with a time zone on data without one is
+    `invalid_argument` on `test_size` saying to drop the zone (G04).
+    """
+    server, path = h2o_server(tmp_path)
+    _, plan_id = profile_and_plan(server, path)
+
+    error = error_of(
+        call(
+            server,
+            "forecast",
+            {"plan_id": plan_id, "test_size": "2007-07-01T00:00:00Z"},
+        ),
+        "forecast",
+    )
+
+    assert error["code"] == "invalid_argument"
+    assert error["field"] == "test_size"
+    assert error["message"] == (
+        "`test_size` ('2007-07-01T00:00:00Z') has a time zone, and the dates of "
+        "the data have none. Pass the first date of the test set without the "
+        "time zone, such as '2007-07-01'."
+    )
+
+
+def test_tool_forecast_insufficient_data_when_training_partition_shorter_than_window(
+    tmp_path,
+):
+    """
+    Test that a hold-out whose training partition is shorter than the window
+    of the forecaster is `insufficient_data` on `test_size`, with the longest
+    horizon that fits in the hint, before running anything, instead of an
+    `execution_failed` (V30).
+    """
+    server, path = h2o_server(tmp_path)
+    _, plan_id = profile_and_plan(server, path, steps=180, lags=36)
+
+    error = error_of(
+        call(server, "forecast", {"plan_id": plan_id, "test_size": 180}),
+        "forecast",
+    )
+
+    assert error["code"] == "insufficient_data"
+    assert error["field"] == "test_size"
+    assert error["message"].startswith(
+        "The training partition of the evaluation, up to 1993-06-01, has 24 "
+        "observations, and ForecasterRecursive needs at least 37 (more than its "
+        "window size, 36), so skforecast would fail."
+    )
+    assert error["hint"].startswith(
+        "Keeping the rest of the plan, at most 167 `steps` fit"
+    )
+    assert error["details"] is None

@@ -35,6 +35,7 @@ from tests.fixtures_datasets import (
     df_h2o_text,
     df_h2o_with_exog,
     df_h2o_with_nan,
+    df_hourly_madrid_spring,
     df_items_sales_long,
     df_items_sales_wide,
 )
@@ -1206,6 +1207,56 @@ def test_forecast_error_code_and_field_when_test_size_invalid(
 
     assert isinstance(exc_info.value, InvalidInputError)
     assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "test_size"
+
+
+@pytest.mark.parametrize(
+    "test_size",
+    ["2023-03-27T22:00:00Z", "2023-03-28T00:00:00+02:00", "2023-03-28 00:00:00", 19],
+    ids=["Z", "offset", "without_zone", "count"],
+)
+def test_forecast_output_when_test_size_is_a_date_with_time_zone(test_size):
+    """
+    Test that a `test_size` date with a time zone, on data in a time zone,
+    is placed on the dates in their zone (G04: it raised TypeError): the
+    same instant written in UTC, with the offset of the data or as a local
+    time without zone, and the count of its observations, give the same
+    hold-out, with the 19 observations from 2023-03-28 00:00 in Madrid as
+    test set. After the spring change, a count or a date without zone was
+    placed an hour early (the test set was 20 or 18 observations).
+    """
+    result = ForecastingAssistant().forecast(
+        data      = df_hourly_madrid_spring,
+        target    = "y",
+        steps     = 19,
+        test_size = test_size,
+    )
+
+    assert result.plan.end_train == "2023-03-27 23:00:00"
+    assert result.predictions.index[0] == pd.Timestamp(
+        "2023-03-28 00:00:00", tz="Europe/Madrid"
+    )
+    assert len(result.predictions) == 19
+
+
+def test_forecast_InvalidInputError_when_test_size_has_time_zone_and_data_has_none():
+    """
+    Test that a `test_size` date with a time zone on data without one is
+    `InvalidInputError` on `test_size` saying to drop the zone (G04).
+    """
+    err_msg = re.escape(
+        "`test_size` ('2005-01-01T00:00:00Z') has a time zone, and the dates "
+        "of the data have none. Pass the first date of the test set without "
+        "the time zone, such as '2005-01-01'."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        ForecastingAssistant().forecast(
+            data      = df_h2o,
+            target    = "x",
+            steps     = 12,
+            test_size = "2005-01-01T00:00:00Z",
+        )
+
     assert exc_info.value.field == "test_size"
 
 

@@ -305,8 +305,9 @@ def validate_estimator_kwargs(
     Only for the supported machine-learning estimators, when their package
     is installed (otherwise the names cannot be read and the check is
     skipped: running the plan then fails with an install message), and for
-    the `Arima` model of `ForecasterStats`. The class is imported but not
-    instantiated.
+    the `Arima` model of `ForecasterStats`. The values are checked by
+    building the estimator with them, which checks what its library
+    checks without data (`_check_estimator_kwarg_values`).
 
     Parameters
     ----------
@@ -327,7 +328,8 @@ def validate_estimator_kwargs(
     `PASSTHROUGH_KWARGS_ESTIMATORS` (LightGBM, XGBoost), which forward
     unknown names to the library as extra parameters and accept parameter
     aliases: they get a `UserWarning`, since the library ignores a name
-    that does not exist without an error.
+    that does not exist without an error. A value that the estimator
+    rejects raises an `InvalidInputError` (a `ValueError`) too.
     """
 
     warning_messages: list[str] = []
@@ -370,8 +372,36 @@ def validate_estimator_kwargs(
             f"{estimator} has no parameter {key!r}.{hint}{listed}",
             field = "estimator_kwargs",
         )
+    _check_estimator_kwarg_values(cls, estimator, estimator_kwargs)
 
     return warning_messages
+
+
+def _check_estimator_kwarg_values(
+    cls: type,
+    estimator: str,
+    estimator_kwargs: dict,
+) -> None:
+    """
+    Check the values of the keyword arguments by building the estimator
+    with them, so a wrong value fails when the plan is made and not when
+    its script fits the estimator.
+
+    The constructor of the `Arima` model checks its values; those of
+    scikit-learn only store them, and `_validate_params` applies the
+    constraints that `fit` would apply, without data. The other libraries
+    (LightGBM, XGBoost, CatBoost) check their values only when they fit.
+    """
+
+    try:
+        instance = cls(**estimator_kwargs)
+        if hasattr(instance, "_parameter_constraints"):
+            instance._validate_params()
+    except (ValueError, TypeError) as exc:
+        raise InvalidInputError(
+            f"`estimator_kwargs` is not valid for {estimator}: {exc}",
+            field = "estimator_kwargs",
+        ) from exc
 
 
 def check_estimator_installed(
@@ -987,14 +1017,15 @@ def _validate_window_features(
 
     Each entry must be a dict with a `'stats'` key (a non-empty list whose
     members are all in `ALLOWED_WINDOW_STATS`) and a `'window_size'` key
-    holding a scalar positive int. A scalar is required because the code
-    generator pairs every statistic in an entry with that entry's single
-    window size; a list would be emitted as a nested list and rejected by
-    `RollingFeatures`. To combine several window sizes, add one entry per
-    size. The same statistic must not be paired with the same window size
-    in two entries: the code generator flattens the entries into a single
-    `RollingFeatures`, which rejects duplicate pairs. A `ValueError` is
-    raised on the first violation.
+    holding a scalar positive int, and no other key. A scalar is required
+    because the code generator pairs every statistic in an entry with that
+    entry's single window size; a list would be emitted as a nested list
+    and rejected by `RollingFeatures`. To combine several window sizes,
+    add one entry per size. The same statistic must not be paired with the
+    same window size in two entries: the code generator flattens the
+    entries into a single `RollingFeatures`, which rejects duplicate pairs.
+    An `InvalidInputError` (a `ValueError`) is raised on the first
+    violation.
 
     Parameters
     ----------
@@ -1032,6 +1063,16 @@ def _validate_window_features(
                 f"`window_features[{i}]` is missing required key(s): "
                 f"{sorted(missing)}. Each entry must have 'stats' and "
                 f"'window_size'.",
+                field = field,
+            )
+        # An unknown key would be dropped by the code generator while the
+        # plan still showed it as chosen.
+        unknown = sorted(str(key) for key in wf.keys() - {"stats", "window_size"})
+        if unknown:
+            raise InvalidInputError(
+                f"`window_features[{i}]` has unknown key(s): {unknown}. Each "
+                f"entry takes only 'stats' and 'window_size'; add one entry "
+                f"per window size to use several sizes.",
                 field = field,
             )
 

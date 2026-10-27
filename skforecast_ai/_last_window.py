@@ -21,8 +21,10 @@ from .profiling.data_profile import (
     _caller_stacklevel,
     _fmt_timestamp,
     closed_weekdays,
+    count_test_observations,
     weekday_names,
 )
+from .recommendation.backtesting import training_length_needed
 from .recommendation.missing_values import (
     backtest_missing_values,
     backtest_missing_values_messages,
@@ -1382,6 +1384,14 @@ def validate_evaluation_partition(
       value on the last training date is evaluated; one whose rows end
       before it (long format) is predicted from its own last date and has
       no test dates to compare.
+    - Every forecaster with a window but ForecasterRecursiveMultiSeries
+      (whose series `validate_series_lengths` checks one by one): the
+      training partition must have more observations than the window, and
+      a direct forecaster at least the window plus `steps`
+      (`training_length_needed`). Otherwise skforecast fails when it fits
+      ("Length `y`: 30. Max window size: 36"); here it is
+      `'insufficient_data'` on `test_size`, with the longest horizon that
+      fits.
     - Every forecaster: the missing values of the training partition that
       the predictions read follow the rule of the prediction mode
       (`validate_last_window`): an error when the estimator does not
@@ -1403,6 +1413,7 @@ def validate_evaluation_partition(
     """
     if plan.end_train is None:
         return
+    _check_training_partition_length(profile, plan)
     dates = row_dates(data, profile.date_column, profile.date_format)
     if dates is None:
         return
@@ -1431,6 +1442,71 @@ def validate_evaluation_partition(
         profile    = profile,
         plan       = plan,
         final_rows = False,
+    )
+
+
+def _check_training_partition_length(
+    profile: DataProfile,
+    plan: ForecastPlan,
+) -> None:
+    """
+    Reject an evaluation whose training partition (the dates of the grid of
+    the data up to `end_train`) is too short for the forecaster to be
+    fitted, with the longest horizon that fits in the data.
+    """
+    needed = training_length_needed(plan)
+    if needed is None or plan.forecaster == "ForecasterRecursiveMultiSeries":
+        return
+    needed, reason = needed
+    n_observations = profile.span_index_length
+    try:
+        n_test = count_test_observations(
+            start_date     = profile.span_start_date,
+            frequency      = profile.frequency,
+            n_observations = n_observations,
+            end_train      = plan.end_train,
+            time_zone      = profile.time_zone,
+        )
+    except (ValueError, TypeError):
+        # An `end_train` that cannot be placed on the dates (with a time
+        # zone, on dates without one): the generated code fails on it with
+        # its own error.
+        return
+    if n_test is None:
+        return
+    n_train = n_observations - n_test
+    if n_train >= needed:
+        return
+
+    window = needed - (plan.steps if plan.forecaster in DIRECT_FORECASTERS else 1)
+    if plan.forecaster in DIRECT_FORECASTERS:
+        # Each step less adds one training observation and needs one less.
+        max_steps = (n_observations - window) // 2
+    else:
+        max_steps = n_observations - window - 1
+    features = (
+        ", fewer lags or smaller window features"
+        if plan.forecaster in AUTOREG_FORECASTERS else ""
+    )
+    if max_steps >= 1:
+        hint = (
+            f"Keeping the rest of the plan, at most {max_steps} `steps` fit: "
+            f"make a plan with that horizon and pass the same number as "
+            f"`test_size`. Otherwise use more data{features}."
+        )
+    else:
+        hint = (
+            f"No horizon fits in {n_observations} observations with this "
+            f"plan: use more data{features}."
+        )
+    raise InvalidInputError(
+        f"The training partition of the evaluation, up to {plan.end_train}, "
+        f"has {n_train} observations, and {plan.forecaster} needs at least "
+        f"{needed} ({reason}), so skforecast would fail. Evaluate a shorter "
+        f"horizon (fewer `steps`, with `test_size` equal to them){features}.",
+        code  = "insufficient_data",
+        field = "test_size",
+        hint  = hint,
     )
 
 

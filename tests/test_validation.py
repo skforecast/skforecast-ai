@@ -226,6 +226,44 @@ def test_validate_estimator_kwargs_output_when_lightgbm_alias():
     assert messages == []
 
 
+@pytest.mark.parametrize(
+    "estimator, estimator_kwargs, reason",
+    [
+        (
+            "Ridge",
+            {"alpha": "abc"},
+            "The 'alpha' parameter of Ridge must be a float in the range "
+            "[0.0, inf) or an array-like. Got 'abc' instead.",
+        ),
+        (
+            "RandomForestRegressor",
+            {"n_estimators": 0},
+            "The 'n_estimators' parameter of RandomForestRegressor must be an "
+            "int in the range [1, inf). Got 0 instead.",
+        ),
+        (
+            "Arima",
+            {"order": (1, 0)},
+            "`order` must be a tuple of length 3, got length 2",
+        ),
+    ],
+    ids=["Ridge", "RandomForestRegressor", "Arima"],
+)
+def test_validate_estimator_kwargs_InvalidInputError_when_value_not_valid(
+    estimator, estimator_kwargs, reason
+):
+    """
+    Test that a value the estimator rejects without data raises with the
+    message of its library and the field `estimator_kwargs`, when the plan
+    is made instead of when its script fits the estimator (V33).
+    """
+    err_msg = re.escape(f"`estimator_kwargs` is not valid for {estimator}: {reason}")
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        validate_estimator_kwargs(estimator, estimator_kwargs)
+
+    assert exc_info.value.field == "estimator_kwargs"
+
+
 def test_validate_estimator_kwargs_output_when_package_not_installed(
     monkeypatch,
 ):
@@ -896,6 +934,19 @@ def test_validate_window_features_passes_when_valid(window_features):
         ([{"stats": ["mean"], "window_size": 0}], "must be a positive int"),
         (
             [
+                {"stats": ["mean"], "window_size": 3},
+                {"stats": ["max"], "window_size": 6, "windows_size": 24,
+                 "min_periods": 2},
+            ],
+            re.escape(
+                "`window_features[1]` has unknown key(s): ['min_periods', "
+                "'windows_size']. Each entry takes only 'stats' and "
+                "'window_size'; add one entry per window size to use several "
+                "sizes."
+            ),
+        ),
+        (
+            [
                 {"stats": ["mean"], "window_size": 7},
                 {"stats": ["mean", "std"], "window_size": 7},
             ],
@@ -905,9 +956,9 @@ def test_validate_window_features_passes_when_valid(window_features):
 )
 def test_validate_window_features_raises_when_invalid(window_features, match):
     """
-    Test that malformed window_features (wrong container, missing keys,
-    unsupported stats, non-scalar/invalid window_size, or the same statistic
-    paired twice with the same window size) raise ValueError.
+    Test that malformed window_features (wrong container, missing or
+    unknown keys, unsupported stats, non-scalar/invalid window_size, or the
+    same statistic paired twice with the same window size) raise ValueError.
     """
     with pytest.raises(ValueError, match=match):
         _validate_window_features(window_features)

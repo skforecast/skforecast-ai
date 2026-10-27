@@ -252,10 +252,13 @@ that is for the user to ask once they know.
   yourself: tell them it is outside, and that they can copy it there or
   restart the server with another `--allow-dir`.
 - Dates: ISO 8601 text, `"2012-01-01"`, where an argument takes one
-  (`initial_train_size` of `create_cv`, `test_size` of `forecast`). A count
+  (`initial_train_size` of `create_cv`, `test_size` of `forecast`), with
+  a time zone (`Z`) only when the dates of the data have one. A count
   is a number, never text: `"12"` is rejected.
 - Arguments are strict: an unknown argument or a wrong type is an error,
-  never ignored. Metrics are the names of skforecast:
+  never ignored, also a key of an entry of `window_features` other than
+  `stats` and `window_size`, and a value of `estimator_kwargs` that a
+  scikit-learn estimator rejects. Metrics are the names of skforecast:
   `mean_absolute_error`, `mean_squared_error` (in the squared units of the
   target), `root_mean_squared_error` (in its units),
   `mean_absolute_scaled_error`, and the others the schema lists. The CSV
@@ -338,7 +341,7 @@ and follow `hint` when there is one:
 | code | What to do |
 |---|---|
 | `invalid_argument` | Fix the argument named in `field`, as the message says. |
-| `insufficient_data` | Ask for less, as the message says: a shorter horizon, fewer lags, or a first training set that leaves room for the folds (smaller) or for the window of the forecaster (a later `initial_train_size`). A target column without any value, or a series too short for the forecaster (the message names it), is also reported this way. |
+| `insufficient_data` | Ask for less, as the message says: a shorter horizon, fewer lags, or a first training set that leaves room for the folds (smaller) or for the window of the forecaster (a later `initial_train_size`). A target column without any value, a series too short for the forecaster (the message names it), a horizon of half the data or more in `create_cv`, or a `test_size` that leaves fewer observations to train on than the forecaster needs, is also reported this way. |
 | `data_not_found`, `invalid_path`, `url_not_allowed` | Pass the absolute path of a CSV file (`.csv`, `.tsv`, `.csv.gz` or `.tsv.gz`) inside the allowed directory. |
 | `path_not_allowed` | The file is outside the allowed directory (`details.allowed_dir`). Do not copy or move it yourself: tell the user, who can copy it there or restart the server with another `--allow-dir`. |
 | `data_unreadable` | The file is not a CSV the server can read (empty, binary, not UTF-8, rows with more fields than the header, or a column without name and values): tell the user, as for the data problems above. When the message says the separator, the decimal mark or the thousands separator cannot be told, or that the file holds `.` between thousands and in other values, call `profile` again with `sep`, `decimal` or `thousands` as the hint says, asking the user if you do not know them. When it says the dates read both day first and month first, ask the user in which order they are written and call `profile` again with `dayfirst`. |
@@ -353,7 +356,8 @@ and follow `hint` when there is one:
 | `internal_error` | Report it to the user with `details.error_id`, which finds the message in the log of the server; do not retry with the same inputs. |
 
 A candidate of `compare` that fails is ranked last instead of failing the
-call: `get_failure(comparison_id, candidate)` says why.
+call: `get_failure(comparison_id, candidate)` says why (with the id of a
+comparison, `candidate` is required).
 
 ## Privacy
 

@@ -8,7 +8,7 @@
 from __future__ import annotations
 import sys
 from typing import Annotated, Any, Literal, get_args
-from pydantic import BaseModel, ConfigDict, Field, with_config
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, with_config
 
 if sys.version_info >= (3, 12):
     from typing import TypedDict
@@ -22,7 +22,7 @@ from .._constants import (
     SUPPORTED_TRANSFORMERS,
     WindowStat,
 )
-from .._validation import _CALENDAR_FEATURES
+from .._validation import _CALENDAR_FEATURES, _validate_window_features
 
 ObjectKind = Literal["profile", "plan", "cv", "backtest", "comparison", "forecast"]
 """Kinds of the objects the server registers, the first part of their id."""
@@ -114,7 +114,51 @@ METRIC_DESCRIPTION = (
 )
 
 Interval = Annotated[list[float], Field(min_length=2, max_length=2)]
-WindowFeatures = list[dict[str, list[str] | int]]
+
+
+@with_config(ConfigDict(
+    extra             = "forbid",
+    strict            = True,
+    title             = "WindowFeatureArgs",
+    json_schema_extra = {
+        "description": (
+            "One window size and the statistics computed over it; no other "
+            "key is accepted."
+        ),
+    },
+))
+class WindowFeatureArgs(TypedDict):
+    """
+    One entry of `window_features` of the tools, with unknown keys
+    rejected and no type coercion.
+    """
+
+    stats: Annotated[list[WindowStat], Field(
+        min_length  = 1,
+        description = "Statistics computed over the window.",
+    )]
+    window_size: Annotated[int, Field(
+        ge          = 1,
+        description = "Number of observations of the window.",
+    )]
+
+
+def _check_window_features(value: Any) -> Any:
+    """
+    Apply the checks of `plan()` to `window_features` before the schema,
+    so an unknown key, a missing one or a repeated (stat, window_size)
+    pair is reported with the message of the core, which names the key
+    and the valid ones, instead of a bare "Extra inputs are not permitted".
+    """
+
+    _validate_window_features(value)
+
+    return value
+
+
+WindowFeatures = Annotated[
+    list[WindowFeatureArgs] | None, BeforeValidator(_check_window_features)
+]
 MetricName = Literal[ALLOWED_METRICS]
 """Regression metrics of skforecast (`ALLOWED_METRICS`)."""
 Metric = MetricName | Annotated[list[MetricName], Field(min_length=1)]
@@ -172,7 +216,7 @@ class RefinePlanArgs(TypedDict, total=False):
         )),
     ]
     window_features: Annotated[
-        WindowFeatures | None,
+        WindowFeatures,
         Field(description=(
             f"{WINDOW_FEATURES_DESCRIPTION} Null selects them again with the "
             f"deterministic rules."
@@ -256,7 +300,7 @@ class CandidateArgs(TypedDict, total=False):
         )),
     ]
     window_features: Annotated[
-        WindowFeatures | None,
+        WindowFeatures,
         Field(description=(
             f"{WINDOW_FEATURES_DESCRIPTION} Null selects them with the "
             f"deterministic rules."

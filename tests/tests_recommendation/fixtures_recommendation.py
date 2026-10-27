@@ -272,3 +272,12 @@ plan_foundation = _plan(
     "foundation", "ForecasterFoundation", "autogluon/chronos-2-small", ["estimator"]
 )
 plan_baseline = _plan("baseline", "ForecasterEquivalentDate", None)
+
+# --- h2o (monthly, 204 observations) planned with a window of 12 ---
+# The forecasting profile, to build plans of any horizon, and the lags 1 to
+# 12 with a rolling mean of 12 (the rules would add a window of 36).
+forecasting_profile_h2o = _profile_h2o
+window_12_kwargs = {
+    "lags": 12,
+    "window_features": [{"stats": ["mean"], "window_size": 12}],
+}

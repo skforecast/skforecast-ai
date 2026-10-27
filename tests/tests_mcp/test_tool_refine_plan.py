@@ -116,14 +116,19 @@ def test_tool_refine_plan_keeps_omitted_and_resets_null_keys(tmp_path):
         ({"lags": [0]}, "overrides.lags"),
         ({"steps": 0}, "overrides.steps"),
         ({"forecaster": None}, "overrides.forecaster"),
+        (
+            {"window_features": [{"stats": ["mean"], "window_size": 3, "size": 6}]},
+            "overrides.window_features",
+        ),
     ],
     ids=lambda dt: f"{dt}",
 )
 def test_tool_refine_plan_invalid_argument(tmp_path, overrides, field):
     """
     Test that unknown keys and wrong types of `overrides` are rejected before
-    the core runs (`forecaster` takes no null), and that the errors of the
-    core name the key of `overrides`.
+    the core runs (`forecaster` takes no null, an entry of `window_features`
+    no unknown key), and that the errors of the core name the key of
+    `overrides`.
     """
     server, _, _, _, plan_id = _planned(tmp_path)
 

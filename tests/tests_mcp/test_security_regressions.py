@@ -259,8 +259,8 @@ def test_security_hostile_names_and_values_are_quoted_in_the_script(tmp_path):
                     "profile_id": profile["id"],
                     "steps": 12,
                     "forecaster": "ForecasterRecursive",
-                    "estimator": "Ridge",
-                    "estimator_kwargs": {"solver": "auto" + INJECTION},
+                    "estimator": "LGBMRegressor",
+                    "estimator_kwargs": {"objective": "regression" + INJECTION},
                 },
             )
         )
@@ -280,8 +280,8 @@ def test_security_hostile_names_and_values_are_quoted_in_the_script(tmp_path):
     )
 
     assert repr(path) in code
-    assert repr("auto" + INJECTION) in code
-    assert "InvalidParameterError" in proc.stderr
+    assert repr("regression" + INJECTION) in code
+    assert "LightGBMError: Unknown objective type name" in proc.stderr
     assert not (tmp_path / "pwned").exists()
     assert not Path("pwned").exists()
 
@@ -332,7 +332,7 @@ def test_security_executed_scripts_keep_hostile_values_quoted(tmp_path):
     Test that the tools that run scripts (forecast, backtest, compare) run
     them with hostile column names, file name and estimator argument values
     quoted: the marker is never created, and the estimator rejects the value
-    as a parameter it does not know.
+    as an objective it does not know.
     """
     data = tmp_path / "data"
     data.mkdir()
@@ -341,7 +341,9 @@ def test_security_executed_scripts_keep_hostile_values_quoted(tmp_path):
     )
     path = write_csv(data, "h2o" + INJECTION + ".csv", frame)
     server = create_server(allow_dir=data, output_dir=tmp_path / "out")
-    kwargs = {"solver": "auto" + INJECTION}
+    # LightGBM checks the values of its parameters only when it fits (the
+    # values of a scikit-learn estimator are checked when the plan is made).
+    kwargs = {"objective": "regression" + INJECTION}
 
     async def steps(client):
         profile = content_of(
@@ -372,7 +374,7 @@ def test_security_executed_scripts_keep_hostile_values_quoted(tmp_path):
                     "profile_id": profile["id"],
                     "steps": 12,
                     "forecaster": "ForecasterRecursive",
-                    "estimator": "Ridge",
+                    "estimator": "LGBMRegressor",
                     "estimator_kwargs": kwargs,
                 },
             )
@@ -394,7 +396,7 @@ def test_security_executed_scripts_keep_hostile_values_quoted(tmp_path):
                         {
                             "name": "hostile" + INJECTION,
                             "config": {
-                                "estimator": "Ridge",
+                                "estimator": "LGBMRegressor",
                                 "estimator_kwargs": kwargs,
                             },
                         },
