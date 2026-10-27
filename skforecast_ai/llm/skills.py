@@ -120,7 +120,7 @@ _SKILL_TOKEN_ESTIMATES: dict[str, int] = {
     "metric-selection": 6250,
     "prediction-intervals": 4952,
     "statistical-models": 4363,
-    "troubleshooting-common-errors": 2587,
+    "troubleshooting-common-errors": 3125,
 }
 
 _REFERENCE_TOKEN_ESTIMATE = 9510  # llms-base.txt measured size
