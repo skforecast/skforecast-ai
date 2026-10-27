@@ -104,7 +104,7 @@ The main changes in this release are:
 
 + The default metrics of [<code>ForecastingAssistant.plan()</code>][assistant] have RMSE (`root_mean_squared_error`, in the units of the target) instead of MSE, in squared units: MAE, RMSE and MASE, plus MAPE away from zero. The generated scripts and the metrics of every result change; the metric that ranks and chooses does not ([#117](https://github.com/skforecast/skforecast-ai/pull/117)).
 
-+ A candidate of [<code>ForecastingAssistant.compare()</code>][assistant] that fails with an error of skforecast-ai is named by its class (`InvalidInputError`) in `CandidateFailure.error_type`, the table, the warnings and `AllCandidatesFailedError`, instead of the built-in class it derives from (`ValueError`). The MCP server now sends its message, and `get_failure` with the id of a comparison requires `candidate`.
++ A candidate of [<code>ForecastingAssistant.compare()</code>][assistant] that fails with an error of skforecast-ai is named by its class (`InvalidInputError`) in `CandidateFailure.error_type`, the table, the warnings and `AllCandidatesFailedError`, instead of the built-in class it derives from (`ValueError`). The MCP server now sends its message, and `get_failure` with the id of a comparison requires `candidate` ([#121](https://github.com/skforecast/skforecast-ai/pull/121)).
 
 
 **Fixed**
@@ -163,15 +163,15 @@ The main changes in this release are:
 
 + The `FutureExogNotice` of the MCP server asked for the future values of categorical columns that `ForecasterStats` or a foundation model without categorical covariates does not read, which `forecast` then rejected in the file of a foundation model. It now names only the columns the model reads ([#118](https://github.com/skforecast/skforecast-ai/pull/118)).
 
-+ [<code>ForecastingAssistant.plan()</code>][assistant], `refine_plan()` and `compare()` ignored an unknown key of an entry of `window_features` (`min_periods`), which the summary still showed as chosen. It now raises `InvalidInputError` naming the key and the valid ones (`invalid_argument` in the MCP server).
++ [<code>ForecastingAssistant.plan()</code>][assistant], `refine_plan()` and `compare()` ignored an unknown key of an entry of `window_features` (`min_periods`), which the summary still showed as chosen. It now raises `InvalidInputError` naming the key and the valid ones (`invalid_argument` in the MCP server) ([#121](https://github.com/skforecast/skforecast-ai/pull/121)).
 
-+ [<code>ForecastingAssistant.plan()</code>][assistant] accepted a value of `estimator_kwargs` that the estimator rejects (`alpha='abc'` for `Ridge`), and the run failed with `ForecastExecutionError`. It now raises `InvalidInputError` on `estimator_kwargs` with the message of scikit-learn or of `Arima`; LightGBM, XGBoost and CatBoost still check their values when they fit.
++ [<code>ForecastingAssistant.plan()</code>][assistant] accepted a value of `estimator_kwargs` that the estimator rejects (`alpha='abc'` for `Ridge`), and the run failed with `ForecastExecutionError`. It now raises `InvalidInputError` on `estimator_kwargs` with the message of scikit-learn or of `Arima`; LightGBM, XGBoost and CatBoost still check their values when they fit ([#121](https://github.com/skforecast/skforecast-ai/pull/121)).
 
-+ [<code>ForecastingAssistant.forecast()</code>][assistant] with `test_size` as a date with a time zone (`'2024-04-09T00:00:00Z'`) raised `TypeError` (an `internal_error` in the MCP server). It is now placed on the dates in their zone, or raises `InvalidInputError` when the data has none. On data in a zone with daylight saving time, the test set no longer starts an hour early after the change.
++ [<code>ForecastingAssistant.forecast()</code>][assistant] with `test_size` as a date with a time zone (`'2024-04-09T00:00:00Z'`) raised `TypeError` (an `internal_error` in the MCP server). It is now placed on the dates in their zone, or raises `InvalidInputError` when the data has none. On data in a zone with daylight saving time, the test set no longer starts an hour early after the change ([#121](https://github.com/skforecast/skforecast-ai/pull/121)).
 
-+ [<code>ForecastingAssistant.forecast()</code>][assistant] with a `test_size` that leaves fewer observations to train on than the window of the forecaster failed inside the script with `ForecastExecutionError`. It now raises `insufficient_data` on `test_size` before running, with the longest horizon that fits.
++ [<code>ForecastingAssistant.forecast()</code>][assistant] with a `test_size` that leaves fewer observations to train on than the window of the forecaster failed inside the script with `ForecastExecutionError`. It now raises `insufficient_data` on `test_size` before running, with the longest horizon that fits ([#121](https://github.com/skforecast/skforecast-ai/pull/121)).
 
-+ [<code>ForecastingAssistant.create_cv()</code>][assistant] without `initial_train_size`, for a plan whose `steps` are half the data or more, raised an error about an `initial_train_size` outside the data that was never passed. It now raises `insufficient_data` on the plan, with the longest horizon that fits.
++ [<code>ForecastingAssistant.create_cv()</code>][assistant] without `initial_train_size`, for a plan whose `steps` are half the data or more, raised an error about an `initial_train_size` outside the data that was never passed. It now raises `insufficient_data` on the plan, with the longest horizon that fits ([#121](https://github.com/skforecast/skforecast-ai/pull/121)).
 
 
 ## 0.4.2 <small>Oct 12, 2026</small> { id="0.4.2" }
