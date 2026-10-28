@@ -525,3 +525,63 @@ def test_plan_refinement_agent_reasks_model_when_lags_invalid():
             "input": [0, 7],
         }
     ]
+
+
+def test_plan_refinement_agent_reasks_model_when_window_feature_has_unknown_key():
+    """
+    Test that a window feature with a key the schema does not define (a
+    `min_periods` the model makes up) fails PlanOverrides validation instead
+    of being dropped without saying so, and pydantic-ai re-asks the model
+    with the error, as for invalid lags.
+    """
+    pytest.importorskip("pydantic_ai")
+    from pydantic_ai.messages import (
+        ModelResponse,
+        RetryPromptPart,
+        ToolCallPart,
+        ToolReturnPart,
+    )
+    from pydantic_ai.models.function import FunctionModel
+
+    from skforecast_ai import ForecastingAssistant
+    from skforecast_ai.llm.agent import PlanRefinementDeps, create_plan_refinement_agent
+
+    from tests.fixtures_assistant import df_single
+
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    calls = []
+
+    def respond(messages, info):
+        calls.append(messages)
+        tool_name = info.output_tools[0].name
+        window_feature = {"stats": ["mean"], "window_size": 7}
+        if len(calls) == 1:
+            window_feature["min_periods"] = 3
+        args = {"lags": [1, 7], "window_features": [window_feature], "reasoning": "ok"}
+        return ModelResponse(parts=[ToolCallPart(tool_name=tool_name, args=args)])
+
+    agent = create_plan_refinement_agent(FunctionModel(respond))
+    deps = PlanRefinementDeps(profile=profile, plan=plan, prompt="weekly seasonality")
+    result = agent.run_sync("weekly seasonality", deps=deps)
+
+    assert [
+        window_feature.model_dump() for window_feature in result.output.window_features
+    ] == [{"stats": ["mean"], "window_size": 7}]
+    assert len(calls) == 2
+    # As a `RetryPromptPart` in pydantic-ai 2.20, as a `ToolReturnPart` of the
+    # output tool with `loc` as a list in 2.62.
+    feedback = calls[1][-1].parts
+    assert len(feedback) == 1
+    assert isinstance(feedback[0], (RetryPromptPart, ToolReturnPart))
+    errors = [{**error, "loc": tuple(error["loc"])} for error in feedback[0].content]
+    assert errors == [
+        {
+            "type": "extra_forbidden",
+            "loc": ("window_features", 0, "min_periods"),
+            "msg": "Extra inputs are not permitted",
+            "input": 3,
+        }
+    ]

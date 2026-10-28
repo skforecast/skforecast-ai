@@ -237,7 +237,7 @@ def test_tool_forecast_with_future_exog(tmp_path):
         data=path,
         profile=profile,
         plan=assistant.plan(profile=profile, steps=10),
-        exog=load_exog(exog_path, date_column="date"),
+        exog=load_exog(exog_path, date_column="date")[0],
     )
 
     assert text_of(result["files"]["predictions"]) == csv_of(expected.predictions)
@@ -602,6 +602,46 @@ def test_tool_forecast_invalid_argument_with_hint_when_future_exog_has_no_date_c
     )
 
 
+def test_tool_forecast_invalid_argument_with_hint_when_data_without_dates_and_exog_positions_do_not_follow(
+    tmp_path,
+):
+    """
+    Test that a file of future values of data without dates whose column of
+    positions (the index that `to_csv()` writes) does not follow the last
+    row of the data is `invalid_argument` on `exog_path`, with a message
+    that says so and the hint that leaves the file to the user, instead of
+    the error of skforecast when it predicts.
+    """
+    data = pd.DataFrame(
+        {"y": 10.0 + np.sin(np.arange(60) / 4), "x": np.cos(np.arange(60))}
+    )
+    path = write_csv(tmp_path, "datos.csv", data)
+    exog_path = tmp_path / "futuro.csv"
+    pd.DataFrame({"x": np.cos(np.arange(5))}).to_csv(exog_path)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, plan_id = profile_and_plan(
+        server, path, target="y", steps=5, estimator="Ridge"
+    )
+
+    error = error_of(
+        call(server, "forecast", {"plan_id": plan_id, "exog_path": str(exog_path)}),
+        "forecast",
+    )
+
+    assert (error["code"], error["field"]) == ("invalid_argument", "exog_path")
+    assert error["message"] == (
+        "`exog` must be indexed by the positions that follow the last row of "
+        "the data (a RangeIndex), 60 to 64 for the 5 steps of the horizon; its "
+        "first rows are at 0, 1, 2, 3, 4. The data have no dates: the future "
+        "values are one row per step of the horizon, in order."
+    )
+    assert error["hint"] == (
+        "The file of future values is the user's: tell them what the message "
+        "says and let them correct it. Never write or change those values "
+        "yourself."
+    )
+
+
 def test_tool_forecast_invalid_argument_without_hint_when_exog_path_and_test_size(
     tmp_path,
 ):
@@ -729,7 +769,9 @@ def test_tool_forecast_output_when_series_ids_are_numbers(tmp_path):
         data=path,
         profile=expected_profile,
         plan=assistant.plan(profile=expected_profile, steps=7),
-        exog=load_exog(exog_path, date_column="date", series_id_column="series_id"),
+        exog=load_exog(
+            exog_path, date_column="date", series_id_column="series_id"
+        )[0],
     )
     predictions = pd.read_csv(
         result["files"]["predictions"], index_col=0, dtype={"level": str}

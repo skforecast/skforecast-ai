@@ -898,15 +898,15 @@ class TestForecast:
         )
 
 
-    def test_forecast_exog_script_reads_the_file_with_another_date_column(
+    def test_forecast_exog_error_when_file_names_the_dates_otherwise(
         self, tmp_path
     ):
         """
-        forecast --exog without --date-column reads a file whose dates are
-        in a column named otherwise than in the data ('fecha'): the script
-        reads that file by its path, names the column as the data do, and
-        run as a file in another directory gives the predictions of
-        forecast.
+        forecast --exog without --date-column reads the file of future
+        values with the date column of the profile, as `forecast(exog=path)`
+        and the MCP server do: a file whose dates are in a column named
+        otherwise than in the data ('fecha') fails with an error that names
+        the columns of the file (before, the script renamed it).
         """
         csv_path = _write_csv(tmp_path, df_single)
         exog_path = _write_csv(
@@ -922,31 +922,13 @@ class TestForecast:
             ["forecast", csv_path, "--target", "sales", "--steps", "5",
              "--exog", exog_path, "--format", "json", "--quiet"],
         )
-        assert result.exit_code == 0, result.output
-        data = json.loads(result.stdout)
-        assert (
-            f"exog_future = pd.read_csv({exog_path!r})\n"
-            "exog_future = exog_future.rename(columns={'fecha': 'date'})\n"
-            in data["code"]
+        assert result.exit_code == 1
+        error = json.loads(result.stderr)["error"]
+        assert error["field"] == "exog"
+        assert error["message"] == (
+            f"The exog CSV '{exog_path}' has no column 'date'; its columns are "
+            f"['fecha', 'promo']."
         )
-        run_dir = tmp_path / "run"
-        run_dir.mkdir()
-        script = run_dir / "script.py"
-        script.write_text(
-            data["code"] + "\npredictions.to_frame().to_csv('predictions.csv')\n"
-        )
-        proc = subprocess.run(
-            [sys.executable, str(script)],
-            cwd=run_dir, capture_output=True, text=True, timeout=600,
-        )
-        assert proc.returncode == 0, proc.stderr[-3000:]
-        standalone = pd.read_csv(run_dir / "predictions.csv", index_col=0)
-        np.testing.assert_allclose(
-            standalone["pred"].to_numpy(),
-            [row["pred"] for row in data["predictions"]],
-            rtol=1e-6,
-        )
-
 
 
 # ---------------------------------------------------------------------------

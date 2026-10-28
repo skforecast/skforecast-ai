@@ -577,6 +577,39 @@ def test_validate_future_exog_InvalidInputError_when_data_without_dates():
 
 
 @pytest.mark.parametrize(
+    "exog, found",
+    [
+        (exog_range.set_axis(pd.RangeIndex(0, 7)), "0, 1, 2, 3, 4 and 2 more"),
+        (exog_range.set_axis(pd.RangeIndex(61, 68)), "61, 62, 63, 64, 65 and 2 more"),
+        (
+            exog_range.set_axis(pd.Index([60, 61, 62, 63, 64, 65, 66])),
+            "60, 61, 62, 63, 64 and 2 more",
+        ),
+    ],
+    ids=["from zero", "one after", "not a RangeIndex"],
+)
+def test_validate_future_exog_DataContentError_when_data_without_dates_and_positions_do_not_follow(
+    exog, found
+):
+    """
+    Test that, for data without dates (RangeIndex), future values whose
+    first `steps` rows are not at the positions that follow the last row of
+    the data, in a RangeIndex, raise a clear error before running, instead
+    of the error of skforecast when it predicts (an `exog` that does not
+    start one step ahead of the last window, or an unsupported index type).
+    """
+    err_msg = re.escape(
+        f"`exog` must be indexed by the positions that follow the last row of "
+        f"the data (a RangeIndex), 60 to 66 for the 7 steps of the horizon; its "
+        f"first rows are at {found}. The data have no dates: the future values "
+        f"are one row per step of the horizon, in order."
+    )
+    with pytest.raises(DataContentError, match=err_msg) as exc_info:
+        validate_future_exog(exog, data_range, profile_range, plan_range_ridge)
+    assert exc_info.value.field == "exog"
+
+
+@pytest.mark.parametrize(
     "exog, err_msg",
     [
         (
@@ -885,9 +918,7 @@ def test_validate_future_exog_UserWarning_when_infinite_values_and_lightgbm():
             id="calendar_hours_for_business_hours",
         ),
         pytest.param(
-            pd.concat([exog_range, exog_range.iloc[[0]].set_axis([90]).assign(
-                x=np.nan
-            )]),
+            exog_range.reindex(pd.RangeIndex(60, 68)),
             data_range, profile_range, plan_range_ridge,
             id="data_without_dates_more_rows",
         ),

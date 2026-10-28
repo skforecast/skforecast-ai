@@ -702,7 +702,7 @@ def test_render_forecast_single_series_future_exog_uses_index_style_when_no_date
     "data_path, expected_read",
     [
         ("sales.csv", "data = pd.read_csv('sales.csv')\n"),
-        ("data.csv", "data = pd.read_csv('data.csv', index_col=0, parse_dates=True)\n"),
+        ("data.csv", "data = pd.read_csv('data.csv', index_col=0)\n"),
     ],
     ids=["read by path", "passed in memory"],
 )
@@ -715,7 +715,8 @@ def test_render_forecast_single_series_reads_index_only_when_stored_when_no_date
     first column into the index, while data passed in memory (the
     placeholder path) keeps the index read of the frame saved with
     `to_csv()`. The future exogenous variables keep the index read that
-    carries the positions after the data.
+    carries the positions after the data. Positions are read without
+    `parse_dates`, which pandas warns it cannot apply to them.
     """
     profile = profile_single_no_exog.model_copy(
         update={
@@ -730,7 +731,7 @@ def test_render_forecast_single_series_reads_index_only_when_stored_when_no_date
 
     assert expected_read in result.data_loading
     assert (
-        "exog_future = pd.read_csv('exog_future.csv', index_col=0, parse_dates=True)"
+        "exog_future = pd.read_csv('exog_future.csv', index_col=0)"
         in result.data_loading
     )
 
@@ -1195,37 +1196,16 @@ def test_render_forecast_single_series_output_when_future_exog_file_from_excel()
     assert result.full_script == expected
 
 
-@pytest.mark.parametrize(
-    "blank_rows, date_column, extra_lines",
-    [
-        (True, "date", "exog_future = exog_future.dropna(how='all')\n"),
-        (
-            False,
-            "fecha",
-            "exog_future = exog_future.rename(columns={'fecha': 'date'})\n",
-        ),
-        (
-            True,
-            "Unnamed: 0",
-            "exog_future = exog_future.dropna(how='all')\n"
-            "exog_future = exog_future.rename(columns={'Unnamed: 0': 'date'})\n",
-        ),
-    ],
-    ids=["blank rows", "other date column", "both"],
-)
-def test_render_forecast_single_series_output_when_future_exog_file_needs_cleaning(
-    blank_rows, date_column, extra_lines
-):
+def test_render_forecast_single_series_output_when_future_exog_file_has_blank_rows():
     """
     Test that the script drops the rows made only of separators of the file
-    of the future values, and names its date column as the one of the data
-    when the file names it otherwise, as the file was read, right after
-    reading it; the rest of the loading section does not change.
+    of the future values, as the file was read, right after reading it; the
+    rest of the loading section does not change.
     """
     exog_file = FutureExogFile(
                     path        = "futuro.csv",
-                    date_column = date_column,
-                    blank_rows  = blank_rows,
+                    date_column = "date",
+                    blank_rows  = True,
                 )
 
     result = render_forecast_single_series(
@@ -1238,6 +1218,122 @@ def test_render_forecast_single_series_output_when_future_exog_file_needs_cleani
         "\n"
         "# Load future exogenous variables covering the forecast horizon\n"
         "exog_future = pd.read_csv('futuro.csv')\n"
-        f"{extra_lines}"
+        "exog_future = exog_future.dropna(how='all')\n"
+    )
+    assert result.data_loading == expected
+
+
+@pytest.mark.parametrize(
+    "exog_file, exog_lines",
+    [
+        (
+            FutureExogFile(path="futuro.csv", by_position=True),
+            "exog_future = pd.read_csv('futuro.csv')\n"
+            "exog_future.index = pd.RangeIndex(data.index[-1] + 1, "
+            "data.index[-1] + 1 + len(exog_future))\n",
+        ),
+        (
+            FutureExogFile(
+                path="futuro.csv", sep=";", by_position=True, blank_rows=True
+            ),
+            "exog_future = pd.read_csv('futuro.csv', sep=';', decimal='.')\n"
+            "exog_future = exog_future.dropna(how='all')\n"
+            "exog_future.index = pd.RangeIndex(data.index[-1] + 1, "
+            "data.index[-1] + 1 + len(exog_future))\n",
+        ),
+        (
+            FutureExogFile(path="futuro.csv", blank_rows=True),
+            "exog_future = pd.read_csv('futuro.csv', index_col=0)\n"
+            "exog_future = exog_future.dropna(how='all')\n"
+            "exog_future.index = pd.RangeIndex(exog_future.index[0], "
+            "exog_future.index[0] + len(exog_future))\n",
+        ),
+    ],
+    ids=["by position", "by position, blank rows", "positions, blank rows"],
+)
+def test_render_forecast_single_series_output_when_future_exog_file_without_dates(
+    exog_file, exog_lines
+):
+    """
+    Test that the file of the future values of data without dates is read
+    as `load_exog` reads it: without a column of positions, as is, its rows
+    numbered from the position after the last row of the data; with one,
+    as the index, numbered from its first position. Rows made only of
+    separators are dropped before the rows are numbered.
+    """
+    profile = profile_single_no_exog.model_copy(
+        update={
+            "date_column": None,
+            "index_type": "range",
+            "frequency": None,
+            "exog_columns": ["promo"],
+            "data_path": "sales.csv",
+        }
+    )
+
+    result = render_forecast_single_series(
+                 plan_single_predict_exog, profile, exog_file=exog_file
+             )
+
+    expected = (
+        "# Load data\n"
+        "data = pd.read_csv('sales.csv')\n"
+        "\n"
+        "# Load future exogenous variables covering the forecast horizon\n"
+        f"{exog_lines}"
+    )
+    assert result.data_loading == expected
+
+
+@pytest.mark.parametrize(
+    "exog_file, exog_read",
+    [
+        (
+            FutureExogFile(path="futuro.csv", date_column="fecha"),
+            "exog_future = pd.read_csv('futuro.csv', index_col='fecha', "
+            "parse_dates=True)\n",
+        ),
+        (
+            FutureExogFile(
+                path        = "futuro.csv",
+                sep         = ";",
+                decimal     = ",",
+                thousands   = ".",
+                date_format = "%d.%m.%Y",
+                date_column = "fecha",
+            ),
+            "exog_future = pd.read_csv('futuro.csv', sep=';', decimal=',', "
+            "thousands='.', dtype={'fecha': str}, date_format='%d.%m.%Y', "
+            "index_col='fecha', parse_dates=True)\n",
+        ),
+        (
+            FutureExogFile(path="futuro.csv", date_column="Unnamed: 0"),
+            "exog_future = pd.read_csv('futuro.csv', index_col=0, "
+            "parse_dates=True)\n",
+        ),
+    ],
+    ids=["named", "format and thousands", "unnamed"],
+)
+def test_render_forecast_single_series_output_when_future_exog_file_and_dates_in_index(
+    exog_file, exog_read
+):
+    """
+    Test that the file of the future values of data dated by their index
+    (no date column) is read from the column of its dates, by name (or the
+    first one when it has none), in the format of its dates, and with that
+    column as text when the file has a thousands separator.
+    """
+    profile = profile_single.model_copy(update={"date_column": None})
+
+    result = render_forecast_single_series(
+                 plan_single_predict_exog, profile, exog_file=exog_file
+             )
+
+    expected = (
+        "# Load data\n"
+        "data = pd.read_csv('data.csv', index_col=0, parse_dates=True)\n"
+        "\n"
+        "# Load future exogenous variables covering the forecast horizon\n"
+        f"{exog_read}"
     )
     assert result.data_loading == expected

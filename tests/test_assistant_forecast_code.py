@@ -9,7 +9,6 @@ import pytest
 
 
 from skforecast_ai import ForecastingAssistant
-from skforecast_ai._utils import load_exog
 from skforecast_ai.exceptions import InvalidInputError
 from skforecast_ai.schemas import CodeGenerationResult, PreprocessingStep
 
@@ -1003,10 +1002,9 @@ def test_forecast_code_reads_future_exog_with_its_own_format(
     tmp_path, exog_written, exog_format_arg
 ):
     """
-    Test that forecast_code() with future exogenous values read by
-    load_exog() renders the script forecast() runs: the dates of the data
-    day first, and those of `exog_future.csv` with the format of the file
-    given, none for ISO 8601 as `to_csv()` writes them, and the order of
+    Test that forecast_code() with the path of a file of future exogenous
+    values renders the script forecast() runs: the dates of the data day
+    first, and those of the file with its own format, none for ISO 8601 as `to_csv()` writes them, and the order of
     the data for a horizon written day first that reads both ways.
     """
     csv_path = tmp_path / "data.csv"
@@ -1018,16 +1016,13 @@ def test_forecast_code_reads_future_exog_with_its_own_format(
     )
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=csv_path, target="y", date_column="date")
-    exog = load_exog(
-        exog_path,
-        date_column = "date",
-        date_format = profile.data_profile.date_format,
-    )
 
     code = assistant.forecast_code(
-        data=csv_path, profile=profile, steps=7, exog=exog
+        data=csv_path, profile=profile, steps=7, exog=exog_path
     ).code
-    executed = assistant.forecast(data=csv_path, profile=profile, steps=7, exog=exog)
+    executed = assistant.forecast(
+        data=csv_path, profile=profile, steps=7, exog=exog_path
+    )
 
     assert code == executed.code
     assert (
@@ -1049,7 +1044,7 @@ def test_forecast_code_reads_csv_and_future_exog_in_their_own_encoding(
 ):
     """
     Test that forecast_code() of a CSV file in cp1252 (the CSV that Excel
-    saves on Windows) with future values read by load_exog() renders the
+    saves on Windows) with the path of a file of future values renders the
     script forecast() runs: the data read with `encoding='cp1252'`, and the
     file of the future values by its path, in its own encoding, none for
     UTF-8.
@@ -1062,18 +1057,14 @@ def test_forecast_code_reads_csv_and_future_exog_in_their_own_encoding(
     with warnings.catch_warnings():
         # The note on cp1252 is tested with load_exog.
         warnings.simplefilter("ignore", UserWarning)
-        exog = load_exog(
-            exog_path,
-            date_column = "fecha",
-            date_format = profile.data_profile.date_format,
+        code = assistant.forecast_code(
+            data=csv_path, profile=profile, steps=10, exog=exog_path,
+            estimator="Ridge",
+        ).code
+        executed = assistant.forecast(
+            data=csv_path, profile=profile, steps=10, exog=exog_path,
+            estimator="Ridge",
         )
-
-    code = assistant.forecast_code(
-        data=csv_path, profile=profile, steps=10, exog=exog, estimator="Ridge"
-    ).code
-    executed = assistant.forecast(
-        data=csv_path, profile=profile, steps=10, exog=exog, estimator="Ridge"
-    )
 
     assert code == executed.code
     assert (
@@ -1081,3 +1072,40 @@ def test_forecast_code_reads_csv_and_future_exog_in_their_own_encoding(
         f"encoding='cp1252')\n" in code
     )
     assert f"exog_future = pd.read_csv({str(exog_path)!r}{encoding_arg})\n" in code
+
+
+@pytest.mark.parametrize("with_data", [True, False], ids=["data", "profile only"])
+def test_forecast_code_output_when_data_without_dates_and_exog_path(
+    tmp_path, with_data
+):
+    """
+    Test that forecast_code() of data without dates with the path of a file
+    of future values renders the script forecast() runs: the file read by
+    its path, its rows numbered from the position after the last row of
+    the data. With only the profile (no data), the file is read for how it
+    is written, which the script needs.
+    """
+    data = df_single[["sales", "promo"]].reset_index(drop=True)
+    csv_path = tmp_path / "datos.csv"
+    data.to_csv(csv_path, index=False)
+    exog_path = tmp_path / "futuro.csv"
+    pd.DataFrame({"promo": [0.0, 1.0, 0.0, 1.0, 0.0]}).to_csv(
+        exog_path, index=False
+    )
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=csv_path, target="sales")
+
+    code = assistant.forecast_code(
+        data=csv_path if with_data else None, profile=profile, steps=5,
+        exog=exog_path,
+    ).code
+    executed = assistant.forecast(
+        data=csv_path, profile=profile, steps=5, exog=exog_path
+    )
+
+    assert code == executed.code
+    assert (
+        f"exog_future = pd.read_csv({str(exog_path)!r})\n"
+        "exog_future.index = pd.RangeIndex(data.index[-1] + 1, "
+        "data.index[-1] + 1 + len(exog_future))\n" in code
+    )

@@ -78,7 +78,7 @@ Every command that reads data accepts these three options, so the examples below
 `forecast` runs the whole pipeline in one call and works in two modes:
 
 - **Evaluation mode** (`--test-size`): holds out the end of the series, forecasts it and reports metrics. `--test-size` takes an integer (the last *N* observations), a float in `(0, 1)` (the last fraction) or a date (the start of the test set); the test set must hold exactly `--steps` observations. To evaluate over a longer period, use `backtest`.
-- **Prediction mode** (the default): trains on all the data and forecasts the next `--steps` periods. There is no ground truth, so there are no metrics. When the data has exogenous variables, their future values are required: pass `--exog` with a CSV that has the date column and the same exogenous columns, covering the horizon.
+- **Prediction mode** (the default): trains on all the data and forecasts the next `--steps` periods. There is no ground truth, so there are no metrics. When the data has exogenous variables, their future values are required: pass `--exog` with a CSV that has the date column of the data and the same exogenous columns, covering the horizon. For data without dates, the file has one row per step of the horizon, in order (a first column without a name, as `to_csv()` writes the index, holds their positions, which must follow the last row of the data).
 
 ```bash
 # Evaluation mode: hold out the last 12 observations and forecast them

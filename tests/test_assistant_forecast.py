@@ -12,12 +12,13 @@ from skforecast.exceptions import MissingValuesWarning
 
 from skforecast_ai import ForecastingAssistant, ForecastResult
 from skforecast_ai.exceptions import (
+    DataContentError,
+    DataNotFoundError,
     ForecastExecutionError,
     InvalidInputError,
     InvalidInputTypeError,
 )
 from skforecast_ai import _validation as validation_module
-from skforecast_ai._utils import load_exog
 from skforecast_ai._constants import ALLOWED_METRICS
 
 from tests.fixtures_csv_dialect import (
@@ -598,21 +599,144 @@ def test_forecast_InvalidInputError_when_future_exog_has_gap():
     assert exc_info.value.field == "exog"
 
 
-def test_forecast_InvalidInputTypeError_when_exog_is_path():
+def test_forecast_InvalidInputTypeError_when_exog_is_not_a_frame_nor_a_path():
     """
-    Test that forecast() with `exog` given as a path raises a type error
-    that says what it expects, instead of a message about the number of
-    rows (the length of the str).
+    Test that forecast() with `exog` given as another type than a frame, a
+    Series or a path raises a type error that says what it expects.
     """
     err_msg = re.escape(
         "`exog` must be a pandas DataFrame with the future values of the "
-        "exogenous variables, not str."
+        "exogenous variables, or the path of a CSV file with them, not dict."
     )
     with pytest.raises(InvalidInputTypeError, match=err_msg):
         ForecastingAssistant().forecast(
             data=df_single, target="sales", date_column="date", steps=5,
-            exog="future_exog.csv",
+            exog={"promo": [0.0] * 5},
         )
+
+
+def test_forecast_DataNotFoundError_when_exog_path_not_found(tmp_path):
+    """
+    Test that forecast() with `exog` given as the path of a file that does
+    not exist raises `DataNotFoundError` on `exog`.
+    """
+    path = tmp_path / "future_exog.csv"
+
+    err_msg = re.escape(f"Exog CSV not found: '{path}'.")
+    with pytest.raises(DataNotFoundError, match=err_msg) as exc_info:
+        ForecastingAssistant().forecast(
+            data=df_single, target="sales", date_column="date", steps=5,
+            exog=path,
+        )
+    assert exc_info.value.field == "exog"
+
+
+@pytest.mark.parametrize("as_str", [False, True], ids=["Path", "str"])
+def test_forecast_output_when_exog_is_path(tmp_path, as_str):
+    """
+    Test that forecast() with `exog` given as the path of a CSV file, a str
+    or a Path, reads it with the profile of the data (its date column, the
+    order of its dates) and gives the predictions of the same values read
+    by hand and passed as a frame, while the script reads that file by its
+    path instead of `exog_future.csv`.
+    """
+    future = pd.DataFrame(
+        {
+            "date": pd.date_range("2023-04-11", periods=5, freq="D").strftime(
+                "%d/%m/%Y"
+            ),
+            "promo": [0.0, 1.0, 0.0, 1.0, 0.0],
+        }
+    )
+    path = tmp_path / "futuro.csv"
+    future.to_csv(path, sep=";", index=False)
+    by_hand = future.assign(
+        date=pd.to_datetime(future["date"], format="%d/%m/%Y")
+    ).set_index("date")
+    assistant = ForecastingAssistant()
+    inputs = {"data": df_single, "target": "sales", "date_column": "date", "steps": 5}
+
+    result = assistant.forecast(**inputs, exog=str(path) if as_str else path)
+    expected = assistant.forecast(**inputs, exog=by_hand)
+
+    pd.testing.assert_frame_equal(result.predictions, expected.predictions)
+    assert f"exog_future = pd.read_csv({str(path)!r}, sep=';', decimal='.')\n" in (
+        result.code
+    )
+    assert "exog_future.csv" not in result.code
+
+
+def test_forecast_output_when_data_without_dates_and_exog_path(tmp_path):
+    """
+    Test that data without dates (a RangeIndex) forecast the future with
+    the path of a file of future values without a column of positions: its
+    rows are the steps of the horizon in order, numbered from the position
+    after the last row of the data, as the script numbers them. Before,
+    `load_exog` took the first column as the index.
+    """
+    data = df_single[["sales", "promo"]].reset_index(drop=True)
+    path = tmp_path / "futuro.csv"
+    pd.DataFrame({"promo": [0.0, 1.0, 0.0, 1.0, 0.0]}).to_csv(path, index=False)
+    assistant = ForecastingAssistant()
+
+    result = assistant.forecast(data=data, target="sales", steps=5, exog=path)
+    expected = assistant.forecast(
+        data   = data,
+        target = "sales",
+        steps  = 5,
+        exog   = pd.DataFrame(
+                     {"promo": [0.0, 1.0, 0.0, 1.0, 0.0]},
+                     index=pd.RangeIndex(len(data), len(data) + 5),
+                 ),
+    )
+
+    pd.testing.assert_frame_equal(result.predictions, expected.predictions)
+    assert list(result.predictions.index) == list(range(len(data), len(data) + 5))
+    assert (
+        f"exog_future = pd.read_csv({str(path)!r})\n"
+        f"exog_future.index = pd.RangeIndex(data.index[-1] + 1, "
+        f"data.index[-1] + 1 + len(exog_future))\n" in result.code
+    )
+
+
+@pytest.mark.parametrize(
+    "text, error, err_msg",
+    [
+        (
+            "promo\n0.0\n1.0\n",
+            InvalidInputError,
+            "`exog` must cover the forecast horizon: 5 rows are required but "
+            "only 2 were provided.",
+        ),
+        (
+            ",promo\n0,0.0\n1,1.0\n2,0.0\n3,1.0\n4,0.0\n",
+            DataContentError,
+            "`exog` must be indexed by the positions that follow the last row "
+            "of the data (a RangeIndex), 100 to 104 for the 5 steps of the "
+            "horizon; its first rows are at 0, 1, 2, 3, 4. The data have no "
+            "dates: the future values are one row per step of the horizon, in "
+            "order.",
+        ),
+    ],
+    ids=["rows missing", "positions not after the data"],
+)
+def test_forecast_error_when_data_without_dates_and_exog_path_does_not_fit(
+    tmp_path, text, error, err_msg
+):
+    """
+    Test that a file of future values of data without dates that does not
+    fit the horizon raises a clear error on `exog` before running, instead
+    of failing inside skforecast: fewer rows than steps, or a column of
+    positions (the index that `to_csv()` writes) that does not follow the
+    last row of the data.
+    """
+    data = df_single[["sales", "promo"]].reset_index(drop=True)
+    path = tmp_path / "futuro.csv"
+    path.write_text(text)
+
+    with pytest.raises(error, match=re.escape(err_msg)) as exc_info:
+        ForecastingAssistant().forecast(data=data, target="sales", steps=5, exog=path)
+    assert exc_info.value.field == "exog"
 
 
 def test_forecast_output_when_exog_is_named_series():
@@ -3394,10 +3518,10 @@ def test_forecast_output_when_exog_dates_in_iso_and_data_day_first(
     """
     Test that the future values of data written day first can have their
     dates in ISO 8601, as `to_csv()` of a frame indexed by its dates writes
-    them: given as that frame, or read from that file with `load_exog`, they
-    predict the same months as the same values written day first, and the
-    script reads `exog_future.csv` without a format, the one of the data
-    being only theirs.
+    them: given as that frame, or as the path of that file, they predict the
+    same months as the same values written day first, and the script reads
+    the future values without a format, the one of the data being only
+    theirs.
     """
     csv_path = tmp_path / "monthly.csv"
     df_dialect_monthly_exog.to_csv(csv_path, index=False)
@@ -3408,7 +3532,7 @@ def test_forecast_output_when_exog_dates_in_iso_and_data_day_first(
     ).set_index("date")
     if exog_source == "iso csv":
         exog.to_csv(tmp_path / "exog_future.csv")
-        exog = load_exog(tmp_path / "exog_future.csv", date_column="date")
+        exog = tmp_path / "exog_future.csv"
 
     result = assistant.forecast(
         data    = csv_path,

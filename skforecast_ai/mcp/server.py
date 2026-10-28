@@ -3255,33 +3255,21 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         _run_plan_locally(plan_entry.obj, "plan_id")
 
         def work(control: CallControl):
-            from .._utils import load_exog
-
             path = _data_of(plan_entry)
-            exog, exog_file, exog_digest = None, None, None
+            exog_file, exog_digest = None, None
             if exog_path is not None:
                 exog_file = _inputs.resolve_csv_path(
                     exog_path, state.allowed, "exog_path"
                 )
                 _inputs.check_file_size(exog_file, state.max_file_bytes, "exog_path")
                 exog_digest = _inputs.file_sha256(exog_file)
-                data_profile = plan_entry.profile.data_profile
-                try:
-                    exog = load_exog(
-                        exog_file,
-                        date_column      = data_profile.date_column,
-                        series_id_column = data_profile.series_id_column,
-                        date_format      = data_profile.date_format,
-                    )
-                except SkforecastAIError as exc:
-                    # A file that cannot be read as future values is as
-                    # much the user's as one with a wrong value in it.
-                    _leave_to_user(exc, {"exog": EXOG_FILE_HINT})
-                    raise
             try:
+                # The library reads the file with the profile of the data
+                # (its date column, its series ids, the order of its dates),
+                # and the script reads it by its path.
                 result = state.assistant.forecast(
                     data      = path,
-                    exog      = exog,
+                    exog      = exog_file,
                     test_size = test_size,
                     profile   = _copy(plan_entry.profile),
                     plan      = _copy(plan_entry.obj),
@@ -3293,6 +3281,8 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                     _leave_to_user(
                         exc, {"exog": FUTURE_EXOG_HINT}, kind=SkforecastAIError
                     )
+                # A file that cannot be read as future values is as much
+                # the user's as one with a wrong value in it.
                 _leave_to_user(
                     exc, {"data": DATA_VALUES_HINT, "exog": EXOG_FILE_HINT}
                 )

@@ -448,13 +448,20 @@ class FutureExogFile(BaseModel):
         `DataProfile.date_format`), the one of the future values and not
         the one of the data, or None when it reads them without one.
     date_column : str, None, default None
-        Column of the file that holds the dates, or None for
-        `exog_future.csv`. When it is not the date column of the data (a
-        file read without naming it), the script renames it.
+        Column of the file that holds the dates, the date column of the
+        data when it has one, or None for `exog_future.csv` and for a file
+        of data without dates. For data dated by their index, the script
+        reads the dates from it.
     blank_rows : bool, default False
         Whether the file has rows made only of separators (a spreadsheet
         saved as CSV), which hold no date and no value: the script drops
         them, as they were dropped when the file was read.
+    by_position : bool, default False
+        Whether the rows of the file are the steps of the horizon in order,
+        without a column of positions: future values of data without dates
+        whose file has no index. The script numbers them from the position
+        that follows the last row of the data. False reads the first column
+        as the index (the dates, or the positions of data without dates).
     """
 
     model_config = {"frozen": True}
@@ -467,6 +474,7 @@ class FutureExogFile(BaseModel):
     date_format: str | None = None
     date_column: str | None = None
     blank_rows: bool = False
+    by_position: bool = False
 
     @field_validator("date_format")
     @classmethod

@@ -282,6 +282,7 @@ that is for the user to ask once they know.
   `dayfirst=True`): follow the `hint` of the error instead.
 - Future exogenous values (`exog_path`): one row per date of the horizon
   (and per series when they are stacked), with the date column of the data.
+  For data without dates, one row per step of the horizon, in order.
 - Ids are valid while the server runs. After a restart, or when an id was
   removed to keep the server within its limits, create the object again.
 

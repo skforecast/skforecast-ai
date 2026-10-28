@@ -9,7 +9,7 @@ from __future__ import annotations
 import sys
 from typing import Annotated, Any, ClassVar, Literal, get_args
 import numpy as np
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 if sys.version_info >= (3, 12):
     from typing import TypedDict
@@ -169,6 +169,12 @@ class WindowFeature(BaseModel):
         float or bool is rejected); to combine several window sizes, use
         one `WindowFeature` per size.
     """
+    # The docstring is the description of the output schema the model sees,
+    # so this stays here: a key the model makes up (`min_periods`) is
+    # rejected instead of dropped without saying so, and pydantic-ai sends
+    # the error back to the model, which retries.
+    model_config = ConfigDict(extra="forbid")
+
     stats: list[WindowStat] = Field(
         description=(
             "Rolling statistics to compute. Each value must be one of: "

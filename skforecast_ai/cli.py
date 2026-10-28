@@ -1356,7 +1356,6 @@ def forecast_code(
 ) -> None:
     """Generate a complete Python forecasting script."""
     from ._display import render_code
-    from ._utils import load_exog
     from .assistant import ForecastingAssistant
     with _error_handler(json_errors=format == "json"):
         assistant = ForecastingAssistant()
@@ -1395,31 +1394,12 @@ def forecast_code(
                 plan_obj = assistant.refine_plan(
                     profile=prof, plan=plan_obj, **plan_overrides
                 )
-            # The dates of the file the script loads decide the order of the
-            # future dates that read both ways, as in `forecast --exog`.
-            exog_df = None
-            if exog is not None:
-                data_format = (
-                    prof.data_profile.date_format if data is None
-                    else _data_date_format(
-                             data             = data,
-                             target           = None,
-                             date_column      = date_column,
-                             series_id_column = series_id_column,
-                             profile          = prof,
-                         )
-                )
-                exog_df = load_exog(
-                    exog,
-                    date_column      = prof.data_profile.date_column,
-                    series_id_column = prof.data_profile.series_id_column,
-                    date_format      = data_format,
-                )
             # DATA, when given, is the file the script loads (as in
-            # `backtest-code`); the profile of the bundle describes it.
+            # `backtest-code`); the profile of the bundle describes it. The
+            # library reads --exog with the profile, as `forecast --exog`.
             result = assistant.forecast_code(
                 data=data, target=None, steps=plan_obj.steps,
-                exog=exog_df, profile=prof, plan=plan_obj,
+                exog=exog, profile=prof, plan=plan_obj,
             )
         else:
             if data is None or target is None or steps is None:
@@ -1429,23 +1409,9 @@ def forecast_code(
                 )
             parsed_target = _parse_target(target)
 
-            exog_df = None
-            if exog is not None:
-                exog_df = load_exog(
-                    exog,
-                    date_column      = date_column,
-                    series_id_column = series_id_column,
-                    date_format      = _data_date_format(
-                                           data             = data,
-                                           target           = parsed_target,
-                                           date_column      = date_column,
-                                           series_id_column = series_id_column,
-                                       ),
-                )
-
             with _spinner("Generating code...", quiet):
                 result = assistant.forecast_code(
-                    data=data, target=parsed_target, steps=steps, exog=exog_df,
+                    data=data, target=parsed_target, steps=steps, exog=exog,
                     date_column=date_column, series_id_column=series_id_column,
                     forecaster=forecaster, estimator=estimator,
                     estimator_kwargs=parsed_estimator_kwargs,
@@ -1636,60 +1602,6 @@ def _render_forecast_results(result) -> None:
     console.print(render_dataframe(result.predictions, title="Predictions"))
 
 
-def _data_date_format(
-    data: str,
-    target: str | list[str] | None,
-    date_column: str | None,
-    series_id_column: str | None,
-    profile: ForecastingProfile | None = None,
-) -> str | None:
-    """
-    Return the format the dates of a CSV file of data are read with
-    (`DataProfile.date_format`), which decides the order of the dates of
-    the future exogenous variables that read both day first and month
-    first (see `load_exog`), before the forecast reads the file.
-    The file is read as the forecast reads it: with the profile of a plan
-    bundle when there is one, which decides the order of dates that read
-    both ways.
-
-    Parameters
-    ----------
-    data : str
-        Path or URL of the CSV file.
-    target : str, list, None
-        Target column(s), taken from `profile` when None.
-    date_column : str, None
-        Date column, when given.
-    series_id_column : str, None
-        Column of the series ids, when given.
-    profile : ForecastingProfile, default None
-        Profile the forecast runs with.
-
-    Returns
-    -------
-    date_format : str, None
-        Format of the dates, or None when they are read without one.
-    """
-    from ._utils import (
-        _dialect_read,
-        _resolve_inputs_with_profile,
-        recorded_data_path,
-    )
-
-    # The forecast reads the file again, and shows its warnings then.
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        _resolve_inputs_with_profile(
-            data             = data,
-            target           = target,
-            date_column      = date_column,
-            series_id_column = series_id_column,
-            profile          = profile,
-        )
-
-    return _dialect_read(recorded_data_path(data)).date_format
-
-
 def _result_to_json(result) -> str:
     """
     Serialize any workflow result to JSON.
@@ -1739,7 +1651,6 @@ def forecast(
 ) -> None:
     """Run end-to-end forecasting and report predictions, plus metrics with --test-size."""
     from .assistant import ForecastingAssistant
-    from ._utils import load_exog
     with _error_handler(json_errors=format == "json"):
         assistant = ForecastingAssistant()
         parsed_interval = _parse_interval(interval)
@@ -1780,26 +1691,6 @@ def forecast(
                     profile=prof, plan=plan_obj, **plan_overrides
                 )
 
-            # The dates of the file run, which may be another file than
-            # the one of the profile.
-            data_format = None
-            if exog is not None:
-                data_format = _data_date_format(
-                                  data             = data,
-                                  target           = (
-                                      _parse_target(target) if target else None
-                                  ),
-                                  date_column      = date_column,
-                                  series_id_column = series_id_column,
-                                  profile          = prof,
-                              )
-            exog_df = load_exog(
-                exog,
-                date_column      = prof.data_profile.date_column,
-                series_id_column = prof.data_profile.series_id_column,
-                date_format      = data_format,
-            )
-
             with _spinner("Running forecast from plan...", quiet):
                 result = assistant.forecast(
                     data=data,
@@ -1808,7 +1699,7 @@ def forecast(
                     date_column=date_column,
                     series_id_column=series_id_column,
                     test_size=parsed_test_size,
-                    exog=exog_df,
+                    exog=exog,
                     profile=prof, plan=plan_obj,
                 )
         else:
@@ -1819,21 +1710,6 @@ def forecast(
                 )
             parsed_target = _parse_target(target)
 
-            data_format = None
-            if exog is not None:
-                data_format = _data_date_format(
-                                  data             = data,
-                                  target           = parsed_target,
-                                  date_column      = date_column,
-                                  series_id_column = series_id_column,
-                              )
-            exog_df = load_exog(
-                exog,
-                date_column      = date_column,
-                series_id_column = series_id_column,
-                date_format      = data_format,
-            )
-
             with _spinner("Running forecast...", quiet):
                 result = assistant.forecast(
                     data=data, target=parsed_target, steps=steps,
@@ -1842,7 +1718,7 @@ def forecast(
                     estimator_kwargs=parsed_estimator_kwargs,
                     interval=parsed_interval,
                     lags=parsed_lags, window_features=parsed_window_features,
-                    test_size=parsed_test_size, exog=exog_df, **decisions,
+                    test_size=parsed_test_size, exog=exog, **decisions,
                 )
 
         if output_predictions is not None:

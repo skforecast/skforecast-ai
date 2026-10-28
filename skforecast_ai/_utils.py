@@ -25,7 +25,6 @@ from ._constants import (
     AUTOREG_FORECASTERS,
     CATEGORICAL_FORECASTERS,
     DIRECT_FORECASTERS,
-    EXOG_FILE_ATTR,
     LONG_INFERENCE_WINDOWS,
     LONG_TRAINING_FITS,
     MAX_FEATURE_FRACTION,
@@ -53,6 +52,7 @@ from .recommendation.backtesting import count_estimator_fits, count_inference_wi
 from .recommendation.missing_values import closed_days_remedy
 from .profiling.data_profile import (
     COMPACT_DATE_FORMAT,
+    _caller_stacklevel,
     _compact_dates,
     _normalize_multiindex,
     _read_date_column,
@@ -925,7 +925,7 @@ def _apply_interval_to_plan(plan: ForecastPlan, interval: list[float]) -> Foreca
 
 def _validate_forecast_mode(
     evaluate: bool,
-    exog: pd.DataFrame | None,
+    exog: pd.DataFrame | str | Path | None,
     has_exog: bool,
     steps: int,
     require_exog: bool = True,
@@ -945,8 +945,10 @@ def _validate_forecast_mode(
     evaluate : bool
         Whether the workflow runs in evaluation mode (train/test split).
         When False, the workflow forecasts the future (prediction mode).
-    exog : pandas DataFrame, None
-        Future exogenous variables supplied for prediction mode.
+    exog : pandas DataFrame, str, Path, None
+        Future exogenous variables supplied for prediction mode, or the
+        path of a CSV file with them, whose rows are counted once it is
+        read (see `check_exog_covers_horizon`).
     has_exog : bool
         Whether the profiled data contains exogenous variables.
     steps : int
@@ -1011,7 +1013,28 @@ def _validate_forecast_mode(
             "variables (`plan.use_exog` is False). Remove `exog`.",
             field = "exog",
         )
-    if exog is not None and len(exog) < steps:
+    # The rows of a file are counted once it is read.
+    if exog is not None and not isinstance(exog, (str, Path)):
+        check_exog_covers_horizon(exog, steps)
+
+
+def check_exog_covers_horizon(exog: pd.DataFrame, steps: int) -> None:
+    """
+    Check that the future exogenous variables have a row for each of the
+    `steps` of the horizon.
+
+    Parameters
+    ----------
+    exog : pandas DataFrame
+        Future exogenous variables.
+    steps : int
+        Forecast horizon.
+
+    Returns
+    -------
+    None
+    """
+    if len(exog) < steps:
         raise InvalidInputError(
             f"`exog` must cover the forecast horizon: {steps} rows are "
             f"required but only {len(exog)} were provided.",
@@ -1490,11 +1513,12 @@ def _match_profile_column(
 
 
 def load_exog(
-    path: str | Path | None,
+    path: str | Path,
     date_column: str | None = None,
     series_id_column: str | None = None,
     date_format: str | None = None,
-) -> pd.DataFrame | None:
+    index_type: str = "datetime",
+) -> tuple[pd.DataFrame, FutureExogFile]:
     """
     Load the future exogenous variables from a CSV file.
 
@@ -1530,16 +1554,24 @@ def load_exog(
     told as for the data (see `sample_encoding`): a file that is not UTF-8
     is read as cp1252, with a warning, as that cannot be checked.
 
+    Future values of data without dates (`index_type` `'range'`) have no
+    dates to read: their rows are the steps of the horizon, in order. A
+    first column without a name (the index that `to_csv()` writes, or a
+    header one field short) holds their positions and becomes the index,
+    which must follow the data (see `validate_future_exog`); a file without
+    it is numbered by position when it is read with the data (see
+    `read_future_exog`).
+
     The path of the file and how it is written (its separator, decimal
-    mark, thousands separator, encoding and format of the dates) are kept
-    in `exog.attrs['exog_file']`, a `FutureExogFile`: the generated script
-    reads that same file with them (see `future_exog_file`), as it reads
-    the data with the dialect of the profile.
+    mark, thousands separator, encoding and format of the dates) are
+    returned with the frame, as a `FutureExogFile`: the generated script
+    reads that same file with them, as it reads the data with the dialect
+    of the profile.
 
     Parameters
     ----------
-    path : str, Path, None
-        Path to the CSV file. If None, returns None.
+    path : str, Path
+        Path to the CSV file.
     date_column : str, default None
         Name of the column holding the dates.
     series_id_column : str, default None
@@ -1549,15 +1581,19 @@ def load_exog(
         Format of the dates of the data (`DataProfile.date_format`), which
         decides the order of the day and the month of dates of the file
         that read in both.
+    index_type : str, default 'datetime'
+        Index of the data (`DataProfile.index_type`): `'range'` for data
+        without dates, whose future values are read without dates.
 
     Returns
     -------
-    exog : pandas DataFrame, None
-        Future exogenous variables indexed by their dates, or None when
-        `path` is None.
+    exog : pandas DataFrame
+        Future exogenous variables indexed by their dates, or, without
+        dates, by the positions of the file or by row.
+    exog_file : FutureExogFile
+        File the generated script reads the future exogenous variables
+        from, and how it is written.
     """
-    if path is None:
-        return None
     path = Path(path)
     if not path.is_file():
         raise DataNotFoundError(
@@ -1583,9 +1619,28 @@ def load_exog(
         else:
             exog = exog.reset_index(drop=True)
     # Rows made only of separators (a spreadsheet saved as CSV) hold no date
-    # and no value; the generated code dropped them with asfreq.
-    filled = exog.notna().any(axis=1).to_numpy()
+    # and no value; the generated code dropped them with asfreq. The
+    # positions of data without dates are the index the script reads, which
+    # its `dropna(how='all')` does not look at: a row with a position and no
+    # value is dropped too.
+    values = exog
+    if index_type == "range" and len(exog.columns) and exog.columns[0] == "Unnamed: 0":
+        values = exog[exog.columns[1:]]
+    filled = values.notna().any(axis=1).to_numpy()
     exog = exog[filled].reset_index(drop=True)
+    if index_type == "range":
+        return _exog_without_dates(
+                   exog      = exog,
+                   path      = path,
+                   exog_file = FutureExogFile(
+                                   path       = str(path),
+                                   sep        = sep,
+                                   decimal    = decimal,
+                                   thousands  = thousands,
+                                   encoding   = encoding,
+                                   blank_rows = not filled.all(),
+                               ),
+               )
     text = {column: exog[column].copy() for column in exog.columns}
     # The format of the dates of the file, and the notes on how it was read
     # (its encoding, its dates), given as warnings.
@@ -1698,22 +1753,72 @@ def load_exog(
         # the checks of the future exogenous variables report it.
         found = exog.columns[0]
     for note in notes:
-        warnings.warn(f"Exog CSV '{path}': {note}", UserWarning, stacklevel=2)
+        # Read through `forecast()` too: the warning points at the user.
+        warnings.warn(
+            f"Exog CSV '{path}': {note}", UserWarning, stacklevel=_caller_stacklevel()
+        )
     exog = exog.set_index(found).sort_index()
     if str(found).startswith("Unnamed: "):
         exog.index.name = None
-    exog.attrs[EXOG_FILE_ATTR] = FutureExogFile(
-                                     path        = str(path),
-                                     sep         = sep,
-                                     decimal     = decimal,
-                                     thousands   = thousands,
-                                     encoding    = encoding,
-                                     date_format = exog_format,
-                                     date_column = str(found),
-                                     blank_rows  = not filled.all(),
-                                 )
+    exog_file = FutureExogFile(
+                    path        = str(path),
+                    sep         = sep,
+                    decimal     = decimal,
+                    thousands   = thousands,
+                    encoding    = encoding,
+                    date_format = exog_format,
+                    date_column = str(found),
+                    blank_rows  = not filled.all(),
+                )
 
-    return exog
+    return exog, exog_file
+
+
+def _exog_without_dates(
+    exog: pd.DataFrame,
+    path: Path,
+    exog_file: FutureExogFile,
+) -> tuple[pd.DataFrame, FutureExogFile]:
+    """
+    Return the future values of data without dates read from a CSV file, as
+    `load_exog` reads them: a first column without a name holds the
+    positions of the rows, which must be consecutive, and becomes the
+    index, a RangeIndex from the first one, as the generated script reads it
+    (`index_col=0`); without it, the rows are the steps of the horizon in
+    order (`FutureExogFile.by_position`).
+    """
+    first = exog.columns[0] if len(exog.columns) else None
+    by_position = first != "Unnamed: 0"
+    if not by_position:
+        positions = exog[first]
+        # The script numbers the rows from the first position (a RangeIndex,
+        # which skforecast requires), so they must be consecutive.
+        if (
+            not pd.api.types.is_numeric_dtype(positions)
+            or positions.isna().any()
+            or (positions != positions.round()).any()
+            or (np.diff(positions.to_numpy()) != 1).any()
+        ):
+            raise DataContentError(
+                f"Exog CSV '{path}': its first column has no name, so it is "
+                f"read as the positions of the rows (the index that `to_csv()` "
+                f"writes), but it does not hold consecutive whole numbers. The "
+                f"data have no dates: the future values are one row per step "
+                f"of the horizon, in order, and a first column of values needs "
+                f"a name.",
+                field = "exog",
+            )
+    for note in encoding_notes(exog_file.encoding, "exog"):
+        warnings.warn(
+            f"Exog CSV '{path}': {note}", UserWarning, stacklevel=_caller_stacklevel()
+        )
+    if by_position:
+        return exog, exog_file.model_copy(update={"by_position": True})
+    start = int(exog[first].iloc[0]) if len(exog) else 0
+    exog = exog.drop(columns=first)
+    exog.index = pd.RangeIndex(start, start + len(exog))
+
+    return exog, exog_file
 
 
 def _is_row_label(name: object, values: pd.Series) -> bool:
