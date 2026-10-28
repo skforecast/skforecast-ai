@@ -389,17 +389,18 @@ pequeños; se pueden agrupar en dos o tres PR.
   ningún extra instala (V01: excluirlo en `resolve_default_candidates` con un
   aviso, como `missing_foundation_backend`; no en el perfil, que debe seguir
   sin depender del entorno). *[LLM]* (V01, `execution/comparison.py`)
-  Hecho en la PR de 5c (D?).
+  Hecho en [#124](https://github.com/skforecast/skforecast-ai/pull/124) (D?).
 - **`get_code`**: la primera llamada calcula `requirements` en el event loop
   y lo bloquea mientras dura una ejecución (G05: medido, todo el servidor
   espera); añade el backend del modelo fundacional al script de una
   estrategia, que no carga ningún modelo. (V03, el fichero de exógenas que
-  lee el script, pasó a la fase 1 como 1h.) Hecho en la PR de 5c (D?).
+  lee el script, pasó a la fase 1 como 1h.) Hecho en [#124](https://github.com/skforecast/skforecast-ai/pull/124) (D?).
 - **`profile` sin `target` cuando el usuario ya nombró la columna.** Cuesta
   una llamada (9 de 81 con el modelo grande). Con el pequeño, una sesión se
   saltó así el error de la columna inexistente y la sustituyó sin decirlo.
-  La sustitución sin decirlo, arreglada en la `hint` del error en la PR de
-  5c (D?); la llamada de más es de redacción y va a la fase 6.
+  La sustitución sin decirlo, arreglada en la `hint` del error en
+  [#124](https://github.com/skforecast/skforecast-ai/pull/124) (D?); la
+  llamada de más es de redacción y va a la fase 6.
 - **`compare` con candidatos** deja fuera el plan refinado de la estrategia
   sin decirlo, y "Strategy plan" no es un nombre reservado (V24). Hecho en [#123](https://github.com/skforecast/skforecast-ai/pull/123) (D31). *[SKILL]*
 - **La comprobación de series que ningún fold pronostica (D15) en
@@ -1732,8 +1733,8 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     queda reservado siempre, también con un `TimeSeriesFold`.
 
 - **D?. 5c: dependencias opcionales, `get_code` y `profile` sin `target`**
-  (2026-10-28, PR de 5c). V02, V01, G05 y el `profile` sin `target` de la
-  0.4.0:
+  (2026-10-28, [#124](https://github.com/skforecast/skforecast-ai/pull/124)).
+  V02, V01, G05 y el `profile` sin `target` de la 0.4.0:
   - V02, núcleo: `check_estimator_installed` da el mismo mensaje base que
     antes (`missing_package_message`, compartido con el servidor) y ahora
     una `hint` ("Install it where skforecast-ai runs: pip install

@@ -133,7 +133,7 @@ def test_preload_wait_returns_before_the_warmed_calls(tmp_path, monkeypatch, req
     assert module.calls == ["skforecast-ai-preload", "fast"]
 
 
-def test_preload_warms_the_installed_distributions():
+def test_preload_wait_of_the_server_then_warms_the_installed_distributions():
     """
     Test that the preload of the server warms the installed distributions
     that the `requirements` of `get_code` read (G05).
