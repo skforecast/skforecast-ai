@@ -398,17 +398,17 @@ pequeños; se pueden agrupar en dos o tres PR.
   una llamada (9 de 81 con el modelo grande). Con el pequeño, una sesión se
   saltó así el error de la columna inexistente y la sustituyó sin decirlo.
 - **`compare` con candidatos** deja fuera el plan refinado de la estrategia
-  sin decirlo, y "Strategy plan" no es un nombre reservado (V24). Hecho en [#123](https://github.com/skforecast/skforecast-ai/pull/123) (D?. 5b). *[SKILL]*
+  sin decirlo, y "Strategy plan" no es un nombre reservado (V24). Hecho en [#123](https://github.com/skforecast/skforecast-ai/pull/123) (D31). *[SKILL]*
 - **La comprobación de series que ningún fold pronostica (D15) en
   `compare()`**: hoy solo la hace `backtest()`, y un candidato
   ForecasterRecursiveMultiSeries de `compare` puede seguir descartando una
   serie en silencio. Un candidato así queda como fallido, con el motivo en
   el ranking y en `get_failure`, como cualquier candidato que falla, sin
   tumbar todo el `compare` (pregunta 1 de
-  [#103](https://github.com/skforecast/skforecast-ai/pull/103)). Hecho en [#123](https://github.com/skforecast/skforecast-ai/pull/123) (D?. 5b).
+  [#103](https://github.com/skforecast/skforecast-ai/pull/103)). Hecho en [#123](https://github.com/skforecast/skforecast-ai/pull/123) (D31).
 - **El backtest de ForecasterFoundation** solo rechaza las series sin
   valores: falta mirar si descarta también series sin contexto suficiente
-  antes de un fold (pregunta 2 de #103). Hecho en [#123](https://github.com/skforecast/skforecast-ai/pull/123) (D?. 5b).
+  antes de un fold (pregunta 2 de #103). Hecho en [#123](https://github.com/skforecast/skforecast-ai/pull/123) (D31).
 - **Series que faltan en algunos folds** (de la revisión de
   [#119](https://github.com/skforecast/skforecast-ai/pull/119), D29): una
   serie que se queda fuera de algunos folds (no de todos) hace que sus
@@ -417,14 +417,14 @@ pequeños; se pueden agrupar en dos o tres PR.
   folds se pronosticó cada serie con aquellos en que tenía valores y lo
   dice en el resumen (y en un notice del MCP), sin `suppress_warnings=False`
   ni pedir nada a skforecast. Es leer el resultado, como la cobertura de
-  D22. *[LLM]* si cambia el resumen. Hecho en [#123](https://github.com/skforecast/skforecast-ai/pull/123) (D?. 5b).
+  D22. *[LLM]* si cambia el resumen. Hecho en [#123](https://github.com/skforecast/skforecast-ai/pull/123) (D31).
 - **Avisos pequeños de faltantes** (de la revisión de #119, D29):
   `backtest()` avisa, sin fallar, de una exógena que falta en un fold con
   un estimador que acepta faltantes, como ya hace `forecast()` con las
   exógenas futuras; y se comprueban por fold las categorías de una
   exógena que la ventana de entrenamiento del fold no tiene (caso raro).
   El aviso, hecho en [#123](https://github.com/skforecast/skforecast-ai/pull/123)
-  (D?. 5b); las categorías por fold, descartadas.
+  (D31); las categorías por fold, descartadas.
 - **Cerrar el `WindowFeature` que devuelve el LLM** (`schemas/plans.py`, de
   la revisión de [#121](https://github.com/skforecast/skforecast-ai/pull/121),
   D30): no tiene `extra='forbid'`, así que una clave que el modelo invente
@@ -1622,7 +1622,7 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     hold-out y sus métricas. Cerrar el `WindowFeature` que devuelve el LLM
     va aparte, en la fase 5.
 
-- **D?. 5b: lo que comprueban y cuentan `backtest()` y `compare()`**
+- **D31. 5b: lo que comprueban y cuentan `backtest()` y `compare()`**
   (2026-10-28, [#123](https://github.com/skforecast/skforecast-ai/pull/123)).
   D15 en `compare()`, V24, series que faltan en algunos folds, avisos
   pequeños de faltantes, ForecasterFoundation y el orden de las filas en
