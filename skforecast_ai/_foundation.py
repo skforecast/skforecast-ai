@@ -88,6 +88,35 @@ def resolve_foundation_model(model_id: str) -> FoundationModelInfo:
     return info
 
 
+def foundation_context_length(
+    estimator: str,
+    estimator_kwargs: dict | None,
+) -> int:
+    """
+    Return the number of observations a ForecasterFoundation plan gives its
+    model as context: the `context_length` of `estimator_kwargs`, else the
+    default of the skforecast adapter of the model, which the generated
+    script writes explicitly.
+
+    Parameters
+    ----------
+    estimator : str
+        Hugging Face model ID of the plan.
+    estimator_kwargs : dict, None
+        Keyword arguments of the model of the plan.
+
+    Returns
+    -------
+    context_length : int
+        Observations of the context of the model.
+    """
+    context_length = (estimator_kwargs or {}).get("context_length")
+    if context_length is None:
+        context_length = resolve_foundation_model(estimator).default_context_length
+
+    return int(context_length)
+
+
 def foundation_backend_installed(info: FoundationModelInfo) -> bool:
     """
     Check whether the backend package of a foundation model is installed.

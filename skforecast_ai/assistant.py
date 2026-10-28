@@ -69,6 +69,7 @@ from .execution.comparison import (
     build_comparison_table,
     compare_sort_key,
     count_comparison_cost,
+    match_strategy_plan,
     resolve_compare_candidates,
     resolve_default_candidates,
 )
@@ -170,6 +171,9 @@ from ._future_exog import (
     validate_future_exog,
 )
 from ._last_window import (
+    LEFT_OUT_OF_FOLDS,
+    describe_left_out_candidates,
+    series_left_out_of_folds,
     validate_backtest_exog,
     validate_backtest_windows,
     warn_backtest_missing_values,
@@ -426,6 +430,55 @@ def _chosen_calendar_features(
             )
 
     return {"features": features, "encoding": encoding}
+
+
+def _check_backtest_run(
+    data: pd.DataFrame,
+    profile: ForecastingProfile,
+    plan: ForecastPlan,
+    cv: TimeSeriesFold,
+) -> None:
+    """
+    Checks of `backtest()` that depend on the plan, made before anything
+    runs: the target the plan reads, the gap of a direct forecaster, the
+    folds ForecasterStats skips, the first training window, the series no
+    fold forecasts, the windows and the exogenous values of each fold, and
+    the estimator installed. `compare()` makes them for every
+    candidate before counting the cost, so a candidate that would fail on
+    one of them fails before any candidate runs.
+    """
+
+    data_profile = profile.data_profile
+    validate_infinite_target(
+        data       = data,
+        profile    = data_profile,
+        plan       = plan,
+        prediction = False,
+    )
+    _check_direct_gap(plan, cv)
+    _check_stats_skip_folds(plan, cv)
+    check_first_window(plan, cv, data_profile)
+    # After the first training window: a window too short for every
+    # series is reported by that check, with its own remedies.
+    validate_series_lengths(
+        data    = data,
+        profile = data_profile,
+        plan    = plan,
+        cv      = _cv_in_time_zone(cv, data, data_profile),
+    )
+    validate_backtest_windows(
+        data    = data,
+        profile = data_profile,
+        plan    = plan,
+        cv      = cv,
+    )
+    validate_backtest_exog(
+        data    = data,
+        profile = data_profile,
+        plan    = plan,
+        cv      = _cv_in_time_zone(cv, data, data_profile),
+    )
+    check_estimator_installed(plan.estimator, plan.task_type)
 
 
 def _candidate_failed(name: str, exc: Exception) -> CandidateFailure:
@@ -3522,6 +3575,16 @@ class ForecastingAssistant:
         (`upper - lower`): more than two binomial standard errors for the
         number of predictions, and at least 5 percentage points, below it.
 
+        With several series (`ForecasterRecursiveMultiSeries`, or a
+        `ForecasterFoundation` model), skforecast leaves a series out of a
+        fold it cannot forecast (one that starts late, say) without a
+        warning. The folds that forecast each series are read from the
+        `level` and `fold` of the predictions: when a series was not
+        forecast in some test fold where it has a value to evaluate, its
+        metrics, and the average across series, use fewer folds than the
+        others, and a `UserWarning` and the explanation name it with those
+        folds. A series that no fold forecasts raises before running.
+
         References
         ----------
         [1] Skforecast `TimeSeriesFold` API Reference:
@@ -3570,34 +3633,11 @@ class ForecastingAssistant:
             data_profile = profile.data_profile,
             cv           = cv,
         )
-        validate_infinite_target(
-            data       = data_df,
-            profile    = profile.data_profile,
-            plan       = plan,
-            prediction = False,
-        )
-        _check_direct_gap(plan, cv)
-        _check_stats_skip_folds(plan, cv)
-        check_first_window(plan, cv, profile.data_profile)
-        # After the first training window: a window too short for every
-        # series is reported by that check, with its own remedies.
-        validate_series_lengths(
+        _check_backtest_run(
             data    = data_df,
-            profile = profile.data_profile,
-            plan    = plan,
-            cv      = _cv_in_time_zone(cv, data_df, profile.data_profile),
-        )
-        validate_backtest_windows(
-            data    = data_df,
-            profile = profile.data_profile,
+            profile = profile,
             plan    = plan,
             cv      = cv,
-        )
-        validate_backtest_exog(
-            data    = data_df,
-            profile = profile.data_profile,
-            plan    = plan,
-            cv      = _cv_in_time_zone(cv, data_df, profile.data_profile),
         )
 
         # Resolved CV parameters (with the fold and training counts) and their
@@ -3608,7 +3648,6 @@ class ForecastingAssistant:
             trains     = plan.task_type != "foundation",
             forecaster = plan.forecaster,
         )
-        check_estimator_installed(plan.estimator, plan.task_type)
         # Last of the checks, so a run that would fail does not ask first for
         # a confirmation of its cost.
         check_backtest_cost(
@@ -3636,6 +3675,8 @@ class ForecastingAssistant:
             predictions = result["predictions"],
             interval    = plan.interval,
         )
+        if result["left_out_of_folds"] is not None:
+            warnings.warn(result["left_out_of_folds"], UserWarning, stacklevel=2)
 
         return BacktestResult(
             profile     = profile,
@@ -3746,7 +3787,12 @@ class ForecastingAssistant:
             where it ranks. `strategy_plan_name` names the row that runs
             that plan, which is one of the candidates when it makes the
             same decisions. A plan of a forecaster family that cannot be
-            ranked with the candidates is left out with a warning.
+            ranked with the candidates is left out with a warning. Explicit
+            `candidates` run as given, and that plan is not added: when one
+            of them makes its decisions, the text of the strategy
+            (`cv_defaults_explanation`) names its row; otherwise a
+            `UserWarning` and the explanation say that it was not compared.
+            The name `'Strategy plan'` is reserved.
         metric : str, list of str, default None
             Metric(s) computed per candidate. When a list is passed, the
             first metric is used to rank the table. When None, the plan
@@ -3840,7 +3886,8 @@ class ForecastingAssistant:
             the `CVResult`, or None.
             - cost: cost of every candidate on the shared strategy and the
             totals, counted before any candidate runs, without the
-            candidates whose plan cannot be built (they run nothing).
+            candidates whose plan cannot be built or that fail the checks
+            `backtest()` makes before running (they run nothing).
             - best_name: name of the top-ranked candidate.
             - best_candidate: top-ranked candidate as a `BacktestResult`.
 
@@ -3863,8 +3910,9 @@ class ForecastingAssistant:
             `candidates` is empty,
             contains a malformed entry, repeats a name, mixes forecaster
             families whose metrics are not comparable (multi-series with
-            multivariate), or uses the name reserved for the baseline, or
-            if `data` does not have the structure of `profile`.
+            multivariate), or uses a reserved name (that of the baseline,
+            or `'Strategy plan'`), or if `data` does not have the structure
+            of `profile`.
 
         Warns
         -----
@@ -3877,7 +3925,12 @@ class ForecastingAssistant:
         UserWarning
             When `candidates` is None and the plan of the `CVResult` is left
             out: a forecaster family whose metrics cannot be ranked with the
-            candidates.
+            candidates. With explicit `candidates`, when none of them makes
+            the decisions of that plan, which is then not compared. Once
+            for the comparison, naming the candidates whose backtest left
+            series out of some test folds where they have values to
+            evaluate (see `backtest()`), whose metrics use fewer folds of
+            those series; the explanation says it too.
         MissingBackendWarning
             When `candidates` is None and the backend of the default
             foundation model is not installed, so `ForecasterFoundation`
@@ -3901,7 +3954,13 @@ class ForecastingAssistant:
         be built fails at that point, with its `CandidateFailedWarning`
         before any candidate runs: it is not counted in `cost` and runs
         nothing, and its two `progress_callback` events are sent at its
-        turn, in the order of the candidates.
+        turn, in the order of the candidates. So does a candidate that
+        fails one of the checks `backtest()` makes before running, with the
+        error `backtest()` raises: a series that no fold of the strategy
+        forecasts, a missing value that a fold reads (of the target or of
+        an exogenous column), a first training window too short for it, a
+        gap for a direct forecaster, or an estimator that is not installed.
+        The warnings of those checks come when the candidate runs.
 
         The winning configuration, `best_candidate`, is a full
         `BacktestResult` carrying both a `profile` and a `plan`, which can
@@ -4003,19 +4062,19 @@ class ForecastingAssistant:
         strategy_note = None
         budget_note = None
         skip_folds_note = None
+
+        def build_plan(config: CandidateConfig) -> ForecastPlan:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                return self.plan(
+                    profile  = profile,
+                    steps    = steps,
+                    interval = interval,
+                    metric   = metric_override,
+                    **config,
+                )
+
         if candidates is None:
-
-            def build_plan(config: CandidateConfig) -> ForecastPlan:
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore")
-                    return self.plan(
-                        profile  = profile,
-                        steps    = steps,
-                        interval = interval,
-                        metric   = metric_override,
-                        **config,
-                    )
-
             default = resolve_default_candidates(
                           profile       = profile,
                           strategy_plan = strategy_plan,
@@ -4059,6 +4118,8 @@ class ForecastingAssistant:
         # the candidates that run: one whose plan cannot be built fails here,
         # ranked last, and runs nothing.
         plans: dict[str, ForecastPlan] = {}
+        # Every plan built, also of the candidates that fail the checks.
+        built: dict[str, ForecastPlan] = {}
         failures: dict[str, CandidateFailure] = {}
         # A MAPE with no meaning on this target is a property of the
         # comparison, not of a candidate: it is warned once below, not by
@@ -4116,9 +4177,42 @@ class ForecastingAssistant:
                     field for field in cand_plan.overridden_fields
                     if field == "metric"
                 ]
+            built[name] = cand_plan
+            # The checks `backtest()` makes before running, so a candidate
+            # that fails one (a series no fold forecasts, a missing value a
+            # fold reads) fails here, is not counted in the cost and runs
+            # nothing. Their warnings come when the candidate runs.
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    _check_backtest_run(
+                        data    = data_df,
+                        profile = profile,
+                        plan    = cand_plan,
+                        cv      = cv,
+                    )
+            except Exception as exc:
+                failures[name] = _candidate_failed(name, exc)
+                continue
             plans[name] = cand_plan
         if mape_message is not None:
             warnings.warn(mape_message, UserWarning, stacklevel=2)
+        # Explicit candidates run as given: the plan of the strategy is not
+        # added, so the summary names the candidate that runs it or says
+        # that it was not compared.
+        if candidates is not None and strategy_plan is not None:
+            strategy_name, strategy_note = match_strategy_plan(
+                strategy_plan = strategy_plan,
+                plans         = {
+                                    name: cand_plan
+                                    for name, cand_plan in built.items()
+                                    if name != baseline_name
+                                },
+                profile       = profile,
+                build_plan    = build_plan,
+            )
+            if strategy_note is not None:
+                warnings.warn(strategy_note, UserWarning, stacklevel=2)
 
         # The candidates run one after another, so the thresholds of an
         # expensive run apply to their total, counted once here before
@@ -4155,6 +4249,8 @@ class ForecastingAssistant:
 
         rows: list[tuple[dict, float]] = []
         ranked: list[tuple[str, BacktestResult, float]] = []
+        # Series each candidate left out of some test folds with values.
+        left_out: dict[str, dict[str, tuple[int, int]]] = {}
         n_candidates = len(candidate_configs)
 
         def notify(event: CompareProgress) -> None:
@@ -4206,6 +4302,12 @@ class ForecastingAssistant:
                         warnings.simplefilter(
                             "ignore", category=IntervalCoverageWarning
                         )
+                        # Likewise the series left out of some folds.
+                        warnings.filterwarnings(
+                            "ignore",
+                            message  = re.escape(LEFT_OUT_OF_FOLDS),
+                            category = UserWarning,
+                        )
                         # The candidate runs on the DataFrame already read;
                         # its script loads the file the comparison read.
                         with _data_path_of_run(run_data_path):
@@ -4220,6 +4322,15 @@ class ForecastingAssistant:
                                 show_progress    = False,
                                 confirm_cost     = True,
                             )
+                    left_out[name] = series_left_out_of_folds(
+                        data        = data_df,
+                        profile     = profile.data_profile,
+                        plan        = cand_plan,
+                        cv          = _cv_in_time_zone(
+                                          cv, data_df, profile.data_profile
+                                      ),
+                        predictions = bt.predictions,
+                    )
                     agg = aggregate_metrics(bt.metrics)
                     for col in table_columns:
                         row[col] = agg.get(col, float("nan"))
@@ -4270,6 +4381,12 @@ class ForecastingAssistant:
         )
         if low_coverage is not None:
             warnings.warn(low_coverage, IntervalCoverageWarning, stacklevel=2)
+        # In the order of the ranking, as the coverage.
+        left_out_note = describe_left_out_candidates(
+            {name: left_out.get(name, {}) for name in candidate_results}
+        )
+        if left_out_note is not None:
+            warnings.warn(left_out_note, UserWarning, stacklevel=2)
 
         explanation = build_comparison_explanation(
             n_candidates    = len(candidate_configs),
@@ -4285,6 +4402,7 @@ class ForecastingAssistant:
             strategy_note   = strategy_note,
             interval        = interval,
             skip_folds_note = skip_folds_note,
+            left_out_note   = left_out_note,
         )
 
         return ComparisonResult(
@@ -4296,7 +4414,9 @@ class ForecastingAssistant:
             ranking_metric     = ranking_metric,
             explanation        = explanation,
             baseline_name      = baseline_name,
-            strategy_plan_name = strategy_name,
+            # With explicit candidates only the text of the strategy names
+            # the candidate that runs its plan: no row was added for it.
+            strategy_plan_name = strategy_name if candidates is None else None,
             cost               = cost,
             **_cv_provenance_fields(
                 cv_result, cv, cv_config, None, profile, created_for_row=strategy_name

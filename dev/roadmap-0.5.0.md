@@ -1620,6 +1620,75 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     hold-out y sus métricas. Cerrar el `WindowFeature` que devuelve el LLM
     va aparte, en la fase 5.
 
+- **D?. 5b: lo que comprueban y cuentan `backtest()` y `compare()`**
+  (2026-10-28, esta PR). D15 en `compare()`, V24, series que faltan en
+  algunos folds, avisos pequeños de faltantes, ForecasterFoundation y el
+  orden de las filas en datos anchos:
+  - `compare()` ya llamaba a `backtest()` por candidato, así que un
+    candidato ForecasterRecursiveMultiSeries que no pasaba D15 ya fallaba
+    con su motivo; lo que faltaba es cuándo. Las comprobaciones de
+    `backtest()` que dependen del plan (`_check_backtest_run`: objetivo
+    infinito, gap de un directo, `skip_folds` de Stats, primera ventana,
+    D15, ventanas y exógenas de D29, estimador instalado) se hacen para
+    cada candidato al construir los planes, con sus avisos silenciados (los
+    da el candidato al correr): un candidato que falla una es un fallido
+    antes de que corra ninguno, con el error de `backtest()` en la tabla y
+    en `get_failure`, sin `generated_code`, y no cuenta en `cost`. Todos
+    fallidos: `AllCandidatesFailedError`, como siempre. Un candidato
+    fundacional sin backend también falla antes y no cuenta.
+  - V24: con `candidates`, el plan de la estrategia no se añade (los
+    candidatos son la elección del usuario y corren tal cual). Si un
+    candidato toma sus mismas decisiones (las de `add_strategy_candidate`,
+    `match_strategy_plan`), el texto de la estrategia nombra su fila ("The
+    strategy was created for the plan of row 'x'"); si ninguno, un
+    `UserWarning` (notice `UserWarning` en el MCP) y el resumen dicen que no
+    se comparó. `strategy_plan_name` sigue siendo None con `candidates`: no
+    hay fila añadida, y la frase del contexto del LLM sobre "las filas con
+    nombre de forecaster" no vale para candidatos del usuario. `'Strategy
+    plan'` es un nombre reservado siempre, con o sin `CVResult`
+    (`InvalidInputError` en `candidates`, `invalid_argument` en el MCP). El
+    script `d_03` de la auditoría deja de reproducir; `e_02` usa el nombre
+    reservado y ahora recibe `invalid_argument`, y con ese candidato
+    renombrado el resumen y un notice dicen que el plan refinado no se
+    comparó (su comprobación final solo busca "plan of row", así que sigue
+    imprimiendo `REPRODUCED`).
+  - Series que faltan en algunos folds: `series_left_out_of_folds` lee de
+    las predicciones (`level`, `fold`) los folds que pronosticaron cada
+    serie y los compara con los folds cuyas fechas puntuadas (tras el gap)
+    tienen un valor de ella, sobre los folds que parte el script
+    (`_split_span`, compartido con D15). ForecasterRecursiveMultiSeries y
+    ForecasterFoundation en varias series. El resumen de `backtest()` lo
+    dice al final (`'item_2': in 7 of its 8 folds with values`, hasta 5
+    series) y `backtest()` da un `UserWarning` con el mismo texto, que el
+    MCP pasa a notice; `compare()` silencia el de cada candidato y da uno
+    solo, también en su resumen, que nombra los candidatos. Ningún golden
+    del contexto del LLM cambia.
+  - Exógenas con un estimador que acepta faltantes: `validate_backtest_exog`
+    avisa (`UserWarning`, el texto de `forecast()` con las futuras: "...
+    treats them as missing values; check that they are meant to be
+    missing.") con las mismas columnas y fechas que daría el error, sin
+    fallar. Con varias series, las últimas ventanas con faltantes del
+    objetivo solo se descartan con diferenciación. Las categorías por fold
+    no se miran (pregunta en la PR).
+  - ForecasterFoundation: skforecast pronostica una serie en un fold solo si
+    tiene un valor en el test del fold (tras el gap) y otro en su contexto,
+    los `context_length` valores antes del fold desde su primer valor
+    (`_backtesting_foundation`); si no, la deja fuera sin aviso. D15 lo
+    comprueba: `insufficient_data` para una serie que ningún fold
+    pronostica (empieza en el último fold, acaba antes de los folds, o un
+    tramo de faltantes más largo que el contexto), con "una
+    `initial_train_size` posterior" solo si tiene valores que evaluar.
+    `context_length` sale de `estimator_kwargs` o del adaptador
+    (`foundation_context_length`). Contrastado con `_backtesting_foundation`
+    y un forecaster de pega (sin backend) en 400 configuraciones al azar,
+    67 con series sin pronosticar, sin diferencias. Las que faltan solo en
+    algunos folds las cuenta el punto anterior.
+  - Orden de las filas en datos anchos (#1356, #1435): un test en
+    `test_integration_standalone_script.py` fija que las predicciones de
+    columnas `item_3, item_1, item_2` siguen ese orden en `forecast()` y en
+    el script, con los valores del orden alfabético. La línea de "Before
+    upgrading" queda para la consolidación, como dice la tabla.
+
 ## Decisiones abiertas
 
 Se toman en el PR que las necesita y se pasan a la sección de arriba.

@@ -3,6 +3,7 @@
 import subprocess
 import sys
 import textwrap
+import warnings
 
 import anyio
 import numpy as np
@@ -122,13 +123,20 @@ def test_server_workflow_matches_python_api_and_scripts(
     expected_backtest = assistant.backtest(
         data=path, cv=cv, profile=profile, plan=plan, show_progress=False
     )
-    expected_comparison = assistant.compare(
-        data=path,
-        cv=cv,
-        profile=profile,
-        show_progress=False,
-        candidates=[(c["name"], dict(c["config"])) for c in CANDIDATES],
-    )
+    with warnings.catch_warnings():
+        # With several series the plan of the strategy (LGBMRegressor with
+        # its own lags) is none of the candidates, which a warning says.
+        warnings.filterwarnings(
+            "ignore", message="The plan the strategy was created for",
+            category=UserWarning,
+        )
+        expected_comparison = assistant.compare(
+            data=path,
+            cv=cv,
+            profile=profile,
+            show_progress=False,
+            candidates=[(c["name"], dict(c["config"])) for c in CANDIDATES],
+        )
     expected_forecast = assistant.forecast(
         data=path, profile=profile, plan=expected_comparison.best_candidate.plan
     )

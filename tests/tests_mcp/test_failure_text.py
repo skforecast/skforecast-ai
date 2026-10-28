@@ -126,11 +126,14 @@ def test_error_payload_names_only_the_type_of_a_failure_not_of_skforecast_ai():
         ("lgbm", {"estimator": "LGBMRegressor", "estimator_kwargs": {"num_leaves": 1}}),
         ("ridge", {"estimator": "Ridge", "estimator_kwargs": {"alpha": -1}}),
     ]
+    # The plan of the strategy (Ridge) is none of the candidates.
     with pytest.raises(AllCandidatesFailedError) as exc_info:
-        with pytest.warns(CandidateFailedWarning):
-            assistant.compare(
-                df_h2o, target="x", cv=cv, candidates=candidates, baseline=False
-            )
+        with pytest.warns(UserWarning, match="so it was not compared"):
+            with pytest.warns(CandidateFailedWarning):
+                assistant.compare(
+                    df_h2o, target="x", cv=cv, candidates=candidates,
+                    baseline=False,
+                )
 
     script_message = error_payload(script)["message"]
     comparison_message = error_payload(exc_info.value)["message"]

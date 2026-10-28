@@ -817,3 +817,118 @@ def test_tool_backtest_no_interval_coverage_notice_when_close_to_nominal(tmp_pat
         "62 actual values fell inside it (coverage: 0.7581), with a mean width "
         "of 0.1823 in the units of the target (interval_width)."
     ) in result["summary"]
+
+
+def test_tool_backtest_foundation_series_that_no_fold_forecasts(tmp_path, monkeypatch):
+    """
+    Test that backtesting a ForecasterFoundation plan on several series where
+    a series has values only in the last test fold (none before it, the
+    context of the model) is `insufficient_data` in `data_path`, with the
+    remedy of a later `initial_train_size`, before anything runs (the
+    backend is reported installed). skforecast left the series out of every
+    fold without a warning.
+    """
+    monkeypatch.setattr(
+        "skforecast_ai._foundation.foundation_backend_installed", lambda info: True
+    )
+    late = df_items_sales_long.drop(
+        index=df_items_sales_long.index[df_items_sales_long["series"] == "item_2"][:-2]
+    )
+    path = write_csv(tmp_path, "items.csv", late)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, _, cv_id = cv_of(
+        server,
+        path,
+        target            = "value",
+        steps             = 3,
+        forecaster        = "ForecasterFoundation",
+        cv_arguments      = {"initial_train_size": 84},
+        profile_arguments = {"series_id_column": "series"},
+    )
+
+    error = error_of(call(server, "backtest", {"cv_id": cv_id}), "backtest")
+
+    assert (error["code"], error["field"]) == ("insufficient_data", "data_path")
+    assert error["message"].startswith(
+        "Some series cannot be forecast in any fold of the backtest ('item_2'). "
+        "ForecasterFoundation forecasts a series in a fold only when it has a "
+        "value to evaluate in the fold and one in the 8192 observations before "
+        "it, the context of the model"
+    )
+    assert error["hint"] == (
+        "Remove those series, or use a later `initial_train_size`, so that the "
+        "folds start after their first values."
+    )
+
+
+def test_tool_backtest_notice_of_series_left_out_of_some_folds(tmp_path):
+    """
+    Test that a backtest of ForecasterRecursiveMultiSeries that does not
+    forecast a series in some test fold where it has values (item_2 has its
+    last 60 values; with refit the first fold trains on 20 of them, no more
+    than the window of the plan) carries a notice (source `runtime`) and a
+    sentence in its summary that name it with its folds. skforecast left it
+    out of the first fold without a warning.
+    """
+    late = df_items_sales_long.drop(
+        index=df_items_sales_long.index[df_items_sales_long["series"] == "item_2"][:-60]
+    )
+    path = write_csv(tmp_path, "items.csv", late)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, _, cv_id = cv_of(
+        server,
+        path,
+        target            = "value",
+        steps             = 5,
+        estimator         = "Ridge",
+        cv_arguments      = {"initial_train_size": 80, "refit": True},
+        profile_arguments = {"series_id_column": "series"},
+    )
+
+    result = content_of(call(server, "backtest", {"cv_id": cv_id}))
+
+    text = (
+        "Some series were not forecast in every test fold where they have "
+        "values to evaluate ('item_2': in 7 of its 8 folds with values), so "
+        "their metrics, and the average across series, leave the other folds "
+        "out. ForecasterRecursiveMultiSeries leaves a series out of a fold "
+        "when the training window of the fold has too few of its "
+        "observations, or when it cannot predict it from the values before "
+        "the fold."
+    )
+    notices = [(n["source"], n["category"], n["message"]) for n in result["notices"]]
+    assert ("runtime", "UserWarning", text) in notices
+    assert text in result["summary"]
+
+
+def test_tool_backtest_notice_of_missing_exog_with_an_estimator_that_accepts_them(
+    tmp_path,
+):
+    """
+    Test that a backtest with an estimator that accepts missing values
+    (LGBMRegressor) whose test folds read a missing value of an exogenous
+    column runs and carries a notice (source `runtime`) naming the column
+    and the date, as `forecast` does with the future values. Before, nothing
+    said it.
+    """
+    frame = df_h2o_csv.assign(promo=np.arange(len(df_h2o_csv)) % 3 * 1.0)
+    frame.loc[200, "promo"] = np.nan
+    path = write_csv(tmp_path, "h2o_promo.csv", frame)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, _, cv_id = cv_of(
+        server, path, estimator="LGBMRegressor", use_exog=True,
+        estimator_kwargs={"n_estimators": 10, "verbose": -1},
+    )
+
+    result = content_of(call(server, "backtest", {"cv_id": cv_id}))
+
+    messages = [
+        n["message"] for n in result["notices"]
+        if (n["source"], n["category"]) == ("runtime", "UserWarning")
+    ]
+    assert (
+        "The forecaster reads missing values of the exogenous variables to "
+        "predict 1 of the 6 test folds ('promo': 1 value(s), such as "
+        "'2008-03-01'). LGBMRegressor treats them as missing values; check "
+        "that they are meant to be missing."
+    ) in messages

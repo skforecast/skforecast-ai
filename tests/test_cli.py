@@ -1746,7 +1746,8 @@ class TestCompare:
         """
         Compare --format json lists in `cv_overridden_fields` the strategy
         options given on the command line and says the strategy was created
-        for the plan; without options the list is empty.
+        for the plan of the candidate that makes its decisions; without
+        options the list is empty.
         """
         csv_path = _write_csv(tmp_path, df_single)
         base = ["compare", csv_path, "--target", "sales", "--date-column", "date",
@@ -1762,9 +1763,10 @@ class TestCompare:
         assert data["cv_overridden_fields"] == ["refit"]
         assert data["cv_fields_without_effect"] == []
         assert data["cv_defaults_explanation"] == (
-            "The strategy was created for the plan (ForecasterRecursive + "
-            "Ridge). Initial training size by default: 70% of the 100 "
-            "observations (70), up to 2023-03-11. `refit` as requested."
+            "The strategy was created for the plan of row 'rec' "
+            "(ForecasterRecursive + Ridge). Initial training size by default: "
+            "70% of the 100 observations (70), up to 2023-03-11. `refit` as "
+            "requested."
         )
         default = json.loads(without_options.output)
         assert default["cv_overridden_fields"] == []

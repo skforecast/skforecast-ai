@@ -41,7 +41,7 @@ from tests.fixtures_csv_dialect import (
     write_excel_es,
     write_thousands,
 )
-from tests.fixtures_datasets import df_h2o, df_items_sales_long
+from tests.fixtures_datasets import df_h2o, df_items_sales_long, df_items_sales_wide
 from tests.fixtures_future_exog import data_long, exog_long
 
 
@@ -276,6 +276,48 @@ def test_standalone_script_matches_forecast_when_multi_series_wide(tmp_path):
     np.testing.assert_allclose(
         standalone["pred"].to_numpy(), executed.predictions["pred"].to_numpy(),
         rtol=1e-6,
+    )
+
+
+def test_standalone_script_and_forecast_follow_wide_columns_not_in_alphabetical_order(
+    tmp_path,
+):
+    """
+    Test that the predictions of a multi-series forecast of wide data whose
+    columns are not in alphabetical order ('item_3', 'item_1', 'item_2')
+    follow the order of the columns at every step, in `forecast()` and in
+    the generated script run as a file, with the values of the same data
+    in alphabetical order. The scripts call `predict` without `levels`:
+    before skforecast 0.27 (#1356, #1435), its rows followed the
+    alphabetical order of the series with an `encoding` other than
+    'onehot'.
+    """
+    order = ["item_3", "item_1", "item_2"]
+    csv_path = tmp_path / "items.csv"
+    df_items_sales_wide[order].rename_axis("date").reset_index().to_csv(
+        csv_path, index=False
+    )
+    assistant = ForecastingAssistant()
+    kwargs = dict(
+        data=csv_path, target=order, date_column="date", steps=3,
+        estimator="Ridge",
+    )
+
+    code = assistant.forecast_code(**kwargs).code
+    executed = assistant.forecast(**kwargs).predictions
+    standalone = _run_standalone(code, tmp_path)
+    alphabetical = assistant.forecast(
+        data=df_items_sales_wide, target=sorted(order), steps=3, estimator="Ridge"
+    ).predictions
+
+    assert list(executed["level"]) == order * 3
+    assert list(standalone["level"]) == order * 3
+    _assert_same_predictions(standalone, executed)
+    expected = alphabetical.set_index("level", append=True)["pred"]
+    pd.testing.assert_series_equal(
+        executed.set_index("level", append=True)["pred"],
+        expected.reindex(executed.set_index("level", append=True).index),
+        check_freq=False,
     )
 
 

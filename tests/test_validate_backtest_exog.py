@@ -10,7 +10,7 @@ from skforecast.exceptions import MissingValuesWarning
 
 import skforecast_ai.assistant as assistant_module
 from skforecast_ai import ForecastingAssistant
-from skforecast_ai._last_window import validate_backtest_exog
+from skforecast_ai._last_window import LEFT_OUT_OF_FOLDS, validate_backtest_exog
 from skforecast_ai.exceptions import DataContentError, ForecastExecutionError
 
 from tests.fixtures_last_window import (
@@ -118,23 +118,44 @@ def test_validate_backtest_exog_DataContentError_when_test_fold_reads_missing_ex
 @pytest.mark.parametrize(
     "plan",
     [
-        plan_h2o_exog_lgbm,
         plan_h2o_exog_foundation,
         plan_h2o_exog_baseline,
         plan_h2o_exog_ridge.model_copy(update={"use_exog": False}, deep=True),
     ],
-    ids=["lgbm", "foundation", "baseline", "without_exog"],
+    ids=["foundation", "baseline", "without_exog"],
 )
 def test_validate_backtest_exog_passes_when_plan_can_use_missing_exog(plan):
     """
-    Test that the same missing value passes for an estimator that accepts
-    missing values, a foundation model (which takes them as they are), a
-    baseline (which reads no exogenous variables) and a plan that does not
-    use them.
+    Test that the same missing value passes without a warning for a
+    foundation model (which takes them as they are), a baseline (which
+    reads no exogenous variables) and a plan that does not use them.
     """
-    assert validate_backtest_exog(
-        data_h2o_exog, profile_h2o_exog, plan, cv_h2o()
-    ) is None
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert validate_backtest_exog(
+            data_h2o_exog, profile_h2o_exog, plan, cv_h2o()
+        ) is None
+
+
+def test_validate_backtest_exog_UserWarning_when_estimator_accepts_missing_exog():
+    """
+    Test that the missing value of 'promo' in the second test fold
+    (2006-11-01) warns, without failing, for an estimator that accepts
+    missing values (LGBMRegressor), naming the fold count, the column and
+    the date, as `forecast()` warns about the future values. Before, nothing
+    said it.
+    """
+    warn_msg = re.escape(
+        _IN_SECOND_FOLD
+        + "LGBMRegressor treats them as missing values; check that they are "
+        "meant to be missing."
+    )
+    with pytest.warns(UserWarning, match=f"^{warn_msg}$"):
+        result = validate_backtest_exog(
+            data_h2o_exog, profile_h2o_exog, plan_h2o_exog_lgbm, cv_h2o()
+        )
+
+    assert result is None
 
 
 def test_validate_backtest_exog_passes_when_missing_exog_is_in_training_rows():
@@ -315,24 +336,38 @@ def test_validate_backtest_exog_DataContentError_when_wide_data_misses_timestamp
         validate_backtest_exog(data, profile, plan, cv_items_sales())
 
 
-@pytest.mark.parametrize(
-    "estimator", ["LGBMRegressor", None], ids=["lgbm", "missing_on_unscored_date"]
-)
-def test_validate_backtest_exog_passes_when_no_scored_prediction_is_missing(estimator):
+def test_validate_backtest_exog_passes_when_no_scored_prediction_is_missing():
     """
-    Test that wide data passes with an estimator that accepts missing
-    values, and with Ridge when the missing value of 'promo' is on the last
-    date of a fold (2012-04-11) where no series has a value: that
-    prediction is not scored and no later one of the fold reads it.
+    Test that wide data passes with Ridge when the missing value of 'promo'
+    is on the last date of a fold (2012-04-11) where no series has a value:
+    that prediction is not scored and no later one of the fold reads it.
     """
     data = with_missing_exog(data_wide_exog, [101])
-    if estimator is None:
-        data.iloc[101, :3] = np.nan
-        profile, plan = multiseries_exog_of(data)
-    else:
-        profile, plan = multiseries_exog_of(data, estimator=estimator)
+    data.iloc[101, :3] = np.nan
+    profile, plan = multiseries_exog_of(data)
 
     assert validate_backtest_exog(data, profile, plan, cv_items_sales()) is None
+
+
+def test_validate_backtest_exog_UserWarning_when_wide_series_with_lgbm_read_missing_exog():
+    """
+    Test that wide data with an estimator that accepts missing values warns,
+    without failing, about the missing value of 'promo' that the series
+    read on 2012-04-11.
+    """
+    data = with_missing_exog(data_wide_exog, [101])
+    profile, plan = multiseries_exog_of(data, estimator="LGBMRegressor")
+
+    warn_msg = re.escape(
+        "The forecaster reads missing values of the exogenous variables to "
+        "predict 1 of the 12 test folds ('promo': 1 value(s), such as "
+        "'2012-04-11'). LGBMRegressor treats them as missing values; check "
+        "that they are meant to be missing."
+    )
+    with pytest.warns(UserWarning, match=f"^{warn_msg}$"):
+        assert validate_backtest_exog(
+            data, profile, plan, cv_items_sales()
+        ) is None
 
 
 def test_validate_backtest_exog_DataContentError_names_series_of_long_data():
@@ -404,10 +439,16 @@ def _backtest_without_check(monkeypatch, data, profile, plan, cv):
         assistant_module, "validate_backtest_exog", lambda **kwargs: None
     )
     assistant = ForecastingAssistant()
-    result = assistant.backtest(
-        data, cv=cv, profile=_profile_result(data, profile), plan=plan,
-        show_progress=False,
-    )
+    # A missing value of the target in a last window leaves a series out of
+    # that fold, which a warning says; only the predictions are compared.
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore", message=re.escape(LEFT_OUT_OF_FOLDS), category=UserWarning
+        )
+        result = assistant.backtest(
+            data, cv=cv, profile=_profile_result(data, profile), plan=plan,
+            show_progress=False,
+        )
     return result.predictions
 
 
