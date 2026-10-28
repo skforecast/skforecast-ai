@@ -476,7 +476,12 @@ def test_plan_refinement_agent_reasks_model_when_lags_invalid():
     the schema constraints rely on.
     """
     pytest.importorskip("pydantic_ai")
-    from pydantic_ai.messages import ModelResponse, RetryPromptPart, ToolCallPart
+    from pydantic_ai.messages import (
+        ModelResponse,
+        RetryPromptPart,
+        ToolCallPart,
+        ToolReturnPart,
+    )
     from pydantic_ai.models.function import FunctionModel
 
     from skforecast_ai import ForecastingAssistant
@@ -505,12 +510,14 @@ def test_plan_refinement_agent_reasks_model_when_lags_invalid():
 
     assert result.output.lags == [1, 7]
     assert len(calls) == 2
-    retry_parts = [
-        part for message in calls[1] for part in message.parts
-        if isinstance(part, RetryPromptPart)
-    ]
-    assert len(retry_parts) == 1
-    assert retry_parts[0].content == [
+    # The error goes back in the last request: as a `RetryPromptPart` in
+    # pydantic-ai 2.20, as a `ToolReturnPart` of the output tool with `loc`
+    # as a list in 2.62. `pydantic-ai>=2,<3` installs either.
+    feedback = calls[1][-1].parts
+    assert len(feedback) == 1
+    assert isinstance(feedback[0], (RetryPromptPart, ToolReturnPart))
+    errors = [{**error, "loc": tuple(error["loc"])} for error in feedback[0].content]
+    assert errors == [
         {
             "type": "value_error",
             "loc": ("lags",),
