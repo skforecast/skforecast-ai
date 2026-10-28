@@ -1938,6 +1938,29 @@ def _data_path_of_run(data_path: str | None) -> Iterator[None]:
         _RUN_DATA_PATH.reset(token)
 
 
+# Whether the plan of the `CVResult` that `compare()` receives is one the
+# caller chose. The CLI builds the default plan of the profile only to size
+# the strategy of `compare --candidates`, so that plan not being compared is
+# nothing to tell its user.
+_STRATEGY_PLAN_CHOSEN: ContextVar[bool] = ContextVar(
+    "_STRATEGY_PLAN_CHOSEN", default=True
+)
+
+
+@contextmanager
+def _strategy_plan_not_chosen() -> Iterator[None]:
+    """
+    Within the block, take the plan of the `CVResult` of `compare()` as one
+    built only to size the strategy: with explicit `candidates`, nothing
+    warns, nor says in the explanation, that it was not compared.
+    """
+    token = _STRATEGY_PLAN_CHOSEN.set(False)
+    try:
+        yield
+    finally:
+        _STRATEGY_PLAN_CHOSEN.reset(token)
+
+
 def recorded_data_path(data: object) -> str:
     """
     Return the path a profile records for `data`, which the script loads.

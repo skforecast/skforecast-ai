@@ -38,6 +38,7 @@ from skforecast_ai import (
     ComparisonResult,
     CostNotConfirmedError,
     DataNotFoundError,
+    FoldsLeftOutWarning,
     ForecastingAssistant,
     IntervalCoverageWarning,
     InvalidInputError,
@@ -1821,7 +1822,8 @@ def test_compare_candidate_that_forecasts_a_series_in_no_fold_fails_before_runni
 
 def test_compare_UserWarning_once_names_candidates_that_left_series_out_of_some_folds():
     """
-    Test that a comparison gives one UserWarning, also in its explanation,
+    Test that a comparison gives one FoldsLeftOutWarning, also in its
+    explanation,
     naming the candidates whose backtest did not forecast a series in some
     test fold where it has values: with refit, the first fold trains
     'ridge' on 20 values of item_2, no more than its window (21), so its
@@ -1841,7 +1843,9 @@ def test_compare_UserWarning_once_names_candidates_that_left_series_out_of_some_
         "folds out."
     )
 
-    with pytest.warns(UserWarning, match=f"^{re.escape(warn_msg)}$") as caught:
+    with pytest.warns(
+        FoldsLeftOutWarning, match=f"^{re.escape(warn_msg)}$"
+    ) as caught:
         result = assistant.compare(
             data             = long_starting_late(df_items_sales_long, "item_2", 60),
             cv               = TimeSeriesFold(
@@ -1856,8 +1860,7 @@ def test_compare_UserWarning_once_names_candidates_that_left_series_out_of_some_
         )
 
     left_out = [
-        str(w.message) for w in caught
-        if str(w.message).startswith("Some series were not forecast")
+        str(w.message) for w in caught if issubclass(w.category, FoldsLeftOutWarning)
     ]
     assert left_out == [warn_msg]
     assert result.explanation.endswith(f" {warn_msg}")

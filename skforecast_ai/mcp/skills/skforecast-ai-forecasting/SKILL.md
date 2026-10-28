@@ -160,10 +160,10 @@ the interval, by series when there are several. An
 then never present the interval at its nominal level, nor in a `forecast`
 of the same plan; give the measured coverage instead. A `forecast` with
 `test_size` does not measure it: one window is too short. With several
-series, a notice (and the summary) says when a series was not forecast in
-every test fold where it has values: its metrics, and the average across
-series, use fewer folds than those of the others, so say it when you
-report them. Read `notices` before you report
+series, a `FoldsLeftOutWarning` notice (and the summary) says when a
+series was not forecast in every test fold where it has values: its
+metrics, and the average across series, use fewer folds than those of
+the others, so say it when you report them. Read `notices` before you report
 anything: any notice can change what the result means (a data problem, a
 warning of the plan, a long training), so tell the user about it.
 

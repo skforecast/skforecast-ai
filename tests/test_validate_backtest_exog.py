@@ -9,8 +9,8 @@ import pytest
 from skforecast.exceptions import MissingValuesWarning
 
 import skforecast_ai.assistant as assistant_module
-from skforecast_ai import ForecastingAssistant
-from skforecast_ai._last_window import LEFT_OUT_OF_FOLDS, validate_backtest_exog
+from skforecast_ai import FoldsLeftOutWarning, ForecastingAssistant
+from skforecast_ai._last_window import validate_backtest_exog
 from skforecast_ai.exceptions import DataContentError, ForecastExecutionError
 
 from tests.fixtures_last_window import (
@@ -442,9 +442,7 @@ def _backtest_without_check(monkeypatch, data, profile, plan, cv):
     # A missing value of the target in a last window leaves a series out of
     # that fold, which a warning says; only the predictions are compared.
     with warnings.catch_warnings():
-        warnings.filterwarnings(
-            "ignore", message=re.escape(LEFT_OUT_OF_FOLDS), category=UserWarning
-        )
+        warnings.simplefilter("ignore", category=FoldsLeftOutWarning)
         result = assistant.backtest(
             data, cv=cv, profile=_profile_result(data, profile), plan=plan,
             show_progress=False,

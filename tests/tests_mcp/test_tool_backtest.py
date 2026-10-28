@@ -866,9 +866,9 @@ def test_tool_backtest_notice_of_series_left_out_of_some_folds(tmp_path):
     Test that a backtest of ForecasterRecursiveMultiSeries that does not
     forecast a series in some test fold where it has values (item_2 has its
     last 60 values; with refit the first fold trains on 20 of them, no more
-    than the window of the plan) carries a notice (source `runtime`) and a
-    sentence in its summary that name it with its folds. skforecast left it
-    out of the first fold without a warning.
+    than the window of the plan) carries a notice (`FoldsLeftOutWarning`,
+    source `runtime`) and a sentence in its summary that name it with its
+    folds. skforecast left it out of the first fold without a warning.
     """
     late = df_items_sales_long.drop(
         index=df_items_sales_long.index[df_items_sales_long["series"] == "item_2"][:-60]
@@ -897,7 +897,7 @@ def test_tool_backtest_notice_of_series_left_out_of_some_folds(tmp_path):
         "the fold."
     )
     notices = [(n["source"], n["category"], n["message"]) for n in result["notices"]]
-    assert ("runtime", "UserWarning", text) in notices
+    assert ("runtime", "FoldsLeftOutWarning", text) in notices
     assert text in result["summary"]
 
 

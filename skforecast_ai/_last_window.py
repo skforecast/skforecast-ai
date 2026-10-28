@@ -1262,8 +1262,8 @@ def _report_foundation_never_forecast(
     )
 
 
-# Start of the sentence about the series that a backtest leaves out of some
-# test folds, which `compare()` gives once for its candidates.
+# Start of the sentences about the series that a backtest leaves out of some
+# test folds (`FoldsLeftOutWarning`), in `backtest()` and in `compare()`.
 LEFT_OUT_OF_FOLDS = "Some series were not forecast in every test fold"
 
 

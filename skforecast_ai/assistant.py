@@ -49,6 +49,7 @@ from .exceptions import (
     AllCandidatesFailedError,
     CandidateFailedWarning,
     DataSentToLLMWarning,
+    FoldsLeftOutWarning,
     IntervalCoverageWarning,
     InvalidInputError,
     InvalidInputTypeError,
@@ -171,7 +172,6 @@ from ._future_exog import (
     validate_future_exog,
 )
 from ._last_window import (
-    LEFT_OUT_OF_FOLDS,
     describe_left_out_candidates,
     series_left_out_of_folds,
     validate_backtest_exog,
@@ -210,6 +210,7 @@ from ._utils import (
     _check_plan_overrides,
     KNOWN_DATE_FORMAT,
     _data_path_of_run,
+    _STRATEGY_PLAN_CHOSEN,
     _dialect_read,
     with_read_notes,
     _revalidate_plan,
@@ -3582,8 +3583,8 @@ class ForecastingAssistant:
         `level` and `fold` of the predictions: when a series was not
         forecast in some test fold where it has a value to evaluate, its
         metrics, and the average across series, use fewer folds than the
-        others, and a `UserWarning` and the explanation name it with those
-        folds. A series that no fold forecasts raises before running.
+        others, and a `FoldsLeftOutWarning` and the explanation name it with
+        those folds. A series that no fold forecasts raises before running.
 
         References
         ----------
@@ -3676,7 +3677,9 @@ class ForecastingAssistant:
             interval    = plan.interval,
         )
         if result["left_out_of_folds"] is not None:
-            warnings.warn(result["left_out_of_folds"], UserWarning, stacklevel=2)
+            warnings.warn(
+                result["left_out_of_folds"], FoldsLeftOutWarning, stacklevel=2
+            )
 
         return BacktestResult(
             profile     = profile,
@@ -3926,9 +3929,10 @@ class ForecastingAssistant:
             When `candidates` is None and the plan of the `CVResult` is left
             out: a forecaster family whose metrics cannot be ranked with the
             candidates. With explicit `candidates`, when none of them makes
-            the decisions of that plan, which is then not compared. Once
-            for the comparison, naming the candidates whose backtest left
-            series out of some test folds where they have values to
+            the decisions of that plan, which is then not compared.
+        FoldsLeftOutWarning
+            Once for the comparison, naming the candidates whose backtest
+            left series out of some test folds where they have values to
             evaluate (see `backtest()`), whose metrics use fewer folds of
             those series; the explanation says it too.
         MissingBackendWarning
@@ -4211,6 +4215,10 @@ class ForecastingAssistant:
                 profile       = profile,
                 build_plan    = build_plan,
             )
+            if not _STRATEGY_PLAN_CHOSEN.get():
+                # A plan built only to size the strategy (the CLI): the user
+                # never chose it, so it not being compared is no news.
+                strategy_note = None
             if strategy_note is not None:
                 warnings.warn(strategy_note, UserWarning, stacklevel=2)
 
@@ -4303,10 +4311,8 @@ class ForecastingAssistant:
                             "ignore", category=IntervalCoverageWarning
                         )
                         # Likewise the series left out of some folds.
-                        warnings.filterwarnings(
-                            "ignore",
-                            message  = re.escape(LEFT_OUT_OF_FOLDS),
-                            category = UserWarning,
+                        warnings.simplefilter(
+                            "ignore", category=FoldsLeftOutWarning
                         )
                         # The candidate runs on the DataFrame already read;
                         # its script loads the file the comparison read.
@@ -4389,7 +4395,7 @@ class ForecastingAssistant:
             {name: left_out.get(name, {}) for name in candidate_results}
         )
         if left_out_note is not None:
-            warnings.warn(left_out_note, UserWarning, stacklevel=2)
+            warnings.warn(left_out_note, FoldsLeftOutWarning, stacklevel=2)
 
         explanation = build_comparison_explanation(
             n_candidates    = len(candidate_configs),

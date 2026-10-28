@@ -1301,10 +1301,11 @@ def test_tool_compare_candidates_say_the_refined_plan_was_not_compared(tmp_path)
 
 def test_tool_compare_notice_of_candidates_that_left_series_out_of_some_folds(tmp_path):
     """
-    Test that `compare` carries one notice (source `runtime`), also in its
-    summary, naming the candidates whose backtest did not forecast a series
-    in some test fold where it has values ('ridge', whose window reads more
-    values of item_2 than the first fold of a refitted strategy has), and
+    Test that `compare` carries one notice (`FoldsLeftOutWarning`, source
+    `runtime`), also in its summary, naming the candidates whose backtest
+    did not forecast a series in some test fold where it has values
+    ('ridge', whose window reads more values of item_2 than the first fold
+    of a refitted strategy has), and
     not the notice of the backtest of each candidate.
     """
     late = df_items_sales_long[
@@ -1345,7 +1346,7 @@ def test_tool_compare_notice_of_candidates_that_left_series_out_of_some_folds(tm
     )
     left_out = [
         (n["source"], n["message"]) for n in result["notices"]
-        if n["message"].startswith("Some series were not forecast")
+        if n["category"] == "FoldsLeftOutWarning"
     ]
     assert left_out == [("runtime", text)]
     assert text in result["summary"]

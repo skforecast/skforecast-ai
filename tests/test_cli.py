@@ -1742,6 +1742,36 @@ class TestCompare:
         assert len(data["results"]) == 2
         assert data["best_name"] in data["candidates"]
 
+    def test_compare_candidates_do_not_say_the_sizing_plan_was_not_compared(
+        self, tmp_path
+    ):
+        """
+        Compare --candidates whose configurations make other decisions than
+        the default plan of the profile, which the CLI builds only to size
+        the strategy, runs without the warning of `compare()` that the plan
+        of the strategy was not compared, and without that sentence in the
+        explanation: the user never chose that plan. The Python API, given
+        the `CVResult` of a plan of the user, still says it.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        candidates = '[["forest", {"estimator": "RandomForestRegressor"}]]'
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            result = runner.invoke(app, [
+                "compare", csv_path, "--target", "sales", "--date-column", "date",
+                "--steps", "5", "--candidates", candidates, "--no-baseline",
+                "--format", "json", "--quiet",
+            ])
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert list(data["candidates"]) == ["forest"]
+        assert "was not compared" not in data["explanation"]
+        assert data["cv_defaults_explanation"].startswith(
+            "The strategy was created for the plan (ForecasterRecursive + Ridge)."
+        )
+
     def test_compare_json_records_the_cv_options_passed(self, tmp_path):
         """
         Compare --format json lists in `cv_overridden_fields` the strategy

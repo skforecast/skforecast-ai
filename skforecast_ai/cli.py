@@ -2139,6 +2139,7 @@ def compare(
     quiet: QuietOption = False,
 ) -> None:
     """Compare several forecasters and report a ranked leaderboard."""
+    from ._utils import _strategy_plan_not_chosen
     from .assistant import ForecastingAssistant
     from .schemas.profiles import ForecastingProfile
     with _error_handler(json_errors=format == "json"):
@@ -2206,20 +2207,28 @@ def compare(
                 **cv_kwargs,
             )
 
-            result = assistant.compare(
-                data=data,
-                cv=cv,
-                target=parsed_target,
-                date_column=resolved_date_column,
-                series_id_column=resolved_series_id,
-                candidates=parsed_candidates,
-                metric=parsed_metric,
-                interval=parsed_interval,
-                profile=prof,
-                show_progress=(not quiet and format != "json"),
-                baseline=baseline,
-                confirm_cost=confirm_cost,
+            # With --candidates, the default plan only sized the strategy:
+            # the user never chose it, so compare() does not say that it was
+            # not compared.
+            sized_only = (
+                _strategy_plan_not_chosen() if parsed_candidates is not None
+                else contextlib.nullcontext()
             )
+            with sized_only:
+                result = assistant.compare(
+                    data=data,
+                    cv=cv,
+                    target=parsed_target,
+                    date_column=resolved_date_column,
+                    series_id_column=resolved_series_id,
+                    candidates=parsed_candidates,
+                    metric=parsed_metric,
+                    interval=parsed_interval,
+                    profile=prof,
+                    show_progress=(not quiet and format != "json"),
+                    baseline=baseline,
+                    confirm_cost=confirm_cost,
+                )
 
         if output_code is not None:
             output_code.write_text(result.best_candidate.code)

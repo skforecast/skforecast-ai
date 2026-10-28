@@ -15,7 +15,7 @@ from skforecast.exceptions import (
 )
 from skforecast.model_selection import TimeSeriesFold
 
-from skforecast_ai import BacktestResult, ForecastingAssistant
+from skforecast_ai import BacktestResult, FoldsLeftOutWarning, ForecastingAssistant
 from skforecast_ai.exceptions import (
     CostNotConfirmedError,
     DataContentError,
@@ -780,7 +780,7 @@ def test_backtest_output_when_long_series_start_on_different_dates_and_date_spli
     )
 
     warn_msg = re.escape("('b': in 22 of its 23 folds with values)")
-    with pytest.warns(UserWarning, match=warn_msg):
+    with pytest.warns(FoldsLeftOutWarning, match=warn_msg):
         result = assistant.backtest(
             data          = data,
             cv            = cv,
@@ -1082,9 +1082,7 @@ def test_backtest_runs_when_long_series_starts_late(n_values, refit):
 
     # With refit, the first fold leaves item_2 out, which a warning says
     # (see the test of that warning).
-    left_out = [
-        w for w in caught if str(w.message).startswith("Some series were not forecast")
-    ]
+    left_out = [w for w in caught if issubclass(w.category, FoldsLeftOutWarning)]
     assert len(left_out) == int(refit)
 
     assert isinstance(result, BacktestResult)
@@ -1096,7 +1094,8 @@ def test_backtest_runs_when_long_series_starts_late(n_values, refit):
 
 def test_backtest_UserWarning_when_long_series_is_left_out_of_some_folds():
     """
-    Test that backtest() warns, and says in its explanation, when a series
+    Test that backtest() warns (FoldsLeftOutWarning), and says in its
+    explanation, when a series
     is not forecast in some test fold where it has values: item_2 has its
     last 60 values and, with refit, the first fold trains on 20 of them, no
     more than the window of the plan (21). Its metrics, and the average
@@ -1113,7 +1112,7 @@ def test_backtest_UserWarning_when_long_series_is_left_out_of_some_folds():
         "the training window of the fold has too few of its observations, or "
         "when it cannot predict it from the values before the fold."
     )
-    with pytest.warns(UserWarning, match=f"^{re.escape(warn_msg)}$"):
+    with pytest.warns(FoldsLeftOutWarning, match=f"^{re.escape(warn_msg)}$"):
         result = assistant.backtest(
             data=_items_starting_late(60), target="value", date_column="date",
             series_id_column="series", cv=cv, show_progress=False,
