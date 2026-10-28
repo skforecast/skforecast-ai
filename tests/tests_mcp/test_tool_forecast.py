@@ -9,7 +9,12 @@ from skforecast_ai._utils import load_exog
 from skforecast_ai.mcp import create_server
 from skforecast_ai.mcp.models import ToolNotice
 
-from ..fixtures_assistant import df_crossing_zero, df_multi_wide, df_single
+from ..fixtures_assistant import (
+    df_crossing_zero,
+    df_multi_wide,
+    df_single,
+    patch_find_spec,
+)
 from ..fixtures_csv_dialect import df_dialect, write_dialect
 from ..fixtures_datasets import df_hourly_madrid_spring, df_items_sales_long
 from .fixtures_mcp import (
@@ -402,6 +407,38 @@ def test_tool_forecast_invalid_argument_when_future_exog_is_missing(tmp_path):
         "`test_size`: it evaluates dates already in the data, which is not "
         "the forecast the user asked for."
     )
+
+
+def test_tool_forecast_missing_dependency_of_an_estimator(tmp_path, monkeypatch):
+    """
+    Test that forecasting with a plan whose estimator is not installed
+    (CatBoost) is `missing_dependency` on `plan_id` before any script runs,
+    with the install advice for pip and for uvx, the restart, and the
+    estimator and the package in `details` (V02), also with `test_size`.
+    """
+    patch_find_spec(monkeypatch, missing=["catboost"])
+    server, path = h2o_server(tmp_path)
+    _, plan_id = profile_and_plan(server, path, estimator="CatBoostRegressor")
+
+    future = error_of(call(server, "forecast", {"plan_id": plan_id}), "forecast")
+    holdout = error_of(
+        call(server, "forecast", {"plan_id": plan_id, "test_size": 12}), "forecast"
+    )
+
+    assert future == holdout == {
+        "code": "missing_dependency",
+        "message": (
+            "CatBoostRegressor needs the 'catboost' package, which is not "
+            "installed where the server runs. Nothing was run."
+        ),
+        "field": "plan_id",
+        "hint": (
+            'Ask the user to install it where the server runs and to restart the '
+            'server: `pip install "catboost"` in its Python environment, or '
+            '`--with "catboost"` added to the uvx command that starts it.'
+        ),
+        "details": {"estimator": "CatBoostRegressor", "package": "catboost"},
+    }
 
 
 def test_tool_forecast_invalid_argument_when_foundation_series_ends_early(

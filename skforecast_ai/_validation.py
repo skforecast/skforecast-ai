@@ -28,7 +28,11 @@ from ._constants import (
     SUPPORTED_ESTIMATORS,
     SUPPORTED_TRANSFORMERS,
 )
-from .exceptions import InvalidInputError, InvalidInputTypeError
+from .exceptions import (
+    InvalidInputError,
+    InvalidInputTypeError,
+    MissingBackendWarning,
+)
 
 # Task types whose interval method (native ARIMA intervals, conformal
 # intervals of the baseline) only predicts symmetric intervals.
@@ -404,6 +408,90 @@ def _check_estimator_kwarg_values(
         ) from exc
 
 
+def missing_estimator_package(estimator: str | None) -> str | None:
+    """
+    Return the package to install for a machine-learning estimator whose
+    library is not installed.
+
+    The check imports nothing (`importlib.util.find_spec`).
+
+    Parameters
+    ----------
+    estimator : str, None
+        Estimator name.
+
+    Returns
+    -------
+    package : str, None
+        Name to pass to `pip install` (`'xgboost'`), or None when the
+        package is installed or `estimator` is not one of
+        `SUPPORTED_ESTIMATORS`.
+    """
+
+    if estimator not in SUPPORTED_ESTIMATORS:
+        return None
+    package = SUPPORTED_ESTIMATORS[estimator].split(".")[0]
+    if importlib.util.find_spec(package) is not None:
+        return None
+
+    return _PIP_NAMES.get(package, package)
+
+
+def missing_package_message(name: str, package: str) -> str:
+    """
+    First words of every message about a package that is not installed
+    (`"XGBRegressor needs the 'xgboost' package, which is not installed"`),
+    which the library and the MCP server complete each in its own way.
+
+    Parameters
+    ----------
+    name : str
+        Estimator or foundation model that needs the package.
+    package : str
+        Name to pass to `pip install`.
+
+    Returns
+    -------
+    message : str
+        The sentence, without its end.
+    """
+
+    return f"{name} needs the '{package}' package, which is not installed"
+
+
+def warn_estimator_not_installed(estimator: str | None, task_type: str) -> None:
+    """
+    Warn, when a plan is made, that its machine-learning estimator needs a
+    package that is not installed.
+
+    The plan is still made: its script may run on another machine, and
+    running it here fails before anything runs (`check_estimator_installed`).
+
+    Parameters
+    ----------
+    estimator : str, None
+        Estimator name of the plan.
+    task_type : str
+        Forecasting task category of the plan.
+
+    Returns
+    -------
+    None
+    """
+
+    if task_type not in ML_TASK_TYPES:
+        return
+    package = missing_estimator_package(estimator)
+    if package is None:
+        return
+    warnings.warn(
+        f"{missing_package_message(estimator, package)}: the plan cannot run "
+        f"here until it is (pip install {package}).",
+        MissingBackendWarning,
+        stacklevel = 3,
+    )
+
+
 def check_estimator_installed(
     estimator: str | None,
     task_type: str,
@@ -439,16 +527,16 @@ def check_estimator_installed(
 
         check_foundation_backend(estimator)
         return
-    if task_type not in ML_TASK_TYPES or estimator not in SUPPORTED_ESTIMATORS:
+    if task_type not in ML_TASK_TYPES:
         return
-    package = SUPPORTED_ESTIMATORS[estimator].split(".")[0]
-    if importlib.util.find_spec(package) is None:
-        pip_name = _PIP_NAMES.get(package, package)
+    package = missing_estimator_package(estimator)
+    if package is not None:
         raise InvalidInputError(
-            f"{estimator} needs the '{pip_name}' package, which is not "
-            f"installed (pip install {pip_name}).",
+            f"{missing_package_message(estimator, package)} "
+            f"(pip install {package}).",
             code  = "missing_dependency",
             field = "estimator",
+            hint  = f"Install it where skforecast-ai runs: pip install {package}.",
         )
 
 

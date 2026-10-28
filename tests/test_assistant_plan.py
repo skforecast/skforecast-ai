@@ -13,6 +13,7 @@ from skforecast_ai import ForecastingAssistant
 from skforecast_ai.exceptions import (
     InvalidInputError,
     InvalidInputTypeError,
+    MissingBackendWarning,
     UnrecommendedForecasterWarning,
 )
 from skforecast_ai.schemas import ForecastPlan
@@ -34,6 +35,7 @@ from tests.fixtures_assistant import (
     df_single,
     df_single_positive,
     df_with_missing,
+    patch_find_spec,
 )
 
 
@@ -74,6 +76,35 @@ def test_plan_UnrecommendedForecasterWarning_when_forecaster_not_recommended():
         plan = assistant.plan(profile, steps=10, forecaster="ForecasterStats")
 
     assert plan.forecaster == "ForecasterStats"
+
+
+@pytest.mark.parametrize(
+    "estimator, package",
+    [("XGBRegressor", "xgboost"), ("CatBoostRegressor", "catboost")],
+    ids=lambda value: f"{value}",
+)
+def test_plan_MissingBackendWarning_when_estimator_not_installed(
+    monkeypatch, estimator, package
+):
+    """
+    Test that plan() makes the plan of an estimator whose package is not
+    installed (its script may run on another machine) and warns that it
+    cannot run here, without keeping the warning in `plan.warnings`, which
+    describes the plan and not where it was made (V02).
+    """
+    patch_find_spec(monkeypatch, missing=[package])
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    warn_msg = re.escape(
+        f"{estimator} needs the '{package}' package, which is not installed: "
+        f"the plan cannot run here until it is (pip install {package})."
+    )
+    with pytest.warns(MissingBackendWarning, match=warn_msg):
+        plan = assistant.plan(profile, steps=10, estimator=estimator)
+
+    assert plan.estimator == estimator
+    assert plan.warnings == []
 
 
 def test_plan_output_when_multiplied_frequency_with_long_period():

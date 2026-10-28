@@ -316,7 +316,7 @@ In the checks of this release a small model tried to copy a file from outside th
 | `path_not_allowed` | The file is outside `--allow-dir` | Copy the file there yourself, or restart the server with another `--allow-dir` |
 | `invalid_path` or `url_not_allowed` | The path is relative, does not end in `.csv`, `.tsv`, `.csv.gz` or `.tsv.gz`, or is a URL | Give the absolute path of a CSV file; download a URL first |
 | `model_not_allowed` | The license of the foundation model restricts its use | Read its license and add `--allow-model` with its prefix |
-| `missing_dependency` | The backend of a foundation model is not installed where the server runs | Install the package the hint names, or add it with `--with` to `uvx` |
+| `missing_dependency` | The package of the estimator (XGBoost, CatBoost) or the backend of a foundation model is not installed where the server runs | Install the package the hint names, or add it with `--with` to `uvx`, and restart the server |
 | `unknown_id` | The server restarted, or removed the object to stay within its limits | Ask the agent to profile the data again |
 | A tool times out in Codex | A comparison takes longer than the default 60 seconds | Set `tool_timeout_sec` |
 | Two skforecast-ai servers in `/mcp` of Claude Code | The plugin and a server added by hand both run | Disable one of them |
