@@ -1661,8 +1661,13 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     dice al final (`'item_2': in 7 of its 8 folds with values`, hasta 5
     series) y `backtest()` da un `UserWarning` con el mismo texto, que el
     MCP pasa a notice; `compare()` silencia el de cada candidato y da uno
-    solo, también en su resumen, que nombra los candidatos. Ningún golden
-    del contexto del LLM cambia.
+    solo, también en su resumen, que nombra los candidatos. Contrastado con
+    las series que skforecast da como no pronosticadas en folds con valores
+    (`_warn_levels_not_predicted_multiseries`, espiado en backtests reales)
+    en 31 configuraciones al azar (ancho y largo, Ridge, LightGBM e
+    HistGradientBoosting, diferenciación, gap, `fold_stride`, `refit`,
+    `fixed_train_size`, `skip_folds`), 17 con series fuera de algún fold:
+    sin diferencias. Ningún golden del contexto del LLM cambia.
   - Exógenas con un estimador que acepta faltantes: `validate_backtest_exog`
     avisa (`UserWarning`, el texto de `forecast()` con las futuras: "...
     treats them as missing values; check that they are meant to be
