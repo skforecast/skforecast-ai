@@ -434,8 +434,9 @@ pequeños; se pueden agrupar en dos o tres PR.
   forma del reintento. pydantic-ai 2.62 devuelve el error como
   `ToolReturnPart`, con `loc` como lista, en vez de `RetryPromptPart`; la
   conducta (el modelo recibe el error y reintenta) es la misma. El test
-  debe aceptar las dos formas, porque `pydantic-ai>=2,<3` instala 2.62 a un
-  usuario nuevo. 2.62 imprime además un banner de Logfire una vez por
+  acepta las dos formas, porque `pydantic-ai>=2,<3` instala 2.62 a un
+  usuario nuevo: hecho en
+  [#122](https://github.com/skforecast/skforecast-ai/pull/122). 2.62 imprime además un banner de Logfire una vez por
   proceso, por stderr (no rompe el stdio del MCP; no sale bajo pytest ni
   en CI): opcional apagarlo con `pydantic_ai.BANNER_ENABLED = False` en el
   servidor MCP y la CLI.
