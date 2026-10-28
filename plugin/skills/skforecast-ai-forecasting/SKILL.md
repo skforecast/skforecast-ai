@@ -80,10 +80,14 @@ of your own can list it.
    family of the data (with several series, ForecasterRecursiveMultiSeries
    and ForecasterFoundation), or the estimators of the recommended
    forecaster when that leaves one, without those above 500 estimator
-   fits. When the strategy was created for another plan (one from
-   `refine_plan`, say), that plan runs too, with its own decisions, in
-   the row `Strategy plan`. The summary names the row of the plan of the
-   strategy: report that row as the user's plan. A row named after a
+   fits. Without `candidates`, when the strategy was created for another
+   plan (one from `refine_plan`, say), that plan runs too, with its own
+   decisions, in the row `Strategy plan`, a name no candidate can take.
+   With `candidates` only they run: the summary names the candidate that
+   makes the decisions of that plan, or says, with a notice, that it was
+   not compared, and then no row is the user's plan. The summary names
+   the row of the plan of the strategy: report that row as the user's
+   plan. A row named after a
    forecaster runs the plan the profile recommends for it, which is the
    user's plan only when the summary names that row. Without `interval`
    it uses the interval of the plan of the strategy, so the winner keeps
@@ -155,7 +159,11 @@ the interval, by series when there are several. An
 `IntervalCoverageNotice` says that it is clearly below the nominal level:
 then never present the interval at its nominal level, nor in a `forecast`
 of the same plan; give the measured coverage instead. A `forecast` with
-`test_size` does not measure it: one window is too short. Read `notices` before you report
+`test_size` does not measure it: one window is too short. With several
+series, a `FoldsLeftOutWarning` notice (and the summary) says when a
+series was not forecast in every test fold where it has values: its
+metrics, and the average across series, use fewer folds than those of
+the others, so say it when you report them. Read `notices` before you report
 anything: any notice can change what the result means (a data problem, a
 warning of the plan, a long training), so tell the user about it.
 
@@ -191,8 +199,9 @@ number for its plan and for a `compare` without `candidates`, in `cost`
 and in its `CostNotice`. With `candidates`, call `compare` without
 `confirm_cost`: below the thresholds it runs, and above them its error
 (`cost_not_confirmed`) gives the total, what each
-candidate adds and the number (a candidate whose plan cannot be built
-runs nothing and is not counted). A number given for another strategy,
+candidate adds and the number (a candidate whose plan cannot be built,
+or that fails the checks of `backtest`, runs nothing and is not
+counted). A number given for another strategy,
 plan or candidates is refused the same way, with the new one. Before an
 expensive run, stop and do not run it: tell the user the number of fits
 and the cheaper strategies the `CostNotice` or the error names. They are

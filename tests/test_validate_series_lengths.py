@@ -757,6 +757,91 @@ def test_validate_series_lengths_InvalidInputError_when_foundation_series_starts
         )
 
 
+@pytest.mark.parametrize(
+    "data, remedy",
+    [
+        (
+            long_starting_late(data_long, "item_2", 2),
+            "Remove those series, or use a later `initial_train_size`, so that "
+            "the folds start after their first values.",
+        ),
+        (long_ending_early(data_long, "item_2", 40), "Remove those series."),
+    ],
+    ids=["starts_in_last_fold", "ends_before_folds"],
+)
+def test_validate_series_lengths_InvalidInputError_when_foundation_series_is_never_forecast(
+    data, remedy
+):
+    """
+    Test that a backtest of a ForecasterFoundation model on several series
+    rejects a series that no fold forecasts: one whose only values are in
+    the last test fold (no value before it, the context of the model), and
+    one that ends before the folds (no value to evaluate). skforecast left
+    them out of every fold without a warning, so they had no predictions
+    and no metrics. The remedy of a later first fold is given only to a
+    series with values to evaluate.
+    """
+    err_msg = re.escape(
+        "Some series cannot be forecast in any fold of the backtest "
+        "('item_2'). ForecasterFoundation forecasts a series in a fold only "
+        "when it has a value to evaluate in the fold and one in the 8192 "
+        "observations before it, the context of the model; skforecast leaves "
+        "the other series out without a warning, so they would get no "
+        "predictions and no metrics, and the average across series would "
+        f"leave them out. {remedy}"
+    )
+    with pytest.raises(InvalidInputError, match=f"^{err_msg}$") as exc_info:
+        validate_series_lengths(
+            data, profile_long, plan_long_foundation, cv=cv_items_sales()
+        )
+
+    assert exc_info.value.code == "insufficient_data"
+    assert exc_info.value.field == "data"
+    assert exc_info.value.hint == remedy
+
+
+def test_validate_series_lengths_InvalidInputError_when_foundation_context_has_no_values():
+    """
+    Test that a series of a ForecasterFoundation plan whose only values to
+    evaluate (in the last test fold, from position 118) come after a run of
+    missing values longer than the context of the model (5 observations,
+    from `estimator_kwargs`) is rejected: its context before that fold has
+    no value.
+    """
+    positions = data_long.index[data_long["series"] == "item_2"][80:118]
+    data = data_long.drop(index=positions)
+    plan = _assistant.plan(
+        _assistant.profile(
+            data_long, target="value", date_column="date", series_id_column="series"
+        ),
+        steps            = 3,
+        forecaster       = "ForecasterFoundation",
+        estimator_kwargs = {"context_length": 5},
+    )
+
+    err_msg = re.escape(
+        "Some series cannot be forecast in any fold of the backtest "
+        "('item_2'). ForecasterFoundation forecasts a series in a fold only "
+        "when it has a value to evaluate in the fold and one in the 5 "
+        "observations before it"
+    )
+    with pytest.raises(InvalidInputError, match=err_msg):
+        validate_series_lengths(data, profile_long, plan, cv=cv_items_sales())
+
+
+def test_validate_series_lengths_passes_when_a_fold_forecasts_every_foundation_series():
+    """
+    Test that a ForecasterFoundation series that starts late, after the
+    first folds but with values before the later ones (its last 20 days),
+    passes: the later folds forecast it.
+    """
+    data = long_starting_late(data_long, "item_2", 20)
+
+    assert validate_series_lengths(
+        data, profile_long, plan_long_foundation, cv=cv_items_sales()
+    ) is None
+
+
 def test_validate_series_lengths_passes_when_long_data_cannot_be_read():
     """
     Test that long-format data the generated code cannot read (a profile

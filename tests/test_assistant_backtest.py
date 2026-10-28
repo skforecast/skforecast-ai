@@ -15,7 +15,7 @@ from skforecast.exceptions import (
 )
 from skforecast.model_selection import TimeSeriesFold
 
-from skforecast_ai import BacktestResult, ForecastingAssistant
+from skforecast_ai import BacktestResult, FoldsLeftOutWarning, ForecastingAssistant
 from skforecast_ai.exceptions import (
     CostNotConfirmedError,
     DataContentError,
@@ -752,9 +752,10 @@ def test_backtest_output_when_long_series_start_on_different_dates_and_date_spli
     Test that a date `initial_train_size` on long data whose series start on
     different dates is placed from the earliest first date, as skforecast
     splits them: '2020-01-13' leaves 13 observations, more than the 5 of
-    the window of the plan, so the backtest runs without a warning. With
-    refit, the series 'b', with 3 observations in the first training window,
-    is forecast from the second fold on.
+    the window of the plan, so the backtest runs. With refit, the series
+    'b', with 3 observations in the first training window, is forecast from
+    the second fold on, which a warning says: its metrics use 22 of its 23
+    folds.
     """
     dates = pd.date_range("2020-01-01", periods=80, freq="D")
     values = np.arange(80, dtype=float) % 7
@@ -778,13 +779,15 @@ def test_backtest_output_when_long_series_start_on_different_dates_and_date_spli
         profile, plan, initial_train_size="2020-01-13", refit=True
     )
 
-    result = assistant.backtest(
-        data          = data,
-        cv            = cv,
-        profile       = profile,
-        plan          = plan,
-        show_progress = False,
-    )
+    warn_msg = re.escape("('b': in 22 of its 23 folds with values)")
+    with pytest.warns(FoldsLeftOutWarning, match=warn_msg):
+        result = assistant.backtest(
+            data          = data,
+            cv            = cv,
+            profile       = profile,
+            plan          = plan,
+            show_progress = False,
+        )
 
     assert result.predictions.index.min() == pd.Timestamp("2020-01-14")
     first_dates = result.predictions.reset_index().groupby("level")["index"].min()
@@ -1069,16 +1072,53 @@ def test_backtest_runs_when_long_series_starts_late(n_values, refit):
     cv = _long_cv()
     cv.set_params({"refit": refit})
 
-    result = assistant.backtest(
-        data=_items_starting_late(n_values), target="value", date_column="date",
-        series_id_column="series", cv=cv, show_progress=False,
-    )
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = assistant.backtest(
+            data=_items_starting_late(n_values), target="value",
+            date_column="date", series_id_column="series", cv=cv,
+            show_progress=False,
+        )
+
+    # With refit, the first fold leaves item_2 out, which a warning says
+    # (see the test of that warning).
+    left_out = [w for w in caught if issubclass(w.category, FoldsLeftOutWarning)]
+    assert len(left_out) == int(refit)
 
     assert isinstance(result, BacktestResult)
     assert result.plan.forecaster == "ForecasterRecursiveMultiSeries"
     assert sorted(result.predictions["level"].unique()) == [
         "item_1", "item_2", "item_3"
     ]
+
+
+def test_backtest_FoldsLeftOutWarning_when_long_series_is_left_out_of_some_folds():
+    """
+    Test that backtest() warns (FoldsLeftOutWarning), and says in its
+    explanation, when a series
+    is not forecast in some test fold where it has values: item_2 has its
+    last 60 values and, with refit, the first fold trains on 20 of them, no
+    more than the window of the plan (21). Its metrics, and the average
+    across series, use 7 of its 8 folds; skforecast said nothing.
+    """
+    cv = _long_cv()
+    cv.set_params({"refit": True})
+
+    warn_msg = (
+        "Some series were not forecast in every test fold where they have "
+        "values to evaluate ('item_2': in 7 of its 8 folds with values), so "
+        "their metrics, and the average across series, leave the other folds "
+        "out. ForecasterRecursiveMultiSeries leaves a series out of a fold when "
+        "the training window of the fold has too few of its observations, or "
+        "when it cannot predict it from the values before the fold."
+    )
+    with pytest.warns(FoldsLeftOutWarning, match=f"^{re.escape(warn_msg)}$"):
+        result = assistant.backtest(
+            data=_items_starting_late(60), target="value", date_column="date",
+            series_id_column="series", cv=cv, show_progress=False,
+        )
+
+    assert result.explanation.endswith(f" {warn_msg}")
 
 
 @pytest.mark.parametrize("n_values", [1, 21, 60], ids=lambda n: f"values: {n}")

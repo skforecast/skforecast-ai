@@ -253,6 +253,15 @@ def resolve_compare_candidates(
                     f"{type(config).__name__}.",
                     field = "candidates",
                 )
+            if str(name) == STRATEGY_PLAN_NAME:
+                # The row of the plan the strategy was created for, which
+                # the summary names as that plan.
+                raise InvalidInputError(
+                    f"The candidate name '{STRATEGY_PLAN_NAME}' is reserved for "
+                    f"the plan the strategy was created for. Rename the "
+                    f"candidate.",
+                    field = "candidates",
+                )
             invalid_keys = set(config) - allowed_keys
             if invalid_keys:
                 raise InvalidInputError(
@@ -449,6 +458,85 @@ def add_strategy_candidate(
             return candidates, name, None
 
     return [*candidates, (STRATEGY_PLAN_NAME, config)], STRATEGY_PLAN_NAME, None
+
+
+def match_strategy_plan(
+    strategy_plan: ForecastPlan,
+    plans: dict[str, ForecastPlan],
+    profile: ForecastingProfile,
+    build_plan: Callable[[CandidateConfig], ForecastPlan],
+) -> tuple[str | None, str | None]:
+    """
+    Find the explicit candidate of `compare()` that runs the plan a strategy
+    was created for.
+
+    Explicit `candidates` are the configurations the user chose, and they
+    run as given: the plan of the strategy is not added as one more row.
+    When a candidate makes the same decisions as that plan (as
+    `add_strategy_candidate()` rebuilds it), the text of the strategy names
+    its row; when none does, the note says that the plan was not compared,
+    so the summary is not read as its result.
+
+    Parameters
+    ----------
+    strategy_plan : ForecastPlan
+        Plan the strategy was created for (`CVResult.plan`).
+    plans : dict
+        Plans of the candidates, by name, the baseline left out.
+    profile : ForecastingProfile
+        Shared profile used for every candidate.
+    build_plan : Callable
+        Function that builds the plan of a candidate configuration as the
+        comparison does (same profile, steps, interval and metric). Its
+        warnings are the caller's to silence.
+
+    Returns
+    -------
+    name : str, None
+        Name of the candidate that runs the plan of the strategy, or None.
+    note : str, None
+        Sentence saying that the plan of the strategy was not compared, when
+        no candidate runs it. None otherwise, and when no plan of a
+        candidate could be built.
+    """
+
+    if not plans:
+        # No candidate could be built: nothing was compared at all.
+        return None, None
+    estimator = f" + {strategy_plan.estimator}" if strategy_plan.estimator else ""
+    label = f"{strategy_plan.forecaster}{estimator}"
+    n_series = profile.data_profile.n_series
+    family = _comparison_family(strategy_plan.forecaster, n_series)
+    families = {_comparison_family(plan.forecaster, n_series) for plan in plans.values()}
+    if family not in families:
+        note = (
+            f"The plan the strategy was created for ({label}) was not "
+            f"compared: `candidates` runs only the configurations given, and "
+            f"its metrics are not comparable with theirs (a multivariate "
+            f"forecaster is scored on the single series it predicts, a "
+            f"multi-series forecaster on the average across all series). "
+            f"Backtest it, or compare it with `candidates` of its family."
+        )
+        return None, note
+
+    try:
+        rebuilt = build_plan(strategy_candidate_config(strategy_plan))
+    except Exception:
+        rebuilt = None
+    if rebuilt is not None:
+        for name, plan in plans.items():
+            if _same_plan_decisions(rebuilt, plan):
+                return name, None
+
+    note = (
+        f"The plan the strategy was created for ({label}) makes other "
+        f"decisions than every candidate, so it was not compared: "
+        f"`candidates` runs only the configurations given. Add it to "
+        f"`candidates` with its decisions, or leave `candidates` out to run "
+        f"it in the row '{STRATEGY_PLAN_NAME}' next to the configurations the "
+        f"profile recommends."
+    )
+    return None, note
 
 
 class DefaultCandidates(NamedTuple):
@@ -969,6 +1057,7 @@ def build_comparison_explanation(
     strategy_note: str | None = None,
     interval: list[float] | None = None,
     skip_folds_note: str | None = None,
+    left_out_note: str | None = None,
 ) -> str:
     """
     Build the deterministic `compare()` summary explanation.
@@ -1014,6 +1103,9 @@ def build_comparison_explanation(
     skip_folds_note : str, default None
         Sentence explaining why `ForecasterStats` was left out of a
         strategy with `skip_folds`, appended as is.
+    left_out_note : str, default None
+        Sentences naming the candidates whose backtest left series out of
+        some test folds where they have values, appended as is.
 
     Returns
     -------
@@ -1138,6 +1230,8 @@ def build_comparison_explanation(
         parts.append(skip_folds_note)
     if budget_note is not None:
         parts.append(budget_note)
+    if left_out_note is not None:
+        parts.append(left_out_note)
     if any_error:
         n_failed = n_candidates - len(ranked)
         if n_failed == 1:

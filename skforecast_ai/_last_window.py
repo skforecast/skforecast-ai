@@ -15,6 +15,7 @@ from skforecast.model_selection import TimeSeriesFold
 
 from ._constants import AUTOREG_FORECASTERS, DIRECT_FORECASTERS, NAN_TOLERANT_ESTIMATORS
 from ._dates import row_dates, training_end
+from ._foundation import foundation_context_length
 from ._future_exog import _SHOWN, _per_series, _shown, used_exog_columns
 from .exceptions import DataContentError, InvalidInputError
 from .profiling.data_profile import (
@@ -951,6 +952,18 @@ def validate_series_lengths(
                 f"observations, or remove the short series."
             ),
         )
+    if cv is not None and foundation:
+        context_length = foundation_context_length(
+            plan.estimator, plan.estimator_kwargs
+        )
+        never = _foundation_series_never_forecast(
+            spans          = spans,
+            cv             = cv,
+            context_length = context_length,
+            long           = profile.data_format == "long",
+        )
+        if never:
+            _report_foundation_never_forecast(never, plan, context_length)
     if cv is not None and not foundation:
         order = int(plan.forecaster_kwargs.get("differentiation") or 0)
         # skforecast drops from a fold a last window with missing values
@@ -1046,34 +1059,10 @@ def _series_in_folds(
     returns None when the strategy cannot be split on the dates of the
     data (the check of the first training window reports it).
     """
-    # The folds are split on the dates of every series, from the earliest
-    # first date to the latest last one, as skforecast splits a dict.
-    grids = [dates for dates, _ in spans.values()]
-    if long:
-        try:
-            first = min(grid[0] for grid in grids if len(grid))
-            last = max(grid[-1] for grid in grids if len(grid))
-            span = pd.date_range(first, last, freq=grids[0].freq)
-        except (ValueError, TypeError, AttributeError):
-            return None
-    else:
-        span = grids[0]
-    n_observations = len(span)
-
-    # The window of the forecaster, with its differentiation order, as
-    # skforecast sets it on the strategy of a backtest.
-    splitter = copy.deepcopy(cv)
-    splitter.set_params({"window_size": window, "verbose": False})
-    try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            folds = splitter.split(
-                X=pd.Series(np.zeros(n_observations), index=span), as_pandas=False
-            )
-    except (ValueError, TypeError):
+    split = _split_span(spans, cv, window, long)
+    if split is None:
         return None
-    if not folds:
-        return None
+    span, folds = split
     train = np.array([fold[1] for fold in folds], dtype=int)
     last_window = np.array([fold[2] for fold in folds], dtype=int)
 
@@ -1133,6 +1122,344 @@ def _series_in_folds(
         )
 
     return span, folds, series
+
+
+def _split_span(
+    spans: dict,
+    cv: TimeSeriesFold,
+    window: int,
+    long: bool,
+    foundation: bool = False,
+) -> tuple[pd.Index, list] | None:
+    """
+    Return the span the folds of a backtest of several series are split on
+    and its folds (`TimeSeriesFold.split` with `as_pandas=False`), as
+    skforecast splits them: on the dates of every series, from the earliest
+    first date to the latest last one (long format), or on the dates of the
+    frame (wide format), with the window of the forecaster. A foundation
+    model always forecasts from every observation before the fold (skforecast
+    sets `refit=True` and `fixed_train_size=False`). None when the strategy
+    cannot be split on the dates of the data.
+    """
+    grids = [dates for dates, _ in spans.values()]
+    if long:
+        try:
+            first = min(grid[0] for grid in grids if len(grid))
+            last = max(grid[-1] for grid in grids if len(grid))
+            span = pd.date_range(first, last, freq=grids[0].freq)
+        except (ValueError, TypeError, AttributeError):
+            return None
+    else:
+        span = grids[0]
+
+    # The window of the forecaster, with its differentiation order, as
+    # skforecast sets it on the strategy of a backtest.
+    splitter = copy.deepcopy(cv)
+    params = {"window_size": window, "verbose": False}
+    if foundation:
+        params.update({"refit": True, "fixed_train_size": False})
+    splitter.set_params(params)
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            folds = splitter.split(
+                X=pd.Series(np.zeros(len(span)), index=span), as_pandas=False
+            )
+    except (ValueError, TypeError):
+        return None
+    if not folds:
+        return None
+
+    return span, folds
+
+
+def _foundation_series_never_forecast(
+    spans: dict,
+    cv: TimeSeriesFold,
+    context_length: int,
+    long: bool,
+) -> dict:
+    """
+    Return the series with a value that the backtest of a ForecasterFoundation
+    model on several series forecasts in no fold, mapped to whether they
+    have a value to evaluate in some test fold.
+
+    skforecast forecasts a series in a fold only when it has a value in the
+    test fold (after the gap) and one in its context: the last
+    `context_length` observations before the fold, from its first value. A
+    series that starts after the folds start, or with a run of missing
+    values longer than the context before them, is left out of those folds,
+    without a warning under `suppress_warnings=True`, so a series left out
+    of every fold had no predictions and no metrics. A series whose dates
+    are off the grid of the span is not checked. It returns an empty dict
+    when the strategy cannot be split on the dates of the data.
+    """
+    split = _split_span(spans, cv, context_length, long, foundation=True)
+    if split is None:
+        return {}
+    span, folds = split
+    train_end = np.array([fold[1][1] for fold in folds], dtype=int)
+    test = np.array([fold[4] for fold in folds], dtype=int)
+
+    never = {}
+    for name, (dates, present) in spans.items():
+        present = np.asarray(present, dtype=bool)
+        if not present.any():
+            continue
+        start = 0
+        if long:
+            start = int(span.get_indexer([dates[0]])[0])
+            if start < 0:
+                continue
+        values = np.flatnonzero(present) + start
+        evaluated = (
+            np.searchsorted(values, test[:, 1]) - np.searchsorted(values, test[:, 0])
+        ) > 0
+        # The last value before the end of the training window of each fold.
+        before = np.searchsorted(values, train_end) - 1
+        context = (before >= 0) & (
+            values[np.maximum(before, 0)] >= train_end - context_length
+        )
+        if not (evaluated & context).any():
+            never[_plain(name)] = bool(evaluated.any())
+
+    return never
+
+
+def _report_foundation_never_forecast(
+    never: dict,
+    plan: ForecastPlan,
+    context_length: int,
+) -> None:
+    """
+    Raise for the series that a backtest of a ForecasterFoundation model on
+    several series forecasts in no fold (see
+    `_foundation_series_never_forecast`).
+    """
+    found = [f"{name!r}" for name in never]
+    shown = ", ".join(found[:_SHOWN])
+    if len(found) > _SHOWN:
+        shown += f" and {len(found) - _SHOWN} more"
+    remedies = "Remove those series"
+    if any(never.values()):
+        # A series with values to evaluate lacks a context before them: a
+        # later first fold gives it one.
+        remedies += (
+            ", or use a later `initial_train_size`, so that the folds start "
+            "after their first values"
+        )
+    raise InvalidInputError(
+        f"Some series cannot be forecast in any fold of the backtest ({shown}). "
+        f"{plan.forecaster} forecasts a series in a fold only when it has a "
+        f"value to evaluate in the fold and one in the {context_length} "
+        f"observations before it, the context of the model; skforecast leaves "
+        f"the other series out without a warning, so they would get no "
+        f"predictions and no metrics, and the average across series would "
+        f"leave them out. {remedies}.",
+        code  = "insufficient_data",
+        field = "data",
+        hint  = f"{remedies}.",
+    )
+
+
+# Start of the sentences about the series that a backtest leaves out of some
+# test folds (`FoldsLeftOutWarning`), in `backtest()` and in `compare()`.
+LEFT_OUT_OF_FOLDS = "Some series were not forecast in every test fold"
+
+
+def series_left_out_of_folds(
+    data: pd.DataFrame,
+    profile: DataProfile,
+    plan: ForecastPlan,
+    cv: TimeSeriesFold,
+    predictions: pd.DataFrame | None,
+) -> dict[str, tuple[int, int]]:
+    """
+    Return the series that a backtest of several series did not forecast in
+    some test fold where they have a value to evaluate, mapped to the
+    number of those folds that forecast them and the number of those folds.
+
+    ForecasterRecursiveMultiSeries and a ForecasterFoundation model leave a
+    series out of a fold without a warning (with `suppress_warnings=True`,
+    as the scripts run): its metrics, and the average across series, are
+    then computed on fewer folds than those of the other series. The
+    predictions of a backtest of several series carry the `level` and the
+    `fold` of each one, so the folds that forecast each series are read
+    from them, and compared with the folds whose test dates (after the gap)
+    hold a value of the series, on the folds the script splits. A series
+    that no fold forecasts is rejected before running (see
+    `validate_series_lengths`).
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Data the backtest ran on.
+    profile : DataProfile
+        Profiled dataset metadata.
+    plan : ForecastPlan
+        Plan that ran.
+    cv : TimeSeriesFold
+        Strategy of the backtest, as the script ran it.
+    predictions : pandas DataFrame, None
+        Predictions of the backtest.
+
+    Returns
+    -------
+    left_out : dict
+        Series name to the folds that forecast it and the folds where it
+        has a value to evaluate, in the order of the data. Empty when every
+        series is forecast in every fold where it has a value, for other
+        forecasters, and when the data or the strategy cannot be read.
+    """
+    foundation = _foundation_on_several_series(plan, profile)
+    if plan.forecaster != "ForecasterRecursiveMultiSeries" and not foundation:
+        return {}
+    if (
+        predictions is None
+        or "level" not in predictions.columns
+        or "fold" not in predictions.columns
+    ):
+        return {}
+    spans = _series_spans(data, profile)
+    if spans is None:
+        return {}
+    long = profile.data_format == "long"
+    if foundation:
+        window = foundation_context_length(plan.estimator, plan.estimator_kwargs)
+    else:
+        _, _, window = _read_positions(plan, limit=np.iinfo(np.int64).max)
+    split = _split_span(spans, cv, window, long, foundation=foundation)
+    if split is None:
+        return {}
+    span, folds = split
+    numbers = np.array([int(fold[0]) for fold in folds])
+    test = np.array([fold[4] for fold in folds], dtype=int)
+    forecast_in = {
+        str(level): set(int(fold) for fold in fold_numbers)
+        for level, fold_numbers in predictions.groupby("level", sort=False)["fold"]
+        .unique().items()
+    }
+
+    left_out = {}
+    for name, (dates, present) in spans.items():
+        present = np.asarray(present, dtype=bool)
+        if not present.any():
+            continue
+        start = 0
+        if long:
+            start = int(span.get_indexer([dates[0]])[0])
+            if start < 0:
+                continue
+        values = np.flatnonzero(present) + start
+        evaluated = (
+            np.searchsorted(values, test[:, 1]) - np.searchsorted(values, test[:, 0])
+        ) > 0
+        n_evaluated = int(evaluated.sum())
+        forecast = forecast_in.get(str(_plain(name)), set())
+        n_forecast = sum(int(number) in forecast for number in numbers[evaluated])
+        if n_forecast < n_evaluated:
+            left_out[str(_plain(name))] = (n_forecast, n_evaluated)
+
+    return left_out
+
+
+def describe_left_out_of_folds(
+    left_out: dict[str, tuple[int, int]],
+    plan: ForecastPlan,
+) -> str | None:
+    """
+    Describe the series that a backtest of several series left out of some
+    test folds where they have a value (see `series_left_out_of_folds`):
+    up to 5 of them, with the folds that forecast them, and why skforecast
+    leaves a series out of a fold. None when there is none.
+
+    Parameters
+    ----------
+    left_out : dict
+        Series name to the folds that forecast it and the folds where it
+        has a value to evaluate.
+    plan : ForecastPlan
+        Plan that ran.
+
+    Returns
+    -------
+    text : str, None
+        Sentences of the explanation and of the warning, or None.
+    """
+    if not left_out:
+        return None
+    found = [
+        f"{name!r}: in {n_forecast} of its {n_evaluated} folds with values"
+        for name, (n_forecast, n_evaluated) in left_out.items()
+    ]
+    shown = "; ".join(found[:_SHOWN])
+    if len(found) > _SHOWN:
+        shown += f"; and {len(found) - _SHOWN} more series"
+    if plan.task_type == "foundation":
+        context_length = foundation_context_length(plan.estimator, plan.estimator_kwargs)
+        reason = (
+            f"{plan.forecaster} leaves a series out of a fold when the "
+            f"{context_length} observations before the fold, the context of "
+            f"the model, have no value of it."
+        )
+    else:
+        reason = (
+            f"{plan.forecaster} leaves a series out of a fold when the "
+            f"training window of the fold has too few of its observations, or "
+            f"when it cannot predict it from the values before the fold."
+        )
+
+    return (
+        f"{LEFT_OUT_OF_FOLDS} where they have values to evaluate ({shown}), "
+        f"so their metrics, and the average across series, leave the other "
+        f"folds out. {reason}"
+    )
+
+
+def describe_left_out_candidates(
+    left_out: dict[str, dict[str, tuple[int, int]]],
+) -> str | None:
+    """
+    Describe, for `compare()`, the candidates whose backtest left series out
+    of some test folds where they have a value (see
+    `series_left_out_of_folds`), once for the comparison: up to 5 candidates
+    and 5 series of each, with the folds that forecast them. None when no
+    candidate left a series out.
+
+    Parameters
+    ----------
+    left_out : dict
+        Candidate name to the series it left out, as returned by
+        `series_left_out_of_folds`.
+
+    Returns
+    -------
+    text : str, None
+        Sentences of the explanation and of the warning, or None.
+    """
+    left_out = {name: series for name, series in left_out.items() if series}
+    if not left_out:
+        return None
+    parts = []
+    for name, series in list(left_out.items())[:_SHOWN]:
+        found = [
+            f"{level!r}: in {n_forecast} of its {n_evaluated} folds with values"
+            for level, (n_forecast, n_evaluated) in series.items()
+        ]
+        shown = "; ".join(found[:_SHOWN])
+        if len(found) > _SHOWN:
+            shown += f"; and {len(found) - _SHOWN} more series"
+        parts.append(f"{name!r} ({shown})")
+    candidates = ", ".join(parts)
+    if len(left_out) > _SHOWN:
+        candidates += f" and {len(left_out) - _SHOWN} more"
+    noun = "candidate" if len(left_out) == 1 else "candidates"
+
+    return (
+        f"{LEFT_OUT_OF_FOLDS} where they have values to evaluate in the "
+        f"backtest of the {noun} {candidates}: their metrics, and the average "
+        f"across series that ranks the {noun}, leave the other folds out."
+    )
 
 
 def _series_never_forecast(
@@ -1806,13 +2133,15 @@ def validate_backtest_exog(
       ForecasterDirectMultiVariate is scored on its level.
 
     A missing timestamp, which `asfreq()` restores as a row without values,
-    counts as a missing value of every column. An estimator that accepts
-    missing values, a ForecasterFoundation model (which takes them as they
+    counts as a missing value of every column. With an estimator that
+    accepts missing values, the same values only warn (`UserWarning`), as
+    the future values of `forecast()` do: the estimator predicts from them
+    as missing values (with several series, only the last windows with a
+    missing value of the target are dropped then, and only with the
+    differentiation). A ForecasterFoundation model (which takes them as they
     are) and a baseline (which reads no exogenous variables) are not
     checked, nor data the generated code cannot read and a strategy that
-    cannot be split on it. Unlike the future values of `forecast()`,
-    nothing warns with an estimator that accepts missing values: the
-    profile already notes the missing values of each column.
+    cannot be split on it.
 
     Parameters
     ----------
@@ -1829,11 +2158,9 @@ def validate_backtest_exog(
     -------
     None
     """
-    if (
-        plan.estimator in NAN_TOLERANT_ESTIMATORS
-        or plan.forecaster == "ForecasterFoundation"
-    ):
+    if plan.forecaster == "ForecasterFoundation":
         return
+    tolerant = plan.estimator in NAN_TOLERANT_ESTIMATORS
     columns = [
         column for column in used_exog_columns(plan, profile)
         if column in data.columns
@@ -1844,7 +2171,12 @@ def validate_backtest_exog(
         profile.missing_exog.get(column) for column in columns
     ):
         return
-    read = _exog_folds(data, profile, plan, cv, columns)
+    # skforecast drops from a fold a last window with missing values unless
+    # the estimator accepts them, and always with the differentiation.
+    order = int(plan.forecaster_kwargs.get("differentiation") or 0)
+    read = _exog_folds(
+        data, profile, plan, cv, columns, dropna=not tolerant or bool(order)
+    )
     if read is None:
         return
     n_folds, found, inserted = read
@@ -1860,6 +2192,16 @@ def validate_backtest_exog(
         ", counting the missing timestamps that asfreq() restores as rows "
         "without values" if inserted else ""
     )
+    if tolerant:
+        warnings.warn(
+            f"The forecaster reads missing values of the exogenous variables "
+            f"to predict {n_folds} ({shown}){timestamps}. {plan.estimator} "
+            f"treats them as missing values; check that they are meant to be "
+            f"missing.",
+            UserWarning,
+            stacklevel = _caller_stacklevel(),
+        )
+        return
     several = plan.task_type in ("multi_series", "multivariate")
     scored = (
         ", and skforecast would compute the metrics without them, without a "
@@ -1888,14 +2230,18 @@ def _exog_folds(
     plan: ForecastPlan,
     cv: TimeSeriesFold,
     columns: list[str],
+    dropna: bool = True,
 ) -> tuple[str, list[tuple[str, str]], bool] | None:
     """
     Find the missing exogenous values that make a scored prediction of a
-    backtest missing (see `validate_backtest_exog`). Return the test folds
-    they are in (`'2 of the 12 test folds'`), the missing values read of
-    each column (and series, in long format), as the column and its text,
-    and whether one of them is a missing timestamp; None when the data or
-    the strategy cannot be read.
+    backtest missing (see `validate_backtest_exog`), or, with an estimator
+    that accepts them, that a scored prediction is made from. Return the
+    test folds they are in (`'2 of the 12 test folds'`), the missing values
+    read of each column (and series, in long format), as the column and
+    its text, and whether one of them is a missing timestamp; None when the
+    data or the strategy cannot be read. `dropna` says whether skforecast
+    drops the last windows with a missing value of the target, which
+    leaves those series out of a fold of ForecasterRecursiveMultiSeries.
     """
     multiseries = plan.forecaster == "ForecasterRecursiveMultiSeries"
     long = profile.data_format == "long"
@@ -1908,9 +2254,7 @@ def _exog_folds(
             return None
         spans = {_plain(name): span_of for name, span_of in spans.items()}
         _, _, window = _read_positions(plan, limit=np.iinfo(np.int64).max)
-        # The forecaster of the plan does not accept missing values, so
-        # skforecast drops the last windows that have one.
-        split = _series_in_folds(spans, cv, window, long, dropna=True)
+        split = _series_in_folds(spans, cv, window, long, dropna=dropna)
         if split is None:
             return None
         span, folds, in_folds = split

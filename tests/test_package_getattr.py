@@ -28,6 +28,7 @@ PUBLIC_NAMES = {
     "DataProfile": "skforecast_ai.schemas",
     "DataSentToLLMWarning": "skforecast_ai.exceptions",
     "ExplainableResult": "skforecast_ai.schemas",
+    "FoldsLeftOutWarning": "skforecast_ai.exceptions",
     "ForecastExecutionError": "skforecast_ai.exceptions",
     "ForecastingProfile": "skforecast_ai.schemas",
     "ForecastingAssistant": "skforecast_ai.assistant",

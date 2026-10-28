@@ -72,7 +72,10 @@ def run_backtest(
     -------
     result : dict
         Dictionary with keys `'metrics'`, `'predictions'`, `'rendered_code'`,
-        and `'explanation'`.
+        `'explanation'` and `'left_out_of_folds'`: the text about the series
+        that the backtest did not forecast in some test fold where they have
+        a value (see `series_left_out_of_folds`), also at the end of the
+        explanation, or None.
     """
 
     # Render backtesting code
@@ -85,6 +88,23 @@ def run_backtest(
     metrics = namespace.get("metrics")
     predictions = namespace.get("predictions")
 
+    # Imported here: `_last_window` imports the execution package.
+    from .._last_window import describe_left_out_of_folds, series_left_out_of_folds
+
+    # The series a fold left out are read from the predictions, which
+    # carry the level and the fold of each one: skforecast does not warn
+    # about them when the script runs with `suppress_warnings=True`.
+    left_out = describe_left_out_of_folds(
+        left_out = series_left_out_of_folds(
+                       data        = data,
+                       profile     = profile,
+                       plan        = plan,
+                       cv          = cv,
+                       predictions = predictions,
+                   ),
+        plan     = plan,
+    )
+
     # Build explanation
     explanation = _build_backtest_explanation(
         cv_explanation = cv_explanation,
@@ -92,12 +112,15 @@ def run_backtest(
         predictions    = predictions,
         interval       = plan.interval,
     )
+    if left_out is not None:
+        explanation = f"{explanation} {left_out}"
 
     return {
         "metrics": metrics,
         "predictions": predictions,
         "rendered_code": rendered,
         "explanation": explanation,
+        "left_out_of_folds": left_out,
     }
 
 

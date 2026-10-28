@@ -743,7 +743,8 @@ def test_tool_compare_summary_names_the_arguments_passed_to_the_strategy(tmp_pat
     Test that `compare` hands the whole strategy to the assistant: the
     summary of a strategy created with `refit=True` says the user chose it,
     in the shared strategy and at the end of the explanation, saying the
-    strategy was created for the plan, and that the summary of a strategy
+    strategy was created for the plan of the row of the candidate that makes
+    its decisions ('ridge'), and that the summary of a strategy
     without arguments explains the defaults.
     """
     server, path = h2o_server(tmp_path)
@@ -767,9 +768,10 @@ def test_tool_compare_summary_names_the_arguments_passed_to_the_strategy(tmp_pat
 
     assert "- Chosen by the user instead of the rules: refit\n" in chosen["summary"]
     assert (
-        " The strategy was created for the plan (ForecasterRecursive + Ridge). "
-        "Initial training size by default: 70% of the 204 observations (142), "
-        "up to 2003-04-01. `refit` as requested.\n</deterministic_summary>"
+        " The strategy was created for the plan of row 'ridge' "
+        "(ForecasterRecursive + Ridge). Initial training size by default: 70% "
+        "of the 204 observations (142), up to 2003-04-01. `refit` as "
+        "requested.\n</deterministic_summary>"
     ) in chosen["summary"]
     strategy = default["summary"][
         default["summary"].index("<backtesting_strategy>"):
@@ -1175,3 +1177,176 @@ def test_tool_compare_without_candidates_leaves_stats_out_when_skip_folds(
         n["message"] for n in result["notices"] if "ForecasterStats" in n["message"]
     ] == [note]
     assert note in result["summary"]
+
+
+def test_tool_compare_candidate_that_forecasts_a_series_in_no_fold_is_a_failure(
+    tmp_path,
+):
+    """
+    Test that a ForecasterRecursiveMultiSeries candidate whose backtest
+    forecasts a series in no fold (item_2 has 20 values in the first
+    training window, no more than the 21 its window features read) is a
+    failure of the comparison, ranked last with the error of `backtest`,
+    left out of `cost`, and that `get_failure` gives that error, while the
+    other candidate runs. Before, it was counted in the cost and failed at
+    its turn.
+    """
+    late = df_items_sales_long[
+        ~(
+            (df_items_sales_long["series"] == "item_2")
+            & (df_items_sales_long["date"] <= "2012-02-29")
+        )
+    ]
+    path = write_csv(tmp_path, "items.csv", late)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, _, cv_id = cv_of(
+        server,
+        path,
+        target            = "value",
+        steps             = 5,
+        estimator         = "Ridge",
+        cv_arguments      = {"initial_train_size": 80},
+        profile_arguments = {"series_id_column": "series"},
+    )
+    candidates = [
+        {"name": "default", "config": {"estimator": "Ridge"}},
+        {
+            "name": "short",
+            "config": {"estimator": "Ridge", "lags": 3, "window_features": []},
+        },
+    ]
+
+    async def steps(client):
+        result = content_of(
+            await client.call_tool(
+                "compare", {"cv_id": cv_id, "candidates": candidates}
+            )
+        )
+        failure = content_of(
+            await client.call_tool(
+                "get_failure",
+                {"object_id": result["id"], "candidate": "default"},
+            )
+        )
+        return result, failure
+
+    result, failure = run_session(server, steps)
+    leaderboard = text_of(result["files"]["leaderboard"]).splitlines()
+
+    assert result["cost"]["estimator_fits"] == 1
+    assert leaderboard[1].split(",")[2] == "short"
+    assert leaderboard[2].split(",")[2] == "default"
+    assert (
+        "InvalidInputError: Some series cannot be forecast in any fold of the "
+        "backtest ('item_2': 60 observations, from their first to their last "
+        "value)." in leaderboard[2]
+    )
+    assert failure["candidate"] == "default"
+    assert failure["text"].startswith(
+        "Candidate 'default' failed: InvalidInputError: Some series cannot be "
+        "forecast in any fold of the backtest ('item_2': 60 observations, from "
+        "their first to their last value). ForecasterRecursiveMultiSeries "
+        "forecasts a series in a fold only when the training window of the "
+        "fold has more than the 21 observations"
+    )
+
+
+def test_tool_compare_candidates_say_the_refined_plan_was_not_compared(tmp_path):
+    """
+    Test that `compare` with `candidates` on the strategy of a refined plan
+    (lags 2) that no candidate runs says, in a notice and in the summary,
+    that the plan was not compared, and that a candidate named 'Strategy
+    plan' is `invalid_argument` in `candidates` (V24). Before, nothing said
+    it, and a candidate of any configuration took the name of the row that
+    the skill reports as the plan of the user.
+    """
+    server, path = h2o_server(tmp_path)
+    cv_id = _refined_cv_ids(server, path, {"lags": 2}, profile_arguments={"target": "x"})
+    candidates = [
+        {"name": "ridge", "config": {"estimator": "Ridge"}},
+        {"name": "forest", "config": {"estimator": "RandomForestRegressor"}},
+    ]
+    reserved = [
+        {"name": "Strategy plan", "config": {"estimator": "RandomForestRegressor"}},
+        {"name": "ridge", "config": {"estimator": "Ridge"}},
+    ]
+
+    result = content_of(
+        call(server, "compare", {"cv_id": cv_id, "candidates": candidates})
+    )
+    error = error_of(
+        call(server, "compare", {"cv_id": cv_id, "candidates": reserved}), "compare"
+    )
+
+    note = (
+        "The plan the strategy was created for (ForecasterRecursive + Ridge) "
+        "makes other decisions than every candidate, so it was not compared: "
+        "`candidates` runs only the configurations given. Add it to "
+        "`candidates` with its decisions, or leave `candidates` out to run it "
+        "in the row 'Strategy plan' next to the configurations the profile "
+        "recommends."
+    )
+    notices = [
+        (n["source"], n["category"], n["message"]) for n in result["notices"]
+    ]
+    assert ("runtime", "UserWarning", note) in notices
+    assert note in result["summary"]
+    assert "Strategy plan" not in text_of(result["files"]["leaderboard"])
+    assert (error["code"], error["field"]) == ("invalid_argument", "candidates")
+    assert error["message"] == (
+        "The candidate name 'Strategy plan' is reserved for the plan the "
+        "strategy was created for. Rename the candidate."
+    )
+
+
+def test_tool_compare_notice_of_candidates_that_left_series_out_of_some_folds(tmp_path):
+    """
+    Test that `compare` carries one notice (`FoldsLeftOutWarning`, source
+    `runtime`), also in its summary, naming the candidates whose backtest
+    did not forecast a series in some test fold where it has values
+    ('ridge', whose window reads more values of item_2 than the first fold
+    of a refitted strategy has), and
+    not the notice of the backtest of each candidate.
+    """
+    late = df_items_sales_long[
+        ~(
+            (df_items_sales_long["series"] == "item_2")
+            & (df_items_sales_long["date"] <= "2012-02-29")
+        )
+    ]
+    path = write_csv(tmp_path, "items.csv", late)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, _, cv_id = cv_of(
+        server,
+        path,
+        target            = "value",
+        steps             = 5,
+        estimator         = "Ridge",
+        cv_arguments      = {"initial_train_size": 80, "refit": True},
+        profile_arguments = {"series_id_column": "series"},
+    )
+    candidates = [
+        {"name": "ridge", "config": {"estimator": "Ridge"}},
+        {
+            "name": "short",
+            "config": {"estimator": "Ridge", "lags": 3, "window_features": []},
+        },
+    ]
+
+    result = content_of(
+        call(server, "compare", {"cv_id": cv_id, "candidates": candidates})
+    )
+
+    text = (
+        "Some series were not forecast in every test fold where they have "
+        "values to evaluate in the backtest of the candidate 'ridge' "
+        "('item_2': in 7 of its 8 folds with values): their metrics, and the "
+        "average across series that ranks the candidate, leave the other "
+        "folds out."
+    )
+    left_out = [
+        (n["source"], n["message"]) for n in result["notices"]
+        if n["category"] == "FoldsLeftOutWarning"
+    ]
+    assert left_out == [("runtime", text)]
+    assert text in result["summary"]

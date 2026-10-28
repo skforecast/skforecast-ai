@@ -9,8 +9,12 @@ import pytest
 from skforecast.model_selection import TimeSeriesFold
 
 from skforecast_ai import ForecastingAssistant
+from skforecast_ai._utils import _cv_in_time_zone
 from skforecast_ai.execution.backtesting_runner import run_backtest
 from skforecast_ai.schemas import ForecastPlan, RenderedScript
+
+from tests.fixtures_datasets import df_items_sales_long
+from tests.fixtures_last_window import long_starting_late
 
 from .fixtures_execution import (
     cv_explanation_single,
@@ -95,7 +99,8 @@ def test_run_backtest_ValueError_when_estimator_not_supported():
 def test_run_backtest_single_series_returns_dict_with_expected_keys():
     """
     Test that run_backtest returns a dict with keys 'metrics',
-    'predictions', 'rendered_code', and 'explanation'.
+    'predictions', 'rendered_code', 'explanation' and 'left_out_of_folds'
+    (None for a single series).
     """
     result = run_backtest(
         data=df_single,
@@ -106,8 +111,12 @@ def test_run_backtest_single_series_returns_dict_with_expected_keys():
     )
 
     assert isinstance(result, dict)
-    expected_keys = {"metrics", "predictions", "rendered_code", "explanation"}
+    expected_keys = {
+        "metrics", "predictions", "rendered_code", "explanation",
+        "left_out_of_folds",
+    }
     assert set(result.keys()) == expected_keys
+    assert result["left_out_of_folds"] is None
 
 
 def test_run_backtest_single_series_metrics_is_dataframe():
@@ -340,3 +349,63 @@ def test_run_backtest_show_progress_false_keeps_column_named_like_the_keyword():
 
     assert "'show_progress = True'" in result["rendered_code"].full_script
     assert len(result["predictions"]) == 140
+
+
+# Tests: run_backtest: series left out of some folds
+
+
+def _run_items(data: pd.DataFrame, refit: bool) -> dict:
+    """Run the backtest of a Ridge plan of the long items_sales `data`."""
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data, target="value", date_column="date", series_id_column="series"
+    )
+    plan = assistant.plan(profile, steps=5, estimator="Ridge")
+    cv = TimeSeriesFold(steps=5, initial_train_size=80, refit=refit, verbose=False)
+
+    return run_backtest(
+        data           = data,
+        profile        = profile.data_profile,
+        plan           = plan,
+        cv             = _cv_in_time_zone(cv, data, profile.data_profile),
+        cv_explanation = "CV.",
+        show_progress  = False,
+    )
+
+
+def test_run_backtest_explanation_names_series_left_out_of_some_folds():
+    """
+    Test that the explanation of a ForecasterRecursiveMultiSeries backtest
+    names a series that some test fold where it has values did not
+    forecast: item_2 has its last 60 values, and with refit the first fold
+    trains on 20 of them, no more than the window of the plan (21), so its
+    metrics use 7 of its 8 folds. skforecast left it out without a warning.
+    """
+    result = _run_items(long_starting_late(df_items_sales_long, "item_2", 60), True)
+
+    text = (
+        "Some series were not forecast in every test fold where they have "
+        "values to evaluate ('item_2': in 7 of its 8 folds with values), so "
+        "their metrics, and the average across series, leave the other folds "
+        "out. ForecasterRecursiveMultiSeries leaves a series out of a fold "
+        "when the training window of the fold has too few of its "
+        "observations, or when it cannot predict it from the values before "
+        "the fold."
+    )
+    assert result["left_out_of_folds"] == text
+    assert result["explanation"].endswith(f" {text}")
+    predictions = result["predictions"]
+    assert set(predictions.loc[predictions["level"] == "item_2", "fold"]) == {
+        1, 2, 3, 4, 5, 6, 7
+    }
+
+
+def test_run_backtest_explanation_says_nothing_when_every_fold_forecasts_every_series():
+    """
+    Test that a ForecasterRecursiveMultiSeries backtest in which every fold
+    forecasts every series says nothing about folds left out.
+    """
+    result = _run_items(df_items_sales_long, False)
+
+    assert result["left_out_of_folds"] is None
+    assert "Some series were not forecast" not in result["explanation"]

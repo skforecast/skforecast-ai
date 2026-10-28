@@ -418,6 +418,24 @@ class DataSentToLLMWarning(UserWarning):
     """
 
 
+class FoldsLeftOutWarning(UserWarning):
+    """
+    Warned by `backtest()` and `compare()` when the backtest of several
+    series did not forecast a series in some test folds where it has
+    values to evaluate.
+
+    `ForecasterRecursiveMultiSeries` and a `ForecasterFoundation` model
+    leave a series out of a fold they cannot forecast (one that starts
+    late, say) without a warning of skforecast. The folds that forecast
+    each series are read from the `level` and `fold` of the predictions:
+    the metrics of a series left out of some folds, and the average across
+    series, are computed on fewer folds than those of the others. The
+    warning names the series (in `compare()`, the candidates) with those
+    folds, as the explanation does. A series that no fold forecasts raises
+    before running instead.
+    """
+
+
 class IntervalCoverageWarning(UserWarning):
     """
     Warned by `backtest()` and `compare()` when the prediction interval
