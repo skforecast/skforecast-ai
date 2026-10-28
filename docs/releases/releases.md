@@ -34,6 +34,7 @@ The main changes in this release are:
     + The `compare` tool of the MCP server reports in `cost.n_fits` the trainings of all its candidates instead of those of the shared strategy, and its `cost` counts the candidates that fail while running too. See **Fixed**.
 
     + [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` of ForecasterStats with an automatic `Arima` or `Ets` and a strategy that refits give other metrics from the second fold, and run faster: skforecast 0.27 keeps the model selected in the first fit, which the scripts already asked for with `freeze_params=True` ([#116](https://github.com/skforecast/skforecast-ai/pull/116)).
+    + [<code>ForecastingAssistant.forecast()</code>][assistant] with `test_size` on data in a time zone with daylight saving time ends the training an hour later, at the right date, when the test set starts after the spring change: other predictions and metrics. See **Fixed**.
 
     And some code needs to be updated:
 

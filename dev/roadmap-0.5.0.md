@@ -423,6 +423,22 @@ pequeños; se pueden agrupar en dos o tres PR.
   un estimador que acepta faltantes, como ya hace `forecast()` con las
   exógenas futuras; y se comprueban por fold las categorías de una
   exógena que la ventana de entrenamiento del fold no tiene (caso raro).
+- **Cerrar el `WindowFeature` que devuelve el LLM** (`schemas/plans.py`, de
+  la revisión de [#121](https://github.com/skforecast/skforecast-ai/pull/121),
+  D30): no tiene `extra='forbid'`, así que una clave que el modelo invente
+  (`min_periods`) se descarta sin aviso. Cerrado, pydantic-ai le devuelve el
+  error y reintenta, como con `lags`. Cambia el esquema de salida que ve el
+  modelo: entra en el chequeo de pago de la fase 7. *[LLM]*
+- **pydantic-ai 2.62** (de la revisión de #121): la suite pasa entera salvo
+  `test_plan_refinement_agent_reasks_model_when_lags_invalid`, que fija la
+  forma del reintento. pydantic-ai 2.62 devuelve el error como
+  `ToolReturnPart`, con `loc` como lista, en vez de `RetryPromptPart`; la
+  conducta (el modelo recibe el error y reintenta) es la misma. El test
+  debe aceptar las dos formas, porque `pydantic-ai>=2,<3` instala 2.62 a un
+  usuario nuevo. 2.62 imprime además un banner de Logfire una vez por
+  proceso, por stderr (no rompe el stdio del MCP; no sale bajo pytest ni
+  en CI): opcional apagarlo con `pydantic_ai.BANNER_ENABLED = False` en el
+  servidor MCP y la CLI.
 
 ## Fase 6. Descripciones de las herramientas y SKILL.md
 
@@ -1533,7 +1549,8 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     ejecutar. Ningún golden del contexto del LLM cambia, ni el de esquemas
     del MCP.
 
-- **D?. 5a: entradas que no se validan y errores** (2026-10-27). V25, V33,
+- **D30. 5a: entradas que no se validan y errores** (2026-10-27,
+  [#121](https://github.com/skforecast/skforecast-ai/pull/121)). V25, V33,
   G04, V30, V31 y V32:
   - V25: la regla vive en el núcleo (`_validate_window_features` rechaza
     una clave que no sea `stats` ni `window_size`, nombrándola con las
@@ -1591,6 +1608,16 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
   - El contexto del LLM cambia solo en el tipo de los candidatos fallidos;
     ningún golden cambia (la fixture usa `ImportError`). El check de pago
     de `check_ask_context.py` queda para la fase 7.
+  - Preguntas de la PR, resueltas al mergear (2026-10-28): el error de V31
+    va en `field='plan'`, porque lo que cambia es el horizonte del plan.
+    `get_failure` sin candidato da un error con la lista de los fallidos, no
+    todos los fallos juntos. `_validate_params()` es privada pero estable
+    desde scikit-learn 1.2 (se pide `>=1.6`), y el test de V33 avisa si
+    cambia. V30 se salta si `end_train` no cae en la rejilla del perfil: el
+    script falla con su propio error, no en silencio. El desfase del cambio
+    de hora lleva una línea en "Before upgrading", porque cambian el
+    hold-out y sus métricas. Cerrar el `WindowFeature` que devuelve el LLM
+    va aparte, en la fase 5.
 
 ## Decisiones abiertas
 
