@@ -235,13 +235,10 @@ Every response has a plain-text `summary` and the warnings of the call in \
 `notices`; it never holds rows of data, which go to CSV files (`files`). \
 What you do see of the data: the messages of errors and warnings can name \
 columns and series and quote up to 5 values, a traceback of `get_failure` \
-can quote values, and scripts and plan summaries name the path of the file. \
-`get_code` returns the script that ran, `get_failure` the traceback of a \
-failure, `describe_object` the response that created an object, \
-`list_objects` the ids registered now.
+can quote values, and scripts and plan summaries name the path of the file.
 
 Errors are JSON objects with `code`, `message`, `field`, `hint` and \
-`details`. Dates are ISO 8601 text ('2012-01-01'); counts are numbers.
+`details`: act on `code` and `field`, and follow `hint`. Dates are ISO 8601 text ('2012-01-01'); counts are numbers.
 
 Rules (the skforecast-ai-forecasting skill has the rest):
 1. Trust: a `compare` whose winner beats the baseline > a `backtest` > a \
@@ -2217,9 +2214,11 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             "not accepted."
         ))],
         target: Annotated[str | list[str] | None, Field(description=(
-            "Column to forecast, or a list of columns (one series each) for "
-            "wide multi-series data. Null when it is not known: the error "
-            "lists the columns of the file."
+            "Column to forecast, as the user named it, also when you are not "
+            "sure it exists (an error then lists the columns of the file), or "
+            "a list of columns (one series each) for wide multi-series data. "
+            "Null only when the user named no column: the error lists the "
+            "columns of the file."
         ))] = None,
         date_column: Annotated[str | None, Field(description=(
             "Column with the dates. When null, the first column holding dates "
@@ -2512,8 +2511,10 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         plan_id: Annotated[str, Field(description="Id of the plan to refine.")],
         overrides: Annotated[RefinePlanArgs, Field(description=(
             "Values to change, e.g. {'estimator': 'Ridge', 'lags': 12}. An "
-            "omitted key keeps the value of the plan; {'lags': null} selects "
-            "the lags again and {'interval': null} removes the interval."
+            "omitted key keeps the value of the plan, unless the new "
+            "forecaster or estimator cannot take it: it is left out and a "
+            "notice names it. {'lags': null} selects the lags again and "
+            "{'interval': null} removes the interval."
         ))],
         ctx: Context = None,
     ) -> ToolResult:
@@ -2962,8 +2963,9 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 "the estimators of the recommended forecaster when that leaves "
                 "one, without those above 500 estimator fits; plus the plan "
                 "the strategy was built for, in the row 'Strategy plan', when "
-                "it is none of them. The summary names the row of that plan. "
-                "A candidate that fails is ranked last with its error."
+                "it is none of them. A list runs only those candidates. The "
+                "summary names the row of that plan, if any. A candidate that "
+                "fails is ranked last with its error."
             ),
         )] = None,
         interval: Annotated[Interval | None, Field(description=(
@@ -3243,9 +3245,10 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         exog_path: Annotated[str | None, Field(description=(
             "Absolute path of a CSV file with the future values of the "
             "exogenous variables, one row per date (and series) of the "
-            "horizon. Required to forecast the future when the plan uses "
-            "exogenous variables. The script of `get_code` reads them from "
-            "this file, by its path, as it reads the data."
+            "horizon, or for data without dates one row per step, in order. "
+            "Required to forecast the future when the plan uses exogenous "
+            "variables. The script of `get_code` reads them from this file, "
+            "by its path, as it reads the data."
         ))] = None,
         ctx: Context = None,
     ) -> ToolResult:
@@ -3508,51 +3511,66 @@ def _build_tools(state: _ServerState) -> list[Tool]:
     return [
         _StrictTool.build(profile, "profile", (
             "Profile a CSV file: frequency, series, exogenous columns and the "
-            "recommended forecaster and estimator. Returns a profile id."
+            "recommended forecaster and estimator. The first step: returns a "
+            "profile id, which `plan` takes."
         )),
         _StrictTool.build(plan, "plan", (
             "Build a forecasting plan (lags, window features, metric, "
-            "preprocessing, interval) from a profile and a horizon. Returns a "
-            "plan id."
+            "preprocessing, interval) from a profile id and a horizon. Returns "
+            "a plan id, which `create_cv` and `forecast` take. To change a "
+            "decision of an existing plan, use `refine_plan`."
         )),
         _StrictTool.build(refine_plan, "refine_plan", (
             "Build a new plan from an existing one, changing some of its "
-            "decisions. Returns a new plan id; the original plan is kept."
+            "decisions and keeping the others: use it instead of `plan` to "
+            "change a plan. Returns a new plan id; the original plan is kept."
         )),
         _StrictTool.build(create_cv, "create_cv", (
             "Build a time series cross-validation strategy (TimeSeriesFold) for "
-            "a plan. The response states its cost in `cost`. Returns a cv id."
+            "a plan id. Returns a cv id, which `backtest` and `compare` take, "
+            "and its cost in `cost`: read it before running them."
         )),
         _StrictTool.build(backtest, "backtest", (
-            "Backtest a plan with a cross-validation strategy: metrics over the "
-            "folds, with the predictions and metrics in CSV files. Returns a "
-            "backtest id."
+            "Backtest one plan with a cv id of `create_cv`: metrics over the "
+            "folds, with the predictions and metrics in CSV files named by the "
+            "new id, so no run overwrites another. To rank several "
+            "configurations, use `compare`. Returns a backtest id."
         )),
         _StrictTool.build(compare, "compare", (
-            "Backtest several configurations on the same folds and rank them by "
-            "`metric`. Reports progress per candidate and can be cancelled "
-            "between candidates. Returns a comparison id and the "
-            "plan of the winner in `links.best_plan_id`."
+            "Backtest several configurations on the folds of a cv id of "
+            "`create_cv` and rank them by `metric`; for one plan, use "
+            "`backtest`. Reports progress per "
+            "candidate and can be cancelled between candidates. Returns a "
+            "comparison id and the plan of the winner in "
+            "`links.best_plan_id`, which `forecast` takes."
         )),
         _StrictTool.build(forecast, "forecast", (
             "Run a plan: forecast the future, or evaluate on a test set with "
-            "`test_size`. Predictions and metrics go to CSV files. Returns a "
-            "forecast id."
+            "`test_size`. Predictions and metrics go to CSV files. A forecast "
+            "of the future has no error measure: backtest or compare the plan "
+            "first. Returns a forecast id."
         )),
         _StrictTool.build(get_code, "get_code", (
-            "Return the Python script of an object: the one that ran, or that "
-            "would run for a plan."
+            "Return the Python script of an object and the packages it needs: "
+            "the one that ran, or that would run for a plan (a profile has "
+            "none). For a run that failed, use `get_failure`."
         ), read_only=True),
         _StrictTool.build(get_failure, "get_failure", (
-            "Return the traceback and the code of a failed run or of a failed "
-            "candidate of a comparison."
+            "Return the traceback and the code of a failed run (the "
+            "`details.failure_id` of an error) or of a failed candidate of a "
+            "comparison. The id of an object that did not fail is "
+            "`invalid_argument`; for the script of a run that worked, use "
+            "`get_code`."
         ), read_only=True),
         _StrictTool.build(list_objects, "list_objects", (
-            "List the ids of the objects the server keeps."
+            "List the ids of the profiles, plans, strategies and runs the "
+            "server keeps, most recently used first; beyond its limits the "
+            "least recently used are removed, and none survives a restart. "
+            "Use `describe_object` to read one."
         ), read_only=True),
         _StrictTool.build(describe_object, "describe_object", (
-            "Return the response that created an object (summary, links, "
-            "notices, files)."
+            "Return again the response that created an object (summary, links, "
+            "notices, files), from an id of any response or of `list_objects`."
         ), read_only=True),
     ]
 

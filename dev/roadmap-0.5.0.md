@@ -460,6 +460,7 @@ Al final, para que describan el comportamiento definitivo y el golden de
 esquemas se regenere una vez: `dev/mcp-tool-descriptions-plan.md`, más las
 frases del SKILL.md o de los esquemas que la auditoría vio desfasadas (V06,
 V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
+Hecho en la rama `feature/mcp-tool-descriptions` (D?. 6).
 
 - **`profile` sin `target` cuando el usuario ya nombró la columna** (de 5c,
   D32): 9 de 81 sesiones de la 0.4.0 lo hicieron aunque el paso 1 del
@@ -1870,6 +1871,40 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     cambiaría un ajuste global de pydantic-ai también en la API de Python,
     y es una línea por stderr que no rompe nada. URLs en `exog`, no por
     ahora; solo si alguien lo pide.
+
+- **D?. 6: descripciones de las herramientas y SKILL.md** (2026-10-28, en la
+  rama `feature/mcp-tool-descriptions`). Sin cambios de comportamiento:
+  - Cada descripción lleva una frase de flujo (qué id toma, qué herramienta
+    toma el suyo y la hermana con la que se confunde), la de la tabla de
+    `dev/mcp-tool-descriptions-plan.md` revisada contra el código; el texto
+    final está en la sección "Hecho" de ese plan. `get_failure` con el id
+    de algo que no falló es `invalid_argument` (una comparación sin
+    fallidos, u otro tipo de objeto), y lo dice así.
+  - De la auditoría, ya resueltos por las fases 3 a 5: V06 y V19 (D19: el
+    `cost` de `compare` es el total, el umbral se aplica al total y el
+    SKILL.md ya lo decía), V21 (#118: el servidor rechaza
+    `fixed_train_size` sin `refit`, como dice su descripción) y V24 (D31:
+    el paso 6 ya se condiciona a "sin `candidates`"). Quedaban desfasadas
+    y se corrigen: la descripción de `name` de un candidato no decía que
+    `'Strategy plan'` está reservado (V24), la de `overrides` de
+    `refine_plan` decía "An omitted key keeps the value of the plan" sin
+    la excepción de lo que el nuevo forecaster o estimador no admite (V29,
+    que `estimator_kwargs` ya documentaba), y el `cost` de `ToolResult` no
+    contaba fuera a un candidato que falla las comprobaciones de
+    `backtest` (D31).
+  - De las fases 1 a 5: el SKILL.md nombra el `UnmeasuredPlanNotice` (D21)
+    en la escala de confianza; `exog_path` dice que, sin fechas, el fichero
+    lleva una fila por paso en orden (D33), en el esquema y en
+    `docs/api/mcp.md`; las instrucciones dicen que se actúa sobre `code` y
+    `field` y se sigue `hint`. Los demás avisos y códigos nuevos ya
+    estaban en el SKILL.md y en `docs/api/mcp.md`.
+  - `profile` sin `target` (de D32): las dos frases propuestas en esta
+    fase, en la descripción de `target` y en el paso 1, tal cual.
+  - Del SKILL.md y de las instrucciones sale lo que ahora dicen las
+    descripciones y los esquemas, sin tocar reglas de confianza, coste,
+    privacidad ni licencias. Golden de esquemas regenerado una vez: solo
+    cambian descripciones. La comprobación con agentes y el TDQS de Glama
+    quedan para la fase 7 y para después de publicar.
 
 ## Decisiones abiertas
 
