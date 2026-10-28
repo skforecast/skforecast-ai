@@ -1093,8 +1093,13 @@ def test_load_exog_output_when_blank_rows_kept_in_exog_file(tmp_path, text, expe
         ("temp,promo\n1.5,3.5\n,\n2.5,4.5\n", pd.RangeIndex(0, 2), True, True),
         (",temp,promo\n60,1.5,3.5\n61,2.5,4.5\n", pd.RangeIndex(60, 62), False, False),
         ("temp,promo\n60,1.5,3.5\n61,2.5,4.5\n", pd.RangeIndex(60, 62), False, False),
+        (
+            ",temp,promo\n60,1.5,3.5\n61,2.5,4.5\n62,,\n",
+            pd.RangeIndex(60, 62), False, True,
+        ),
     ],
-    ids=["by position", "by position, blank row", "positions", "header one short"],
+    ids=["by position", "by position, blank row", "positions", "header one short",
+         "position without values"],
 )
 def test_load_exog_output_when_data_without_dates(
     tmp_path, text, expected_index, by_position, blank_rows
@@ -1105,7 +1110,9 @@ def test_load_exog_output_when_data_without_dates(
     variable, not the index, unless it has no name (the index that
     `to_csv()` writes, or a header one field short), which holds the
     positions of the rows and becomes a RangeIndex. Without it, the rows
-    are numbered by position, which `FutureExogFile.by_position` keeps.
+    are numbered by position, which `FutureExogFile.by_position` keeps. A
+    row with a position and no value is dropped, as the `dropna(how='all')`
+    of the script drops it (it does not look at the index).
     """
     path = tmp_path / "exog.csv"
     path.write_text(text)

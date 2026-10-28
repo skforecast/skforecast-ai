@@ -999,10 +999,15 @@ _future_range = pd.DataFrame({"x": _x_range[_N_RANGE:], "w": _w_range[_N_RANGE:]
             "path",
             _future_range.to_csv(index=False, sep=";", decimal=",") + ";\n;\n",
         ),
+        (
+            "path",
+            _future_range.set_axis(range(_N_RANGE, _N_RANGE + 5)).to_csv()
+            + f"{_N_RANGE + 5},,\n,,\n",
+        ),
         ("in memory", _future_range.to_csv(index=False)),
     ],
     ids=["by position", "positions", "by position, dialect and blank rows",
-         "data in memory with an offset"],
+         "positions and rows without values", "data in memory with an offset"],
 )
 def test_standalone_script_matches_forecast_when_no_dates_and_future_exog_file(
     tmp_path, data_source, exog_text

@@ -52,6 +52,7 @@ from .recommendation.backtesting import count_estimator_fits, count_inference_wi
 from .recommendation.missing_values import closed_days_remedy
 from .profiling.data_profile import (
     COMPACT_DATE_FORMAT,
+    _caller_stacklevel,
     _compact_dates,
     _normalize_multiindex,
     _read_date_column,
@@ -1618,8 +1619,14 @@ def load_exog(
         else:
             exog = exog.reset_index(drop=True)
     # Rows made only of separators (a spreadsheet saved as CSV) hold no date
-    # and no value; the generated code dropped them with asfreq.
-    filled = exog.notna().any(axis=1).to_numpy()
+    # and no value; the generated code dropped them with asfreq. The
+    # positions of data without dates are the index the script reads, which
+    # its `dropna(how='all')` does not look at: a row with a position and no
+    # value is dropped too.
+    values = exog
+    if index_type == "range" and len(exog.columns) and exog.columns[0] == "Unnamed: 0":
+        values = exog[exog.columns[1:]]
+    filled = values.notna().any(axis=1).to_numpy()
     exog = exog[filled].reset_index(drop=True)
     if index_type == "range":
         return _exog_without_dates(
@@ -1746,7 +1753,10 @@ def load_exog(
         # the checks of the future exogenous variables report it.
         found = exog.columns[0]
     for note in notes:
-        warnings.warn(f"Exog CSV '{path}': {note}", UserWarning, stacklevel=2)
+        # Read through `forecast()` too: the warning points at the user.
+        warnings.warn(
+            f"Exog CSV '{path}': {note}", UserWarning, stacklevel=_caller_stacklevel()
+        )
     exog = exog.set_index(found).sort_index()
     if str(found).startswith("Unnamed: "):
         exog.index.name = None
@@ -1799,7 +1809,9 @@ def _exog_without_dates(
                 field = "exog",
             )
     for note in encoding_notes(exog_file.encoding, "exog"):
-        warnings.warn(f"Exog CSV '{path}': {note}", UserWarning, stacklevel=3)
+        warnings.warn(
+            f"Exog CSV '{path}': {note}", UserWarning, stacklevel=_caller_stacklevel()
+        )
     if by_position:
         return exog, exog_file.model_copy(update={"by_position": True})
     start = int(exog[first].iloc[0]) if len(exog) else 0
