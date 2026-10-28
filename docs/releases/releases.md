@@ -98,7 +98,7 @@ The main changes in this release are:
 
 + The `forecast` tool of the MCP server adds an `UnmeasuredPlanNotice` to a forecast of the future when no `backtest`, `compare` or `forecast` with `test_size` of the server measured its plan (the same plan with another interval or metric counts as measured), so an agent does not present it as reliable or give it the accuracy of another plan ([#109](https://github.com/skforecast/skforecast-ai/pull/109)).
 
-+ The description of each tool of the MCP server says where it goes in the workflow: which id it takes, which tool takes the id it returns and which tool to use instead when the two can be confused. The skill is shorter, without what the descriptions now say. See the [MCP server reference][mcp].
++ The description of each tool of the MCP server says where it goes in the workflow: which id it takes, which tool takes the id it returns and which tool to use instead when the two can be confused. The skill is shorter, without what the descriptions now say. See the [MCP server reference][mcp] ([#126](https://github.com/skforecast/skforecast-ai/pull/126)).
 
 + [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` raise `CostNotConfirmedError` before an expensive run (above 50 estimator fits, or 2000 inference windows; for `compare()`, all its candidates together) instead of warning once it started; the error states the cost and the changes that lower it. Pass `confirm_cost=True` to run it. The MCP server takes only the number of the cost, which `create_cv` and the error give. See the [CLI guide][cli-guide] ([#113](https://github.com/skforecast/skforecast-ai/pull/113)).
 
