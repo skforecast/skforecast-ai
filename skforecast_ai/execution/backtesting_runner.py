@@ -20,7 +20,6 @@ from ..rendering.backtesting import (
     render_backtesting_single_series,
     render_backtesting_statistical,
 )
-from .._last_window import describe_left_out_of_folds, series_left_out_of_folds
 from ..schemas import DataProfile, ForecastPlan, RenderedScript
 from ..exceptions import InvalidInputError
 from .comparison import aggregate_metrics
@@ -88,6 +87,9 @@ def run_backtest(
     # Extract results from namespace
     metrics = namespace.get("metrics")
     predictions = namespace.get("predictions")
+
+    # Imported here: `_last_window` imports the execution package.
+    from .._last_window import describe_left_out_of_folds, series_left_out_of_folds
 
     # The series a fold left out are read from the predictions, which
     # carry the level and the fold of each one: skforecast does not warn

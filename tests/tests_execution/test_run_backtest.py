@@ -13,6 +13,9 @@ from skforecast_ai._utils import _cv_in_time_zone
 from skforecast_ai.execution.backtesting_runner import run_backtest
 from skforecast_ai.schemas import ForecastPlan, RenderedScript
 
+from tests.fixtures_datasets import df_items_sales_long
+from tests.fixtures_last_window import long_starting_late
+
 from .fixtures_execution import (
     cv_explanation_single,
     cv_multi,
@@ -351,38 +354,16 @@ def test_run_backtest_show_progress_false_keeps_column_named_like_the_keyword():
 # Tests: run_backtest: series left out of some folds
 
 
-def _items_starting_late(n_values: int) -> pd.DataFrame:
-    """Return the long items_sales data with only the last `n_values` of item_2."""
-    from tests.fixtures_datasets import df_items_sales_long
-
-    rows = df_items_sales_long.index[df_items_sales_long["series"] == "item_2"]
-    return df_items_sales_long.drop(index=rows[:-n_values])
-
-
-@pytest.mark.parametrize(
-    "refit, expected", [(True, "left_out"), (False, None)], ids=["refit", "complete"]
-)
-def test_run_backtest_explanation_names_series_left_out_of_some_folds(refit, expected):
-    """
-    Test that the explanation of a ForecasterRecursiveMultiSeries backtest
-    names a series that some test fold where it has values did not
-    forecast: item_2 has its last 60 values, and with refit the first fold
-    trains on 20 of them, no more than the window of the plan (21), so its
-    metrics use 7 of its 8 folds. skforecast left it out without a warning.
-    With all the values of item_2 (and no refit), every fold forecasts every
-    series and nothing is said.
-    """
+def _run_items(data: pd.DataFrame, refit: bool) -> dict:
+    """Run the backtest of a Ridge plan of the long items_sales `data`."""
     assistant = ForecastingAssistant()
-    data = _items_starting_late(60 if refit else 120)
     profile = assistant.profile(
         data, target="value", date_column="date", series_id_column="series"
     )
     plan = assistant.plan(profile, steps=5, estimator="Ridge")
-    cv = TimeSeriesFold(
-        steps=5, initial_train_size=80, refit=refit, verbose=False
-    )
+    cv = TimeSeriesFold(steps=5, initial_train_size=80, refit=refit, verbose=False)
 
-    result = run_backtest(
+    return run_backtest(
         data           = data,
         profile        = profile.data_profile,
         plan           = plan,
@@ -391,21 +372,40 @@ def test_run_backtest_explanation_names_series_left_out_of_some_folds(refit, exp
         show_progress  = False,
     )
 
-    if expected is None:
-        assert result["left_out_of_folds"] is None
-        assert "Some series were not forecast" not in result["explanation"]
-    else:
-        text = (
-            "Some series were not forecast in every test fold where they have "
-            "values to evaluate ('item_2': in 7 of its 8 folds with values), "
-            "so their metrics, and the average across series, leave the other "
-            "folds out. ForecasterRecursiveMultiSeries leaves a series out of a "
-            "fold when the training window of the fold has too few of its "
-            "observations, or when it cannot predict it from the values before "
-            "the fold."
-        )
-        assert result["left_out_of_folds"] == text
-        assert result["explanation"].endswith(f" {text}")
-        assert set(
-            result["predictions"].loc[result["predictions"]["level"] == "item_2", "fold"]
-        ) == {1, 2, 3, 4, 5, 6, 7}
+
+def test_run_backtest_explanation_names_series_left_out_of_some_folds():
+    """
+    Test that the explanation of a ForecasterRecursiveMultiSeries backtest
+    names a series that some test fold where it has values did not
+    forecast: item_2 has its last 60 values, and with refit the first fold
+    trains on 20 of them, no more than the window of the plan (21), so its
+    metrics use 7 of its 8 folds. skforecast left it out without a warning.
+    """
+    result = _run_items(long_starting_late(df_items_sales_long, "item_2", 60), True)
+
+    text = (
+        "Some series were not forecast in every test fold where they have "
+        "values to evaluate ('item_2': in 7 of its 8 folds with values), so "
+        "their metrics, and the average across series, leave the other folds "
+        "out. ForecasterRecursiveMultiSeries leaves a series out of a fold "
+        "when the training window of the fold has too few of its "
+        "observations, or when it cannot predict it from the values before "
+        "the fold."
+    )
+    assert result["left_out_of_folds"] == text
+    assert result["explanation"].endswith(f" {text}")
+    predictions = result["predictions"]
+    assert set(predictions.loc[predictions["level"] == "item_2", "fold"]) == {
+        1, 2, 3, 4, 5, 6, 7
+    }
+
+
+def test_run_backtest_explanation_says_nothing_when_every_fold_forecasts_every_series():
+    """
+    Test that a ForecasterRecursiveMultiSeries backtest in which every fold
+    forecasts every series says nothing about folds left out.
+    """
+    result = _run_items(df_items_sales_long, False)
+
+    assert result["left_out_of_folds"] is None
+    assert "Some series were not forecast" not in result["explanation"]

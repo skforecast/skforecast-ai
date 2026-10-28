@@ -439,7 +439,7 @@ def _check_backtest_run(
     cv: TimeSeriesFold,
 ) -> None:
     """
-    Checks of `backtest()` that depend on the plan, made before anything
+    Make the checks of `backtest()` that depend on the plan, before anything
     runs: the target the plan reads, the gap of a direct forecaster, the
     folds ForecasterStats skips, the first training window, the series no
     fold forecasts, the windows and the exogenous values of each fold, and
@@ -4322,6 +4322,17 @@ class ForecastingAssistant:
                                 show_progress    = False,
                                 confirm_cost     = True,
                             )
+                    agg = aggregate_metrics(bt.metrics)
+                    for col in table_columns:
+                        row[col] = agg.get(col, float("nan"))
+                    ranking_value = agg.get(ranking_metric, float("nan"))
+                    ranked.append((name, bt, ranking_value))
+                except Exception as exc:
+                    failures[name] = _candidate_failed(name, exc)
+                    row["error"] = failures[name].summary()
+                else:
+                    # Outside the `try`: reading the result of a candidate
+                    # that ran never turns it into a failure.
                     left_out[name] = series_left_out_of_folds(
                         data        = data_df,
                         profile     = profile.data_profile,
@@ -4331,14 +4342,6 @@ class ForecastingAssistant:
                                       ),
                         predictions = bt.predictions,
                     )
-                    agg = aggregate_metrics(bt.metrics)
-                    for col in table_columns:
-                        row[col] = agg.get(col, float("nan"))
-                    ranking_value = agg.get(ranking_metric, float("nan"))
-                    ranked.append((name, bt, ranking_value))
-                except Exception as exc:
-                    failures[name] = _candidate_failed(name, exc)
-                    row["error"] = failures[name].summary()
 
             rows.append((row, ranking_value))
 

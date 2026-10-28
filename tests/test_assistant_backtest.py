@@ -1072,16 +1072,20 @@ def test_backtest_runs_when_long_series_starts_late(n_values, refit):
     cv = _long_cv()
     cv.set_params({"refit": refit})
 
-    with warnings.catch_warnings():
-        # The first fold leaves item_2 out with refit, which a warning says.
-        warnings.filterwarnings(
-            "ignore", message="Some series were not forecast", category=UserWarning
-        )
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
         result = assistant.backtest(
             data=_items_starting_late(n_values), target="value",
             date_column="date", series_id_column="series", cv=cv,
             show_progress=False,
         )
+
+    # With refit, the first fold leaves item_2 out, which a warning says
+    # (see the test of that warning).
+    left_out = [
+        w for w in caught if str(w.message).startswith("Some series were not forecast")
+    ]
+    assert len(left_out) == int(refit)
 
     assert isinstance(result, BacktestResult)
     assert result.plan.forecaster == "ForecasterRecursiveMultiSeries"

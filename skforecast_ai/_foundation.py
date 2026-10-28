@@ -109,6 +109,12 @@ def foundation_context_length(
     -------
     context_length : int
         Observations of the context of the model.
+
+    Raises
+    ------
+    ValueError
+        When no skforecast adapter serves `estimator` (see
+        `resolve_foundation_model`).
     """
     context_length = (estimator_kwargs or {}).get("context_length")
     if context_length is None:

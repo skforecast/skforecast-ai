@@ -47,6 +47,7 @@ from skforecast_ai import (
 )
 
 from tests.fixtures_csv_dialect import df_dialect, write_dialect
+from tests.fixtures_last_window import long_starting_late
 from tests.fixtures_compare import (
     cv_h2o_refined,
     cv_multivariate,
@@ -1754,19 +1755,6 @@ def test_compare_candidate_with_invalid_plan_fails_before_any_candidate_runs():
     assert list(result.results["name"]) == ["recursive", "direct", "bad"]
 
 
-def _items_long_starting_late(n_values: int) -> pd.DataFrame:
-    """Return the long items_sales data with only the last `n_values` of item_2."""
-    return df_items_sales_long[
-        ~(
-            (df_items_sales_long["series"] == "item_2")
-            & (
-                df_items_sales_long["date"]
-                <= pd.Timestamp("2012-04-29") - pd.Timedelta(days=n_values)
-            )
-        )
-    ]
-
-
 def test_compare_candidate_that_forecasts_a_series_in_no_fold_fails_before_running():
     """
     Test that a ForecasterRecursiveMultiSeries candidate whose backtest
@@ -1795,7 +1783,7 @@ def test_compare_candidate_that_forecasts_a_series_in_no_fold_fails_before_runni
             events.append((event.candidate, event.status, failed))
 
         result = assistant.compare(
-            data              = _items_long_starting_late(60),
+            data              = long_starting_late(df_items_sales_long, "item_2", 60),
             cv                = TimeSeriesFold(
                                     steps=5, initial_train_size=80, verbose=False
                                 ),
@@ -1853,10 +1841,9 @@ def test_compare_UserWarning_once_names_candidates_that_left_series_out_of_some_
         "folds out."
     )
 
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
+    with pytest.warns(UserWarning, match=f"^{re.escape(warn_msg)}$") as caught:
         result = assistant.compare(
-            data             = _items_long_starting_late(60),
+            data             = long_starting_late(df_items_sales_long, "item_2", 60),
             cv               = TimeSeriesFold(
                                    steps=5, initial_train_size=80, refit=True,
                                    verbose=False,
@@ -1890,7 +1877,7 @@ def test_compare_AllCandidatesFailedError_when_every_candidate_forecasts_a_serie
     with pytest.warns(CandidateFailedWarning):
         with pytest.raises(AllCandidatesFailedError) as exc_info:
             assistant.compare(
-                data             = _items_long_starting_late(60),
+                data             = long_starting_late(df_items_sales_long, "item_2", 60),
                 cv               = TimeSeriesFold(
                                        steps=5, initial_train_size=80,
                                        verbose=False,
