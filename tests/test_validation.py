@@ -29,6 +29,7 @@ from skforecast_ai._validation import (
     _validate_window_features,
     check_estimator_installed,
     is_symmetric_interval,
+    missing_estimator_package,
     validate_estimator,
     validate_estimator_kwargs,
     validate_forecaster,
@@ -40,6 +41,8 @@ from skforecast_ai._validation import (
     validate_preprocessing_step,
     validate_steps,
 )
+
+from tests.fixtures_assistant import patch_find_spec
 
 _SUPPORTED = (
     "['LGBMRegressor', 'Ridge', 'XGBRegressor', 'CatBoostRegressor', "
@@ -303,7 +306,8 @@ def test_check_estimator_installed_code_and_field_when_package_missing(
 ):
     """
     Test that a missing estimator package raises InvalidInputError with the
-    code 'missing_dependency' and `estimator` as field.
+    code 'missing_dependency', `estimator` as field and a hint with the
+    install command, as for the backend of a foundation model (V02).
     """
     monkeypatch.setattr(
         validation_module.importlib.util, "find_spec", lambda name: None
@@ -318,6 +322,31 @@ def test_check_estimator_installed_code_and_field_when_package_missing(
 
     assert exc_info.value.code == "missing_dependency"
     assert exc_info.value.field == "estimator"
+    assert exc_info.value.hint == (
+        "Install it where skforecast-ai runs: pip install xgboost."
+    )
+
+
+@pytest.mark.parametrize(
+    "estimator, missing, expected",
+    [
+        ("XGBRegressor", ["xgboost"], "xgboost"),
+        ("CatBoostRegressor", ["catboost"], "catboost"),
+        ("Ridge", ["sklearn"], "scikit-learn"),
+        ("XGBRegressor", [], None),
+        ("Arima", ["xgboost"], None),
+        (None, ["xgboost"], None),
+    ],
+    ids=lambda value: f"{value}",
+)
+def test_missing_estimator_package_output(monkeypatch, estimator, missing, expected):
+    """
+    Test that the package to install is named, with its pip name, only for
+    a supported machine-learning estimator whose module is not found.
+    """
+    patch_find_spec(monkeypatch, missing=missing, installed=["xgboost", "catboost"])
+
+    assert missing_estimator_package(estimator) == expected
 
 
 def test_check_estimator_installed_output_when_not_machine_learning(monkeypatch):

@@ -110,6 +110,8 @@ The main changes in this release are:
 
 + [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` with an estimator that accepts missing values warn, without failing, when a test fold reads a missing exogenous value, naming the columns and the dates, as `forecast()` does with the future values (a notice in the MCP server) ([#123](https://github.com/skforecast/skforecast-ai/pull/123)).
 
++ The error of the `profile` tool of the MCP server without `target` tells the agent that a column the user named and the file lacks is told to the user before another one is used.
+
 + A candidate of [<code>ForecastingAssistant.compare()</code>][assistant] that fails with an error of skforecast-ai is named by its class (`InvalidInputError`) in `CandidateFailure.error_type`, the table, the warnings and `AllCandidatesFailedError`, instead of the built-in class it derives from (`ValueError`). The MCP server now sends its message, and `get_failure` with the id of a comparison requires `candidate` ([#121](https://github.com/skforecast/skforecast-ai/pull/121)).
 
 
@@ -182,6 +184,12 @@ The main changes in this release are:
 + [<code>ForecastingAssistant.forecast()</code>][assistant] with a `test_size` that leaves fewer observations to train on than the window of the forecaster failed inside the script with `ForecastExecutionError`. It now raises `insufficient_data` on `test_size` before running, with the longest horizon that fits ([#121](https://github.com/skforecast/skforecast-ai/pull/121)).
 
 + [<code>ForecastingAssistant.create_cv()</code>][assistant] without `initial_train_size`, for a plan whose `steps` are half the data or more, raised an error about an `initial_train_size` outside the data that was never passed. It now raises `insufficient_data` on the plan, with the longest horizon that fits ([#121](https://github.com/skforecast/skforecast-ai/pull/121)).
+
++ [<code>ForecastingAssistant.compare()</code>][assistant] without `candidates` on several series ran `XGBRegressor`, which no extra installs, so it failed in every comparison without `xgboost`. It is now left out with a `MissingBackendWarning`, as the foundation model without its backend, and not counted in the cost.
+
++ An estimator whose package is not installed (XGBoost, CatBoost) was only reported when the plan ran, and the `missing_dependency` error of the MCP server had no hint. [<code>ForecastingAssistant.plan()</code>][assistant] now warns with `MissingBackendWarning` (a notice in the MCP server), and the error says how to install it with pip or uvx, as for a foundation model.
+
++ The first `get_code` of the MCP server held every other call while a long run was going, and the requirements of the script of a strategy for a foundation model listed its backend, which that script does not load.
 
 
 ## 0.4.2 <small>Oct 12, 2026</small> { id="0.4.2" }

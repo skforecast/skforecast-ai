@@ -37,6 +37,7 @@ from ._constants import (
 )
 from ._validation import (
     check_estimator_installed,
+    warn_estimator_not_installed,
     validate_calendar_override,
     validate_estimator,
     validate_estimator_kwargs,
@@ -1179,9 +1180,19 @@ class ForecastingAssistant:
         -------
         plan : ForecastPlan
             Detailed forecasting plan. Its `warnings` hold the text of the
-            warnings this call emitted, in the order they were emitted, and
-            its `overridden_fields` the arguments passed with a value other
-            than None (an empty `estimator_kwargs` is the default).
+            warnings this call emitted, in the order they were emitted
+            (except the `MissingBackendWarning`, which depends on where the
+            plan is made), and its `overridden_fields` the arguments passed
+            with a value other than None (an empty `estimator_kwargs` is the
+            default).
+
+        Warns
+        -----
+        MissingBackendWarning
+            When the estimator needs a package that is not installed
+            (XGBoost, CatBoost): the plan is made, since its script may run
+            on another machine, but running it here fails before anything
+            runs.
 
         Raises
         ------
@@ -1810,6 +1821,9 @@ class ForecastingAssistant:
             warnings.warn(constant_calendar_message, UserWarning, stacklevel=2)
         if mape_message is not None:
             warnings.warn(mape_message, UserWarning, stacklevel=2)
+        # Not kept in `plan.warnings`: it depends on where the plan is made,
+        # not on the plan, and its script may run on another machine.
+        warn_estimator_not_installed(plan.estimator, plan.task_type)
 
         return plan
 
@@ -3936,9 +3950,11 @@ class ForecastingAssistant:
             evaluate (see `backtest()`), whose metrics use fewer folds of
             those series; the explanation says it too.
         MissingBackendWarning
-            When `candidates` is None and the backend of the default
-            foundation model is not installed, so `ForecasterFoundation`
-            is left out of the comparison.
+            When `candidates` is None and a candidate needs a package that
+            is not installed, so it is left out of the comparison: the
+            backend of the default foundation model (`ForecasterFoundation`)
+            or the library of an estimator (`XGBRegressor`, with several
+            series).
         LongTrainingWarning
             When `candidates` is None and an automatic candidate is left out
             for exceeding the fit budget.
@@ -4054,7 +4070,8 @@ class ForecastingAssistant:
         n_fits = cv_config["n_fits"]
 
         # Automatic candidates leave out a foundation model whose backend is
-        # not installed, rather than fail on every call, and the
+        # not installed and an estimator whose package is not installed,
+        # rather than fail on every call, and the
         # alternatives above a fit budget (with a strategy that refits in
         # every fold a direct forecaster can take hours). The plan the
         # strategy was created for is the one the user means to compare: it
@@ -4141,6 +4158,9 @@ class ForecastingAssistant:
                         message  = re.escape(_MEANINGLESS_MAPE),
                         category = UserWarning,
                     )
+                    # An estimator that is not installed fails the checks
+                    # below, and its failure says so.
+                    warnings.filterwarnings("ignore", category=MissingBackendWarning)
                     cand_plan = self.plan(
                         profile            = profile,
                         steps              = steps,
@@ -5004,17 +5024,22 @@ class ForecastingAssistant:
         )
 
         if plan is None:
-            plan = self.plan(
-                profile          = profile,
-                steps            = steps,
-                forecaster       = forecaster,
-                estimator        = estimator,
-                estimator_kwargs = estimator_kwargs,
-                interval         = interval,
-                lags             = lags,
-                window_features  = window_features,
-                **overrides,
-            )
+            # Running the plan checks its estimator and raises: the
+            # warning of a plan whose estimator is not installed would
+            # only come before that error.
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=MissingBackendWarning)
+                plan = self.plan(
+                    profile          = profile,
+                    steps            = steps,
+                    forecaster       = forecaster,
+                    estimator        = estimator,
+                    estimator_kwargs = estimator_kwargs,
+                    interval         = interval,
+                    lags             = lags,
+                    window_features  = window_features,
+                    **overrides,
+                )
         elif interval is not None:
             plan = _apply_interval_to_plan(plan, interval)
 
@@ -5223,17 +5248,22 @@ class ForecastingAssistant:
             _check_cv_matches_profile(cv_result, profile.data_profile)
 
         if plan is None:
-            plan = self.plan(
-                profile          = profile,
-                steps            = steps,
-                forecaster       = forecaster,
-                estimator        = estimator,
-                estimator_kwargs = estimator_kwargs,
-                interval         = interval,
-                lags             = lags,
-                window_features  = window_features,
-                **overrides,
-            )
+            # Running the plan checks its estimator and raises: the
+            # warning of a plan whose estimator is not installed would
+            # only come before that error.
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=MissingBackendWarning)
+                plan = self.plan(
+                    profile          = profile,
+                    steps            = steps,
+                    forecaster       = forecaster,
+                    estimator        = estimator,
+                    estimator_kwargs = estimator_kwargs,
+                    interval         = interval,
+                    lags             = lags,
+                    window_features  = window_features,
+                    **overrides,
+                )
         else:
             if cv.steps != plan.steps:
                 raise InvalidInputError(

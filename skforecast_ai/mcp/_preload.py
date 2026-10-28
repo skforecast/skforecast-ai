@@ -27,6 +27,15 @@ PRELOADED_MODULES = (
     "skforecast.foundation",
 )
 
+# What the tools compute once per process, warmed after the imports so that
+# the first call does not pay for it: the installed distributions that the
+# `requirements` of `get_code` read (`packages_distributions` scans every
+# installed package, seconds when cold and tens of them while a run holds
+# the GIL). Each is `module:function`, called without arguments.
+WARMED_CALLS = (
+    "skforecast_ai.mcp.server:_distributions",
+)
+
 
 class PreloadError(Exception):
     """
@@ -50,19 +59,29 @@ class Preload:
     `wait`, so the first tool reports it and the next ones do not import
     again.
 
+    Once the import ended, and after `wait` returns, the same thread calls
+    the functions of `warm`, so the tools never wait for them: a call that
+    needs one before it ran computes it itself. A failure there is only
+    logged.
+
     Parameters
     ----------
     modules : iterable of str
         Absolute names of the modules, imported in this order.
+    warm : iterable of str, default ()
+        Functions to call once the import ended, as `module:function`.
 
     Attributes
     ----------
     modules : tuple of str
         Names of the modules.
+    warm : tuple of str
+        Functions called after the import.
     """
 
-    def __init__(self, modules: Iterable[str]) -> None:
+    def __init__(self, modules: Iterable[str], warm: Iterable[str] = ()) -> None:
         self.modules = tuple(modules)
+        self.warm = tuple(warm)
         self._lock = threading.Lock()
         self._done = threading.Event()
         self._thread: threading.Thread | None = None
@@ -105,6 +124,21 @@ class Preload:
             )
         finally:
             self._done.set()
+        if self._error is None:
+            self._warm()
+
+    def _warm(self) -> None:
+        """
+        Call the functions of `warm`, logging a failure: the tool that needs
+        one calls it again and reports its own error.
+        """
+
+        for target in self.warm:
+            module, _, name = target.partition(":")
+            try:
+                getattr(importlib.import_module(module), name)()
+            except Exception as exc:  # noqa: BLE001 - only logged
+                logger.warning("The server could not warm %s: %s", target, exc)
 
     @property
     def started(self) -> bool:
@@ -144,4 +178,4 @@ class Preload:
             ) from self._error
 
 
-PRELOAD = Preload(PRELOADED_MODULES)
+PRELOAD = Preload(PRELOADED_MODULES, warm=WARMED_CALLS)

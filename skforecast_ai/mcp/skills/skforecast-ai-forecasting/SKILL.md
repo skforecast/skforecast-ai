@@ -360,7 +360,7 @@ and follow `hint` when there is one:
 | `unknown_id` | Use an id from `list_objects`, or create the object again. |
 | `inconsistent_ids` | Pass `backtest` a plan and a strategy built from the same profile. |
 | `execution_failed`, `all_candidates_failed` | `get_failure(details.failure_id)` returns the traceback and the code. |
-| `missing_dependency` | Tell the user which package to install; `hint` says how, for pip and for uvx. A foundation model without its backend fails this way before running (in `compare`, such a candidate fails and is ranked last). |
+| `missing_dependency` | Tell the user which package to install; `hint` says how, for pip and for uvx. A plan whose estimator (XGBoost, CatBoost) or foundation model needs a package not installed where the server runs fails this way before running; for an estimator, `plan` already says so in a `MissingDependencyNotice`. In `compare`, such a candidate fails and is ranked last; without `candidates`, it is left out, with a notice. |
 | `model_not_allowed` | Tell the user the license in the message; only if they accept it, ask them to restart the server with the `--allow-model` option of `hint`. |
 | `internal_error` | Report it to the user with `details.error_id`, which finds the message in the log of the server; do not retry with the same inputs. |
 

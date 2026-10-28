@@ -762,7 +762,9 @@ def test_tool_profile_without_target_lists_the_columns(tmp_path):
     Test that `profile` without `target` (omitted or null) is
     `invalid_argument` on `target` with the columns of the file and a hint
     to pass one or ask the user, so an agent need not make up a target to
-    read them, and that nothing is registered.
+    read them, and that nothing is registered. The hint tells the agent
+    that a column the user named and the list lacks is said to the user,
+    not replaced by another column without a word.
     """
     server, path = h2o_server(tmp_path)
 
@@ -777,7 +779,9 @@ def test_tool_profile_without_target_lists_the_columns(tmp_path):
         "message": "`target` was not given. Columns of the file: ['fecha', 'x'].",
         "field": "target",
         "hint": (
-            "Pass the column to forecast as `target`. If more than one could "
+            "If the user named a column that is not in this list, tell them "
+            "and ask which one to forecast before using another. Otherwise "
+            "pass the column to forecast as `target`; if more than one could "
             "be it, ask the user."
         ),
         "details": None,

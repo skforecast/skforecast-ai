@@ -22,6 +22,7 @@ from tests.fixtures_assistant import (
     df_no_exog,
     df_single,
     df_with_missing,
+    patch_find_spec,
 )
 
 
@@ -225,10 +226,12 @@ def test_refine_plan_output_when_interval_removed():
 # =============================================================================
 # Tests: edge cases (multiple overrides, preserved state)
 # =============================================================================
-def test_refine_plan_output_when_multiple_overrides():
+def test_refine_plan_output_when_multiple_overrides(monkeypatch):
     """
-    Test that refine_plan() applies multiple overrides simultaneously.
+    Test that refine_plan() applies multiple overrides simultaneously (with
+    XGBoost taken as installed, so no warning depends on the environment).
     """
+    patch_find_spec(monkeypatch, installed=["xgboost"])
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
     plan = assistant.plan(profile, steps=10)

@@ -10,7 +10,11 @@ from skforecast_ai import ForecastingAssistant
 from skforecast_ai.mcp import create_server
 from skforecast_ai.mcp.models import ToolNotice
 
-from ..fixtures_assistant import df_categorical_exog, df_crossing_zero
+from ..fixtures_assistant import (
+    df_categorical_exog,
+    df_crossing_zero,
+    patch_find_spec,
+)
 from .fixtures_mcp import (
     GAPS_WARNING,
     call,
@@ -135,6 +139,58 @@ def test_tool_plan_notices_of_the_plan(tmp_path):
     assert [ToolNotice(**n) for n in result["notices"]] == [
         ToolNotice(source="plan", category="UserWarning", message=LGBM_WARNING, count=1)
     ]
+
+
+def test_tool_plan_MissingDependencyNotice_when_estimator_not_installed(
+    tmp_path, monkeypatch
+):
+    """
+    Test that a plan whose estimator is not installed (XGBoost) is made, as
+    its script may run elsewhere, with a notice that it cannot run where
+    the server runs and the install advice of the error that running it
+    gives (V02), instead of the warning of the library, which only gives
+    the `pip install`. `refine_plan` to that estimator gives it too.
+    """
+    patch_find_spec(monkeypatch, missing=["xgboost"])
+    server, _, profile_id = _profiled(tmp_path)
+
+    result = content_of(
+        call(
+            server,
+            "plan",
+            {"profile_id": profile_id, "steps": 12, "estimator": "XGBRegressor"},
+        )
+    )
+    default = content_of(
+        call(server, "plan", {"profile_id": profile_id, "steps": 12})
+    )
+    refined = content_of(
+        call(
+            server,
+            "refine_plan",
+            {"plan_id": default["id"], "overrides": {"estimator": "XGBRegressor"}},
+        )
+    )
+
+    expected = [
+        ToolNotice(
+            source   = "plan",
+            category = "MissingDependencyNotice",
+            message  = (
+                "XGBRegressor needs the 'xgboost' package, which is not "
+                "installed where the server runs: `backtest`, `forecast` and "
+                "`compare` with this plan fail with `missing_dependency` until "
+                "it is. Ask the user to install it where the server runs and "
+                "to restart the server: `pip install \"xgboost\"` in its "
+                "Python environment, or `--with \"xgboost\"` added to the uvx "
+                "command that starts it."
+            ),
+            count    = 1,
+        )
+    ]
+    assert [ToolNotice(**n) for n in result["notices"]] == expected
+    assert [ToolNotice(**n) for n in refined["notices"]] == expected
+    assert default["notices"] == []
 
 
 @pytest.mark.parametrize(

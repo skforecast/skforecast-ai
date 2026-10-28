@@ -316,6 +316,37 @@ def patch_agent(monkeypatch, assistant, *, output=None, error=None, capture=None
     monkeypatch.setattr(agent_mod, "create_forecasting_agent", _mock_create_agent)
 
 
+def patch_find_spec(monkeypatch, *, missing=(), installed=()):
+    """
+    Patch `importlib.util.find_spec`, which the checks of an installed
+    estimator use, so a package is missing or installed whatever the
+    environment has.
+
+    Parameters
+    ----------
+    monkeypatch : pytest.MonkeyPatch
+        The pytest monkeypatch fixture.
+    missing : iterable of str, default ()
+        Top-level modules taken as not installed (`'xgboost'`).
+    installed : iterable of str, default ()
+        Top-level modules taken as installed, without importing them.
+    """
+    import importlib.machinery
+    import importlib.util
+
+    find_spec = importlib.util.find_spec
+    missing, installed = frozenset(missing), frozenset(installed)
+
+    def _find_spec(name, *args, **kwargs):
+        if name in missing:
+            return None
+        if name in installed:
+            return importlib.machinery.ModuleSpec(name, None)
+        return find_spec(name, *args, **kwargs)
+
+    monkeypatch.setattr(importlib.util, "find_spec", _find_spec)
+
+
 def make_comparison_result(assistant, *, with_failure=False):
     """
     Build a lightweight `ComparisonResult` without running backtests.
