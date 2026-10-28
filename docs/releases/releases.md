@@ -23,6 +23,7 @@ The main changes in this release are:
 
     + The scripts of long-format data read the series ids as text and turn them into text before the reshape: one more line (two with future exogenous variables), with the same predictions. See **Changed**.
     + The scripts of a forecast with future exogenous values read from a file (`exog_path` of the MCP server, `--exog` of the CLI) read that file by its path, with its own separator, decimal mark and encoding, instead of `exog_future.csv` in the working directory. See **Fixed**.
+    + The scripts of data without dates passed in memory read the positions of the rows without `parse_dates=True`: the same predictions, without the warning of pandas. See **Fixed**.
     + The scripts of dates that write the day and the month as numbers read them with their format (`format='%d/%m/%Y'`, or `'%m/%d/%Y'` month first), also when the first date already said so, and those of files with `.` between thousands read the date column as text: the same predictions. See **Changed**.
     + `plan()` and `refine_plan()` with `ForecasterDirectMultiVariate`: the estimator is chosen for the dates the series share, so it can be `Ridge` where it was `LGBMRegressor`. Pass `estimator="LGBMRegressor"` to keep the previous one. See **Fixed**.
 
@@ -45,6 +46,7 @@ The main changes in this release are:
     + `profile()` of dates that read both day first and month first and whose regularity does not tell the order either (a year or less of monthly data on the first of each month, or dates without a regular frequency) raises `data_unreadable` instead of reading them month first. Pass `dayfirst=False` to read them as before. See **Fixed**.
     + [<code>ForecastingAssistant.forecast()</code>][assistant] with `test_size`: `ForecastResult.metrics` (and the CSV of metrics of the `forecast` tool of the MCP server) names its columns as `backtest()` does, `mean_absolute_error` instead of `MAE`..., and the series in `levels` instead of `series`, a column a single series no longer has. See **Changed**.
     + [<code>ForecastingAssistant.compare()</code>][assistant]: a candidate that fails with an error of skforecast-ai has `CandidateFailure.error_type` `'InvalidInputError'` (or another class of `skforecast_ai.exceptions`) instead of `'ValueError'`, also in its summary. See **Changed**.
+    + `--exog` of the CLI reads the dates of the file from the date column of the data, as the MCP server does: a file that names that column otherwise raises an error. Name it as in the data. See **Changed**.
     + `plan()` raises `InvalidInputError` for an unknown key of an entry of `window_features`, which it ignored, and for a value of `estimator_kwargs` that a scikit-learn estimator or `Arima` rejects, which failed when the plan ran. See **Fixed**.
     + [<code>ForecastingAssistant.compare()</code>][assistant] raises `InvalidInputError` for a candidate named `'Strategy plan'`, the row of the plan the strategy was created for. Rename the candidate. See **Fixed**.
 
@@ -70,6 +72,8 @@ The main changes in this release are:
 + New attribute `closed_weekdays` of [<code>DataProfile</code>][profiles]: the days of the week on which every missing timestamp falls when the data never has a date on them (a shop closed on Sundays). The warning of `create_cv()` names them, and gives the advice of the closed days only then, instead of for any daily data with missing dates ([#119](https://github.com/skforecast/skforecast-ai/pull/119)).
 
 + New option `--exog` of the `forecast-code` command of the [CLI][cli], so the script reads the future exogenous values from that file, as `forecast --exog` does, instead of `exog_future.csv`. See the [CLI guide][cli-guide] ([#99](https://github.com/skforecast/skforecast-ai/pull/99)).
+
++ [<code>ForecastingAssistant.forecast()</code>][assistant] and `forecast_code()` take the path of a CSV file in `exog`, read as the data are read with what the profile says of them (date column, series ids, order of the dates); the script reads that file by its path. `--exog` of the CLI and `exog_path` of the MCP server go through it.
 
 
 **Changed**
@@ -111,6 +115,8 @@ The main changes in this release are:
 + [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` with an estimator that accepts missing values warn, without failing, when a test fold reads a missing exogenous value, naming the columns and the dates, as `forecast()` does with the future values (a notice in the MCP server) ([#123](https://github.com/skforecast/skforecast-ai/pull/123)).
 
 + A candidate of [<code>ForecastingAssistant.compare()</code>][assistant] that fails with an error of skforecast-ai is named by its class (`InvalidInputError`) in `CandidateFailure.error_type`, the table, the warnings and `AllCandidatesFailedError`, instead of the built-in class it derives from (`ValueError`). The MCP server now sends its message, and `get_failure` with the id of a comparison requires `candidate` ([#121](https://github.com/skforecast/skforecast-ai/pull/121)).
+
++ `--exog` of the `forecast` and `forecast-code` commands of the [CLI][cli] reads the dates of the file from the date column of the data, as `exog_path` of the MCP server does: a file whose dates are in a column named otherwise (`fecha` for `date`), which was read before, raises an error naming its columns. Name that column as in the data.
 
 
 **Fixed**
@@ -173,7 +179,7 @@ The main changes in this release are:
 
 + The `FutureExogNotice` of the MCP server asked for the future values of categorical columns that `ForecasterStats` or a foundation model without categorical covariates does not read, which `forecast` then rejected in the file of a foundation model. It now names only the columns the model reads ([#118](https://github.com/skforecast/skforecast-ai/pull/118)).
 
-+ [<code>ForecastingAssistant.plan()</code>][assistant], `refine_plan()` and `compare()` ignored an unknown key of an entry of `window_features` (`min_periods`), which the summary still showed as chosen. It now raises `InvalidInputError` naming the key and the valid ones (`invalid_argument` in the MCP server) ([#121](https://github.com/skforecast/skforecast-ai/pull/121)).
++ [<code>ForecastingAssistant.plan()</code>][assistant], `refine_plan()` and `compare()` ignored an unknown key of an entry of `window_features` (`min_periods`), which the summary still showed as chosen. It now raises `InvalidInputError` naming the key and the valid ones (`invalid_argument` in the MCP server), and `refine_plan()` with a `prompt` asks the LLM again when it makes such a key up ([#121](https://github.com/skforecast/skforecast-ai/pull/121)).
 
 + [<code>ForecastingAssistant.plan()</code>][assistant] accepted a value of `estimator_kwargs` that the estimator rejects (`alpha='abc'` for `Ridge`), and the run failed with `ForecastExecutionError`. It now raises `InvalidInputError` on `estimator_kwargs` with the message of scikit-learn or of `Arima`; LightGBM, XGBoost and CatBoost still check their values when they fit ([#121](https://github.com/skforecast/skforecast-ai/pull/121)).
 
@@ -182,6 +188,10 @@ The main changes in this release are:
 + [<code>ForecastingAssistant.forecast()</code>][assistant] with a `test_size` that leaves fewer observations to train on than the window of the forecaster failed inside the script with `ForecastExecutionError`. It now raises `insufficient_data` on `test_size` before running, with the longest horizon that fits ([#121](https://github.com/skforecast/skforecast-ai/pull/121)).
 
 + [<code>ForecastingAssistant.create_cv()</code>][assistant] without `initial_train_size`, for a plan whose `steps` are half the data or more, raised an error about an `initial_train_size` outside the data that was never passed. It now raises `insufficient_data` on the plan, with the longest horizon that fits ([#121](https://github.com/skforecast/skforecast-ai/pull/121)).
+
++ [<code>ForecastingAssistant.forecast()</code>][assistant] of data without dates (a RangeIndex) with future exogenous values from a file (`--exog` of the CLI, `exog_path` of the MCP server) failed, as the first column of the file was read as its dates. The rows of the file are now the steps of the horizon in order, and positions that do not follow the data raise a clear error instead of one of skforecast.
+
++ The script of data without dates passed in memory printed a pandas `UserWarning` ("Could not infer format") when run, as it read the positions saved by `to_csv()` with `parse_dates=True`. It now reads them as they are; the predictions are the same.
 
 
 ## 0.4.2 <small>Oct 12, 2026</small> { id="0.4.2" }

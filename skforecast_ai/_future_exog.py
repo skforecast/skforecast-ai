@@ -7,12 +7,12 @@
 
 from __future__ import annotations
 import warnings
+from pathlib import Path
 import numpy as np
 import pandas as pd
 
 from ._constants import (
     AUTOREG_FORECASTERS,
-    EXOG_FILE_ATTR,
     NAN_TOLERANT_ESTIMATORS,
 )
 from ._dates import is_text, parse_text_dates, row_dates
@@ -40,11 +40,12 @@ _SHOWN = 5
 
 def as_exog_frame(exog: object) -> pd.DataFrame | None:
     """
-    Return the future exogenous variables as a pandas DataFrame.
+    Return the future exogenous variables passed in memory as a pandas
+    DataFrame.
 
     A named pandas Series is one exogenous variable, as skforecast reads it.
-    Any other type raises, instead of failing inside the generated code (a
-    path to a CSV file failed with `AttributeError`).
+    Any other type raises, instead of failing inside the generated code. A
+    path to a CSV file is read by `read_future_exog` instead.
 
     Parameters
     ----------
@@ -69,11 +70,77 @@ def as_exog_frame(exog: object) -> pd.DataFrame | None:
 
     raise InvalidInputTypeError(
         f"`exog` must be a pandas DataFrame with the future values of the "
-        f"exogenous variables, not {type(exog).__name__}. Read a CSV file with "
-        f"pandas.read_csv first (the CLI reads it with --exog).",
+        f"exogenous variables, or the path of a CSV file with them, not "
+        f"{type(exog).__name__}.",
         field = "exog",
         hint  = "Pass the future exogenous values as a table indexed by their dates.",
     )
+
+
+def read_future_exog(
+    path: str | Path,
+    data: pd.DataFrame | None,
+    profile: DataProfile,
+) -> tuple[pd.DataFrame, FutureExogFile]:
+    """
+    Read the future exogenous variables from a CSV file, with what the
+    profile of the data says of them, and return them with the file the
+    generated script reads them from.
+
+    The file is read by `load_exog` with the date column, the series id
+    column, the format of the dates and the index type of the profile, as
+    the MCP server reads `exog_path`: the script then reads that same file,
+    by its path, with its dialect (see `FutureExogFile`). The rows of a file
+    of data without dates that has no column of positions are the steps of
+    the horizon in order: they are numbered from the position that follows
+    the last row of `data`, as the script numbers them.
+
+    Parameters
+    ----------
+    path : str, Path
+        Path of the CSV file.
+    data : pandas DataFrame, None
+        Data the forecaster is trained on, which numbers the rows of a file
+        of data without dates. If None, they keep the numbers of the file.
+    profile : DataProfile
+        Profiled dataset metadata.
+
+    Returns
+    -------
+    exog : pandas DataFrame
+        Future exogenous variables.
+    exog_file : FutureExogFile
+        File the script reads the future exogenous variables from.
+    """
+    from ._utils import load_exog
+
+    exog, exog_file = load_exog(
+                          path,
+                          date_column      = profile.date_column,
+                          series_id_column = profile.series_id_column,
+                          date_format      = profile.date_format,
+                          index_type       = profile.index_type,
+                      )
+    if exog_file.by_position and data is not None and len(data.index):
+        start = _next_position(data)
+        if start is not None:
+            exog.index = pd.RangeIndex(start, start + len(exog))
+
+    return exog, exog_file
+
+
+def _next_position(data: pd.DataFrame) -> int | None:
+    """
+    Return the position that follows the last row of data without dates,
+    where skforecast starts the forecast (`data.index[-1] + 1`, as the
+    generated script computes it), or None when the index of `data` does
+    not hold positions.
+    """
+    last = data.index[-1]
+    if not pd.api.types.is_integer_dtype(data.index) or isinstance(last, bool):
+        return None
+
+    return int(last) + 1
 
 
 def future_exog_file(
@@ -81,16 +148,16 @@ def future_exog_file(
     profile: DataProfile,
 ) -> FutureExogFile:
     """
-    Return the CSV file the generated script reads the future exogenous
-    variables from, and how it is written (see `FutureExogFile`).
+    Return the CSV file the generated script reads future exogenous
+    variables passed in memory from, and how it is written (see
+    `FutureExogFile`).
 
-    Future values read from a file by `load_exog` carry that file
-    (`exog.attrs['exog_file']`): the script reads the same path with its
-    separator, decimal mark, thousands separator, encoding and format of
-    the dates, as the data are read with the dialect of the profile. Any
-    other frame is read from `exog_future.csv`, the frame saved with
-    `to_csv()` (`','`, `'.'`, UTF-8), with the format of its own dates (see
-    `exog_date_format`).
+    A frame is read from `exog_future.csv`, the frame saved with `to_csv()`
+    (`','`, `'.'`, UTF-8), with the format of its own dates (see
+    `exog_date_format`). Future values given as the path of a file are read
+    from that path, with its dialect (see `read_future_exog`): the path is
+    the only channel of a file to the script, so a frame derived from one
+    read before is not taken for that file.
 
     Parameters
     ----------
@@ -107,11 +174,6 @@ def future_exog_file(
     """
     if exog is None:
         return FutureExogFile()
-    # Only a file read by `load_exog` reaches the script: a frame built by
-    # another tool may carry another value under that key.
-    exog_file = exog.attrs.get(EXOG_FILE_ATTR)
-    if isinstance(exog_file, FutureExogFile):
-        return exog_file
 
     return FutureExogFile(date_format=exog_date_format(exog, profile))
 
@@ -124,7 +186,7 @@ def exog_date_format(
     Return the format the generated script reads the dates of
     `exog_future.csv` with, for future exogenous variables passed in memory:
     that of the future exogenous variables, not that of the data (a file
-    read by `load_exog` carries its own, see `future_exog_file`).
+    read from its path carries its own, see `read_future_exog`).
 
     The text dates of the frame, in the
     `date_column` or in the index, which the executed code takes as that
@@ -243,6 +305,11 @@ def validate_future_exog(
       dropped by the generated code as before. In long format, the series
       and date columns, and every series the forecaster predicts, each with
       the dates that follow its last date (see `_check_long_dates`).
+    - Positions, for data without dates: the first `steps` rows in the
+      order of the index (a RangeIndex) at the positions that follow
+      the last row of the data, where skforecast starts the forecast (a
+      file without a column of positions is numbered so when it is read,
+      see `read_future_exog`).
     - Values in the rows to forecast (the first `steps` rows in the order
       of the index when the data has no dates on a grid): a numeric
       variable holds numbers; for an ML forecaster, which encodes the
@@ -301,6 +368,8 @@ def validate_future_exog(
             horizon, dates = _first_rows(
                                  injected, profile, plan.steps, date_format
                              )
+            if profile.index_type == "range":
+                _check_positions(injected, horizon, data, plan.steps)
             _check_values(
                 exog       = injected,
                 horizon    = horizon,
@@ -938,6 +1007,37 @@ def _first_rows(
         order = np.arange(len(exog))
 
     return order[:steps], dates
+
+
+def _check_positions(
+    exog: pd.DataFrame,
+    horizon: np.ndarray,
+    data: pd.DataFrame,
+    steps: int,
+) -> None:
+    """
+    Check that the first `steps` rows of the future values of data without
+    dates (`horizon`, positions in `exog` in the order of its index) are at
+    the positions that follow the last row of `data`, in a RangeIndex.
+    skforecast rejects others when it predicts, with an error of its own.
+    """
+    start = _next_position(data) if len(data.index) else None
+    if start is None:
+        return
+    found = exog.index[horizon]
+    expected = pd.RangeIndex(start, start + steps)
+    if (
+        not isinstance(exog.index, pd.RangeIndex)
+        or not np.array_equal(found.to_numpy(), expected.to_numpy())
+    ):
+        raise DataContentError(
+            f"`exog` must be indexed by the positions that follow the last row "
+            f"of the data (a RangeIndex), {start} to {start + steps - 1} for the "
+            f"{steps} steps of the horizon; its first rows are at "
+            f"{_shown(found.tolist())}. The data have no dates: the future "
+            f"values are one row per step of the horizon, in order.",
+            field = "exog",
+        )
 
 
 def _check_values(

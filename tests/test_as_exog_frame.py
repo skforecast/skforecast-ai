@@ -37,14 +37,15 @@ def test_as_exog_frame_InvalidInputTypeError_when_unnamed_series():
 )
 def test_as_exog_frame_InvalidInputTypeError_when_not_dataframe(exog, name):
     """
-    Test that a path or another type raises with the type it got, instead of
-    failing later with `AttributeError` (a path) or a message about the
-    number of rows (the length of a str).
+    Test that a path (read by `read_future_exog`, not here) or another type
+    raises with the type it got, instead of failing later with
+    `AttributeError` (a path) or a message about the number of rows (the
+    length of a str).
     """
     err_msg = re.escape(
         f"`exog` must be a pandas DataFrame with the future values of the "
-        f"exogenous variables, not {name}. Read a CSV file with "
-        f"pandas.read_csv first (the CLI reads it with --exog)."
+        f"exogenous variables, or the path of a CSV file with them, not "
+        f"{name}."
     )
     with pytest.raises(InvalidInputTypeError, match=err_msg):
         as_exog_frame(exog)

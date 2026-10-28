@@ -22,45 +22,27 @@ def test_future_exog_file_output_when_exog_is_None():
     assert future_exog_file(None, profile_day_first) == FutureExogFile()
 
 
-def test_future_exog_file_output_when_file_kept_in_attrs():
-    """
-    Test that the file `load_exog` keeps in `attrs`, with its path and its
-    dialect, is the one the script reads, whatever the frame holds now.
-    """
-    kept = FutureExogFile(
-        path        = "/data/futuro.csv",
-        sep         = ";",
-        decimal     = ",",
-        thousands   = ".",
-        encoding    = "cp1252",
-        date_format = "%d/%m/%Y",
-        date_column = "fecha",
-        blank_rows  = True,
-    )
-    exog = _EXOG.copy()
-    exog.attrs["exog_file"] = kept
-
-    assert future_exog_file(exog, profile_day_first) == kept
-
-
 @pytest.mark.parametrize(
     "attrs",
     [
         {},
+        {
+            "exog_file": FutureExogFile(
+                path="/data/futuro.csv", sep=";", decimal=",", encoding="cp1252"
+            )
+        },
         {"exog_file": "/data/futuro.csv"},
-        {"exog_file": {"path": "/data/futuro.csv", "sep": ";"}},
         {"encoding": "cp1252", "date_format": "%d/%m/%Y"},
     ],
-    ids=["no attrs", "path", "dict", "loose keys"],
+    ids=["no attrs", "FutureExogFile", "path", "loose keys"],
 )
-def test_future_exog_file_output_is_exog_future_csv_when_frame_not_read_by_load_exog(
-    attrs,
-):
+def test_future_exog_file_output_is_exog_future_csv_whatever_the_attrs(attrs):
     """
-    Test that a frame not read by `load_exog` is read from
-    `exog_future.csv`, which `to_csv()` writes with ',', '.' and UTF-8,
-    also when its `attrs` hold something else under the same key or the
-    keys of a frame read by another tool: they never reach the script.
+    Test that a frame is read from `exog_future.csv`, which `to_csv()` writes
+    with ',', '.' and UTF-8, whatever its `attrs` hold, a `FutureExogFile`
+    included: a file reaches the script only by its path (see
+    `read_future_exog`), so a frame derived from one read before is not
+    taken for that file.
     """
     exog = _EXOG.copy()
     exog.attrs.update(attrs)

@@ -621,9 +621,9 @@ def test_standalone_script_matches_forecast_when_long_format_future_exog_day_fir
     """
     Test that long-format data and future exogenous values written day
     first, whose horizon reads both ways ('01/04/2012' to '07/04/2012'), are
-    read in the order of the data by load_exog() and by the script run as a
-    file with that file as `exog_future.csv`, with the predictions of the
-    same files written in ISO 8601.
+    read in the order of the data by forecast() given the path of the file
+    and by the script run as a file, with the predictions of the same files
+    written in ISO 8601.
     """
     data = df_items_sales_long[df_items_sales_long["date"] <= "2012-03-31"].copy()
     data["promo"] = (data["date"].dt.day % 5 == 0).astype(float)
@@ -650,14 +650,9 @@ def test_standalone_script_matches_forecast_when_long_format_future_exog_day_fir
     }
 
     profile = assistant.profile(data=csv_path, **kwargs)
-    future = load_exog(
-        tmp_path / "exog_future.csv",
-        date_column      = "date",
-        series_id_column = "series",
-        date_format      = profile.data_profile.date_format,
-    )
     executed = assistant.forecast(
-        data=csv_path, steps=7, profile=profile, estimator="Ridge", exog=future
+        data=csv_path, steps=7, profile=profile, estimator="Ridge",
+        exog=tmp_path / "exog_future.csv",
     )
     expected = assistant.forecast(
         data=iso_path, steps=7, estimator="Ridge", exog=exog, **kwargs
@@ -684,8 +679,8 @@ def test_standalone_script_matches_forecast_when_day_first_data_and_future_exog(
 ):
     """
     Test that the future exogenous values of data written day first are read
-    with their own format, by load_exog() and by the script run as a file
-    with that file as `exog_future.csv`: in ISO 8601, as `to_csv()` of a
+    with their own format, by forecast() given the path of the file and by
+    the script run as a file: in ISO 8601, as `to_csv()` of a
     frame indexed by its dates writes them (no format), or day first like
     the data, whose seven dates read both ways and take the order of the
     data. The predictions are the same, those of the data written in ISO
@@ -710,13 +705,9 @@ def test_standalone_script_matches_forecast_when_day_first_data_and_future_exog(
     assistant = ForecastingAssistant()
 
     profile = assistant.profile(data=csv_path, target="y", date_column="date")
-    exog = load_exog(
-        tmp_path / "exog_future.csv",
-        date_column = "date",
-        date_format = profile.data_profile.date_format,
-    )
     executed = assistant.forecast(
-        data=csv_path, steps=7, profile=profile, estimator="Ridge", exog=exog
+        data=csv_path, steps=7, profile=profile, estimator="Ridge",
+        exog=tmp_path / "exog_future.csv",
     )
     expected = assistant.forecast(
         data=iso_path, target="y", date_column="date", steps=7,
@@ -992,6 +983,136 @@ def test_standalone_script_matches_forecast_when_in_memory_data_has_no_dates(
     # `_run_standalone` parses the index as dates; integers come back as
     # nanoseconds from the epoch.
     assert list(standalone.index.asi8) == list(executed.predictions.index)
+
+
+_x_range = np.cos(np.arange(_N_RANGE + 5))
+_w_range = np.round(np.sin(np.arange(_N_RANGE + 5) / 3), 3)
+_future_range = pd.DataFrame({"x": _x_range[_N_RANGE:], "w": _w_range[_N_RANGE:]})
+
+
+@pytest.mark.parametrize(
+    "data_source, exog_text",
+    [
+        ("path", _future_range.to_csv(index=False)),
+        ("path", _future_range.set_axis(range(_N_RANGE, _N_RANGE + 5)).to_csv()),
+        (
+            "path",
+            _future_range.to_csv(index=False, sep=";", decimal=",") + ";\n;\n",
+        ),
+        ("in memory", _future_range.to_csv(index=False)),
+    ],
+    ids=["by position", "positions", "by position, dialect and blank rows",
+         "data in memory with an offset"],
+)
+def test_standalone_script_matches_forecast_when_no_dates_and_future_exog_file(
+    tmp_path, data_source, exog_text
+):
+    """
+    Test that data without dates (a RangeIndex) forecast the future with
+    the path of a file of future values: its rows are the steps of the
+    horizon in order, numbered from the position after the last row of the
+    data (also when the data in memory start at 50), or by the column of
+    positions that `to_csv()` writes. forecast() gives the predictions of
+    the same values passed as a frame indexed by those positions, and the
+    script, which reads the file by its path, gives them too run as a file
+    in another directory. Before, load_exog took the first column as dates
+    and the forecast failed.
+    """
+    data = pd.DataFrame(
+        {"y": _y_range, "x": _x_range[:_N_RANGE], "w": _w_range[:_N_RANGE]}
+    )
+    start = _N_RANGE
+    if data_source == "path":
+        data_arg = tmp_path / "data.csv"
+        data.to_csv(data_arg, index=False)
+    else:
+        data_arg = data.set_axis(pd.RangeIndex(50, 50 + _N_RANGE))
+        start = 50 + _N_RANGE
+    exog_path = tmp_path / "futuro.csv"
+    exog_path.write_text(exog_text)
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    assistant = ForecastingAssistant()
+
+    executed = assistant.forecast(
+        data=data_arg, target="y", steps=5, estimator="Ridge", exog=exog_path
+    )
+    expected = assistant.forecast(
+        data=data_arg, target="y", steps=5, estimator="Ridge",
+        exog=_future_range.set_axis(pd.RangeIndex(start, start + 5)),
+    )
+
+    pd.testing.assert_frame_equal(executed.predictions, expected.predictions)
+    assert list(executed.predictions.index) == list(range(start, start + 5))
+    assert f"pd.read_csv({str(exog_path)!r}" in executed.code
+    if data_source == "in memory":
+        data_arg.to_csv(run_dir / "data.csv")
+    standalone = _run_standalone(executed.code, run_dir)
+    np.testing.assert_allclose(
+        standalone["pred"].to_numpy(), executed.predictions["pred"].to_numpy(),
+        rtol=1e-6,
+    )
+    # `_run_standalone` parses the index as dates; integers come back as
+    # nanoseconds from the epoch.
+    assert list(standalone.index.asi8) == list(executed.predictions.index)
+
+
+@pytest.mark.parametrize(
+    "exog_text",
+    [
+        "fecha,promo\n01/03/2020,0.0\n02/03/2020,1.0\n03/03/2020,0.0\n",
+        ",fecha,promo\n0,01/03/2020,0.0\n1,02/03/2020,1.0\n2,03/03/2020,0.0\n",
+        "fecha,promo\n20200301,0.0\n20200302,1.0\n20200303,0.0\n",
+    ],
+    ids=["day first", "day first after row numbers", "integer dates"],
+)
+def test_standalone_script_matches_forecast_when_dates_in_index_and_future_exog_file(
+    tmp_path, exog_text
+):
+    """
+    Test that data in memory dated by their index (no date column) forecast
+    the future with the path of a file of future values whose dates the
+    script cannot guess (day first and reading both ways, after a column of
+    row numbers, or whole numbers): forecast() reads them as load_exog()
+    does, and the script reads the column of the dates by its name and in
+    their format, so run as a file it gives the same predictions, those of
+    the same values passed as a frame.
+    """
+    data = _daily.set_index("date").assign(
+        promo=(np.arange(60) % 7 == 5).astype(float)
+    )
+    exog_path = tmp_path / "futuro.csv"
+    exog_path.write_text(exog_text)
+    future = pd.DataFrame(
+        {"promo": [0.0, 1.0, 0.0]},
+        index=pd.date_range("2020-03-01", periods=3, freq="D", name="date"),
+    )
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    assistant = ForecastingAssistant()
+
+    profile = assistant.profile(data=data, target="y")
+    if "/" in exog_text:
+        # Seven days or fewer read both ways: the order of regular dates.
+        with pytest.warns(UserWarning, match="regular frequency"):
+            executed = assistant.forecast(
+                data=data, profile=profile, steps=3, estimator="Ridge",
+                exog=exog_path,
+            )
+    else:
+        executed = assistant.forecast(
+            data=data, profile=profile, steps=3, estimator="Ridge", exog=exog_path
+        )
+    expected = assistant.forecast(
+        data=data, profile=profile, steps=3, estimator="Ridge", exog=future
+    )
+    data.to_csv(run_dir / "data.csv")
+
+    pd.testing.assert_frame_equal(executed.predictions, expected.predictions)
+    assert "index_col='fecha'" in executed.code
+    _assert_same_predictions(
+        _run_standalone(executed.code, run_dir), executed.predictions
+    )
 
 
 def test_standalone_scripts_match_forecast_and_backtest_when_metric_override(
@@ -1715,17 +1836,17 @@ def test_standalone_script_matches_forecast_when_csv_and_future_exog_are_cp1252(
 
     profile = assistant.profile(data=csv_path, target="año")
     with pytest.warns(UserWarning, match="it was read as cp1252"):
-        exog = load_exog(
+        executed = assistant.forecast(
+            data=csv_path, steps=10, profile=profile, estimator="Ridge",
+            exog=tmp_path / "exog_future.csv",
+        )
+    # The same future values read by hand, passed as a frame.
+    with pytest.warns(UserWarning, match="it was read as cp1252"):
+        future, _ = load_exog(
             tmp_path / "exog_future.csv",
             date_column = "fecha",
             date_format = profile.data_profile.date_format,
         )
-    executed = assistant.forecast(
-        data=csv_path, steps=10, profile=profile, estimator="Ridge", exog=exog
-    )
-    # The same future values as a frame not read from a file.
-    future = exog.copy()
-    future.attrs = {}
     expected = assistant.forecast(
         data=utf8_path, target="año", steps=10, estimator="Ridge", exog=future
     )
@@ -1754,11 +1875,12 @@ def test_standalone_script_matches_forecast_when_future_exog_file_from_excel_es(
     """
     Test that data and future values saved by the Excel in Spanish (cp1252,
     ';', ',' as decimal mark, '.' between thousands, dates day first, and
-    rows made only of separators at the end of the future values) read by
-    load_exog() give a script that reads that same file by its path, with
-    its whole dialect, and not `exog_future.csv`: run as a file in another
-    directory, it gives the predictions of forecast(), which are those of
-    the same values passed in memory.
+    rows made only of separators at the end of the future values) given to
+    forecast() as the path of the file give a script that reads that same
+    file by its path, with its whole dialect, and not `exog_future.csv`: run
+    as a file in another directory, it gives the predictions of forecast(),
+    which are those of the same values read by hand with load_exog() and
+    passed in memory.
     """
     data_dir = tmp_path / "datos"
     data_dir.mkdir()
@@ -1774,17 +1896,16 @@ def test_standalone_script_matches_forecast_when_future_exog_file_from_excel_es(
         # The note on cp1252 is tested with profile() and load_exog().
         warnings.simplefilter("ignore", UserWarning)
         profile = assistant.profile(data=csv_path, target="año")
-        exog = load_exog(
+        executed = assistant.forecast(
+            data=csv_path, steps=10, profile=profile, estimator="Ridge",
+            exog=exog_path,
+        )
+        # The same future values read by hand, passed as a frame.
+        future, _ = load_exog(
             exog_path,
             date_column = profile.data_profile.date_column,
             date_format = profile.data_profile.date_format,
         )
-        executed = assistant.forecast(
-            data=csv_path, steps=10, profile=profile, estimator="Ridge", exog=exog
-        )
-    # The same future values as a frame not read from a file.
-    future = exog.copy()
-    future.attrs = {}
     in_memory = assistant.forecast(
         data=csv_path, steps=10, profile=profile, estimator="Ridge", exog=future
     )
@@ -1840,14 +1961,8 @@ def test_standalone_script_matches_forecast_when_future_exog_file_long_format(
     kwargs = {"target": "y", "date_column": "date", "series_id_column": "store"}
 
     profile = assistant.profile(data=csv_path, **kwargs)
-    exog = load_exog(
-        exog_path,
-        date_column      = "date",
-        series_id_column = "store",
-        date_format      = profile.data_profile.date_format,
-    )
     executed = assistant.forecast(
-        data=csv_path, steps=3, profile=profile, estimator="Ridge", exog=exog
+        data=csv_path, steps=3, profile=profile, estimator="Ridge", exog=exog_path
     )
 
     assert (

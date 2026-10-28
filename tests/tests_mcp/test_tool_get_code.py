@@ -7,6 +7,7 @@ from importlib.metadata import version
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai.mcp import create_server, server as server_module
@@ -21,10 +22,12 @@ from ..fixtures_csv_dialect import (
 from .fixtures_mcp import (
     call,
     content_of,
+    csv_of,
     error_of,
     h2o_server,
     profile_and_plan,
     run_session,
+    text_of,
 )
 
 
@@ -192,4 +195,94 @@ def test_tool_get_code_end_to_end_when_forecast_with_exog_path_from_excel_es(
     assert list(standalone.index) == list(expected.index)
     np.testing.assert_allclose(
         standalone["pred"].to_numpy(), expected["pred"].to_numpy(), rtol=1e-6
+    )
+
+
+@pytest.mark.parametrize(
+    "with_positions", [False, True], ids=["by position", "column of positions"]
+)
+def test_tool_get_code_end_to_end_when_data_without_dates_and_exog_path(
+    tmp_path, with_positions
+):
+    """
+    Test the session of data without dates (a CSV file without a date
+    column) and future values read from `exog_path`: `profile`, `plan`,
+    `forecast` and `get_code`. The rows of the file are the steps of the
+    horizon in order, numbered after the last row of the data, or by the
+    column of positions that `to_csv()` writes. `forecast` gives the
+    predictions of the Python API with the same values as a frame, and the
+    script, which reads the file by its path, gives them too run as it is
+    in another directory. Before, the library took the first column as the
+    dates of the file and failed.
+    """
+    n = 60
+    data = pd.DataFrame(
+        {
+            "y": np.round(10.0 + np.sin(np.arange(n) / 4), 4),
+            "x": np.round(np.cos(np.arange(n)), 4),
+        }
+    )
+    future = pd.DataFrame({"x": np.round(np.cos(np.arange(n, n + 5)), 4)})
+    path = tmp_path / "datos.csv"
+    data.to_csv(path, index=False)
+    exog_path = tmp_path / "futuro.csv"
+    if with_positions:
+        future.set_axis(range(n, n + 5)).to_csv(exog_path)
+    else:
+        future.to_csv(exog_path, index=False)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    async def steps(client):
+        profile = content_of(
+            await client.call_tool("profile", {"data_path": str(path), "target": "y"})
+        )
+        plan = content_of(
+            await client.call_tool(
+                "plan",
+                {"profile_id": profile["id"], "steps": 5, "estimator": "Ridge"},
+            )
+        )
+        forecast = content_of(
+            await client.call_tool(
+                "forecast", {"plan_id": plan["id"], "exog_path": str(exog_path)}
+            )
+        )
+        code = content_of(
+            await client.call_tool("get_code", {"object_id": forecast["id"]})
+        )
+        return forecast, code
+
+    forecast, code = run_session(server, steps)
+    assistant = ForecastingAssistant()
+    expected = assistant.forecast(
+        data      = path,
+        target    = "y",
+        steps     = 5,
+        estimator = "Ridge",
+        exog      = future.set_axis(pd.RangeIndex(n, n + 5)),
+    )
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    script = run_dir / "script.py"
+    script.write_text(code["code"])
+    wrapper = run_dir / "run.py"
+    wrapper.write_text(textwrap.dedent(f"""
+        import runpy
+        import pandas as pd
+        namespace = runpy.run_path({str(script)!r})
+        pd.DataFrame(namespace["predictions"]).to_csv("predictions.csv")
+    """))
+    proc = subprocess.run(
+        [sys.executable, str(wrapper)],
+        cwd=run_dir, capture_output=True, text=True, timeout=600,
+    )
+
+    assert text_of(forecast["files"]["predictions"]) == csv_of(expected.predictions)
+    assert f"exog_future = pd.read_csv({str(exog_path)!r}" in code["code"]
+    assert proc.returncode == 0, proc.stderr[-3000:]
+    standalone = pd.read_csv(run_dir / "predictions.csv", index_col=0)
+    assert list(standalone.index) == list(range(n, n + 5))
+    np.testing.assert_allclose(
+        standalone["pred"].to_numpy(), expected.predictions["pred"].to_numpy(),
+        rtol=1e-6,
     )

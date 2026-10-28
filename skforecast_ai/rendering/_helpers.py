@@ -485,7 +485,13 @@ def _emit_data_loading(
     index, and for data passed in memory (the placeholder `data_path`,
     the frame saved with `to_csv()`). Without dates, the integer index
     read is then turned into a RangeIndex, which skforecast requires. A
-    CSV read by path without dates holds no index, so it is read as is.
+    CSV read by path without dates holds no index, so it is read as is; so
+    is a file of future values of data without dates whose rows follow the
+    data by position (`FutureExogFile.by_position`), numbered then from the
+    position after the last row of the data. Future values read from a file
+    for data dated by their index are read from the column of their dates
+    (`FutureExogFile.date_column`), in their format. Rows of that file made
+    only of separators are dropped (`FutureExogFile.blank_rows`).
 
     A file written with another separator than `','` or with `','` as
     decimal mark is read with its `sep` and `decimal`, and with its
@@ -556,12 +562,19 @@ def _emit_data_loading(
         sep, decimal = profile.csv_sep, profile.csv_decimal
         thousands, encoding = profile.csv_thousands, profile.csv_encoding
     dialect = ""
+    # Future values of a file whose dates are its index for the data (data
+    # dated by their index, without a date column) are read from the column
+    # of their dates, in their format.
+    index_dates = (
+        exog_file is not None and not date_col and exog_file.date_column is not None
+        and profile.index_type == "datetime"
+    )
     text_columns = [profile.series_id_column]
     if (sep, decimal) != (",", "."):
         dialect = f", sep={sep!r}, decimal={decimal!r}"
         if thousands is not None:
             dialect += f", thousands={thousands!r}"
-            text_columns.append(date_col)
+            text_columns.append(exog_file.date_column if index_dates else date_col)
     if encoding != "utf-8":
         dialect += f", encoding={encoding!r}"
 
@@ -572,14 +585,39 @@ def _emit_data_loading(
         dtypes = ", ".join(f"{column!r}: str" for column in text_columns)
         dialect += f", dtype={{{dtypes}}}"
 
+    # Rows of a file of future values made only of separators, dropped
+    # before the rows are numbered.
+    blank_rows = (
+        [f"{var} = {var}.dropna(how='all')"]
+        if exog_file is not None and exog_file.blank_rows else []
+    )
+    by_position = exog_file is not None and exog_file.by_position
     lines.append(comment)
-    if long_format or not index_read:
+    if long_format or not index_read or by_position:
         lines.append(f"{var} = pd.read_csv({repr(data_path)}{dialect})")
+        lines.extend(blank_rows)
+        if by_position:
+            # The rows of the file are the steps of the horizon, in order:
+            # they follow the last row of the data, where skforecast starts
+            # the forecast.
+            lines.append(
+                f"{var}.index = pd.RangeIndex(data.index[-1] + 1, "
+                f"data.index[-1] + 1 + len({var}))"
+            )
     else:
+        index_col = "0"
+        if index_dates and exog_file.date_column != "Unnamed: 0":
+            index_col = repr(exog_file.date_column)
+        if index_dates and exog_file.date_format is not None:
+            dialect += f", date_format={exog_file.date_format!r}"
+        # The positions of data without dates are read as they are: pandas
+        # warns that it cannot read them as dates.
+        parse_dates = ", parse_dates=True" if profile.index_type != "range" else ""
         lines.append(
             f"{var} = pd.read_csv({repr(data_path)}{dialect}, "
-            f"index_col=0, parse_dates=True)"
+            f"index_col={index_col}{parse_dates})"
         )
+        lines.extend(blank_rows)
         if profile.index_type == "range":
             # A row index saved with `to_csv()` is read back as integers,
             # which skforecast rejects: it needs a RangeIndex, from the
@@ -821,35 +859,15 @@ def _emit_future_exog_loading(
     variable is injected directly into the namespace. The file is the one
     the future values were read from, with its own dialect, or
     `exog_future.csv` for a frame passed in memory (see
-    `future_exog_file`). The script then drops the rows of the file made
-    only of separators and names its date column as the one of the data,
-    when it has to, as the file was read (see `load_exog`).
+    `future_exog_file`), read as the file was read (see `load_exog`).
     """
-    exog_file = FutureExogFile() if exog_file is None else exog_file
     _emit_data_loading(
         lines,
         profile,
         var       = "exog_future",
-        exog_file = exog_file,
+        exog_file = FutureExogFile() if exog_file is None else exog_file,
         comment   = "# Load future exogenous variables covering the forecast horizon",
     )
-    date_col = profile.date_column
-    rename = (
-        date_col is not None
-        and exog_file.date_column is not None
-        and exog_file.date_column != date_col
-    )
-    if exog_file.blank_rows or rename:
-        # Before the blank line that closes the loading section.
-        lines.pop()
-        if exog_file.blank_rows:
-            lines.append("exog_future = exog_future.dropna(how='all')")
-        if rename:
-            lines.append(
-                f"exog_future = exog_future.rename(columns="
-                f"{{{exog_file.date_column!r}: {date_col!r}}})"
-            )
-        lines.append("")
 
 
 def _emit_future_exog_index_setup(

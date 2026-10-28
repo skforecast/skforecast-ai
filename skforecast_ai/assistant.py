@@ -168,6 +168,7 @@ from ._foundation import foundation_exog_columns, validate_foundation_plan
 from ._future_exog import (
     as_exog_frame,
     future_exog_file,
+    read_future_exog,
     used_exog_columns,
     validate_future_exog,
 )
@@ -222,6 +223,7 @@ from ._utils import (
     recorded_data_path,
     structure_differences,
     check_backtest_cost,
+    check_exog_covers_horizon,
     check_comparison_cost,
 )
 
@@ -2217,7 +2219,7 @@ class ForecastingAssistant:
         target: str | list[str] | None = None,
         date_column: str | None = None,
         series_id_column: str | None = None,
-        exog: pd.DataFrame | pd.Series | None = None,
+        exog: pd.DataFrame | pd.Series | str | Path | None = None,
         interval: list[float] | None = None,
         test_size: int | float | str | pd.Timestamp | None = None,
         forecaster: str | None = None,
@@ -2286,17 +2288,18 @@ class ForecastingAssistant:
             single-series or wide-format multi-series.
             When `profile` is provided, defaults to the value recorded in
             the profile and must match it if given.
-        exog : pandas DataFrame, pandas Series, default None
-            Future exogenous variables covering the forecast horizon.
-            Mirrors `forecast()` for signature consistency. Because this
-            method only generates code (the rendered prediction-mode
-            script loads the future values from `'exog_future.csv'` at run
-            time, or from the CSV file they were read from by `--exog` of
-            the CLI or `exog_path` of the MCP server, by its path and with
-            its dialect), `exog` is optional here and is used only to
-            validate the inputs and to tell which file the script reads: it
-            must not be combined with `test_size`, and it must not be
-            supplied when the data has no exogenous columns.
+        exog : pandas DataFrame, pandas Series, str, Path, default None
+            Future exogenous variables covering the forecast horizon, in
+            memory or as the path of a CSV file, as in `forecast()`.
+            Because this method only generates code, `exog` is optional
+            here and is used only to validate the inputs and to tell which
+            file the script reads: the path of a file, which the script
+            reads by that path with its separator, decimal mark, thousands
+            separator, encoding and format of the dates (read from the file
+            here, as `forecast()` reads it), or `'exog_future.csv'` for
+            values in memory and when `exog` is None. It must not be
+            combined with `test_size`, and it must not be supplied when the
+            data has no exogenous columns.
             Unlike `forecast()`, its dates and values are not checked, nor
             are the last values of the target: the script reads them when
             it runs.
@@ -2450,7 +2453,17 @@ class ForecastingAssistant:
         # dates, which need not be those of the data.
         exog_file = None
         if plan.end_train is None and used_exog_columns(plan, profile.data_profile):
-            exog_file = future_exog_file(as_exog_frame(exog), profile.data_profile)
+            if isinstance(exog, (str, Path)):
+                # Read for how it is written; its values are not checked.
+                _, exog_file = read_future_exog(
+                                   path    = exog,
+                                   data    = None,
+                                   profile = profile.data_profile,
+                               )
+            else:
+                exog_file = future_exog_file(
+                                as_exog_frame(exog), profile.data_profile
+                            )
         code = render_forecast_script(
                    profile   = profile.data_profile,
                    plan      = plan,
@@ -2470,7 +2483,7 @@ class ForecastingAssistant:
         target: str | list[str] | None = None,
         date_column: str | None = None,
         series_id_column: str | None = None,
-        exog: pd.DataFrame | pd.Series | None = None,
+        exog: pd.DataFrame | pd.Series | str | Path | None = None,
         interval: list[float] | None = None,
         test_size: int | float | str | pd.Timestamp | None = None,
         forecaster: str | None = None,
@@ -2555,16 +2568,33 @@ class ForecastingAssistant:
             single-series or wide-format multi-series.
             When `profile` is provided, defaults to the value recorded in
             the profile and must match it if given.
-        exog : pandas DataFrame, pandas Series, default None
+        exog : pandas DataFrame, pandas Series, str, Path, default None
             Future exogenous variables covering the forecast horizon: a
             row for each of the `steps` dates that follow the last date of
             the data (in long format, for each series, with the series id
             column), indexed or keyed by date as the data. A named pandas
-            Series is one variable. Used only in prediction mode
-            (`test_size=None`) and required there when the plan uses
-            exogenous variables. Must not be combined with `test_size`:
-            in evaluation mode the test-set exogenous values are taken
-            from the split. Its columns, dates and values are checked
+            Series is one variable. Data without dates (a RangeIndex) take
+            a row for each step, indexed by the positions that follow the
+            last row of the data.
+
+            A str or Path is a CSV file with them, read as the data are
+            read (its separator, decimal mark, thousands separator and
+            encoding are detected) with what the profile says of the data:
+            the dates in the date column of the data, the series ids in its
+            series id column, and dates whose day and month read in both
+            orders in the order of the data. The generated script reads
+            that same file by its path, with how it is written; values in
+            memory are read by the script from `'exog_future.csv'`. In a
+            file for data without dates, the rows are the steps of the
+            horizon in order; a first column without a name (the index
+            that `to_csv()` writes) holds their positions, which must
+            follow the last row of the data.
+
+            Used only in prediction mode (`test_size=None`) and required
+            there when the plan uses exogenous variables. Must not be
+            combined with `test_size`: in evaluation mode the test-set
+            exogenous values are taken from the split. Its columns, dates
+            (or positions) and values are checked
             before running: a missing date raises `InvalidInputError`, and
             a new category or a missing value raises when the estimator
             does not tolerate missing values and gives a warning when it
@@ -2691,7 +2721,10 @@ class ForecastingAssistant:
         script (`ForecastResult.code`) and the actual execution.
         """
 
-        exog = as_exog_frame(exog)
+        # A path is read once the profile of the data is known, which says
+        # how (its date column, the order of its dates).
+        exog_path = exog if isinstance(exog, (str, Path)) else None
+        exog = exog if exog_path is not None else as_exog_frame(exog)
         data_df, target, date_column, series_id_column = (
             _resolve_inputs_with_profile(
                 data, target, date_column, series_id_column, profile
@@ -2746,8 +2779,20 @@ class ForecastingAssistant:
             # The future values are read from their own file, with its
             # dialect and the format of its dates, not those of the data: a
             # file saved with `to_csv()` has ISO 8601 dates.
+            if exog_path is not None:
+                exog, read_file = read_future_exog(
+                                      path    = exog_path,
+                                      data    = data_df,
+                                      profile = profile.data_profile,
+                                  )
+                check_exog_covers_horizon(exog, plan.steps)
+            else:
+                read_file = None
             if used_exog_columns(plan, profile.data_profile):
-                exog_file = future_exog_file(exog, profile.data_profile)
+                exog_file = (
+                    read_file if read_file is not None
+                    else future_exog_file(exog, profile.data_profile)
+                )
             validate_future_exog(
                 exog      = exog,
                 data      = data_df,

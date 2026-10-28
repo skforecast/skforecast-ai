@@ -375,13 +375,13 @@ pequeños; se pueden agrupar en dos o tres PR.
   range) con exógenas futuras desde fichero fallan en la librería:
   `load_exog` toma la primera columna como índice (pregunta 6 de
   [#99](https://github.com/skforecast/skforecast-ai/pull/99), anterior a
-  ella).
+  ella). Lo de los datos sin fechas, hecho en la 5d (D?).
 - **`forecast()` y `forecast_code()` con una ruta en `exog`**, leída con
   `load_exog` (el perfil da la columna de fechas, los ids y el orden de las
   fechas). Hoy solo aceptan un DataFrame o una Series, y el fichero llega al
   script por `exog.attrs['exog_file']`, que pandas arrastra a los frames
   derivados; una ruta sería el canal explícito (preguntas 1 y 5 de #99).
-  *[API]*
+  *[API]* Hecho en la 5d (D?).
 - **Dependencias opcionales**: `missing_dependency` de XGBoost o CatBoost
   llega sin `hint` ni `details` (V02: el mismo contrato que los modelos
   fundacionales, con `pip install` y el `--with` de `uvx`); un `compare` por
@@ -430,7 +430,8 @@ pequeños; se pueden agrupar en dos o tres PR.
   D30): no tiene `extra='forbid'`, así que una clave que el modelo invente
   (`min_periods`) se descarta sin aviso. Cerrado, pydantic-ai le devuelve el
   error y reintenta, como con `lags`. Cambia el esquema de salida que ve el
-  modelo: entra en el chequeo de pago de la fase 7. *[LLM]*
+  modelo: entra en el chequeo de pago de la fase 7. *[LLM]* Hecho en la 5d
+  (D?).
 - **pydantic-ai 2.62** (de la revisión de #121): la suite pasa entera salvo
   `test_plan_refinement_agent_reasks_model_when_lags_invalid`, que fija la
   forma del reintento. pydantic-ai 2.62 devuelve el error como
@@ -441,7 +442,8 @@ pequeños; se pueden agrupar en dos o tres PR.
   [#122](https://github.com/skforecast/skforecast-ai/pull/122). 2.62 imprime además un banner de Logfire una vez por
   proceso, por stderr (no rompe el stdio del MCP; no sale bajo pytest ni
   en CI): opcional apagarlo con `pydantic_ai.BANNER_ENABLED = False` en el
-  servidor MCP y la CLI.
+  servidor MCP y la CLI. No se hace en la 5d (D?): ni el servidor ni la CLI importan
+  pydantic-ai.
 
 ## Fase 6. Descripciones de las herramientas y SKILL.md
 
@@ -1712,6 +1714,61 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     series que faltan en algunos folds (el de la exógena sigue como
     `UserWarning`); las categorías por fold se descartan; `'Strategy plan'`
     queda reservado siempre, también con un `TimeSeriesFold`.
+
+- **D?. 5d: `exog` como ruta, datos sin fechas con exógenas desde fichero y
+  el `WindowFeature` del LLM** (2026-10-28). Preguntas 1, 5 y 6 de #99 y
+  la pregunta de D30:
+  - `forecast()` y `forecast_code()` aceptan en `exog` una ruta (`str` o
+    `Path`), leída con `load_exog` con lo que da el perfil de los datos que
+    corren (columna de fechas, ids, `date_format` e `index_type`), como el
+    MCP. La ruta se lee después de `_prepare_forecast` (el modo y si hace
+    falta `exog` se comprueban antes de leer el fichero); las filas se
+    cuentan una vez leído. `forecast_code()` lee el fichero solo para saber
+    cómo está escrito; no comprueba sus valores, como con un DataFrame.
+  - La ruta es el único canal del fichero al script: `attrs['exog_file']`
+    desaparece. `load_exog` devuelve `(exog, FutureExogFile)` y
+    `future_exog_file` da siempre `exog_future.csv` para un DataFrame, lleve
+    lo que lleve en `attrs` (un frame derivado de uno leído no se toma por
+    ese fichero; pregunta 5 de #99). La CLI (`forecast --exog`,
+    `forecast-code --exog`) y el MCP (`exog_path`) pasan la ruta a la
+    librería; `_data_date_format` de la CLI sobra (el perfil refrescado da el
+    formato del fichero que corre).
+  - Con la columna de fechas del perfil, como el MCP, la CLI sin
+    `--date-column` ya no acepta un fichero cuyas fechas se llaman de otra
+    forma (`fecha` para `date`): error con sus columnas, línea en "Before
+    upgrading". El `rename` del preámbulo (D10, pregunta 3 de #99) deja de
+    ser alcanzable y se quita (pregunta en la PR).
+  - Datos con fechas en el índice y sin `date_column` (un DataFrame en
+    memoria), posibles ahora con una ruta: el script lee el fichero con
+    `index_col` por el nombre de su columna de fechas (`0` si no tiene
+    nombre) y con `date_format=` cuando el fichero tiene formato.
+  - Datos sin fechas (`index_type` range, pregunta 6 de #99): no se buscan
+    fechas en el fichero. Sus filas son los pasos del horizonte en orden
+    (`FutureExogFile.by_position`) y se numeran desde la posición que sigue
+    a la última fila de los datos (`data.index[-1] + 1`, en la librería y en
+    el script), como los datos por ruta sin fechas, que se leen tal cual.
+    Una primera columna sin nombre (el índice de `to_csv()`, o una cabecera
+    con un campo menos) son sus posiciones: deben ser enteros consecutivos
+    (si no, `DataContentError`) y el script las lee con `index_col=0`, como
+    `exog_future.csv`. `validate_future_exog` comprueba, también para un
+    DataFrame, que las primeras `steps` filas están en las posiciones que
+    siguen a los datos, en un RangeIndex (antes, `ForecastExecutionError`
+    de skforecast). Una columna de posiciones con nombre (`step`) es una
+    variable más (pregunta en la PR).
+  - Los scripts de datos sin fechas leen las posiciones sin
+    `parse_dates=True` (pandas avisaba de que no infería formato al
+    ejecutar el script): cambian los de datos en memoria sin fechas, con
+    las mismas predicciones.
+  - El `WindowFeature` que devuelve el LLM tiene `extra='forbid'`: el
+    esquema de salida que ve el modelo añade `additionalProperties: false`
+    (el comentario va en código, no en el docstring, que es la descripción
+    del esquema). Ningún golden de contexto cambia; el chequeo de pago de
+    `check_ask_context.py` queda para la fase 7. `WindowFeatureArgs` del MCP
+    (lo que escribe el usuario, cerrado en #121) no cambia.
+  - Banner de pydantic-ai 2.62: no se apaga. El servidor no importa
+    pydantic-ai (su asistente no tiene LLM) y la CLI solo lo carga en
+    `llm/agent.py` al crear un agente; ponerlo ahí lo apagaría también a
+    quien usa la API de Python (pregunta en la PR).
 
 ## Decisiones abiertas
 
