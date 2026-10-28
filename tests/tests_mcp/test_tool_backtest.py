@@ -254,8 +254,9 @@ def test_tool_backtest_missing_dependency_of_a_foundation_model(
     """
     Test that backtesting a ForecasterFoundation plan whose backend is not
     installed is `missing_dependency` before any script runs (it was
-    `execution_failed` after the script failed), with one install advice;
-    `forecast` checks the same.
+    `execution_failed` after the script failed), with one install advice,
+    on `cv_id`, the argument that named the plan; with `plan_id`, on
+    `plan_id`. `forecast` checks the same.
     """
     monkeypatch.setattr(
         "skforecast_ai._foundation.foundation_backend_installed", lambda info: False
@@ -264,15 +265,19 @@ def test_tool_backtest_missing_dependency_of_a_foundation_model(
     _, plan_id, cv_id = cv_of(server, path, forecaster="ForecasterFoundation")
 
     error = error_of(call(server, "backtest", {"cv_id": cv_id}), "backtest")
+    with_plan = error_of(
+        call(server, "backtest", {"cv_id": cv_id, "plan_id": plan_id}), "backtest"
+    )
     forecast = error_of(call(server, "forecast", {"plan_id": plan_id}), "forecast")
 
+    assert with_plan == {**error, "field": "plan_id"}
     assert error == {
         "code": "missing_dependency",
         "message": (
             "'autogluon/chronos-2-small' needs the 'chronos-forecasting' package, "
             "which is not installed where the server runs. Nothing was run."
         ),
-        "field": "plan_id",
+        "field": "cv_id",
         "hint": (
             'Ask the user to install it where the server runs and to restart the '
             'server: `pip install "chronos-forecasting"` in its Python '
@@ -293,8 +298,9 @@ def test_tool_backtest_missing_dependency_of_an_estimator(tmp_path, monkeypatch)
     is `missing_dependency` before any script runs, with the contract of a
     foundation model without its backend (V02): the install advice for pip
     and for uvx with the restart, `details` with the estimator and the
-    package, and the argument that names the plan as `field` (`plan_id`, an
-    argument of `backtest`, not `estimator`).
+    package, and the argument that named the plan as `field` (`cv_id`, or
+    `plan_id` when it is passed; not `estimator`, which is no argument of
+    `backtest`).
     """
     patch_find_spec(monkeypatch, missing=["xgboost"])
     server, path = h2o_server(tmp_path)
@@ -305,13 +311,14 @@ def test_tool_backtest_missing_dependency_of_an_estimator(tmp_path, monkeypatch)
         call(server, "backtest", {"cv_id": cv_id, "plan_id": plan_id}), "backtest"
     )
 
-    assert error == with_plan == {
+    assert with_plan == {**error, "field": "plan_id"}
+    assert error == {
         "code": "missing_dependency",
         "message": (
             "XGBRegressor needs the 'xgboost' package, which is not installed "
             "where the server runs. Nothing was run."
         ),
-        "field": "plan_id",
+        "field": "cv_id",
         "hint": (
             'Ask the user to install it where the server runs and to restart the '
             'server: `pip install "xgboost"` in its Python environment, or '

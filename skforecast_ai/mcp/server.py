@@ -814,9 +814,9 @@ def _missing_dependency_notices(
         category = "MissingDependencyNotice",
         message  = (
             f"{missing_package_message(plan.estimator, package)} where the "
-            f"server runs: `backtest`, `forecast` and `compare` with this "
-            f"plan fail with `missing_dependency` until it is. "
-            f"{install_advice(package)}"
+            f"server runs: until it is, `backtest` and `forecast` with this "
+            f"plan fail with `missing_dependency`, and its row of `compare` "
+            f"fails and is ranked last. {install_advice(package)}"
         ),
         count    = 1,
     )
@@ -2867,7 +2867,8 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                     details = {"plan_id": plan_id, "cv_id": cv_id},
                 )
             backtested, plan_link = plan_entry.obj, plan_entry.id
-        _run_plan_locally(backtested, "plan_id")
+        # The argument that named the plan: the strategy names its own.
+        _run_plan_locally(backtested, "plan_id" if plan_id is not None else "cv_id")
 
         def work(control: CallControl):
             from .._utils import cost_remedies

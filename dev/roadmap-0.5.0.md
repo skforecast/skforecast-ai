@@ -1748,17 +1748,20 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     `backtest()` que construyen el plan ellos mismos lo silencian (el error
     llega justo después), y también la construcción de los candidatos de
     `compare()` (el candidato falla con su motivo). Un plan fundacional sin
-    backend no avisa en `plan()` (pregunta en la PR).
+    backend no avisa en `plan()`: solo falla al ejecutarse.
   - V02, servidor: `_run_plan_locally` lanza `missing_dependency` con el
     contrato del fundacional (`missing_dependency_error` e
     `install_advice` en `mcp/_foundation.py`, compartidos): "... which is
     not installed where the server runs. Nothing was run.", `hint` con
     `pip install` y el `--with` de uvx y el reinicio, `details`
-    `{estimator, package}` y `field` `plan_id` en `backtest` (también sin
-    `plan_id`, como el fundacional; pregunta en la PR) y en `forecast`.
+    `{estimator, package}` y `field` el argumento que nombró el plan:
+    `plan_id` en `forecast` y en `backtest` con `plan_id`, `cv_id` en
+    `backtest` sin él (también para el fundacional, que daba `plan_id`).
     `plan` y `refine_plan` llevan un `MissingDependencyNotice` (source
     `plan`) con ese consejo, en lugar del `MissingBackendWarning` de la
-    librería, que solo da el `pip install`.
+    librería, que solo da el `pip install`: `backtest` y `forecast` fallan
+    con `missing_dependency` y en `compare` su fila falla y queda la
+    última (`compare` no pasa por `_run_plan_locally`).
   - V01: `missing_estimator_candidates` deja fuera, después de
     `resolve_compare_candidates` y antes de añadir el plan de la
     estrategia, el candidato por defecto cuyo estimador no está instalado.
@@ -1781,9 +1784,19 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     `test_concurrency.py`, con un `packages_distributions` lento, sí
     reproducía.
   - `profile` sin `target`: la `hint` del error dice que una columna que el
-    usuario nombró y no está en la lista se le dice antes de usar otra. La
-    llamada de más (9 de 81) es de redacción: frases propuestas en la fase
-    6.
+    usuario nombró y no está en la lista se le dice antes de usar otra. El
+    `InvalidInputError` de una columna `target` que no existe
+    (`_validate_target_exists`) lleva la misma idea como `hint` en el
+    núcleo ("If the user named this column, tell them it is not in the data
+    and ask which one to forecast before using another."), salvo con
+    columnas de nombre numérico, que mantienen `_TEXT_COLUMNS_HINT`. Son
+    instrucciones para el agente que el usuario no ve: sin nota de release.
+    La llamada de más (9 de 81) es de redacción: frases propuestas en la
+    fase 6.
+  - Revisión (2026-10-28): `MissingBackendWarning` reutilizado, sin clase
+    nueva; `plan()` no avisa de un modelo fundacional sin backend; el
+    `field` de `backtest` sin `plan_id` es `cv_id`; el error de una columna
+    `target` que no existe lleva `hint`.
 
 ## Decisiones abiertas
 

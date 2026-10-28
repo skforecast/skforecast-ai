@@ -4502,6 +4502,12 @@ _TEXT_COLUMNS_HINT = (
     "text in `target`."
 )
 
+# Hint of a target column that the data does not have.
+_MISSING_TARGET_HINT = (
+    "If the user named this column, tell them it is not in the data and ask "
+    "which one to forecast before using another."
+)
+
 
 def csv_read_kwargs(
     sep: str,
@@ -5627,11 +5633,13 @@ def _validate_target_exists(data: pd.DataFrame, target: str | list[str]) -> None
     if missing:
         named = {str(col) for col in data.columns if not isinstance(col, str)}
         as_numbers = all(col in named for col in missing)
+        # An agent that meets this error has been seen to forecast another
+        # column without telling the user, who named this one.
         raise InvalidInputError(
             f"Target column(s) {missing} not found in the DataFrame. "
             f"Available columns: {list(data.columns)}",
             field = "target",
-            hint  = _TEXT_COLUMNS_HINT if as_numbers else None,
+            hint  = _TEXT_COLUMNS_HINT if as_numbers else _MISSING_TARGET_HINT,
         )
 
 

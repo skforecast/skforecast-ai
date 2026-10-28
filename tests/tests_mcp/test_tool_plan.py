@@ -178,12 +178,13 @@ def test_tool_plan_MissingDependencyNotice_when_estimator_not_installed(
             category = "MissingDependencyNotice",
             message  = (
                 "XGBRegressor needs the 'xgboost' package, which is not "
-                "installed where the server runs: `backtest`, `forecast` and "
-                "`compare` with this plan fail with `missing_dependency` until "
-                "it is. Ask the user to install it where the server runs and "
-                "to restart the server: `pip install \"xgboost\"` in its "
-                "Python environment, or `--with \"xgboost\"` added to the uvx "
-                "command that starts it."
+                "installed where the server runs: until it is, `backtest` and "
+                "`forecast` with this plan fail with `missing_dependency`, and "
+                "its row of `compare` fails and is ranked last. Ask the user "
+                "to install it where the server runs and to restart the "
+                "server: `pip install \"xgboost\"` in its Python environment, "
+                "or `--with \"xgboost\"` added to the uvx command that starts "
+                "it."
             ),
             count    = 1,
         )

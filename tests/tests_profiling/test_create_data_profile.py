@@ -1745,6 +1745,10 @@ _TEXT_COLUMNS_HINT = (
     "`data.columns = data.columns.astype(str)`, and pass their names as text "
     "in `target`."
 )
+_MISSING_TARGET_HINT = (
+    "If the user named this column, tell them it is not in the data and ask "
+    "which one to forecast before using another."
+)
 _LONG_IDS_KWARGS = {
     "target": "value", "date_column": "date", "series_id_column": "series_id",
 }
@@ -1918,8 +1922,8 @@ def test_create_data_profile_InvalidInputError_when_target_is_not_named_with_tex
     [
         (["1", "2"], "['1', '2']", _TEXT_COLUMNS_HINT),
         ("1", "['1']", _TEXT_COLUMNS_HINT),
-        (["a"], "['a']", None),
-        (["1", "a"], "['1', 'a']", None),
+        (["a"], "['a']", _MISSING_TARGET_HINT),
+        (["1", "a"], "['1', 'a']", _MISSING_TARGET_HINT),
     ],
     ids=["text names of the integers", "one text name", "unknown name",
          "text name and unknown name"],
@@ -1930,7 +1934,9 @@ def test_create_data_profile_InvalidInputError_when_text_target_not_found_in_int
     """
     Test that text names for columns named with integers keep the message
     that they are not found and add the hint to rename the columns, while a
-    name that matches no column, alone or next to one that does, has no hint.
+    name that matches no column, alone or next to one that does, has the
+    hint to tell the user that the column they named is not in the data and
+    ask before forecasting another one.
     """
     err_msg = re.escape(
         f"Target column(s) {listed} not found in the DataFrame. Available "

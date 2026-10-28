@@ -110,8 +110,6 @@ The main changes in this release are:
 
 + [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` with an estimator that accepts missing values warn, without failing, when a test fold reads a missing exogenous value, naming the columns and the dates, as `forecast()` does with the future values (a notice in the MCP server) ([#123](https://github.com/skforecast/skforecast-ai/pull/123)).
 
-+ The error of the `profile` tool of the MCP server without `target` tells the agent that a column the user named and the file lacks is told to the user before another one is used ([#124](https://github.com/skforecast/skforecast-ai/pull/124)).
-
 + A candidate of [<code>ForecastingAssistant.compare()</code>][assistant] that fails with an error of skforecast-ai is named by its class (`InvalidInputError`) in `CandidateFailure.error_type`, the table, the warnings and `AllCandidatesFailedError`, instead of the built-in class it derives from (`ValueError`). The MCP server now sends its message, and `get_failure` with the id of a comparison requires `candidate` ([#121](https://github.com/skforecast/skforecast-ai/pull/121)).
 
 
