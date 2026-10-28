@@ -453,14 +453,20 @@ class IntervalCoverageWarning(UserWarning):
 
 class MissingBackendWarning(UserWarning):
     """
-    Warned by `compare()` when a foundation model candidate is left out.
+    Warned when a model needs a package that is not installed: by
+    `compare()` when it leaves a candidate out, and by `plan()` when the
+    estimator of the plan is one of them.
 
     `compare()` without `candidates` includes `ForecasterFoundation`, whose
     default model needs a backend package (for Chronos-2,
-    `chronos-forecasting`) that skforecast-ai does not install by default.
-    When that package is missing, the candidate is dropped instead of
-    failing on every call, and this warning says which package to install.
-    The comparison explanation records it as well.
+    `chronos-forecasting`) that skforecast-ai does not install by default,
+    and, with several series, `XGBRegressor`, whose package no extra of
+    skforecast-ai installs. When that package is missing, the candidate is
+    dropped instead of failing on every call, and this warning says which
+    package to install. The comparison explanation records it as well.
+    `plan()` still makes a plan whose estimator is not installed (XGBoost,
+    CatBoost), since its script may run on another machine, and warns that
+    running it here fails.
     """
 
 

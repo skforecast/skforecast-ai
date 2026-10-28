@@ -103,6 +103,8 @@ The core dependencies (skforecast, pandas, pydantic, statsmodels, typer and rich
 
 Without the `foundation` extra, `compare()` leaves `ForecasterFoundation` out of the automatic candidates with a `MissingBackendWarning`. Other foundation models (TimesFM, Moirai, TabICL, ...) need their own backend; skforecast names the package to install when it is missing.
 
+No extra installs XGBoost or CatBoost: `plan()` accepts `XGBRegressor` and `CatBoostRegressor` and warns with a `MissingBackendWarning` when their package is missing (`pip install xgboost` or `pip install catboost`), and `compare()` with several series leaves `XGBRegressor` out of the automatic candidates in that case.
+
 !!! note "Groq"
     The `groq` extra (`pip install "skforecast-ai[groq]"`) is kept for backwards compatibility. Groq support is already included in the `llm` extra.
 

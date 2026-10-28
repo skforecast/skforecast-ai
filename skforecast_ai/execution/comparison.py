@@ -19,7 +19,11 @@ from .._constants import (
 )
 from .._foundation import foundation_backend_installed, resolve_foundation_model
 from .._utils import discarded_plan_edits, long_training_message, plan_override_value
-from .._validation import is_symmetric_interval
+from .._validation import (
+    is_symmetric_interval,
+    missing_estimator_package,
+    missing_package_message,
+)
 from ..exceptions import InvalidInputError, InvalidInputTypeError
 from .interval_coverage import interval_label
 from ..recommendation import (
@@ -129,6 +133,49 @@ def missing_foundation_backend(
         f"which is not installed (pip install skforecast-ai[foundation])."
     )
     return frozenset(foundation), note
+
+
+def missing_estimator_candidates(
+    candidates: list[tuple[str, CandidateConfig]],
+) -> tuple[list[tuple[str, CandidateConfig]], str | None]:
+    """
+    Leave out the automatic candidates whose estimator needs a package that
+    is not installed.
+
+    With several series, the estimator candidates of the rules include
+    `XGBRegressor`, whose package skforecast-ai does not install, so the
+    candidate would fail on every call. Like a foundation model without its
+    backend (`missing_foundation_backend()`), it is left out, and the note
+    says which package to install. The profile still lists it: it does not
+    depend on where it is made.
+
+    Parameters
+    ----------
+    candidates : list of tuple of (str, CandidateConfig)
+        Automatic candidates, as returned by `resolve_compare_candidates()`.
+
+    Returns
+    -------
+    kept : list of tuple of (str, CandidateConfig)
+        Candidates whose estimator is installed or that name none (they run
+        the estimator of the rules, which skforecast-ai installs).
+    note : str, None
+        One sentence per candidate left out, or None when none is.
+    """
+
+    kept, notes = [], []
+    for name, config in candidates:
+        estimator = config.get("estimator")
+        package = missing_estimator_package(estimator)
+        if package is None:
+            kept.append((name, config))
+            continue
+        notes.append(
+            f"{name} left out: {missing_package_message(estimator, package)} "
+            f"(pip install {package})."
+        )
+
+    return kept, " ".join(notes) or None
 
 
 def stats_skip_folds_exclusion(
@@ -552,8 +599,10 @@ class DefaultCandidates(NamedTuple):
         Name of the row that runs the plan the strategy was created for,
         or None when no row runs it.
     backend_note : str, None
-        Why a foundation candidate was left out, see
-        `missing_foundation_backend()`.
+        Why candidates whose package is not installed were left out: a
+        foundation model without its backend, see
+        `missing_foundation_backend()`, and an estimator, see
+        `missing_estimator_candidates()`.
     strategy_note : str, None
         Why the plan of the strategy was left out, or which of its values
         its row does not run, see `add_strategy_candidate()`.
@@ -588,8 +637,9 @@ def resolve_default_candidates(
     The one sequence that decides what such a comparison runs, shared by
     `compare()` and by the cost the MCP server announces in `create_cv`, so
     the two never disagree: the candidates of the profile without a
-    foundation model whose backend is not installed (nor `ForecasterStats`
-    when the strategy skips folds), the plan of the
+    foundation model whose backend is not installed, an estimator whose
+    package is not installed (nor `ForecasterStats` when the strategy skips
+    folds), the plan of the
     strategy when it is none of them, and without the alternatives above
     the fit budget (the recommended forecaster and the plan of the strategy
     always run). The baseline is added afterwards.
@@ -628,6 +678,12 @@ def resolve_default_candidates(
                      profile    = profile,
                      exclude    = excluded | skipped,
                  )
+    # Before the plan of the strategy is added: that one is the choice of
+    # the user, who was warned when it was made, and runs as it is.
+    candidates, estimator_note = missing_estimator_candidates(candidates)
+    backend_note = " ".join(
+        note for note in (backend_note, estimator_note) if note is not None
+    ) or None
     strategy_name = None
     strategy_note = None
     if strategy_plan is not None:
@@ -1082,8 +1138,8 @@ def build_comparison_explanation(
     baseline_note : str, default None
         Sentence explaining why no baseline was added, appended as is.
     backend_note : str, default None
-        Sentence explaining why a foundation candidate was left out,
-        appended as is.
+        Sentences explaining why candidates whose package is not installed
+        were left out, appended as is.
     budget_note : str, default None
         Sentence explaining which candidates were left out for exceeding
         the fit budget, appended as is.

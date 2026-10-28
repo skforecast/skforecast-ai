@@ -1,23 +1,25 @@
 # Unit test tool compare
 
-import importlib.util
 import re
 import threading
 import time
-import warnings
 import anyio
 import pytest
 from mcp import Client
 
 from skforecast_ai import (
-    CandidateFailedWarning,
     ForecastingAssistant,
     IntervalCoverageWarning,
     MissingBackendWarning,
 )
 from skforecast_ai.mcp import _runtime, create_server
 
-from ..fixtures_assistant import df_crossing_zero, df_multi_long_numeric_ids, df_no_exog
+from ..fixtures_assistant import (
+    df_crossing_zero,
+    df_multi_long_numeric_ids,
+    df_no_exog,
+    patch_find_spec,
+)
 from ..fixtures_datasets import df_items_sales_long
 
 from .fixtures_mcp import (
@@ -418,15 +420,20 @@ def test_tool_compare_all_candidates_failed_keeps_the_failures(tmp_path):
     )
 
 
-def test_tool_compare_default_candidates_of_the_profile(tmp_path):
+def test_tool_compare_default_candidates_of_the_profile(tmp_path, monkeypatch):
     """
     Test that without `candidates` the comparison uses those of the profile,
     as the Python API does (several series: the estimators of
     ForecasterRecursiveMultiSeries, the foundation model being left out when
-    its backend is missing).
+    its backend is missing). XGBRegressor, which no extra installs, is left
+    out when it is not installed, with the foundation model in the same
+    notice, and counts in no cost: no candidate fails (V01).
     """
-    if importlib.util.find_spec("chronos") is not None:
-        pytest.skip("With its backend installed the default set runs Chronos-2.")
+    patch_find_spec(monkeypatch, missing=["xgboost"])
+    monkeypatch.setattr(
+        "skforecast_ai.execution.comparison.foundation_backend_installed",
+        lambda info: False,
+    )
     path = write_csv(tmp_path, "items.csv", df_items_sales_long)
     server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
     _, _, cv_id = cv_of(
@@ -444,16 +451,30 @@ def test_tool_compare_default_candidates_of_the_profile(tmp_path):
     cv = assistant.create_cv(
         profile=profile, plan=assistant.plan(profile=profile, steps=7)
     )
-    # A candidate whose library is not installed (XGBoost) fails, as it may.
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", category=CandidateFailedWarning)
-        with pytest.warns(MissingBackendWarning):
-            expected = assistant.compare(
-                data=path, cv=cv, profile=profile, show_progress=False
-            )
+    with pytest.warns(MissingBackendWarning):
+        expected = assistant.compare(
+            data=path, cv=cv, profile=profile, show_progress=False
+        )
+    cost = content_of(call(server, "describe_object", {"object_id": cv_id}))["cost"]
+    notices = {notice["category"]: notice["message"] for notice in result["notices"]}
 
     assert result["summary"] == expected.describe()
     assert text_of(result["files"]["leaderboard"]) == csv_of(expected.results)
+    assert sorted(expected.results["name"]) == [
+        "ForecasterRecursiveMultiSeries+LGBMRegressor",
+        "ForecasterRecursiveMultiSeries+Ridge",
+    ]
+    assert expected.failures == {}
+    assert notices["MissingBackendWarning"] == (
+        "ForecasterFoundation left out: its default model "
+        "'autogluon/chronos-2-small' needs the 'chronos-forecasting' package, "
+        "which is not installed (pip install skforecast-ai[foundation]). "
+        "ForecasterRecursiveMultiSeries+XGBRegressor left out: XGBRegressor "
+        "needs the 'xgboost' package, which is not installed (pip install "
+        "xgboost)."
+    )
+    assert notices["MissingBackendWarning"] in result["summary"]
+    assert cost["compare_estimator_fits"] == result["cost"]["estimator_fits"] == 2
 
 
 def test_tool_compare_announces_model_download_of_a_candidate_that_ran(

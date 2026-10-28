@@ -37,12 +37,15 @@ from .._constants import (
     FORECASTER_TASK_TYPES,
     LONG_INFERENCE_WINDOWS,
     LONG_TRAINING_FITS,
+    ML_TASK_TYPES,
 )
+from .._validation import missing_estimator_package, missing_package_message
 from ..exceptions import (
     CostNotConfirmedError,
     DataContentError,
     IntervalCoverageWarning,
     InvalidInputError,
+    MissingBackendWarning,
     SkforecastAIError,
 )
 from . import _inputs
@@ -56,7 +59,12 @@ from ._errors import (
     tool_error,
 )
 from . import _preload
-from ._foundation import ModelPolicy, check_allow_models
+from ._foundation import (
+    ModelPolicy,
+    check_allow_models,
+    install_advice,
+    missing_dependency_error,
+)
 from ._inputs import AllowedDir
 from ._runtime import CallControl, build_notices, notice_text, run_call
 from ._store import Entry, Store, estimate_nbytes
@@ -753,6 +761,67 @@ def _coverage_notices(
     ]
 
     return kept, notices
+
+
+def _missing_package(plan: Any) -> str | None:
+    """
+    Package to install for the machine-learning estimator of a plan, or
+    None when it is installed or the plan has none (a foundation model has
+    its own check, `ModelPolicy.check_backend`).
+    """
+
+    if plan.task_type not in ML_TASK_TYPES:
+        return None
+
+    return missing_estimator_package(plan.estimator)
+
+
+def _missing_dependency_notices(
+    records: list[warnings.WarningMessage],
+    plan: Any,
+) -> tuple[list[warnings.WarningMessage], list[ToolNotice]]:
+    """
+    Turn the `MissingBackendWarning` of `plan` (its estimator is not
+    installed) into a notice with the advice of the error that running the
+    plan would give: how to install it with pip and with uvx, and the
+    restart. The warning of the library only gives the `pip install`.
+
+    Parameters
+    ----------
+    records : list of warnings.WarningMessage
+        Warnings emitted by the call.
+    plan : ForecastPlan
+        Plan the call made.
+
+    Returns
+    -------
+    records : list of warnings.WarningMessage
+        The warnings without the `MissingBackendWarning`.
+    notices : list of ToolNotice
+        One `MissingDependencyNotice` (source `'plan'`) when the estimator
+        of the plan is not installed, else empty.
+    """
+
+    kept = [
+        record for record in records
+        if not issubclass(record.category, MissingBackendWarning)
+    ]
+    package = _missing_package(plan)
+    if package is None:
+        return kept, []
+    notice = ToolNotice(
+        source   = "plan",
+        category = "MissingDependencyNotice",
+        message  = (
+            f"{missing_package_message(plan.estimator, package)} where the "
+            f"server runs: until it is, `backtest` and `forecast` with this "
+            f"plan fail with `missing_dependency`, and its row of `compare` "
+            f"fails and is ranked last. {install_advice(package)}"
+        ),
+        count    = 1,
+    )
+
+    return kept, [notice]
 
 
 # Fields of a plan left out when telling whether a plan was measured: the
@@ -1793,31 +1862,44 @@ def _requirements(code: str, model_id: str | None) -> list[str]:
     code : str
         Script, whole.
     model_id : str, None
-        Foundation model the script runs, whose backend skforecast imports
-        when it loads the model: the script does not import it.
+        Foundation model of the plan, whose backend skforecast imports when
+        the script loads the model (`FoundationModel`): the script does not
+        import it.
 
     Returns
     -------
     requirements : list of str
         The packages of the modules the script imports, sorted, then the
-        backend of the foundation model, each with the version installed
-        where the server runs.
+        backend of the foundation model when the script loads it (not the
+        script of a cross-validation strategy), each with the version
+        installed where the server runs.
+
+    Notes
+    -----
+    The first call reads the installed distributions (`_distributions`),
+    which takes seconds: the server calls it in a worker thread, so it never
+    holds the event loop.
     """
 
     from .._foundation import resolve_foundation_model
 
     modules = set()
+    loads_model = False
     for node in ast.walk(ast.parse(code)):
         if isinstance(node, ast.Import):
             modules.update(alias.name.split(".")[0] for alias in node.names)
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
             modules.add(node.module.split(".")[0])
+            loads_model = loads_model or (
+                node.module == "skforecast.foundation"
+                and any(alias.name == "FoundationModel" for alias in node.names)
+            )
     distributions = _distributions()
     packages = sorted(
         sorted(distributions.get(module, [module]))[0]
         for module in modules - sys.stdlib_module_names
     )
-    if model_id is not None:
+    if model_id is not None and loads_model:
         try:
             packages.append(resolve_foundation_model(model_id).backend_package)
         except InvalidInputError:
@@ -2200,9 +2282,14 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                     f"{_listed_columns(columns)}.",
                     code  = "invalid_argument",
                     field = "target",
+                    # Seen with a small model: the user named a column that
+                    # is not in the file, the agent called without `target`
+                    # and profiled another column without telling.
                     hint  = (
-                        "Pass the column to forecast as `target`. If more than "
-                        "one could be it, ask the user."
+                        "If the user named a column that is not in this list, "
+                        "tell them and ask which one to forecast before using "
+                        "another. Otherwise pass the column to forecast as "
+                        "`target`; if more than one could be it, ask the user."
                     ),
                 )
             digest = _inputs.file_sha256(path)
@@ -2271,9 +2358,14 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         from ..schemas.plans import REFINE_PLAN_OVERRIDE_KEYS
 
         if notices is None:
+            # An estimator that is not installed, with the advice of the
+            # error that running the plan gives.
+            outcome_warnings, server_notices = _missing_dependency_notices(
+                outcome_warnings, new_plan
+            )
             # The license of its foundation model, in the announcement of
             # the download when one is due.
-            server_notices = state.models.notices(
+            server_notices += state.models.notices(
                 [state.models.model_of(new_plan.forecaster, new_plan.estimator)],
                 uncached,
             )
@@ -2704,6 +2796,14 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         model_id = state.models.model_of(plan_obj.forecaster, plan_obj.estimator)
         state.models.check(model_id, argument)
         state.models.check_backend(model_id, argument)
+        package = _missing_package(plan_obj)
+        if package is not None:
+            raise missing_dependency_error(
+                name    = plan_obj.estimator,
+                package = package,
+                field   = argument,
+                details = {"estimator": plan_obj.estimator, "package": package},
+            )
 
     def _keep_failure(exc: Exception) -> None:
         # The traceback and the code of a failed script never go in the
@@ -2767,7 +2867,8 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                     details = {"plan_id": plan_id, "cv_id": cv_id},
                 )
             backtested, plan_link = plan_entry.obj, plan_entry.id
-        _run_plan_locally(backtested, "plan_id")
+        # The argument that named the plan: the strategy names its own.
+        _run_plan_locally(backtested, "plan_id" if plan_id is not None else "cv_id")
 
         def work(control: CallControl):
             from .._utils import cost_remedies
@@ -3352,8 +3453,13 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             plan_obj = ran.plan
         else:
             plan_obj = obj if entry.kind == "plan" else obj.plan
-        requirements = _requirements(
-            code, state.models.model_of(plan_obj.forecaster, plan_obj.estimator)
+        # In a worker thread: the first call reads the installed
+        # distributions, which takes seconds (tens of them while a run holds
+        # the GIL) and would hold every other call.
+        requirements = await anyio.to_thread.run_sync(
+            _requirements,
+            code,
+            state.models.model_of(plan_obj.forecaster, plan_obj.estimator),
         )
         if code_file is None:
             return CodeResult(

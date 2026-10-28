@@ -12,6 +12,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 from .._constants import DEFAULT_FOUNDATION_MODEL_ID, FORECASTER_TASK_TYPES
+from .._validation import missing_package_message
 from ..exceptions import InvalidInputError
 from ._errors import ServerError
 from .models import ToolNotice
@@ -295,6 +296,68 @@ def _weights_repo(info: FoundationModelInfo, model_id: str) -> str:
     return repo_id if isinstance(repo_id, str) and repo_id else model_id
 
 
+def install_advice(package: str) -> str:
+    """
+    How the user installs a package where the server runs: with pip in its
+    Python environment, or with the `--with` of the uvx command that starts
+    it (the plugin starts it with uvx), and a restart either way.
+
+    Parameters
+    ----------
+    package : str
+        Name to pass to `pip install`, with its extras.
+
+    Returns
+    -------
+    advice : str
+        Sentence for a `hint` or a notice.
+    """
+
+    return (
+        f"Ask the user to install it where the server runs and to restart "
+        f"the server: `pip install \"{package}\"` in its Python environment, "
+        f"or `--with \"{package}\"` added to the uvx command that starts it."
+    )
+
+
+def missing_dependency_error(
+    name: str,
+    package: str,
+    field: str,
+    details: dict[str, str],
+) -> ServerError:
+    """
+    Error `missing_dependency` of a plan that cannot run where the server
+    runs, raised before any script runs: the same for a foundation model
+    without its backend and for an estimator without its library.
+
+    Parameters
+    ----------
+    name : str
+        Estimator or foundation model, as the message names it.
+    package : str
+        Name to pass to `pip install`.
+    field : str
+        Argument of the tool that names the plan.
+    details : dict
+        `package` and the estimator or the model ID.
+
+    Returns
+    -------
+    error : ServerError
+        The error, to raise.
+    """
+
+    return ServerError(
+        f"{missing_package_message(name, package)} where the server runs. "
+        f"Nothing was run.",
+        code    = "missing_dependency",
+        field   = field,
+        hint    = install_advice(package),
+        details = details,
+    )
+
+
 @dataclass
 class ModelPolicy:
     """
@@ -428,17 +491,10 @@ class ModelPolicy:
         package = missing_foundation_backend(model_id)
         if package is None:
             return
-        raise ServerError(
-            f"'{model_id}' needs the '{package}' package, which is not "
-            f"installed where the server runs. Nothing was run.",
-            code    = "missing_dependency",
+        raise missing_dependency_error(
+            name    = f"'{model_id}'",
+            package = package,
             field   = argument,
-            hint    = (
-                f"Ask the user to install it where the server runs and to "
-                f"restart the server: `pip install \"{package}\"` in its "
-                f"Python environment, or `--with \"{package}\"` added to the "
-                f"uvx command that starts it."
-            ),
             details = {"model_id": model_id, "package": package},
         )
 

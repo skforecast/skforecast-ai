@@ -3,7 +3,7 @@
 from skforecast_ai import ForecastingAssistant
 
 from .fixtures_assistant import df_multi_wide, df_no_exog
-from .fixtures_datasets import df_h2o
+from .fixtures_datasets import df_h2o, df_items_sales_long
 
 assistant = ForecastingAssistant()
 
@@ -103,3 +103,10 @@ plan_multivariate = assistant.plan(
     profile=profile_multi, steps=5, forecaster="ForecasterDirectMultiVariate"
 )
 cv_multivariate = assistant.create_cv(profile=profile_multi, plan=plan_multivariate)
+
+# --- Three series of 120 days (360 observations): the estimator candidates
+# --- of ForecasterRecursiveMultiSeries include XGBRegressor, which no extra
+# --- of skforecast-ai installs (V01).
+profile_items = assistant.profile(
+    data=df_items_sales_long, target="value", series_id_column="series"
+)

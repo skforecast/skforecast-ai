@@ -23,6 +23,7 @@ from .fixtures_mcp import (
     call,
     content_of,
     csv_of,
+    cv_of,
     error_of,
     h2o_server,
     profile_and_plan,
@@ -106,6 +107,23 @@ def test_tool_get_code_requirements_of_a_foundation_plan(tmp_path):
         f"pandas=={version('pandas')}",
         f"skforecast=={version('skforecast')}",
     ]
+
+
+def test_tool_get_code_requirements_of_a_strategy_of_a_foundation_plan(tmp_path):
+    """
+    Test that the script of a cross-validation strategy created for a plan
+    with a foundation model, which builds the folds and loads no model,
+    lists only skforecast: not the backend of the model, which the script of
+    the plan lists (G05).
+    """
+    server, path = h2o_server(tmp_path)
+    _, plan_id, cv_id = cv_of(server, path, forecaster="ForecasterFoundation")
+
+    strategy = content_of(call(server, "get_code", {"object_id": cv_id}))
+    plan = content_of(call(server, "get_code", {"object_id": plan_id}))
+
+    assert strategy["requirements"] == [f"skforecast=={version('skforecast')}"]
+    assert plan["requirements"][-1].split("==")[0] == "chronos-forecasting"
 
 
 def test_tool_get_code_reads_the_file_with_its_dialect(tmp_path):

@@ -391,14 +391,18 @@ pequeños; se pueden agrupar en dos o tres PR.
   ningún extra instala (V01: excluirlo en `resolve_default_candidates` con un
   aviso, como `missing_foundation_backend`; no en el perfil, que debe seguir
   sin depender del entorno). *[LLM]* (V01, `execution/comparison.py`)
+  Hecho en [#124](https://github.com/skforecast/skforecast-ai/pull/124) (D32).
 - **`get_code`**: la primera llamada calcula `requirements` en el event loop
   y lo bloquea mientras dura una ejecución (G05: medido, todo el servidor
   espera); añade el backend del modelo fundacional al script de una
   estrategia, que no carga ningún modelo. (V03, el fichero de exógenas que
-  lee el script, pasó a la fase 1 como 1h.)
+  lee el script, pasó a la fase 1 como 1h.) Hecho en [#124](https://github.com/skforecast/skforecast-ai/pull/124) (D32).
 - **`profile` sin `target` cuando el usuario ya nombró la columna.** Cuesta
   una llamada (9 de 81 con el modelo grande). Con el pequeño, una sesión se
   saltó así el error de la columna inexistente y la sustituyó sin decirlo.
+  La sustitución sin decirlo, arreglada en la `hint` del error en
+  [#124](https://github.com/skforecast/skforecast-ai/pull/124) (D32); la
+  llamada de más es de redacción y va a la fase 6.
 - **`compare` con candidatos** deja fuera el plan refinado de la estrategia
   sin decirlo, y "Strategy plan" no es un nombre reservado (V24). Hecho en [#123](https://github.com/skforecast/skforecast-ai/pull/123) (D31). *[SKILL]*
 - **La comprobación de series que ningún fold pronostica (D15) en
@@ -444,9 +448,11 @@ pequeños; se pueden agrupar en dos o tres PR.
   [#122](https://github.com/skforecast/skforecast-ai/pull/122). 2.62 imprime además un banner de Logfire una vez por
   proceso, por stderr (no rompe el stdio del MCP; no sale bajo pytest ni
   en CI): opcional apagarlo con `pydantic_ai.BANNER_ENABLED = False` en el
-  servidor MCP y la CLI. No se hace en
+  servidor MCP y la CLI. Descartado en
   [#125](https://github.com/skforecast/skforecast-ai/pull/125) (D?): ni el
-  servidor ni la CLI importan pydantic-ai.
+  servidor ni la CLI importan pydantic-ai, y apagarlo en `llm/agent.py`
+  cambiaría un ajuste global de pydantic-ai también en la API de Python,
+  por una línea por stderr que no rompe nada.
 
 ## Fase 6. Descripciones de las herramientas y SKILL.md
 
@@ -454,6 +460,21 @@ Al final, para que describan el comportamiento definitivo y el golden de
 esquemas se regenere una vez: `dev/mcp-tool-descriptions-plan.md`, más las
 frases del SKILL.md o de los esquemas que la auditoría vio desfasadas (V06,
 V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
+
+- **`profile` sin `target` cuando el usuario ya nombró la columna** (de 5c,
+  D32): 9 de 81 sesiones de la 0.4.0 lo hicieron aunque el paso 1 del
+  SKILL.md ya dice que se pase. Frases propuestas, en inglés como el resto:
+  - Descripción de `target` en el esquema de `profile`: "Column to
+    forecast, as the user named it, also when you are not sure it exists
+    (an error then lists the columns of the file), or a list of columns
+    (one series each) for wide multi-series data. Null only when the user
+    named no column: the error lists the columns of the file."
+  - Paso 1 del SKILL.md, en lugar de "When the user named the column to
+    forecast, pass it as `target` at once.": "When the user named the
+    column to forecast, pass it as `target` at once, as they wrote it, even
+    if you are not sure it exists: a column that is not in the file is an
+    error that lists the columns, and you tell the user before using
+    another one."
 
 ## Fase 7. Cierre de la release
 
@@ -1718,11 +1739,76 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     `UserWarning`); las categorías por fold se descartan; `'Strategy plan'`
     queda reservado siempre, también con un `TimeSeriesFold`.
 
+- **D32. 5c: dependencias opcionales, `get_code` y `profile` sin `target`**
+  (2026-10-28, [#124](https://github.com/skforecast/skforecast-ai/pull/124)).
+  V02, V01, G05 y el `profile` sin `target` de la 0.4.0:
+  - V02, núcleo: `check_estimator_installed` da el mismo mensaje base que
+    antes (`missing_package_message`, compartido con el servidor) y ahora
+    una `hint` ("Install it where skforecast-ai runs: pip install
+    xgboost."), como el fundacional; el `field` sigue siendo `estimator`,
+    también como el fundacional. `plan()` avisa con `MissingBackendWarning`
+    (la misma clase, con su docstring ampliada) cuando el estimador de
+    aprendizaje automático no está instalado, y hace el plan igual (su
+    script puede correr en otra máquina). El aviso no va a `plan.warnings`:
+    depende de dónde se hace el plan, no del plan, y así el contexto del
+    LLM y el determinismo no dependen del entorno. `forecast()` y
+    `backtest()` que construyen el plan ellos mismos lo silencian (el error
+    llega justo después), y también la construcción de los candidatos de
+    `compare()` (el candidato falla con su motivo). Un plan fundacional sin
+    backend no avisa en `plan()`: solo falla al ejecutarse.
+  - V02, servidor: `_run_plan_locally` lanza `missing_dependency` con el
+    contrato del fundacional (`missing_dependency_error` e
+    `install_advice` en `mcp/_foundation.py`, compartidos): "... which is
+    not installed where the server runs. Nothing was run.", `hint` con
+    `pip install` y el `--with` de uvx y el reinicio, `details`
+    `{estimator, package}` y `field` el argumento que nombró el plan:
+    `plan_id` en `forecast` y en `backtest` con `plan_id`, `cv_id` en
+    `backtest` sin él (también para el fundacional, que daba `plan_id`).
+    `plan` y `refine_plan` llevan un `MissingDependencyNotice` (source
+    `plan`) con ese consejo, en lugar del `MissingBackendWarning` de la
+    librería, que solo da el `pip install`: `backtest` y `forecast` fallan
+    con `missing_dependency` y en `compare` su fila falla y queda la
+    última (`compare` no pasa por `_run_plan_locally`).
+  - V01: `missing_estimator_candidates` deja fuera, después de
+    `resolve_compare_candidates` y antes de añadir el plan de la
+    estrategia, el candidato por defecto cuyo estimador no está instalado.
+    Su frase se une a la del fundacional en `backend_note`: un solo
+    `MissingBackendWarning` (notice de esa categoría en el MCP) y una frase
+    más del resumen. No cuenta en el coste de `compare` ni en el de
+    `create_cv`, que usan la misma función. El perfil no cambia. El plan de
+    la estrategia con un estimador no instalado sigue corriendo como fila
+    (es la elección del usuario, avisada en `plan`) y falla con su motivo.
+    Ningún golden del contexto del LLM cambia (ninguno cubre ese caso); el
+    check de pago queda para la fase 7.
+  - G05: `get_code` calcula `requirements` con `anyio.to_thread.run_sync`,
+    y el hilo de precarga calienta `_distributions()` (`WARMED_CALLS` de
+    `Preload`, `module:función`) después de las importaciones y de marcar
+    la precarga como hecha, así que la primera herramienta no espera por
+    ello. El backend del modelo fundacional entra en los `requirements`
+    solo si el script importa `FoundationModel`: el de una estrategia no lo
+    hace. El script `g_05` no reproduce en la nube ni antes del arreglo (el
+    backtest dura 2 s, no los 20 que necesita); el test de
+    `test_concurrency.py`, con un `packages_distributions` lento, sí
+    reproducía.
+  - `profile` sin `target`: la `hint` del error dice que una columna que el
+    usuario nombró y no está en la lista se le dice antes de usar otra. El
+    `InvalidInputError` de una columna `target` que no existe
+    (`_validate_target_exists`) lleva la misma idea como `hint` en el
+    núcleo ("If the user named this column, tell them it is not in the data
+    and ask which one to forecast before using another."), salvo con
+    columnas de nombre numérico, que mantienen `_TEXT_COLUMNS_HINT`. Son
+    instrucciones para el agente que el usuario no ve: sin nota de release.
+    La llamada de más (9 de 81) es de redacción: frases propuestas en la
+    fase 6.
+  - Revisión (2026-10-28): `MissingBackendWarning` reutilizado, sin clase
+    nueva; `plan()` no avisa de un modelo fundacional sin backend; el
+    `field` de `backtest` sin `plan_id` es `cv_id`; el error de una columna
+    `target` que no existe lleva `hint`.
+
 - **D?. 5d: `exog` como ruta, datos sin fechas con exógenas desde fichero y
   el `WindowFeature` del LLM** (2026-10-28,
   [#125](https://github.com/skforecast/skforecast-ai/pull/125)). Preguntas
-  1, 5 y 6 de #99 y
-  la pregunta de D30:
+  1, 5 y 6 de #99 y la pregunta de D30:
   - `forecast()` y `forecast_code()` aceptan en `exog` una ruta (`str` o
     `Path`), leída con `load_exog` con lo que da el perfil de los datos que
     corren (columna de fechas, ids, `date_format` e `index_type`), como el
@@ -1742,7 +1828,7 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     `--date-column` ya no acepta un fichero cuyas fechas se llaman de otra
     forma (`fecha` para `date`): error con sus columnas, línea en "Before
     upgrading". El `rename` del preámbulo (D10, pregunta 3 de #99) deja de
-    ser alcanzable y se quita (pregunta en la PR).
+    ser alcanzable y se quita.
   - Datos con fechas en el índice y sin `date_column` (un DataFrame en
     memoria), posibles ahora con una ruta: el script lee el fichero con
     `index_col` por el nombre de su columna de fechas (`0` si no tiene
@@ -1761,7 +1847,7 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     de skforecast). Las filas solo de separadores, y una fila con posición y
     sin valores (el `dropna(how='all')` del script no mira el índice), se
     quitan antes de numerar. Una columna de posiciones con nombre (`step`)
-    es una variable más (pregunta en la PR).
+    es una variable más.
   - Los scripts de datos sin fechas leen las posiciones sin
     `parse_dates=True` (pandas avisaba de que no infería formato al
     ejecutar el script): cambian los de datos en memoria sin fechas, con
@@ -1775,7 +1861,15 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
   - Banner de pydantic-ai 2.62: no se apaga. El servidor no importa
     pydantic-ai (su asistente no tiene LLM) y la CLI solo lo carga en
     `llm/agent.py` al crear un agente; ponerlo ahí lo apagaría también a
-    quien usa la API de Python (pregunta en la PR).
+    quien usa la API de Python.
+  - Preguntas de la PR, resueltas al revisarla (2026-10-28): la columna de
+    fechas de `--exog` queda estricta, como en el MCP y la API, un solo
+    contrato, con su línea en "Before upgrading". Una columna con nombre
+    (`step`) no cuenta como posiciones: solo la primera columna sin nombre,
+    la de `to_csv()`. El banner se descarta: apagarlo en `llm/agent.py`
+    cambiaría un ajuste global de pydantic-ai también en la API de Python,
+    y es una línea por stderr que no rompe nada. URLs en `exog`, no por
+    ahora; solo si alguien lo pide.
 
 ## Decisiones abiertas
 

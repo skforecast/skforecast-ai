@@ -189,6 +189,12 @@ The main changes in this release are:
 
 + [<code>ForecastingAssistant.create_cv()</code>][assistant] without `initial_train_size`, for a plan whose `steps` are half the data or more, raised an error about an `initial_train_size` outside the data that was never passed. It now raises `insufficient_data` on the plan, with the longest horizon that fits ([#121](https://github.com/skforecast/skforecast-ai/pull/121)).
 
++ [<code>ForecastingAssistant.compare()</code>][assistant] without `candidates` on several series ran `XGBRegressor`, which no extra installs, so it failed in every comparison without `xgboost`. It is now left out with a `MissingBackendWarning`, as the foundation model without its backend, and not counted in the cost ([#124](https://github.com/skforecast/skforecast-ai/pull/124)).
+
++ An estimator whose package is not installed (XGBoost, CatBoost) was only reported when the plan ran, and the `missing_dependency` error of the MCP server had no hint. [<code>ForecastingAssistant.plan()</code>][assistant] now warns with `MissingBackendWarning` (a notice in the MCP server), and the error says how to install it with pip or uvx, as for a foundation model ([#124](https://github.com/skforecast/skforecast-ai/pull/124)).
+
++ The first `get_code` of the MCP server held every other call while a long run was going, and the requirements of the script of a strategy for a foundation model listed its backend, which that script does not load ([#124](https://github.com/skforecast/skforecast-ai/pull/124)).
+
 + [<code>ForecastingAssistant.forecast()</code>][assistant] of data without dates (a RangeIndex) with future exogenous values from a file (`--exog` of the CLI, `exog_path` of the MCP server) failed, as the first column of the file was read as its dates. The rows of the file are now the steps of the horizon in order, and positions that do not follow the data raise a clear error instead of one of skforecast ([#125](https://github.com/skforecast/skforecast-ai/pull/125)).
 
 + The script of data without dates passed in memory printed a pandas `UserWarning` ("Could not infer format") when run, as it read the positions saved by `to_csv()` with `parse_dates=True`. It now reads them as they are; the predictions are the same ([#125](https://github.com/skforecast/skforecast-ai/pull/125)).

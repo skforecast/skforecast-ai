@@ -7,7 +7,9 @@ import warnings
 import anyio
 
 from skforecast_ai import ForecastingAssistant
-from skforecast_ai.mcp import create_server
+from skforecast_ai.mcp import _preload, create_server
+from skforecast_ai.mcp import server as server_module
+from skforecast_ai.mcp._preload import Preload
 
 from .fixtures_mcp import (
     DATA_MISSING_EXOG_WARNING,
@@ -168,3 +170,72 @@ def test_concurrent_executions_never_overlap_and_keep_their_own_notices(
         if arguments.get("cv_id") == long_cv:
             expected.append("UserWarning")
         assert categories == expected, (i, categories)
+
+
+def test_get_code_with_cold_distributions_does_not_hold_a_read_during_a_run(
+    tmp_path, monkeypatch, request
+):
+    """
+    Test that the first `get_code` of a session, which reads the installed
+    distributions for its `requirements` (here with their cache empty and a
+    scan that lasts until the test ends it), does not hold the event loop
+    during a run: a `list_objects` sent while the scan and a backtest are
+    still going answers before the scan ends (G05). Before, the scan ran in
+    the event loop and every call waited for it.
+    """
+    server, path = h2o_server(tmp_path)
+    _, plan_id, cv_id = cv_of(server, path)
+    # A preload that already ended and warms nothing: the test empties the
+    # cache of the distributions itself.
+    preload = Preload([])
+    preload.wait()
+    monkeypatch.setattr(_preload, "PRELOAD", preload)
+    server_module._distributions.cache_clear()
+    request.addfinalizer(server_module._distributions.cache_clear)
+    release = threading.Event()
+    running = threading.Event()
+    scanning = threading.Event()
+    scanned = []
+    backtest = ForecastingAssistant.backtest
+    packages_distributions = server_module.metadata.packages_distributions
+
+    def long_backtest(self, *args, **kwargs):
+        running.set()
+        release.wait(timeout=5)
+        return backtest(self, *args, **kwargs)
+
+    def cold_packages_distributions():
+        scanning.set()
+        release.wait(timeout=5)
+        scanned.append(time.monotonic())
+        return packages_distributions()
+
+    monkeypatch.setattr(ForecastingAssistant, "backtest", long_backtest)
+    monkeypatch.setattr(
+        server_module.metadata, "packages_distributions", cold_packages_distributions
+    )
+
+    async def steps(client):
+        results = {}
+
+        async def one(name, arguments):
+            results[name] = content_of(await client.call_tool(name, arguments))
+
+        async with anyio.create_task_group() as group:
+            group.start_soon(one, "backtest", {"cv_id": cv_id})
+            await anyio.to_thread.run_sync(running.wait, 5)
+            group.start_soon(one, "get_code", {"object_id": plan_id})
+            await anyio.to_thread.run_sync(scanning.wait, 5)
+            listed = content_of(await client.call_tool("list_objects", {}))
+            answered = time.monotonic()
+            release.set()
+        return results, listed, answered
+
+    results, listed, answered = run_session(server, steps)
+
+    assert answered < scanned[0]
+    assert {entry["kind"] for entry in listed["objects"]} == {"profile", "plan", "cv"}
+    assert [name.split("==")[0] for name in results["get_code"]["requirements"]] == [
+        "pandas", "scikit-learn", "skforecast"
+    ]
+    assert results["backtest"]["kind"] == "backtest"

@@ -98,3 +98,46 @@ def test_preload_wait_PreloadError_when_an_import_fails(caplog):
     assert second.value.__cause__ is first.value.__cause__
     assert len(caplog.records) == 1
     assert caplog.records[0].exc_info is not None
+
+
+def test_preload_wait_returns_before_the_warmed_calls(tmp_path, monkeypatch, request):
+    """
+    Test that the functions of `warm` run in the preload thread once the
+    import ended, after `wait` returned (a tool never waits for them), and
+    that one that fails is only logged and does not stop the next one.
+    """
+    name, _ = _probe_module(
+        tmp_path,
+        monkeypatch,
+        request,
+        "import threading\n"
+        "release = threading.Event()\n"
+        "calls = []\n"
+        "def slow():\n"
+        "    release.wait(timeout=30)\n"
+        "    calls.append(threading.current_thread().name)\n"
+        "def broken():\n"
+        "    raise RuntimeError('warm failed')\n"
+        "def fast():\n"
+        "    calls.append('fast')\n",
+    )
+    preload = Preload([name], warm=[f"{name}:slow", f"{name}:broken", f"{name}:fast"])
+
+    preload.wait()
+    module = sys.modules[name]
+    called_before = list(module.calls)
+    module.release.set()
+    preload._thread.join(timeout=30)
+
+    assert called_before == []
+    assert module.calls == ["skforecast-ai-preload", "fast"]
+
+
+def test_preload_wait_of_the_server_then_warms_the_installed_distributions():
+    """
+    Test that the preload of the server warms the installed distributions
+    that the `requirements` of `get_code` read (G05).
+    """
+    from skforecast_ai.mcp._preload import PRELOAD
+
+    assert PRELOAD.warm == ("skforecast_ai.mcp.server:_distributions",)

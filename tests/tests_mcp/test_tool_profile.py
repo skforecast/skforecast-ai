@@ -762,7 +762,9 @@ def test_tool_profile_without_target_lists_the_columns(tmp_path):
     Test that `profile` without `target` (omitted or null) is
     `invalid_argument` on `target` with the columns of the file and a hint
     to pass one or ask the user, so an agent need not make up a target to
-    read them, and that nothing is registered.
+    read them, and that nothing is registered. The hint tells the agent
+    that a column the user named and the list lacks is said to the user,
+    not replaced by another column without a word.
     """
     server, path = h2o_server(tmp_path)
 
@@ -777,12 +779,42 @@ def test_tool_profile_without_target_lists_the_columns(tmp_path):
         "message": "`target` was not given. Columns of the file: ['fecha', 'x'].",
         "field": "target",
         "hint": (
-            "Pass the column to forecast as `target`. If more than one could "
+            "If the user named a column that is not in this list, tell them "
+            "and ask which one to forecast before using another. Otherwise "
+            "pass the column to forecast as `target`; if more than one could "
             "be it, ask the user."
         ),
         "details": None,
     }
     assert objects == []
+
+
+def test_tool_profile_target_not_in_the_file_hint_to_tell_the_user(tmp_path):
+    """
+    Test that `profile` with a target the file does not have is
+    `invalid_argument` on `target` with the columns of the file and a hint
+    to tell the user that the column they named is not there and ask before
+    forecasting another one: a small model replaced it without a word.
+    """
+    server, path = h2o_server(tmp_path)
+
+    error = error_of(
+        call(server, "profile", {"data_path": path, "target": "sales"}), "profile"
+    )
+
+    assert error == {
+        "code": "invalid_argument",
+        "message": (
+            "Target column(s) ['sales'] not found in the DataFrame. Available "
+            "columns: ['fecha', 'x']"
+        ),
+        "field": "target",
+        "hint": (
+            "If the user named this column, tell them it is not in the data "
+            "and ask which one to forecast before using another."
+        ),
+        "details": None,
+    }
 
 
 def test_tool_profile_without_target_checks_the_path_and_the_file_first(tmp_path):
