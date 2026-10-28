@@ -398,17 +398,17 @@ pequeños; se pueden agrupar en dos o tres PR.
   una llamada (9 de 81 con el modelo grande). Con el pequeño, una sesión se
   saltó así el error de la columna inexistente y la sustituyó sin decirlo.
 - **`compare` con candidatos** deja fuera el plan refinado de la estrategia
-  sin decirlo, y "Strategy plan" no es un nombre reservado (V24). *[SKILL]*
+  sin decirlo, y "Strategy plan" no es un nombre reservado (V24). Hecho en [#123](https://github.com/skforecast/skforecast-ai/pull/123) (D?. 5b). *[SKILL]*
 - **La comprobación de series que ningún fold pronostica (D15) en
   `compare()`**: hoy solo la hace `backtest()`, y un candidato
   ForecasterRecursiveMultiSeries de `compare` puede seguir descartando una
   serie en silencio. Un candidato así queda como fallido, con el motivo en
   el ranking y en `get_failure`, como cualquier candidato que falla, sin
   tumbar todo el `compare` (pregunta 1 de
-  [#103](https://github.com/skforecast/skforecast-ai/pull/103)).
+  [#103](https://github.com/skforecast/skforecast-ai/pull/103)). Hecho en [#123](https://github.com/skforecast/skforecast-ai/pull/123) (D?. 5b).
 - **El backtest de ForecasterFoundation** solo rechaza las series sin
   valores: falta mirar si descarta también series sin contexto suficiente
-  antes de un fold (pregunta 2 de #103).
+  antes de un fold (pregunta 2 de #103). Hecho en [#123](https://github.com/skforecast/skforecast-ai/pull/123) (D?. 5b).
 - **Series que faltan en algunos folds** (de la revisión de
   [#119](https://github.com/skforecast/skforecast-ai/pull/119), D29): una
   serie que se queda fuera de algunos folds (no de todos) hace que sus
@@ -417,12 +417,14 @@ pequeños; se pueden agrupar en dos o tres PR.
   folds se pronosticó cada serie con aquellos en que tenía valores y lo
   dice en el resumen (y en un notice del MCP), sin `suppress_warnings=False`
   ni pedir nada a skforecast. Es leer el resultado, como la cobertura de
-  D22. *[LLM]* si cambia el resumen.
+  D22. *[LLM]* si cambia el resumen. Hecho en [#123](https://github.com/skforecast/skforecast-ai/pull/123) (D?. 5b).
 - **Avisos pequeños de faltantes** (de la revisión de #119, D29):
   `backtest()` avisa, sin fallar, de una exógena que falta en un fold con
   un estimador que acepta faltantes, como ya hace `forecast()` con las
   exógenas futuras; y se comprueban por fold las categorías de una
   exógena que la ventana de entrenamiento del fold no tiene (caso raro).
+  El aviso, hecho en [#123](https://github.com/skforecast/skforecast-ai/pull/123)
+  (D?. 5b); las categorías por fold, pregunta en esa PR.
 - **Cerrar el `WindowFeature` que devuelve el LLM** (`schemas/plans.py`, de
   la revisión de [#121](https://github.com/skforecast/skforecast-ai/pull/121),
   D30): no tiene `extra='forbid'`, así que una clave que el modelo invente
@@ -1621,7 +1623,8 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     va aparte, en la fase 5.
 
 - **D?. 5b: lo que comprueban y cuentan `backtest()` y `compare()`**
-  (2026-10-28, esta PR). D15 en `compare()`, V24, series que faltan en
+  (2026-10-28,
+  [#123](https://github.com/skforecast/skforecast-ai/pull/123)). D15 en `compare()`, V24, series que faltan en
   algunos folds, avisos pequeños de faltantes, ForecasterFoundation y el
   orden de las filas en datos anchos:
   - `compare()` ya llamaba a `backtest()` por candidato, así que un
@@ -1725,7 +1728,7 @@ arranque de las sesiones en la nube instala skforecast desde su rama
 | No hace falta (encontrado en 3f-2) | El `MissingValuesWarning` de las series que no se pronostican en algunos folds ([#1415](https://github.com/skforecast/skforecast/pull/1415), [#1427](https://github.com/skforecast/skforecast/pull/1427)) solo sale con `suppress_warnings=False`, y con él los procesos de joblib de `backtesting_forecaster_multiseries` imprimen en stdout los avisos de skforecast de los ajustes y las predicciones de cada fold, fuera de los filtros del llamante (`warnings.catch_warnings` no llega a otro proceso). Que ese aviso, que habla del resultado y no de los datos, salga también con `suppress_warnings=True`, o que el backtest devuelva los niveles que pronostica cada fold | Nada que pedir: las predicciones de un backtest multiserie ya llevan `level` y `fold`, así que skforecast-ai sabe de ellas en qué folds se pronosticó cada serie, sin `suppress_warnings=False` ni el problema de joblib (punto de la fase 5, D29) | Descartado (2026-10-22) |
 | Sin issue ([#1432](https://github.com/skforecast/skforecast/pull/1432), encontrado en 3f-2, 2026-10-22) | Con varias series y un estimador lineal, una exógena que falta en la predicción da predicciones NaN sin ningún error: el camino rápido de predicción (`np.dot`) se salta la comprobación de NaN de sklearn, y el NaN se propaga a los pasos recursivos. Después, las métricas multiserie descartan esas predicciones sin avisar. Reproducido con skforecast puro (10 predicciones NaN, métricas sin ellas, ningún aviso ni con `suppress_warnings=False`). Ahora `predict` falla con un predictor que falta, y también con uno de los últimos valores que revierten la diferenciación, con cualquier estimador (encontrado al revisar la PR). El backtesting de una serie falla en las métricas solo si hay predicciones NaN en fechas con valor observado: un faltante en una fila del `gap` que ningún retardo lleva al fold ya no lo rompe (regresión encontrada al revisar la PR, 2026-10-27). El backtesting multiserie sigue con predicciones NaN y un `MissingValuesWarning` | Nada que rodear: la comprobación previa de 3f-2 (D29) ya lo evita antes de ejecutar, así que el usuario sigue viendo el `DataContentError` de skforecast-ai. Los contrastes con skforecast de los tests (`test_read_positions.py`, `test_validate_backtest_exog.py`) fijan el comportamiento nuevo. Suite en verde contra `0.27.x` (2026-10-27) | Resuelto en `0.27.x` (2026-10-27) |
 | Sin issue ([#1431](https://github.com/skforecast/skforecast/pull/1431)) | Las búsquedas de hiperparámetros ordenaban los candidatos por la tarea del forecaster (minimizar en regresión) y no por la métrica: con una métrica de "mayor es mejor" (`r2_score`) elegían el peor candidato. Ahora la dirección se deduce de la métrica (`_metric_greater_is_better`) | Nada: skforecast-ai no lanza búsquedas, y todas sus métricas son de "menor es mejor", así que `compare` sigue ordenando ascendente. Suite en verde contra su rama (2026-10-22). Importará en el ajuste de hiperparámetros de la 0.6.0. Cambian los skills `hyperparameter-optimization` y `metric-selection` y `llms-base.txt`: hay que sincronizarlos cuando entre | Se mergea en `0.27.x` (entra en 0.27.0) |
-| [#1356](https://github.com/skforecast/skforecast/issues/1356) ([#1435](https://github.com/skforecast/skforecast/pull/1435)) | `X_train_series_names_in_` de ForecasterRecursiveMultiSeries seguía el orden alfabético con `encoding` distinto de `onehot`, y con él las filas de `predict` con `levels=None` y las claves de los residuos | Los scripts de forecast multiserie llaman a `predict` sin `levels`: con datos anchos cuyas columnas no van en orden alfabético, las filas de las predicciones siguen ahora el orden de las columnas (mismos valores); con datos largos no cambia, porque el reshape ya ordena los ids. Ningún test lo fijaba (los datos de los tests van en orden alfabético): falta uno, y una línea en "Before upgrading" al consolidar las notas. Suite en verde contra `0.27.x` (2026-10-26) | Resuelto en `0.27.x` (2026-10-26) |
+| [#1356](https://github.com/skforecast/skforecast/issues/1356) ([#1435](https://github.com/skforecast/skforecast/pull/1435)) | `X_train_series_names_in_` de ForecasterRecursiveMultiSeries seguía el orden alfabético con `encoding` distinto de `onehot`, y con él las filas de `predict` con `levels=None` y las claves de los residuos | Los scripts de forecast multiserie llaman a `predict` sin `levels`: con datos anchos cuyas columnas no van en orden alfabético, las filas de las predicciones siguen ahora el orden de las columnas (mismos valores); con datos largos no cambia, porque el reshape ya ordena los ids. Ningún test lo fijaba (los datos de los tests van en orden alfabético): lo fija uno desde [#123](https://github.com/skforecast/skforecast-ai/pull/123); falta una línea en "Before upgrading" al consolidar las notas. Suite en verde contra `0.27.x` (2026-10-26) | Resuelto en `0.27.x` (2026-10-26) |
 
 Detalle de cada uno:
 
