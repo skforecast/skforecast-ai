@@ -1092,7 +1092,7 @@ def test_backtest_runs_when_long_series_starts_late(n_values, refit):
     ]
 
 
-def test_backtest_UserWarning_when_long_series_is_left_out_of_some_folds():
+def test_backtest_FoldsLeftOutWarning_when_long_series_is_left_out_of_some_folds():
     """
     Test that backtest() warns (FoldsLeftOutWarning), and says in its
     explanation, when a series

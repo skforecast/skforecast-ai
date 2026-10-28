@@ -1820,7 +1820,7 @@ def test_compare_candidate_that_forecasts_a_series_in_no_fold_fails_before_runni
     ]
 
 
-def test_compare_UserWarning_once_names_candidates_that_left_series_out_of_some_folds():
+def test_compare_FoldsLeftOutWarning_once_names_candidates_that_left_series_out_of_some_folds():
     """
     Test that a comparison gives one FoldsLeftOutWarning, also in its
     explanation,
