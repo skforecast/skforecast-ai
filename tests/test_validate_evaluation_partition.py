@@ -17,6 +17,7 @@ from tests.fixtures_last_window import (
     long_ending_early,
     plan_long_foundation_eval,
     plan_long_multiseries_eval,
+    plan_single_direct,
     plan_single_lgbm_eval,
     plan_single_ridge,
     plan_single_ridge_eval,
@@ -126,6 +127,53 @@ def test_validate_evaluation_partition_no_error_when_no_missing_value_is_read(
     )
 
     assert result is None
+
+
+@pytest.mark.parametrize(
+    "plan, end_train, n_train, needed, reason, max_steps",
+    [
+        (
+            plan_single_ridge, "2023-01-04", 4, 6,
+            "more than its window size, 5", 54,
+        ),
+        (
+            plan_single_direct, "2023-01-07", 7, 8,
+            "its window size, 5, plus the 3 steps it is trained to predict", 27,
+        ),
+    ],
+    ids=["recursive", "direct"],
+)
+def test_validate_evaluation_partition_InvalidInputError_when_training_partition_shorter_than_window(
+    plan, end_train, n_train, needed, reason, max_steps
+):
+    """
+    Test that a training partition too short to fit the forecaster (more
+    observations than the window; for a direct forecaster, the window plus
+    `steps`) is `insufficient_data` on `test_size`, with the longest horizon
+    that fits in the 60 observations, instead of failing inside the script
+    (V30).
+    """
+    err_msg = re.escape(
+        f"The training partition of the evaluation, up to {end_train}, has "
+        f"{n_train} observations, and {plan.forecaster} needs at least "
+        f"{needed} ({reason}), so skforecast would fail. Evaluate a shorter "
+        f"horizon (fewer `steps`, with `test_size` equal to them), fewer lags "
+        f"or smaller window features."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        validate_evaluation_partition(
+            data    = data_single,
+            profile = profile_single,
+            plan    = in_evaluation(plan, end_train),
+        )
+
+    assert exc_info.value.code == "insufficient_data"
+    assert exc_info.value.field == "test_size"
+    assert exc_info.value.hint == (
+        f"Keeping the rest of the plan, at most {max_steps} `steps` fit: make a "
+        f"plan with that horizon and pass the same number as `test_size`. "
+        f"Otherwise use more data, fewer lags or smaller window features."
+    )
 
 
 def test_validate_evaluation_partition_no_check_when_plan_without_end_train():

@@ -1533,6 +1533,65 @@ V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
     ejecutar. Ningún golden del contexto del LLM cambia, ni el de esquemas
     del MCP.
 
+- **D?. 5a: entradas que no se validan y errores** (2026-10-27). V25, V33,
+  G04, V30, V31 y V32:
+  - V25: la regla vive en el núcleo (`_validate_window_features` rechaza
+    una clave que no sea `stats` ni `window_size`, nombrándola con las
+    válidas), así que también la API de Python y la CLI. En el MCP,
+    `WindowFeatureArgs` es un `TypedDict` cerrado (golden de esquemas:
+    `additionalProperties: false`, el enum de `stats` y `window_size >= 1`)
+    con un `BeforeValidator` que aplica antes la comprobación del núcleo,
+    para que el agente reciba su mensaje y no el "Extra inputs are not
+    permitted" de pydantic. El `WindowFeature` de `PlanOverrides` (lo que
+    devuelve el LLM) no se cierra: cambiaría el esquema que ve el modelo
+    (pregunta en la PR).
+  - V33: `validate_estimator_kwargs` construye el estimador con los
+    argumentos y, si es de scikit-learn, llama a `_validate_params()` (API
+    privada de scikit-learn, estable desde la 1.2); el constructor de
+    `Arima` ya comprueba sus valores. LightGBM, XGBoost y CatBoost solo
+    los comprueban al ajustar: siguen dando `execution_failed`. Los tests
+    que hacían fallar el script con `solver='no-such-solver'` pasan a
+    `solver='lbfgs'` (válido solo, rechazado por Ridge al ajustar con
+    `positive=False`), y los de seguridad llevan el valor hostil en el
+    `objective` de LightGBM.
+  - G04: `resolve_end_train` y `count_test_observations` reciben
+    `time_zone` y colocan la fecha como `create_cv` coloca un
+    `initial_train_size`: una fecha con zona sobre las fechas en su zona
+    (`aware_index`, que pasa de `recommendation/backtesting.py` a
+    `_dates.py`), una sin zona sobre las horas locales. Así se arregla
+    también un desfase de una hora tras el cambio de hora de primavera
+    (con `test_size` entero o fecha sin zona, el test empezaba una hora
+    antes). Fecha con zona en datos sin zona: `invalid_argument` en
+    `test_size` que pide quitarla. `end_train` sigue siendo una hora
+    local sin zona.
+  - V30: `training_length_needed` (más que la ventana; un directo, la
+    ventana más `steps`) es la regla de `first_window_issue`, ahora
+    compartida. Se comprueba al principio de
+    `validate_evaluation_partition` sobre la rejilla del perfil, salvo
+    ForecasterRecursiveMultiSeries (sus series las mira
+    `validate_series_lengths`) y los que no tienen ventana (Stats,
+    fundacionales). `insufficient_data` en `test_size`, con el horizonte
+    más largo que cabe "keeping the rest of the plan" en el `hint`.
+  - V31: `check_default_folds_fit`, en `create_cv()` solo cuando no se
+    pasa `initial_train_size` (con uno explícito y un `fold_stride` menor
+    sí caben dos folds): `insufficient_data` con `field` `plan`
+    (`plan_id` en el MCP), porque lo que hay que cambiar es el horizonte
+    del plan (pregunta en la PR). El `hint` da el horizonte más largo cuyos
+    dos folds dejan la primera ventana que necesita el forecaster, y
+    recuerda `forecast` con `test_size` para una sola ventana.
+  - V32: `CandidateFailure.error_type` es la clase real (se quita
+    `_reported_type_name`): `InvalidInputError: ...` en la tabla, los
+    avisos, `AllCandidatesFailedError` y el contexto del LLM, que nombraba
+    `ValueError`. El servidor reconoce así los errores propios y envía su
+    mensaje. `get_failure` con el id de una comparación y sin `candidate`
+    da `invalid_argument` en `candidate` con la lista de los fallidos; si
+    ninguno falló, `invalid_argument` en `object_id`. Línea en "Before
+    upgrading" (el tipo cambia) y descripción de `candidate` en el golden
+    de esquemas.
+  - El contexto del LLM cambia solo en el tipo de los candidatos fallidos;
+    ningún golden cambia (la fixture usa `ImportError`). El check de pago
+    de `check_ask_context.py` queda para la fase 7.
+
 ## Decisiones abiertas
 
 Se toman en el PR que las necesita y se pasan a la sección de arriba.

@@ -867,7 +867,8 @@ def test_compare_keeps_failure_snapshot_in_failures():
             {
                 "forecaster": "ForecasterRecursive",
                 "estimator": "Ridge",
-                "estimator_kwargs": {"alpha": "not-a-number"},
+                # Valid alone, rejected by Ridge when it fits.
+                "estimator_kwargs": {"solver": "lbfgs"},
             },
         ),
     ]
@@ -885,7 +886,8 @@ def test_compare_keeps_failure_snapshot_in_failures():
     assert list(result.failures) == ["bad"]
     failure = result.failures["bad"]
     assert isinstance(failure, CandidateFailure)
-    assert "alpha" in failure.message
+    assert failure.error_type == "ValueError"
+    assert "'lbfgs' solver can be used only when positive=True" in failure.message
     assert "Traceback (most recent call last)" in failure.traceback
     assert failure.generated_code is not None
     # The recorded summary matches the 'error' column of the results table.
@@ -2527,19 +2529,20 @@ def test_compare_error_code_and_field_when_candidates_invalid(
 @pytest.mark.parametrize(
     "error, expected_type",
     [
-        (InvalidInputError("bad value"), "ValueError"),
-        (InvalidInputTypeError("bad value"), "TypeError"),
-        (DataNotFoundError("bad value"), "FileNotFoundError"),
+        (InvalidInputError("bad value"), "InvalidInputError"),
+        (InvalidInputTypeError("bad value"), "InvalidInputTypeError"),
+        (DataNotFoundError("bad value"), "DataNotFoundError"),
     ],
     ids=["InvalidInputError", "InvalidInputTypeError", "DataNotFoundError"],
 )
-def test_candidate_failure_reports_input_errors_under_builtin_name(
+def test_candidate_failure_reports_input_errors_under_their_own_class(
     error, expected_type
 ):
     """
-    Test that an input error of skforecast-ai is recorded under the built-in
-    class it derives from, so the summaries of compare() keep the text they
-    had before these errors had their own classes.
+    Test that an input error of skforecast-ai is recorded under its own
+    class, so the server of MCP recognizes it as an error whose message
+    skforecast-ai wrote and sends that message (V32: it was recorded as the
+    built-in class it derives from, and the message was left out).
     """
     failure = CandidateFailure.from_exception(error)
 
@@ -2547,11 +2550,11 @@ def test_candidate_failure_reports_input_errors_under_builtin_name(
     assert failure.summary() == f"{expected_type}: bad value"
 
 
-def test_compare_AllCandidatesFailedError_message_names_builtin_classes():
+def test_compare_AllCandidatesFailedError_message_names_the_classes_of_skforecast_ai():
     """
     Test that the message of AllCandidatesFailedError, when the candidates
-    are rejected by the input checks, names the built-in classes as before
-    (`ValueError`), not the classes of skforecast-ai.
+    are rejected by the input checks, names the classes of skforecast-ai
+    (`InvalidInputError`) with their messages.
     """
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
     plan = assistant.plan(profile, steps=10)
@@ -2560,9 +2563,10 @@ def test_compare_AllCandidatesFailedError_message_names_builtin_classes():
     err_msg = re.escape(
         "All 2 candidate configuration(s) failed to run, so there is no "
         "ranking to report.\n\n"
-        "  - bad_lags: ValueError: `lags` must be positive integers (>= 1), "
-        "got 0.\n"
-        "  - bad_estimator: ValueError: 'Nope' is not a supported estimator."
+        "  - bad_lags: InvalidInputError: `lags` must be positive integers "
+        "(>= 1), got 0.\n"
+        "  - bad_estimator: InvalidInputError: 'Nope' is not a supported "
+        "estimator."
     )
     with pytest.warns(CandidateFailedWarning):
         with pytest.raises(AllCandidatesFailedError, match=err_msg):
@@ -2940,7 +2944,7 @@ def test_compare_CandidateFailedWarning_when_foundation_backend_not_installed(
     ]
 
     warn_msg = re.escape(
-        "Candidate 'foundation' failed and is ranked last: ValueError: "
+        "Candidate 'foundation' failed and is ranked last: InvalidInputError: "
         "'autogluon/chronos-2-small' needs the 'chronos-forecasting' package, "
         "which is not installed (pip install \"chronos-forecasting\")."
     )
@@ -3052,7 +3056,7 @@ def test_compare_CandidateFailedWarning_when_direct_candidate_and_cv_with_gap():
 
     # The warning truncates the error message of the candidate.
     warn_msg = re.escape(
-        "Candidate 'direct' failed and is ranked last: ValueError: "
+        "Candidate 'direct' failed and is ranked last: InvalidInputError: "
         "ForecasterDirect is trained to predict 5 steps, and with `gap=2` "
         "each fold needs steps + gap = 7 steps ahead"
     )

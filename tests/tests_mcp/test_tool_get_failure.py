@@ -46,7 +46,7 @@ def test_tool_get_failure_cut_with_full_text_in_a_file(tmp_path, monkeypatch):
         path,
         forecaster="ForecasterRecursive",
         estimator="Ridge",
-        estimator_kwargs={"solver": "no-such-solver"},
+        estimator_kwargs={"solver": "lbfgs"},
     )
     failure_id = error_of(call(server, "backtest", {"cv_id": cv_id}), "backtest")[
         "details"
@@ -59,7 +59,7 @@ def test_tool_get_failure_cut_with_full_text_in_a_file(tmp_path, monkeypatch):
     assert result["text_truncated"] is True
     assert result["files"] == {"failure": str(failure_path)}
     assert failure_path.read_text(encoding="utf-8").startswith(
-        "Error executing generated forecasting code.\n\n  InvalidParameterError:"
+        "Error executing generated forecasting code.\n\n  ValueError:"
     )
 
 
@@ -74,7 +74,7 @@ def test_tool_get_failure_candidate_with_a_failure_id(tmp_path):
         path,
         forecaster="ForecasterRecursive",
         estimator="Ridge",
-        estimator_kwargs={"solver": "no-such-solver"},
+        estimator_kwargs={"solver": "lbfgs"},
     )
     error = error_of(call(server, "backtest", {"cv_id": cv_id}), "backtest")
     failure_id = error["details"]["failure_id"]
@@ -85,6 +85,39 @@ def test_tool_get_failure_candidate_with_a_failure_id(tmp_path):
     )
 
     assert (result["code"], result["field"]) == ("invalid_argument", "candidate")
+
+
+def test_tool_get_failure_invalid_argument_when_comparison_without_candidate(tmp_path):
+    """
+    Test that the id of a comparison without `candidate` is
+    `invalid_argument` on `candidate` listing the failed candidates (V32: it
+    answered "has no failed candidate named None"), and that a comparison
+    whose candidates all ran says it has no failure.
+    """
+    server, path = h2o_server(tmp_path)
+    _, _, cv_id = cv_of(server, path)
+    comparison_id = content_of(
+        call(server, "compare", {"cv_id": cv_id, "candidates": COMPARE_CANDIDATES})
+    )["id"]
+    clean_id = content_of(
+        call(server, "compare", {"cv_id": cv_id, "candidates": COMPARE_CANDIDATES[:1]})
+    )["id"]
+
+    error = error_of(
+        call(server, "get_failure", {"object_id": comparison_id}), "get_failure"
+    )
+    clean = error_of(call(server, "get_failure", {"object_id": clean_id}), "get_failure")
+
+    assert (error["code"], error["field"]) == ("invalid_argument", "candidate")
+    assert error["message"] == (
+        f"{comparison_id!r} is a comparison: name in `candidate` the failed "
+        f"candidate whose failure to return. Failed candidates: ['bad']."
+    )
+    assert (clean["code"], clean["field"]) == ("invalid_argument", "object_id")
+    assert clean["message"] == (
+        f"Every candidate of the comparison {clean_id!r} ran: it has no failure "
+        f"to return."
+    )
 
 
 def test_tool_get_failure_keeps_the_last_failures(tmp_path):
@@ -98,7 +131,7 @@ def test_tool_get_failure_keeps_the_last_failures(tmp_path):
         path,
         forecaster="ForecasterRecursive",
         estimator="Ridge",
-        estimator_kwargs={"solver": "no-such-solver"},
+        estimator_kwargs={"solver": "lbfgs"},
     )
     ids = [
         error_of(call(server, "backtest", {"cv_id": cv_id}), "backtest")["details"][
@@ -138,7 +171,7 @@ def test_tool_get_failure_and_get_code_of_long_candidates(tmp_path, monkeypatch)
     )
     out = tmp_path / "out"
 
-    assert failure["text"] == "Candidate 'bad' failed: ValueE"
+    assert failure["text"] == "Candidate 'bad' failed: Invali"
     assert failure["files"] == {"failure": str(out / f"{comparison_id}-failure-0.txt")}
     assert code["code_truncated"] is True
     # 'direct' ranks third, after 'ridge' and the baseline.

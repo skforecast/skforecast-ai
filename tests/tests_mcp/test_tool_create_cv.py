@@ -896,6 +896,28 @@ def test_tool_create_cv_insufficient_data_with_hint_when_one_fold(tmp_path):
     )
 
 
+def test_tool_create_cv_insufficient_data_when_default_leaves_no_two_folds(tmp_path):
+    """
+    Test that `create_cv` with only `plan_id`, for a plan whose horizon is
+    half the data or more, is `insufficient_data` on `plan_id` with a hint
+    for fewer `steps`, not an `invalid_argument` on an `initial_train_size`
+    that the agent did not send (V31).
+    """
+    server, path = h2o_server(tmp_path)
+    _, plan_id = profile_and_plan(server, path, steps=110)
+
+    error = error_of(call(server, "create_cv", {"plan_id": plan_id}), "create_cv")
+
+    assert error["code"] == "insufficient_data"
+    assert error["field"] == "plan_id"
+    assert error["message"] == (
+        "The data has 204 observations, too few for a backtest of 110 steps: "
+        "its two folds take 220, and at least one observation is needed before "
+        "them to train on."
+    )
+    assert error["hint"].startswith("Keeping the rest of the plan, at most ")
+
+
 def test_tool_create_cv_counts_the_strategy_plan_in_the_cost_of_a_default_compare(
     tmp_path, monkeypatch
 ):

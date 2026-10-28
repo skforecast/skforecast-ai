@@ -186,7 +186,7 @@ def test_tool_backtest_execution_failed_keeps_the_failure(tmp_path):
         path,
         forecaster="ForecasterRecursive",
         estimator="Ridge",
-        estimator_kwargs={"solver": "no-such-solver"},
+        estimator_kwargs={"solver": "lbfgs"},
     )
 
     error = error_of(call(server, "backtest", {"cv_id": cv_id}), "backtest")
@@ -196,14 +196,14 @@ def test_tool_backtest_execution_failed_keeps_the_failure(tmp_path):
 
     assert error["code"] == "execution_failed"
     assert error["message"] == (
-        "The generated script failed with InvalidParameterError. Its message, "
-        "the traceback and the code that ran are in `get_failure`, with the "
+        "The generated script failed with ValueError. Its message, the "
+        "traceback and the code that ran are in `get_failure`, with the "
         "`failure_id` of `details`."
     )
     assert failure["id"] == error["details"]["failure_id"]
     assert failure["text"].startswith("Error executing generated forecasting code.")
     assert "Traceback:\n" in failure["text"]
-    assert "'no-such-solver'" in failure["text"].split("Code that ran:\n")[1]
+    assert "'lbfgs'" in failure["text"].split("Code that ran:\n")[1]
     traceback_text = failure["text"].split("Traceback:\n")[1].split("Code that ran")[0]
     assert 'File "sklearn/' in traceback_text
     assert 'File "/' not in traceback_text

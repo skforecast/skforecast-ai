@@ -2348,7 +2348,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             f"{LAGS_DESCRIPTION} Null for the selection from the partial "
             f"autocorrelation."
         ))] = None,
-        window_features: Annotated[WindowFeatures | None, Field(description=(
+        window_features: Annotated[WindowFeatures, Field(description=(
             f"{WINDOW_FEATURES_DESCRIPTION} Null for the deterministic "
             f"selection."
         ))] = None,
@@ -3262,7 +3262,8 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             "whose candidate failed."
         ))],
         candidate: Annotated[str | None, Field(description=(
-            "Name of the failed candidate of a comparison."
+            "Name of the failed candidate, required with the id of a "
+            "comparison; null with a `failure_id`."
         ))] = None,
     ) -> FailureResult:
         with state.failures_lock:
@@ -3284,11 +3285,26 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             )
         if kept is None:
             entry = store.get(object_id, "object_id", ("comparison",))
+            failed = sorted(entry.candidate_failures)
+            if not failed:
+                raise ServerError(
+                    f"Every candidate of the comparison {object_id!r} ran: it "
+                    f"has no failure to return.",
+                    code  = "invalid_argument",
+                    field = "object_id",
+                )
+            if candidate is None:
+                raise ServerError(
+                    f"{object_id!r} is a comparison: name in `candidate` the "
+                    f"failed candidate whose failure to return. Failed "
+                    f"candidates: {failed}.",
+                    code  = "invalid_argument",
+                    field = "candidate",
+                )
             if candidate not in entry.candidate_failures:
                 raise ServerError(
                     f"The comparison {object_id!r} has no failed candidate named "
-                    f"{candidate!r}. Failed candidates: "
-                    f"{sorted(entry.candidate_failures)}.",
+                    f"{candidate!r}. Failed candidates: {failed}.",
                     code  = "invalid_argument",
                     field = "candidate",
                 )

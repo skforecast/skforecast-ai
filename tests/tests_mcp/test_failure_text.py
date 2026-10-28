@@ -1,7 +1,11 @@
 # Unit test failure_text
 
+import pytest
+
+from skforecast_ai import ForecastingAssistant
 from skforecast_ai.exceptions import (
     AllCandidatesFailedError,
+    CandidateFailedWarning,
     ForecastExecutionError,
     InvalidInputError,
 )
@@ -12,6 +16,8 @@ from skforecast_ai.mcp._errors import (
     without_install_paths,
 )
 from skforecast_ai.schemas import CandidateFailure
+
+from ..fixtures_datasets import df_h2o
 
 
 def test_failure_text_of_a_script_and_of_a_comparison():
@@ -102,35 +108,43 @@ def test_error_payload_names_only_the_type_of_a_failure_not_of_skforecast_ai():
     """
     Test that `execution_failed` and `all_candidates_failed` send the type
     of an error that skforecast-ai did not raise, not its message (which can
-    quote a value of the data), and keep the message of one it raised.
+    quote a value of the data), and keep the message of one it raised. The
+    comparison is a real one whose candidates fail with an error of
+    LightGBM inside the script and with an `InvalidInputError` of the plan,
+    which a candidate failure names by its own class (V32: it was named
+    `ValueError` and its message was left out).
     """
     script = ForecastExecutionError(
         original_error=ValueError("could not convert string to float: 'SECRET'"),
         generated_code="x",
         execution_traceback="tb",
     )
-    comparison = AllCandidatesFailedError(
-        {
-            "a": CandidateFailure(
-                error_type="ValueError", message="bad 'SECRET'", traceback="tb",
-                generated_code=None,
-            ),
-            "b": CandidateFailure(
-                error_type="InvalidInputError", message="`lags` must be positive.",
-                traceback="tb", generated_code=None,
-            ),
-        }
-    )
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(df_h2o, target="x")
+    cv = assistant.create_cv(profile, assistant.plan(profile, steps=12))
+    candidates = [
+        ("lgbm", {"estimator": "LGBMRegressor", "estimator_kwargs": {"num_leaves": 1}}),
+        ("ridge", {"estimator": "Ridge", "estimator_kwargs": {"alpha": -1}}),
+    ]
+    with pytest.raises(AllCandidatesFailedError) as exc_info:
+        with pytest.warns(CandidateFailedWarning):
+            assistant.compare(
+                df_h2o, target="x", cv=cv, candidates=candidates, baseline=False
+            )
 
     script_message = error_payload(script)["message"]
-    comparison_message = error_payload(comparison)["message"]
+    comparison_message = error_payload(exc_info.value)["message"]
 
     assert script_message == (
         "The generated script failed with ValueError. Its message, the "
         "traceback and the code that ran are in `get_failure`, with the "
         "`failure_id` of `details`."
     )
-    assert "SECRET" not in comparison_message
+    assert exc_info.value.failures["ridge"].error_type == "InvalidInputError"
+    assert "Check failed" not in comparison_message
     assert comparison_message.endswith(
-        "  - a: ValueError\n  - b: InvalidInputError: `lags` must be positive."
+        "  - lgbm: LightGBMError\n"
+        "  - ridge: InvalidInputError: `estimator_kwargs` is not valid for Ridge: "
+        "The 'alpha' parameter of Ridge must be a float in the range [0.0, inf) "
+        "or an array-like. Got -1 instead."
     )

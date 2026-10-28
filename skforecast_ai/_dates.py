@@ -267,6 +267,44 @@ def training_end(end_train: str, tz: object = None) -> pd.Timestamp:
     return end
 
 
+def aware_index(
+    start_date: str,
+    n_observations: int,
+    frequency: str,
+    time_zone: str | None,
+) -> pd.DatetimeIndex | None:
+    """
+    Rebuild the dates of the data in their time zone.
+
+    Parameters
+    ----------
+    start_date : str
+        First date of the data, without time zone.
+    n_observations : int
+        Number of dates.
+    frequency : str
+        Pandas frequency of the dates.
+    time_zone : str, None
+        Time zone of the dates (`DataProfile.time_zone`).
+
+    Returns
+    -------
+    index : pandas DatetimeIndex, None
+        Dates in their time zone, or None when they have none or pandas
+        cannot build the grid in it.
+    """
+    if time_zone is None:
+        return None
+    try:
+        return pd.date_range(
+            start   = pd.Timestamp(start_date).tz_localize(time_zone),
+            periods = n_observations,
+            freq    = frequency,
+        )
+    except Exception:
+        return None
+
+
 def date_positions(dates: pd.DatetimeIndex) -> np.ndarray:
     """
     Return the dates as integers that sort like the dates.

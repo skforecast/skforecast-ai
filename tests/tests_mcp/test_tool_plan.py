@@ -186,6 +186,70 @@ def test_tool_plan_invalid_argument(tmp_path, arguments, code, field):
     assert error["field"] == field
 
 
+def test_tool_plan_invalid_argument_when_window_features_has_an_unknown_key(
+    tmp_path,
+):
+    """
+    Test that an unknown key of an entry of `window_features` is
+    `invalid_argument` naming the key and the valid ones, instead of a plan
+    that drops it from its script and shows it as chosen (V25).
+    """
+    server, _, profile_id = _profiled(tmp_path)
+    window_features = [
+        {"stats": ["mean"], "window_size": 3, "min_periods": 2},
+        {"stats": ["max"], "window_size": 6},
+    ]
+
+    error = error_of(
+        call(
+            server,
+            "plan",
+            {"profile_id": profile_id, "steps": 12, "window_features": window_features},
+        ),
+        "plan",
+    )
+
+    assert error["code"] == "invalid_argument"
+    assert error["field"] == "window_features"
+    assert error["message"] == (
+        "`window_features[0]` has unknown key(s): ['min_periods']. Each entry "
+        "takes only 'stats' and 'window_size'; add one entry per window size to "
+        "use several sizes."
+    )
+
+
+def test_tool_plan_invalid_argument_when_estimator_kwargs_value_not_valid(tmp_path):
+    """
+    Test that a value of `estimator_kwargs` that the estimator rejects is
+    `invalid_argument` on `estimator_kwargs` with the message of its
+    library when the plan is made, not an `execution_failed` when it runs
+    (V33).
+    """
+    server, _, profile_id = _profiled(tmp_path)
+
+    error = error_of(
+        call(
+            server,
+            "plan",
+            {
+                "profile_id": profile_id,
+                "steps": 12,
+                "estimator": "Ridge",
+                "estimator_kwargs": {"alpha": "abc"},
+            },
+        ),
+        "plan",
+    )
+
+    assert error["code"] == "invalid_argument"
+    assert error["field"] == "estimator_kwargs"
+    assert error["message"] == (
+        "`estimator_kwargs` is not valid for Ridge: The 'alpha' parameter of "
+        "Ridge must be a float in the range [0.0, inf) or an array-like. Got "
+        "'abc' instead."
+    )
+
+
 def test_tool_plan_unknown_or_wrong_id(tmp_path):
     """
     Test that an id that does not exist is `unknown_id` and the id of a plan

@@ -804,10 +804,8 @@ class CandidateFailure(BaseModel):
     Attributes
     ----------
     error_type : str
-        Class name of the root-cause exception, for example
-        `'ImportError'`. An input error of skforecast-ai is named after the
-        built-in class it derives from (`'ValueError'` for an
-        `InvalidInputError`), as before these errors had their own classes.
+        Class name of the root-cause exception, for example `'ImportError'`
+        or `'InvalidInputError'`.
     message : str
         Message of the root-cause exception.
     traceback : str
@@ -844,7 +842,7 @@ class CandidateFailure(BaseModel):
             Plain-data snapshot of the failure.
         """
 
-        from ..exceptions import ForecastExecutionError, _reported_type_name
+        from ..exceptions import ForecastExecutionError
 
         if isinstance(exc, ForecastExecutionError):
             root = exc.original_error
@@ -858,7 +856,7 @@ class CandidateFailure(BaseModel):
             generated_code = None
 
         return cls(
-            error_type     = _reported_type_name(root),
+            error_type     = type(root).__name__,
             message        = str(root),
             traceback      = formatted,
             generated_code = generated_code,

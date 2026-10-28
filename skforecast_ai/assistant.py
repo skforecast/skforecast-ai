@@ -111,6 +111,7 @@ from .recommendation import (
     build_metric_override_explanation,
     build_plan_explanation,
     build_forecaster_kwargs,
+    check_default_folds_fit,
     check_exog_usage,
     check_first_window,
     check_metric_domain,
@@ -2884,6 +2885,11 @@ class ForecastingAssistant:
         # -----------------------------------------------------------------
         if prompt is not None and self.llm is None:
             raise LLMRequiredError("create_cv")
+        # The default `initial_train_size` cannot leave two folds when the
+        # horizon is half the data or more: say so instead of the error of
+        # skforecast on an `initial_train_size` that was not passed.
+        if initial_train_size is None:
+            check_default_folds_fit(plan, profile.data_profile)
 
         # All CV parameters the LLM would otherwise decide. When every one is
         # set explicitly, the LLM has nothing left to decide, so skip the call.
@@ -4916,6 +4922,7 @@ class ForecastingAssistant:
                 frequency      = profile.data_profile.frequency,
                 n_observations = profile.data_profile.span_index_length,
                 test_size      = test_size,
+                time_zone      = profile.data_profile.time_zone,
             )
             plan = plan.model_copy(update={"end_train": end_train}, deep=True)
 
@@ -4928,6 +4935,7 @@ class ForecastingAssistant:
                 frequency      = profile.data_profile.frequency,
                 n_observations = profile.data_profile.span_index_length,
                 end_train      = plan.end_train,
+                time_zone      = profile.data_profile.time_zone,
             )
             if n_test is not None and n_test != plan.steps:
                 raise InvalidInputError(
