@@ -23,37 +23,26 @@ of your own can list it.
    path of a CSV file inside the directory the server may read, which its
    instructions name: build the path from
    it when the user gives a relative one, without searching the file
-   system. `target` is one column, or a list of columns for
-   several series side by side; `series_id_column` names the column of
-   series ids when the series are stacked. Every other column is an
-   exogenous variable unless `exog_columns` names the ones to use (an
-   empty list for none); set it only when the user asks. Read the summary
+   system. Set `exog_columns` only when the user asks. Read the summary
    and the `notices`: frequency, series, gaps, exogenous columns and the
    recommended forecaster. Do not open the data file with your own tools
    to look at it: `profile` gives its columns and statistics without rows.
    When the user named the column to forecast, pass it as `target` at
-   once. Only when they did not, call `profile` without `target`: its
-   error lists the columns of the file, so never guess a target to see
-   them. Read the file only to locate a problem an error reports.
+   once, as they wrote it, even if you are not sure it exists: a column
+   that is not in the file is an error that lists the columns, and you
+   tell the user before using another one. Only when they did not, call
+   `profile` without `target`: its error lists the columns of the file,
+   so never guess a target to see them. Read the file only to locate a
+   problem an error reports.
 2. `plan(profile_id, steps, ...)`: `steps` is the horizon in observations
    (12 for a year of monthly data), at most the length of the longest
    series. When the user gives no horizon (or no target, and more than one
-   column could be it), ask; if you assume one, say so before the results. Leave the other arguments out to take the recommendation; set
-   them only when the user asks. `metric` (one metric, or a list whose
-   first one ranks) replaces the metric selected from the data, and only
-   the metrics given are computed. `use_exog: false` leaves the
-   exogenous columns out, so `forecast` needs no `exog_path`.
-   `differentiation` (usually 1, for a series with a trend) differences
-   the target before training; a strategy of `create_cv` serves plans
-   with any order, so candidates of `compare` that differ in it share it.
-   `calendar_features` (an empty list for none), `target_transformer`
-   (`StandardScaler` or `none`) and `dropna_from_series` replace the
-   rules of the machine learning forecasters.
+   column could be it), ask; if you assume one, say so before the
+   results. Leave the other arguments out to take the recommendation; set
+   them only when the user asks (the schema says what each one does).
 3. Optionally `refine_plan(plan_id, overrides)` to change some decisions.
-   An omitted key keeps the value of the plan; every key but
-   `forecaster`, `estimator` and `steps` set to null goes back to the
-   default. A value the new forecaster or estimator cannot take is left
-   out, with a notice that names it (the `estimator_kwargs` of another
+   A value the new forecaster or estimator cannot take is left out,
+   with a notice that names it (the `estimator_kwargs` of another
    estimator; the `differentiation`, `calendar_features` and
    `target_transformer` with `ForecasterStats`, a foundation model or the
    baseline): tell the user. A `backtest` or `forecast` of a plan whose
@@ -85,9 +74,8 @@ of your own can list it.
    decisions, in the row `Strategy plan`, a name no candidate can take.
    With `candidates` only they run: the summary names the candidate that
    makes the decisions of that plan, or says, with a notice, that it was
-   not compared, and then no row is the user's plan. The summary names
-   the row of the plan of the strategy: report that row as the user's
-   plan. A row named after a
+   not compared, and then no row is the user's plan. Report the row the
+   summary names as the user's plan. A row named after a
    forecaster runs the plan the profile recommends for it, which is the
    user's plan only when the summary names that row. Without `interval`
    it uses the interval of the plan of the strategy, so the winner keeps
@@ -105,13 +93,12 @@ of your own can list it.
    the ISO 8601 date the test set starts at. A fraction only works when it
    gives exactly `steps` observations.
 
-`get_code(object_id)` returns the Python script that ran (for a plan, the
-one that would run; a profile has none), so the user can reproduce any
+`get_code(object_id)` gives the script, so the user can reproduce any
 result without the server, and `requirements`, the packages to install
 for it with the versions the server runs: name those, not others. Hand
 the script as it is; if you change anything (the path of the data, a
-comment), say what. `describe_object(object_id)` returns a response
-again; `list_objects()` lists the ids.
+comment), say what. `describe_object(object_id)` and `list_objects()`
+read what the server keeps.
 
 ## How far to trust a result
 
@@ -135,7 +122,11 @@ From most to least reliable:
    nor as the forecast of the future: its dates are already in the data (a
    `HoldoutEvaluationNotice` names them).
 4. A `forecast` of the future: no measure of error at all. Report it with
-   the accuracy of the backtest or comparison of the same plan.
+   the accuracy of the backtest or comparison of the same plan. An
+   `UnmeasuredPlanNotice` says that no `backtest`, `compare` or `forecast`
+   with `test_size` measured that plan: say so, measure it before
+   presenting it as reliable, and never give it the accuracy of another
+   plan.
 
 `mean_absolute_scaled_error` and `root_mean_squared_scaled_error` divide
 the error by that of the one-step naive forecast (repeat the previous
@@ -283,8 +274,6 @@ that is for the user to ask once they know.
 - Future exogenous values (`exog_path`): one row per date of the horizon
   (and per series when they are stacked), with the date column of the data.
   For data without dates, one row per step of the horizon, in order.
-- Ids are valid while the server runs. After a restart, or when an id was
-  removed to keep the server within its limits, create the object again.
 
 ## Data problems
 
@@ -339,8 +328,6 @@ without its backend package installed where the server runs is
   profile carries the problems of the data (`DataProfileWarning`: missing
   dates, short series, missing values), and a plan carries them again with
   its own warnings, so you see them where you decide.
-- `links`: the ids an object was built from. `changeable`: the arguments
-  of `refine_plan` or `create_cv` that build a variant of it.
 
 ## Errors
 

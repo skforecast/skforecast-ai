@@ -362,7 +362,8 @@ class CandidateArg(BaseModel):
     name: str = Field(description=(
         "Unique name of the candidate, which labels its row of the "
         "leaderboard. 'Baseline (seasonal naive)' and 'Baseline (naive)' are "
-        "reserved for the baseline."
+        "reserved for the baseline, and 'Strategy plan' for the plan of the "
+        "strategy."
     ))
     config: CandidateArgs = Field(
         default_factory = dict,
@@ -450,7 +451,8 @@ class ToolResult(BaseModel):
         of the shared strategy and the other three are totals over all its
         candidates, the baseline included, counted before they run (a
         candidate that fails while it runs counts too; one whose plan
-        cannot be built runs nothing and does not). A cross-validation
+        cannot be built, or that fails the checks of `backtest`, runs
+        nothing and does not). A cross-validation
         strategy also has `compare_estimator_fits` and
         `compare_inference_windows`, those of a comparison without
         candidates with it. Above 50 estimator fits, or 2000 inference

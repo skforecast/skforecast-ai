@@ -1,7 +1,8 @@
 # Plan: descripciones de las herramientas del servidor MCP
 
-Para la próxima versión con cambios en el servidor (0.4.3 o 0.5.0). Nada de
-esto se ha implementado todavía.
+Fase 6 de la 0.5.0 (`dev/roadmap-0.5.0.md`). Pasos 1 a 6 hechos en la rama
+`feature/mcp-tool-descriptions` (sección "Hecho", al final); quedan el 7
+(comprobación con agentes, en la fase 7) y el 8 (tras publicar).
 
 ## Contexto
 
@@ -149,3 +150,70 @@ petición). Si parece mucho, las de `profile`, `refine_plan` y
   solo exige la insignia, no una nota mínima.
 - Si otros clientes (Cursor, VS Code) usan la descripción para elegir
   herramientas cuando hay muchas conectadas.
+
+## Hecho
+
+En la rama `feature/mcp-tool-descriptions`, sobre el comportamiento cerrado
+de las fases 1 a 5 (D1 a D33). Ningún cambio de código salvo textos.
+
+**Los dos puntos abiertos del paso 2**, comprobados en el código:
+
+- `get_failure` con el id de algo que no ha fallado: una comparación cuyos
+  candidatos corrieron todos da `invalid_argument` en `object_id` ("Every
+  candidate of the comparison ... ran: it has no failure to return."); el
+  id de otro tipo de objeto, `invalid_argument` en `object_id` desde
+  `Store.get` (pide el id de una comparación); un `failure-...` que ya no
+  se guarda, `unknown_id`. La descripción dice "The id of an object that
+  did not fail is `invalid_argument`".
+- Los nombres citados existen: `details.failure_id` (de
+  `execution_failed` y `all_candidates_failed`), `links.best_plan_id`,
+  `cost`, `requirements` de `CodeResult`, y los ficheros se nombran
+  `<id>-<rol>.csv` (`_ServerState.write_frame`).
+
+**Texto final de las descripciones** (`_build_tools`): el de antes con la
+frase de flujo de la tabla, revisada:
+
+| Herramienta | Frase de flujo |
+|:--|:--|
+| `profile` | The first step: returns a profile id, which `plan` takes. |
+| `plan` | Returns a plan id, which `create_cv` and `forecast` take. To change a decision of an existing plan, use `refine_plan`. |
+| `refine_plan` | ... and keeping the others: use it instead of `plan` to change a plan. |
+| `create_cv` | Returns a cv id, which `backtest` and `compare` take, and its cost in `cost`: read it before running them. |
+| `backtest` | One plan with a cv id of `create_cv`; files named by the new id, so no run overwrites another. To rank several configurations, use `compare`. |
+| `compare` | On the folds of a cv id of `create_cv`; for one plan, use `backtest`. `links.best_plan_id`, which `forecast` takes. |
+| `forecast` | A forecast of the future has no error measure: backtest or compare the plan first. |
+| `get_code` | ... and the packages it needs (a profile has none). For a run that failed, use `get_failure`. |
+| `get_failure` | The id of an object that did not fail is `invalid_argument`; for the script of a run that worked, use `get_code`. |
+| `list_objects` | Profiles, plans, strategies and runs, most recently used first; beyond its limits the least recently used are removed, and none survives a restart. Use `describe_object` to read one. |
+| `describe_object` | From an id of any response or of `list_objects`. |
+
+Las cuatro que la propuesta daba como "la que menos aporta" se quedaron
+cortas, no fuera: sin la frase, `list_objects` y `describe_object` seguían
+sin decir con quién se relacionan (la nota más baja de Glama).
+
+**Tamaño** (caracteres; las descripciones y los esquemas viajan en cada
+petición, el SKILL.md solo cuando el agente lo carga):
+
+| | Antes | Después |
+|:--|--:|--:|
+| Descripciones de las herramientas | 1310 | 2291 |
+| Descripciones de los parámetros (esquemas de entrada) | 16796 | 17156 |
+| Descripciones de los esquemas de salida | 30454 | 30814 |
+| Instrucciones del servidor (plantilla) | 4125 | 3995 |
+| SKILL.md | 26355 | 25344 |
+
+El esquema de salida crece 360 porque el docstring de `ToolResult` (el de
+`cost`) se repite en las nueve herramientas que lo devuelven.
+
+Del SKILL.md salió lo que ya dicen los esquemas o las descripciones: qué
+hace cada argumento de `plan` (paso 2), `target` y `series_id_column` (paso
+1), las claves omitidas y nulas de `refine_plan` (paso 3), lo que devuelven
+`get_code`, `describe_object` y `list_objects`, la vida de los ids y
+`links`/`changeable` de las respuestas. De las instrucciones, la frase que
+decía lo que devuelven las cuatro herramientas de lectura. Ninguna regla de
+confianza, coste, privacidad ni licencias se tocó, y los tests de
+`test_skill_md.py` y `test_create_server.py` que fijan esas frases siguen
+pasando sin cambios.
+
+Pendiente: el paso 7 (comprobación con agentes, fase 7 en local) y el 8
+(TDQS de Glama tras publicar).
