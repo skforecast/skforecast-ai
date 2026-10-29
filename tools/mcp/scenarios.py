@@ -713,7 +713,7 @@ SCENARIOS: list[Scenario] = [
             "OK, go with the cheaper option you suggest.",
         ],
         files        = {"data/bike_two_years.csv": "bike_two_years"},
-        expect_tools = ["profile", "plan", "create_cv", "backtest"],
+        expect_tools = ["profile", "plan", "create_cv", "backtest|compare"],
         expect_order = WORKFLOW_ORDER,
         checks       = [
             (
@@ -882,7 +882,9 @@ SCENARIOS: list[Scenario] = [
             "anything else, leave the data as it is. Do not modify my file.",
         ],
         files        = {"data/h2o_dirty.csv": "h2o_dirty"},
-        extra_tools  = ["Write"],
+        # Agents write the corrected copy with a short script as often as
+        # with `Write` (0.5.0, claude-sonnet-5-5): a user would approve it.
+        extra_tools  = ["Write", "Bash(python3:*)", "Bash(awk:*)", "Bash(cd:*)"],
         critical     = True,
         writes_agreed_from = 1,
         allowed_errors = ["invalid_argument", "data_unreadable"],
@@ -913,7 +915,9 @@ SCENARIOS: list[Scenario] = [
             "file.",
         ],
         files        = {"data/h2o_dirty.csv": "h2o_dirty"},
-        extra_tools  = ["Write"],
+        # Agents write the corrected copy with a short script as often as
+        # with `Write` (0.5.0, claude-sonnet-5-5): a user would approve it.
+        extra_tools  = ["Write", "Bash(python3:*)", "Bash(awk:*)", "Bash(cd:*)"],
         writes_agreed_from = 1,
         allowed_errors = ["invalid_argument", "data_unreadable"],
         checks       = [
@@ -1018,7 +1022,8 @@ SCENARIOS: list[Scenario] = [
             (
                 "the answer says the intervals rest on few residuals",
                 answer_matches(r"residual|few (rows|observations|data)|equal bounds"
-                               r"|not reliable|unreliable|too short|too little"),
+                               r"|not reliable|unreliable|too short|too little"
+                               r"|rows to estimate|too narrow|small sample"),
             ),
         ],
     ),
