@@ -502,19 +502,20 @@ Hecho en [#126](https://github.com/skforecast/skforecast-ai/pull/126) (D34).
    bien los argumentos de `plan` (`use_exog`, `metric`,
    `differentiation`...), que desde #126 (D34) el paso 2 del SKILL.md no
    explica y remite al esquema.
-3. Los datos de las animaciones de la portada y de la documentación
-   (`tools/docs/home_page/generate_home_data.py`, que escribe
-   `docs/overrides/partials/home-data.json` y los `*-data.js` de
-   `docs/animations/`) no se pueden regenerar: el script para cuando una
-   cifra citada en las respuestas de `ask()` escritas a mano ya no cuadra,
-   y en `0.5.x` el MAE del backtest pasó de 49.5 a 45.8 (visto en #117,
-   también sin ella). La causa probable son los cambios de skforecast 0.27
-   (el modelo congelado de ForecasterStats, #1425; los folds saltados,
-   #1427) y los de esta release. Hay que volver a escribir a mano esas
-   respuestas con las cifras nuevas (no se graban de un modelo) y
-   regenerar los datos, también los de `generate_agent_session_data.py` y
-   `generate_mcp_overview_data.py` si cambian, después de que el
-   comportamiento quede cerrado.
+3. Los datos de las animaciones de la portada y de la documentación:
+   hecho en [#127](https://github.com/skforecast/skforecast-ai/pull/127)
+   (2026-10-29). Las cifras citadas en las respuestas de `ask()` escritas a
+   mano ya cuadraban (el MAE de 45.8 estaba en `QUOTED`) y no se reescribe
+   ninguna. Fallaban dos generadores por cambios de esta release: el
+   `compare()` de "Let measured performance pick the model" fit 148
+   estimadores y pedía `confirm_cost` (4b, D23; la tarjeta muestra ahora
+   la llamada con `confirm_cost=True` y la cifra), y
+   `generate_mcp_overview_data.py` leía la frase del baseline con la
+   redacción de la 0.4. Las cifras de las comparaciones no cambian. Queda
+   `generate_agent_session_data.py`, que sale de un informe del check con
+   agentes: después del punto 2. Al volver a grabar los notebooks (punto
+   1), una celda de `backtest()` o `compare()` de más de 50 ajustes pide
+   `confirm_cost=True`: ninguno lo pasa hoy.
 4. Comprobaciones a mano (abajo).
 5. skforecast 0.27.0 publicado con todo lo de "Dependencia de skforecast
    0.27.0" resuelto, `/sync-skforecast-assets` (lo lanzas tú) y la suite
