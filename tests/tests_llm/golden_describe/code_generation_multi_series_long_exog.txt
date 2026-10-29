@@ -25,7 +25,7 @@ The dataset contains 3 series, so a multi-series forecaster (ForecasterRecursive
 </profile_decision>
 <forecast_plan>
 - Forecaster: ForecasterRecursiveMultiSeries
-- Steps: 7
+- Steps: 7 (forecast horizon, given by the user)
 - Estimator: LGBMRegressor
 - Lags: [1, 2, 3, 7]
 - Window features: [{'stats': ['mean', 'std'], 'window_size': 3}, {'stats': ['mean'], 'window_size': 7}, {'stats': ['mean'], 'window_size': 21}]

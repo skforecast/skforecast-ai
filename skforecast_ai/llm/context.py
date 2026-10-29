@@ -702,10 +702,12 @@ def render_plan_section(
         return ""
 
     # A name from a closed set when the plan is validated; a plan changed
-    # with `model_copy()` is not.
+    # with `model_copy()` is not. The horizon is always an input of the
+    # user (`plan()` requires it), never a decision of the rules: without
+    # saying so, it was counted among those of the rules.
     parts = [
         f"- Forecaster: {_one_line(plan.forecaster)}",
-        f"- Steps: {plan.steps}",
+        f"- Steps: {plan.steps} (forecast horizon, given by the user)",
     ]
     if plan.estimator:
         parts.append(f"- Estimator: {plan.estimator}")
@@ -880,6 +882,7 @@ def render_script_section(
     if plan is None or code is None:
         return ""
 
+    metric_names = ", ".join(plan.metrics_to_compute)
     is_backtest = re.search(
         r"^metrics, predictions = backtesting_\w+\(", code, re.M
     )
@@ -906,9 +909,12 @@ def render_script_section(
                 f"{trained}, and scores the predictions of every fold against "
                 f"the held-out observations"
             )
+        # The metrics are named: without them, a question about one of them
+        # was answered as if the script computed only the primary one.
         outputs = (
-            "metrics (one column per metric, one row per series when there "
-            "are several), and predictions of every fold with a `fold` column"
+            f"metrics (one column per metric: {metric_names}; one row per "
+            f"series when there are several), and predictions of every fold "
+            f"with a `fold` column"
         )
     elif plan.end_train is not None:
         mode = (
@@ -916,7 +922,10 @@ def render_script_section(
             f"following {plan.steps} steps and scores them against the "
             f"held-out observations"
         )
-        outputs = "predictions, plus the evaluation metrics printed at the end"
+        outputs = (
+            f"predictions, plus the evaluation metrics printed at the end "
+            f"({metric_names})"
+        )
     else:
         mode = (
             f"prediction: trains on all the data and forecasts the next "

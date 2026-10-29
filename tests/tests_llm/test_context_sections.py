@@ -383,7 +383,8 @@ def test_render_script_section_describes_backtesting_script(
     """
     Test that a script that calls a backtesting function is described as a
     backtest, with the folds and trainings of its strategy when they are
-    known, and never as a prediction.
+    known and the metrics of the plan it computes, and never as a
+    prediction.
     """
     backtest_plan = plan.model_copy(update={"task_type": task_type})
 
@@ -391,9 +392,10 @@ def test_render_script_section_describes_backtesting_script(
 
     assert f"- Mode: {expected_mode}\n" in section
     assert (
-        "- Variables defined: metrics (one column per metric, one row per "
-        "series when there are several), and predictions of every fold with "
-        "a `fold` column\n"
+        "- Variables defined: metrics (one column per metric: "
+        "mean_absolute_error, root_mean_squared_error, "
+        "mean_absolute_scaled_error; one row per series when there are "
+        "several), and predictions of every fold with a `fold` column\n"
     ) in section
     assert "prediction: trains on all the data" not in section
 

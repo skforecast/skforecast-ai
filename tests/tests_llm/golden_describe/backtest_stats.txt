@@ -18,7 +18,7 @@ A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 204 ob
 </profile_decision>
 <forecast_plan>
 - Forecaster: ForecasterStats
-- Steps: 12
+- Steps: 12 (forecast horizon, given by the user)
 - Estimator: Arima
 - Primary metric: mean_absolute_error
 - Chosen by the user instead of the rules: forecaster
