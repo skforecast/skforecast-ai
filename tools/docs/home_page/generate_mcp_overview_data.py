@@ -203,11 +203,16 @@ def main() -> None:
         predictions = pd.read_csv(
             out_dir / Path(forecast["files"]["predictions"]).name
         )
-        gain = re.search(
-            r"beats the baseline '([^']+)' \(([\d.]+)\) by ([\d.]+)%",
-            comparison["summary"],
+        # "'X' beats the baseline 'B' (v) by p%." with one candidate, or
+        # "All 3 configurations beat the baseline 'B' (v). The best, 'X',
+        # beats it by p%." (or "2 of 3 ... , by p%.") with several.
+        baseline = re.search(
+            r"beats? the baseline '([^']+)' \(([\d.]+)\)", comparison["summary"]
         )
-        if gain is None:
+        gain = baseline and re.search(
+            r"by ([\d.]+)%\.", comparison["summary"][baseline.end():]
+        )
+        if not gain:
             raise SystemExit("The comparison does not say its winner beats the baseline.")
         script = code["code"].replace(str(root), WORKSPACE)
 
@@ -243,9 +248,9 @@ def main() -> None:
         "compare": {
             "id": comparison["id"],
             "rows": rows,
-            "baseline": gain.group(1),
-            "baseline_mae": float(gain.group(2)),
-            "gain_pct": float(gain.group(3)),
+            "baseline": baseline.group(1),
+            "baseline_mae": float(baseline.group(2)),
+            "gain_pct": float(gain.group(1)),
             "file": Path(comparison["files"]["leaderboard"]).name,
         },
         "forecast": {
