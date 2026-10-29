@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import datetime as dt
+import getpass
 import hashlib
 import importlib.metadata
 import importlib.util
@@ -1934,8 +1935,14 @@ def write_report(run_dir: Path, pending: list[str]) -> None:
         version = session.init.get("claude_code_version")
         if version:
             run["versions"]["claude_code"] = version
+    report = render_report(run, sessions, evaluation, pending, run_dir)
+    # The report is versioned: a listing the agent ran (`ls -la`) names the
+    # local user, as the workspace path would without `<ws>`.
+    user = getpass.getuser()
+    if user:
+        report = re.sub(rf"(?<![\w.]){re.escape(user)}(?![\w])", "<user>", report)
     (run_dir / "report.md").write_text(
-        render_report(run, sessions, evaluation, pending, run_dir), encoding="utf-8"
+        report, encoding="utf-8"
     )
     (run_dir / "results.json").write_text(
         json.dumps(results_json(run, sessions, evaluation, pending), indent=2) + "\n",
