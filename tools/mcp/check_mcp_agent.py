@@ -180,6 +180,41 @@ def _dayfirst() -> Any:
     )
 
 
+def _items_numeric_ids() -> Any:
+    """
+    The long items sales with numeric ids of the stores (101, 102, 103), as
+    an export from a database writes them.
+    """
+
+    data = _items_long().rename(columns={"series": "store", "value": "sales"})
+    ids = {name: 101 + number for number, name in enumerate(sorted(data["store"].unique()))}
+    return data.assign(store=data["store"].map(ids))
+
+
+def _excel_spanish() -> bytes:
+    """
+    400 days of synthetic sales as the Excel of Spain saves a CSV file: `;`
+    between fields, `,` as decimal mark and `.` between thousands, dates
+    written day first and cp1252, with accents in the header.
+    """
+
+    import numpy as np
+    import pandas as pd
+
+    rng = np.random.default_rng(7)
+    index = pd.date_range("2024-01-01", periods=400, freq="D")
+    sales = (
+        2500 + 400 * (index.dayofweek >= 5) + 300 * np.sin(2 * np.pi * index.dayofyear / 365)
+        + rng.normal(0, 60, len(index))
+    )
+    lines = ["Fecha;Ventas (€);Promoción"]
+    for day, value, promo in zip(index, sales, rng.integers(0, 2, len(index))):
+        whole, cents = f"{value:.2f}".split(".")
+        amount = f"{int(whole):,}".replace(",", ".") + "," + cents
+        lines.append(f"{day:%d/%m/%Y};{amount};{'sí' if promo else 'no'}")
+    return ("\r\n".join(lines) + "\r\n").encode("cp1252")
+
+
 DATASETS: dict[str, Any] = {
     "h2o": _h2o,
     "h2o_short": lambda: _h2o().tail(60),
@@ -192,6 +227,8 @@ DATASETS: dict[str, Any] = {
     "bike_two_years": lambda: _fetch("bike_sharing")[["date_time", "users"]],
     "items_long": _items_long,
     "dayfirst": _dayfirst,
+    "items_numeric_ids": _items_numeric_ids,
+    "excel_spanish": _excel_spanish,
     "note": lambda: "Put the CSV files to forecast in this folder.\n",
 }
 
@@ -270,6 +307,9 @@ def prepare_workspace(scenario: Scenario, with_skill: bool) -> Path:
         content = DATASETS[dataset]()
         if isinstance(content, str):
             path.write_text(content, encoding="utf-8")
+        elif isinstance(content, bytes):
+            # A file written with its own encoding (the Excel of Spain).
+            path.write_bytes(content)
         else:
             content.to_csv(path, index=False)
     if with_skill:
