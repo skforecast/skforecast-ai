@@ -193,7 +193,7 @@ The main changes in this release are:
 
 + [<code>ForecastingAssistant.create_cv()</code>][assistant] without `initial_train_size`, for a plan whose `steps` are half the data or more, raised an error about an `initial_train_size` outside the data that was never passed. It now raises `insufficient_data` on the plan, with the longest horizon that fits ([#121](https://github.com/skforecast/skforecast-ai/pull/121)).
 
-+ [<code>ForecastingAssistant.refine_plan()</code>][assistant] and `create_cv()` with a `prompt` fell back to the deterministic result, with a warning, when the LLM was Claude Sonnet 5.5 or Opus 5.5 and pydantic-ai was older than 2.52, which forced a `tool_choice` those models reject. The `llm` extra now requires pydantic-ai 2.52 or later.
++ [<code>ForecastingAssistant.refine_plan()</code>][assistant] and `create_cv()` with a `prompt` fell back to the deterministic result, with a warning, when the LLM was Claude Sonnet 5.5 or Opus 5.5 and pydantic-ai was older than 2.52, which forced a `tool_choice` those models reject. The `llm` extra now requires pydantic-ai 2.52 or later ([#129](https://github.com/skforecast/skforecast-ai/pull/129)).
 
 + [<code>ForecastingAssistant.compare()</code>][assistant] without `candidates` on several series ran `XGBRegressor`, which no extra installs, so it failed in every comparison without `xgboost`. It is now left out with a `MissingBackendWarning`, as the foundation model without its backend, and not counted in the cost ([#124](https://github.com/skforecast/skforecast-ai/pull/124)).
 
