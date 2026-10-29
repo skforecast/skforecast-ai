@@ -124,8 +124,8 @@ function candidates(t, o){
   if (a <= 0) return;
   card(o, KX0, TOP, KX1, BOT, a);
   const k = a*(1 - P(t, ...T.swap));          // the card is cleared for the winner
-  o.push(text(KX0 + 18, TOP + 30, 'comparison = assistant.compare(data, cv=cv, candidates=None)', {size:14.5, cls:'m', weight:700, op:k}));
-  o.push(text(KX0 + 18, TOP + 52, 'the profile of the data proposes the candidates', {size:13, fill:V('muted'), op:k}));
+  o.push(text(KX0 + 18, TOP + 30, 'comparison = assistant.compare(data, cv=cv, confirm_cost=True)', {size:14.5, cls:'m', weight:700, op:k}));
+  o.push(text(KX0 + 18, TOP + 52, `no candidates: the profile proposes them; ${D.cost} estimator fits, confirmed`, {size:13, fill:V('muted'), op:k}));
   CANDS.forEach((name, i) => {
     const s = T.cand0 + i*T.candStep, ca = P(t, s, s + .4)*k, r = ROWS[name], x = candX(i);
     o.push(rect(x, CY0, CW, CY1 - CY0, {rx:10, fill:V('bg'), stroke:V('border'), op:ca}));

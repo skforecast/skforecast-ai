@@ -207,7 +207,11 @@ the backtesting animation, and shows the seasonal naive baseline that
 it), one window moving over all the lanes at once while each one draws its
 forecast against the actual series, the leaderboard as a plain sort with how
 many candidates beat the baseline, the winner reused in `forecast()`, and
-`ask()` explaining the ranking. The question and the answer of `ask()` are
+`ask()` explaining the ranking. The comparison fits more than 50
+estimators, so `compare()` asks to confirm its cost before anything runs:
+the script reads the figure of that cost from `CostNotConfirmedError`, runs
+it with `confirm_cost=True` and writes the figure, which the card of the
+call shows next to it. The question and the answer of `ask()` are
 written in the animation (`ASK_PROMPT`, `ANSWER`), with figures from the data;
 the answer only uses what `ask()` sends for a comparison (the leaderboard, the
 shared profile and strategy, and the winning plan, never per-fold results).
