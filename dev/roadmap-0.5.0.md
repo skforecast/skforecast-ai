@@ -479,18 +479,23 @@ Hecho en [#126](https://github.com/skforecast/skforecast-ai/pull/126) (D34).
 
 ## Fase 7. Cierre de la release
 
-1. `/llm-context-change` con todos los PR marcados *[LLM]*: goldens
-   revisados y un solo check de pago contra un modelo real
-   (`tools/ai/check_ask_context.py`, lo lanzas tú). En el mismo ciclo:
-   `ask(context=profile, plan=plan)` explica el script sin la codificación ni
-   el formato de fecha de las exógenas (pregunta 4 de #97). El `--dry-run`
-   y el check se lanzan en local: `check_ask_context.py` descarga los
-   datasets de skforecast con `fetch_dataset`, y la red de una sesión en la
-   nube lo bloquea (en #104 se quedó colgado más de una hora). Después,
-   volver a grabar las salidas de `ask()` de
-   `agentic-forecasting.ipynb` y `agentic-forecasting-step-by-step.ipynb`,
-   que llaman porcentaje a MAPE (#104), y las de esos dos y de
-   `first-forecast.ipynb`, que muestran MSE en el panel por defecto (3f-1).
+1. Check de pago de `ask()` y notebooks: hecho (2026-10-29). Con
+   `anthropic:claude-sonnet-5-5` (la clave de Google ya no está), en local.
+   La primera pasada (124 correctas, 43 mejorables, 9 incorrectas y 6
+   dudosas de 182) encontró tres huecos, arreglados en
+   [#128](https://github.com/skforecast/skforecast-ai/pull/128): el MAPE
+   pasado a porcentaje (la regla 9 lo invitaba), las métricas de un script
+   de backtest sin nombrar y `steps` leído como decisión de las reglas. La
+   segunda pasada es el informe guardado (`0.5.0_<dataset>.md`, con su
+   fila en el log). Al preparar los notebooks, `refine_plan()` y
+   `create_cv()` con `prompt` caían a lo determinista con Sonnet 5.5 y Opus
+   5.5 por un `tool_choice` forzado de pydantic-ai: el mínimo pasa a 2.52
+   en [#129](https://github.com/skforecast/skforecast-ai/pull/129). Los
+   tres notebooks se volvieron a grabar con Sonnet 5.5 (63948aa), sin
+   errores, sin el MAPE como porcentaje ni el MSE. Sin comprobar: si
+   `ask(context=profile, plan=plan)` explica el script sin la codificación
+   ni el formato de fecha de las exógenas (pregunta 4 de #97); el check no
+   tiene ese escenario.
 2. Check con agentes de `tools/mcp/` (cambian el SKILL, el coste y las
    descripciones: está en "When to run it"), al menos con sonnet y con haiku
    en los escenarios críticos. Debe incluir un escenario con un CSV de Excel
