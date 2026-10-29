@@ -460,7 +460,7 @@ Al final, para que describan el comportamiento definitivo y el golden de
 esquemas se regenere una vez: `dev/mcp-tool-descriptions-plan.md`, más las
 frases del SKILL.md o de los esquemas que la auditoría vio desfasadas (V06,
 V19, V21, V24, V29) y lo que hayan cambiado las fases 3 a 5. *[SKILL]*
-Hecho en la rama `feature/mcp-tool-descriptions` (D?. 6).
+Hecho en [#126](https://github.com/skforecast/skforecast-ai/pull/126) (D34).
 
 - **`profile` sin `target` cuando el usuario ya nombró la columna** (de 5c,
   D32): 9 de 81 sesiones de la 0.4.0 lo hicieron aunque el paso 1 del
@@ -498,7 +498,10 @@ Hecho en la rama `feature/mcp-tool-descriptions` (D?. 6).
    con ids numéricos, y uno que vea si un agente lee el aviso de intervalos
    con cotas iguales y lo cuenta (pendiente desde `96f4cdc`). El escenario
    `expensive_run` gana un check que marque un `confirm_cost` pasado antes
-   de que el usuario conteste (4b, #113).
+   de que el usuario conteste (4b, #113). Con haiku, mirar además que use
+   bien los argumentos de `plan` (`use_exog`, `metric`,
+   `differentiation`...), que desde #126 (D34) el paso 2 del SKILL.md no
+   explica y remite al esquema.
 3. Los datos de las animaciones de la portada y de la documentación
    (`tools/docs/home_page/generate_home_data.py`, que escribe
    `docs/overrides/partials/home-data.json` y los `*-data.js` de
@@ -1872,8 +1875,9 @@ Hecho en la rama `feature/mcp-tool-descriptions` (D?. 6).
     y es una línea por stderr que no rompe nada. URLs en `exog`, no por
     ahora; solo si alguien lo pide.
 
-- **D?. 6: descripciones de las herramientas y SKILL.md** (2026-10-28, en la
-  rama `feature/mcp-tool-descriptions`). Sin cambios de comportamiento:
+- **D34. 6: descripciones de las herramientas y SKILL.md** (2026-10-28,
+  [#126](https://github.com/skforecast/skforecast-ai/pull/126)). Sin
+  cambios de comportamiento:
   - Cada descripción lleva una frase de flujo (qué id toma, qué herramienta
     toma el suyo y la hermana con la que se confunde), la de la tabla de
     `dev/mcp-tool-descriptions-plan.md` revisada contra el código; el texto
@@ -1905,6 +1909,12 @@ Hecho en la rama `feature/mcp-tool-descriptions` (D?. 6).
     privacidad ni licencias. Golden de esquemas regenerado una vez: solo
     cambian descripciones. La comprobación con agentes y el TDQS de Glama
     quedan para la fase 7 y para después de publicar.
+  - Revisión (2026-10-29): las descripciones de los esquemas de salida
+    (unos 30.800 caracteres, el docstring de `ToolResult` repetido en nueve
+    herramientas) no se tocan en la 0.5.0: antes hay que medir si los
+    clientes pasan el `outputSchema` al modelo ("A la 0.6.0"). El paso 2
+    del SKILL.md remite al esquema para los argumentos de `plan`: lo
+    confirma el check con agentes de la fase 7, con haiku.
 
 ## Decisiones abiertas
 
@@ -2021,6 +2031,15 @@ Cuando todos los hallazgos de `dev/mcp-blackbox-audit.md` estén arreglados
 `dev/mcp-pending-after-0.4.0.md`.
 
 ## A la 0.6.0
+
+### Las descripciones de los esquemas de salida del MCP
+
+Ocupan unos 30.800 caracteres, más que las descripciones, los parámetros,
+las instrucciones y el SKILL.md juntos, porque el docstring de `ToolResult`
+se repite en el `outputSchema` de nueve herramientas (#126, D34). Antes de
+acortarlas, medir si Claude Code y los demás clientes pasan el
+`outputSchema` al modelo: si no lo pasan, no cuestan nada. Si lo pasan,
+dejar en cada herramienta lo suyo y el resto en las instrucciones.
 
 ### Leer Parquet y Excel por ruta
 
