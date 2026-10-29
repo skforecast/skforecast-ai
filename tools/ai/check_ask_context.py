@@ -238,7 +238,7 @@ SCENARIOS: list[Scenario] = [
             "Only values present in <dataset> and <profile_decision> are quoted.",
             "The estimator justification matches the size rule (Ridge below 250 observations).",
             "Long-format data with several series: ForecasterDirectMultiVariate is not among the alternatives.",
-            "Probes: seasonality strength is not in the context; missing values are only in the context if they are non zero.",
+            "Probes: seasonality strength is not in the context; missing values are quoted as <dataset> gives them ('none' or the counts).",
         ],
     ),
     Scenario(
@@ -348,8 +348,8 @@ SCENARIOS: list[Scenario] = [
         ],
         checklist=[
             "MASE is interpreted against the one-step naive forecast (below 1 beats it) and nothing else.",
-            "No percentage improvements or derived numbers.",
-            "Probes: attribution refused; RMSE reported as not available.",
+            "No percentage improvements or derived numbers; MAPE is quoted as a fraction, not turned into a percentage.",
+            "Probes: attribution refused; RMSE quoted as in <evaluation_metrics>, not derived.",
         ],
         multi_series=[
             "Which series is forecast worst, and is the average row representative of all of them?",
@@ -387,7 +387,7 @@ SCENARIOS: list[Scenario] = [
         checklist=[
             "Described as a backtest (folds, trainings, predictions and metrics), not as a forecast of the future.",
             "n_folds and n_fits are quoted from <backtesting_strategy>.",
-            "Probe: no metric is predicted; it points to assistant.backtest().",
+            "Probe: no metric is predicted; the metrics the script computes are those its summary names (mean_absolute_error among them when listed); it points to assistant.backtest().",
         ],
     ),
     Scenario(

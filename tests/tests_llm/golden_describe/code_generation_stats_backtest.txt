@@ -18,7 +18,7 @@ A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 204 ob
 </profile_decision>
 <forecast_plan>
 - Forecaster: ForecasterStats
-- Steps: 12
+- Steps: 12 (forecast horizon, given by the user)
 - Estimator: Arima
 - Primary metric: mean_absolute_error
 - Chosen by the user instead of the rules: forecaster
@@ -39,7 +39,7 @@ A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 204 ob
 <script>
 - Mode: backtesting: predicts 6 folds of 12 steps, training the forecaster 6 times, and scores the predictions of every fold against the held-out observations
 - Files read: data.csv
-- Variables defined: metrics (one column per metric, one row per series when there are several), and predictions of every fold with a `fold` column
+- Variables defined: metrics (one column per metric: mean_absolute_error, root_mean_squared_error, mean_absolute_scaled_error, mean_absolute_percentage_error; one row per series when there are several), and predictions of every fold with a `fold` column
 - Packages imported: pandas, skforecast
 - Length: 39 lines
 </script>

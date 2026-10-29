@@ -18,7 +18,7 @@ A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 100 ob
 </profile_decision>
 <forecast_plan>
 - Forecaster: ForecasterFoundation
-- Steps: 5
+- Steps: 5 (forecast horizon, given by the user)
 - Estimator: Salesforce/moirai-2.0-R-small
 - Primary metric: mean_absolute_error
 - Chosen by the user instead of the rules: forecaster, estimator
