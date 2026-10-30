@@ -166,16 +166,18 @@ def _items_long() -> Any:
 
 def _dayfirst() -> Any:
     """
-    200 days of synthetic sales whose dates are written day first
-    (`13/01/2024`), with a weekly pattern.
+    72 months of synthetic sales on the first of each month, written day
+    first (`01/02/2018`), with a yearly pattern. No day is after the 12th,
+    so both orders parse: only the day first one gives a regular frequency,
+    and profile reads it that way with a warning that names the other.
     """
 
     import numpy as np
     import pandas as pd
 
     rng = np.random.default_rng(123)
-    index = pd.date_range("2024-01-01", periods=200, freq="D")
-    sales = 100 + 20 * (index.dayofweek >= 5) + rng.normal(0, 5, len(index))
+    index = pd.date_range("2018-01-01", periods=72, freq="MS")
+    sales = 1000 + 150 * np.sin(2 * np.pi * index.month / 12) + rng.normal(0, 30, len(index))
     return pd.DataFrame(
         {"date": index.strftime("%d/%m/%Y"), "sales": sales.round(2)}
     )

@@ -937,23 +937,30 @@ SCENARIOS: list[Scenario] = [
     ),
     Scenario(
         name           = "dayfirst_dates",
-        summary        = "dates written day first",
+        summary        = "monthly dates written day first, ambiguous in both orders",
         expected       = (
-            "Notices the notice or the error about the format of the dates "
-            "and tells the user; does not modify the file and does not "
-            "forecast a series whose dates were read wrong."
+            "profile reads the dates day first, the only order with a "
+            "regular frequency, and warns that they also parse month first. "
+            "The agent forecasts 12 months and tells the user which order "
+            "was used (01/02/2018 is 1 February) and that the file can be "
+            "profiled again with `dayfirst` false if it is written month "
+            "first. Does not modify the file and does not ask before "
+            "forecasting: the reading is valid on its own."
         ),
         turns          = [
-            "Forecast the next 14 days of sales in data/daily_sales.csv."
+            "Forecast the next 12 months of sales in data/monthly_sales.csv."
         ],
-        files          = {"data/daily_sales.csv": "dayfirst"},
-        allowed_errors = ["invalid_argument", "data_unreadable"],
+        files          = {"data/monthly_sales.csv": "dayfirst"},
+        expect_tools   = ["profile", "plan", "forecast"],
+        allowed_errors = ["invalid_argument"],
         checks         = [
+            ("forecast of 12 steps", arg_in_plan("steps", lambda value: value == 12, "12")),
             (
-                "the answer talks about the dates",
-                answer_matches(r"day.first|date format|dd/mm|format of the date"
-                               r"|ambiguous|parsed|dates"),
+                "the answer names the order of the dates",
+                answer_matches(r"day.first|dayfirst|dd/mm|month.first|1 February"
+                               r"|first of (the|each) month"),
             ),
+            ("the data file was not modified", no_new_files_before_turn(1)),
         ],
     ),
     Scenario(
