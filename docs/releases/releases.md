@@ -25,6 +25,7 @@ The main changes in this release are:
     + The scripts of a forecast with future exogenous values read from a file (`exog_path` of the MCP server, `--exog` of the CLI) read that file by its path, with its own separator, decimal mark and encoding, instead of `exog_future.csv` in the working directory. See **Fixed**.
     + The scripts of data without dates passed in memory read the positions of the rows without `parse_dates=True`: the same predictions, without the warning of pandas. See **Fixed**.
     + The scripts of dates that write the day and the month as numbers read them with their format (`format='%d/%m/%Y'`, or `'%m/%d/%Y'` month first), also when the first date already said so, and those of files with `.` between thousands read the date column as text: the same predictions. See **Changed**.
+    + `compare()` without `candidates` on the strategy of a plan with `use_exog=False`: every candidate leaves the exogenous variables out, so the ranking can change. See **Fixed**.
     + `plan()` and `refine_plan()` with `ForecasterDirectMultiVariate`: the estimator is chosen for the dates the series share, so it can be `Ridge` where it was `LGBMRegressor`. Pass `estimator="LGBMRegressor"` to keep the previous one. See **Fixed**.
 
     + `plan()` of wide-format data whose series start or end with missing values may choose another estimator: `DataProfile.n_total_observations` no longer counts those values. See **Changed**.
@@ -122,6 +123,14 @@ The main changes in this release are:
 
 + `--exog` of the `forecast` and `forecast-code` commands of the [CLI][cli] reads the dates of the file from the date column of the data, as `exog_path` of the MCP server does: a file whose dates are in a column named otherwise (`fecha` for `date`), which was read before, raises an error naming its columns. Name that column as in the data ([#125](https://github.com/skforecast/skforecast-ai/pull/125)).
 
++ The description of a cross-validation strategy, in [<code>ForecastingAssistant.create_cv()</code>][assistant], `backtest()`, `compare()`, the context of `ask()` and the MCP server, says how many steps the last fold has when it is shorter than the horizon: `6 folds (the last one has only 2 steps)`.
+
++ The error of [<code>ForecastingAssistant.forecast()</code>][assistant] for a missing value of the target that the forecast starts from says that it is in the last window (the last values before the dates it predicts) and that the forecast cannot run, so it is not read as a gap in a test fold.
+
++ The `CostNotice` of `create_cv` in the MCP server and its `cost_not_confirmed` error give the estimator fits of each cheaper strategy: `refit=false` and the smallest integer `refit` at or below 50 fits, counted as the cost of the run is. See the [MCP server reference][mcp].
+
++ The skill of the MCP server says that a coverage measured on few values is a rough check, so agents quote the level the user asked for with the warning of the server, and the `model_not_allowed` hint tells the agent to stop and run nothing until the user chooses. See [MCP server][mcp-guide].
+
 
 **Fixed**
 
@@ -153,7 +162,7 @@ The main changes in this release are:
 
 + Fixed an issue in [<code>ForecastingAssistant.backtest()</code>][assistant] of several series where a series that some test folds with values did not forecast (one that starts late, with `refit`) got metrics, and an average across series, on fewer folds than the others without a warning. A `FoldsLeftOutWarning` and the explanation now name it with its folds (a notice in the MCP server); `compare()` names the candidates once ([#123](https://github.com/skforecast/skforecast-ai/pull/123)).
 
-+ Fixed an issue in [<code>ForecastingAssistant.compare()</code>][assistant] with `candidates` and the `CVResult` of a refined plan, where that plan was not compared without saying so, and a candidate could take the name `'Strategy plan'` of its row. The text of the strategy now names the candidate that runs that plan or, with a `UserWarning`, says it was not compared (not in the CLI, whose own plan only sizes the strategy); `'Strategy plan'` is reserved (`invalid_argument` in the MCP server) ([#123](https://github.com/skforecast/skforecast-ai/pull/123)).
++ Fixed an issue in [<code>ForecastingAssistant.compare()</code>][assistant] with `candidates` and the `CVResult` of a refined plan, where that plan was not compared without saying so, and a candidate could take the name `'Strategy plan'`. The text of the strategy now names the candidate that runs that plan (an estimator argument at its default counts as left out: `Ridge(alpha=1)` is `Ridge()`) or, with a `UserWarning`, says it was not compared (not in the CLI); `'Strategy plan'` is reserved ([#123](https://github.com/skforecast/skforecast-ai/pull/123)).
 
 + The advice on missing values was wrong in places: [<code>ForecastingAssistant.create_cv()</code>][assistant] and the MCP server promised that an estimator that accepts them let every fold of `backtest()` run, though a missing value inside a test fold fails with any estimator, and `plan()` proposed `dropna_from_series` for missing exogenous values. They now say only what works, and `create_cv()` also warns with that estimator, with the differentiation and for exogenous values ([#105](https://github.com/skforecast/skforecast-ai/pull/105)).
 
@@ -180,6 +189,8 @@ The main changes in this release are:
 + The `create_cv` tool of the MCP server accepted `fixed_train_size` with `refit` false or null, with a warning, while its description said it was an error. It now rejects it (`invalid_argument`); the Python API still warns, as skforecast accepts it. See the [MCP server reference][mcp] ([#118](https://github.com/skforecast/skforecast-ai/pull/118)).
 
 + A plan with `use_exog=False` carried the warnings about the exogenous columns of its profile (their missing values, numbers written as text) into `describe()`, the context of [<code>ForecastingAssistant.ask()</code>][assistant] and the notices of the MCP server. They are now left out, and the rate of missing values counts the target alone ([#118](https://github.com/skforecast/skforecast-ai/pull/118)).
+
++ [<code>ForecastingAssistant.compare()</code>][assistant] without `candidates`, on the strategy of a plan with `use_exog=False`, ran its candidates with the exogenous variables, so the winner needed their future values. They now leave them out, and the `compare` tool of the MCP server adds a `FutureExogNotice` when its winner reads exogenous columns.
 
 + The `FutureExogNotice` of the MCP server asked for the future values of categorical columns that `ForecasterStats` or a foundation model without categorical covariates does not read, which `forecast` then rejected in the file of a foundation model. It now names only the columns the model reads ([#118](https://github.com/skforecast/skforecast-ai/pull/118)).
 

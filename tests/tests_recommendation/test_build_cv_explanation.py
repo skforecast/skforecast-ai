@@ -71,3 +71,44 @@ def test_build_cv_explanation_output_when_inference_windows_of_foundation():
         "(each fold forecasts from the observations before it), 10-step "
         "horizon, 4 folds."
     )
+
+
+def test_build_cv_explanation_output_when_last_fold_is_incomplete():
+    """
+    Test that build_cv_explanation says how many steps the last fold has
+    when it is shorter than the horizon (12 steps, the last fold 2), for a
+    forecaster that is trained and for one that is not, and says nothing
+    when the last fold is complete.
+    """
+    cv_params = {
+        "initial_train_size": 60,
+        "steps": 12,
+        "refit": False,
+        "fixed_train_size": False,
+        "gap": 0,
+    }
+
+    trained = build_cv_explanation(
+        cv_params, n_observations=134, n_folds=7, last_fold_steps=2
+    )
+    not_trained = build_cv_explanation(
+        cv_params, n_observations=134, n_folds=7, trains=False, last_fold_steps=1
+    )
+    complete = build_cv_explanation(
+        cv_params, n_observations=144, n_folds=7, last_fold_steps=12
+    )
+
+    assert trained == (
+        "Using 45% of data (60 observations) for initial training, trained "
+        "once (no refit), 12-step horizon, 7 folds (the last one has only 2 "
+        "steps)."
+    )
+    assert not_trained == (
+        "First fold forecasts from 45% of data (60 observations), no training "
+        "(each fold forecasts from the observations before it), 12-step "
+        "horizon, 7 folds (the last one has only 1 step)."
+    )
+    assert complete == (
+        "Using 42% of data (60 observations) for initial training, trained "
+        "once (no refit), 12-step horizon, 7 folds."
+    )

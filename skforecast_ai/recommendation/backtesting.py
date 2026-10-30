@@ -548,6 +548,7 @@ def build_cv_explanation(
     n_fits: int | None = None,
     forecaster: str | None = None,
     inference_windows: int | None = None,
+    last_fold_steps: int | None = None,
 ) -> str:
     """
     Build a human-readable explanation of the cross-validation strategy.
@@ -578,6 +579,10 @@ def build_cv_explanation(
         Number of inference windows of a foundation model (one per series
         and fold, see `count_inference_windows`), stated when `trains` is
         False. None when unknown.
+    last_fold_steps : int, default None
+        Steps the last fold predicts. Stated next to the number of folds
+        when it is fewer than `steps` (an incomplete last fold), so the
+        folds are not all read as full horizons. None when unknown.
 
     Returns
     -------
@@ -590,6 +595,10 @@ def build_cv_explanation(
     refit = cv_params["refit"]
     fixed_train_size = cv_params["fixed_train_size"]
     gap = cv_params["gap"]
+    folds_desc = f"{n_folds} folds"
+    if last_fold_steps is not None and 0 < last_fold_steps < steps:
+        step_word = "step" if last_fold_steps == 1 else "steps"
+        folds_desc += f" (the last one has only {last_fold_steps} {step_word})"
 
     if not trains:
         if isinstance(initial_train_size, str):
@@ -606,7 +615,7 @@ def build_cv_explanation(
             f"{steps}-step horizon",
         ]
         if n_folds > 0:
-            parts.append(f"{n_folds} folds")
+            parts.append(folds_desc)
         if gap > 0:
             parts.append(f"gap of {gap} observations")
         explanation = ", ".join(parts) + "."
@@ -640,7 +649,7 @@ def build_cv_explanation(
     parts += [refit_desc, f"{steps}-step horizon"]
 
     if n_folds > 0:
-        parts.append(f"{n_folds} folds")
+        parts.append(folds_desc)
 
     if gap > 0:
         parts.append(f"gap of {gap} observations")
@@ -1334,6 +1343,8 @@ def resolve_cv_config(
             )
     n_folds = len(folds)
     n_fits = sum(bool(fold[-1]) for fold in folds) if trains else 0
+    # Positions predicted by the last fold, after the gap.
+    last_fold_steps = folds[-1][4][1] - folds[-1][4][0] if folds else None
     cv_config = {
         "steps": cv.steps,
         # A Timestamp as text, as `build_cv` stores it: the configuration
@@ -1368,6 +1379,7 @@ def resolve_cv_config(
                       n_fits            = n_fits,
                       forecaster        = forecaster,
                       inference_windows = inference_windows,
+                      last_fold_steps   = last_fold_steps,
                   )
 
     return cv_config, explanation

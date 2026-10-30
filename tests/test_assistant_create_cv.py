@@ -642,7 +642,8 @@ def test_create_cv_output_when_forecaster_is_stats():
     assert "fixed_train_size   = True,\n" in result.code
     assert result.explanation == (
         "Initial training up to 2003-04-01, fixed window, refit every fold "
-        "(6 trainings), 12-step horizon, 6 folds. ForecasterStats is "
+        "(6 trainings), 12-step horizon, 6 folds (the last one has only 2 "
+        "steps). ForecasterStats is "
         "refitted in every fold whatever `refit` says: skforecast requires "
         "it for ARIMA models."
     )

@@ -42,6 +42,49 @@ def test_match_strategy_plan_names_the_candidate_with_the_same_decisions():
     assert (name, note) == ("forest", None)
 
 
+def test_match_strategy_plan_names_the_candidate_that_writes_a_default_kwarg():
+    """
+    Test that a candidate that writes an estimator keyword argument equal to
+    its default (Ridge with alpha=1, the default 1.0) runs the plan of the
+    strategy (Ridge without keyword arguments), so it is its row and there
+    is no note saying that the plan was not compared.
+    """
+    plans = _plans(
+        ridge_alpha={"estimator": "Ridge", "estimator_kwargs": {"alpha": 1}},
+        forest={"estimator": "RandomForestRegressor"},
+    )
+
+    name, note = match_strategy_plan(
+        strategy_plan = plan_sales,
+        plans         = plans,
+        profile       = profile_sales,
+        build_plan    = _build_plan,
+    )
+
+    assert (name, note) == ("ridge_alpha", None)
+
+
+def test_match_strategy_plan_note_when_a_kwarg_is_not_its_default():
+    """
+    Test that a candidate whose estimator keyword argument is not the
+    default (Ridge with alpha=2) does not run the plan of the strategy, and
+    the note says that the plan was not compared.
+    """
+    plans = _plans(
+        ridge_alpha={"estimator": "Ridge", "estimator_kwargs": {"alpha": 2}},
+    )
+
+    name, note = match_strategy_plan(
+        strategy_plan = plan_sales,
+        plans         = plans,
+        profile       = profile_sales,
+        build_plan    = _build_plan,
+    )
+
+    assert name is None
+    assert "so it was not compared" in note
+
+
 def test_match_strategy_plan_note_when_no_candidate_makes_its_decisions():
     """
     Test that, when no candidate makes the decisions of the plan (the same

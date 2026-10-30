@@ -445,13 +445,17 @@ class ModelPolicy:
             f"only run when the server is started with `--allow-model`.",
             code    = "model_not_allowed",
             field   = argument,
+            # An agent ran another foundation model before the user
+            # answered (0.5.0 agent check), so the hint stops it first.
             hint    = (
-                f"Tell the user about the license and, if they accept it, ask "
-                f"them to restart the server with `--allow-model {prefix}`. "
-                f"The only alternative to offer is the default model, "
-                f"'{DEFAULT_FOUNDATION_MODEL_ID}'{_default_license()}: leave "
-                f"`estimator` out for it. Name no other model and no other "
-                f"license: nothing here tells you which ones the server runs."
+                f"Stop here and answer the user: tell them about the license "
+                f"and, if they accept it, ask them to restart the server with "
+                f"`--allow-model {prefix}`. The only alternative to offer is "
+                f"the default model, '{DEFAULT_FOUNDATION_MODEL_ID}'"
+                f"{_default_license()}: leave `estimator` out for it. Run "
+                f"nothing, that model included, until the user chooses. Name "
+                f"no other model and no other license: nothing here tells you "
+                f"which ones the server runs."
             ),
             details = {
                 "model_id": model_id,

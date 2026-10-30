@@ -18,6 +18,7 @@ from ..fixtures_assistant import (
     df_crossing_zero,
     df_multi_long_numeric_ids,
     df_no_exog,
+    df_single,
     patch_find_spec,
 )
 from ..fixtures_datasets import df_items_sales_long
@@ -159,10 +160,11 @@ def test_tool_compare_cost_of_candidates_above_the_threshold_only_in_total(
         "field": "confirm_cost",
         "hint": (
             "Do not call `compare` again until the user answers: tell them these "
-            "numbers and the cheaper strategies (fewer `candidates`, an integer "
-            "`refit` (retrain every n folds), fewer folds (a later "
+            "numbers and the cheaper strategies (fewer `candidates`, `refit=3` "
+            "(retrain every 3 folds: 39 estimator fits), fewer folds (a later "
             "`initial_train_size`, a larger `fold_stride` or `skip_folds`) or "
-            "`refit=false` (train once)), and ask whether to run it. Only if "
+            "`refit=false` (train once: 13 estimator fits)), and ask whether to "
+            "run it. Only if "
             "they choose to run it as it is, call `compare` again with the same "
             "arguments and `confirm_cost: 104`. Asking to retrain the model, or "
             "to evaluate it as in production, is not that choice."
@@ -1371,3 +1373,74 @@ def test_tool_compare_notice_of_candidates_that_left_series_out_of_some_folds(tm
     ]
     assert left_out == [("runtime", text)]
     assert text in result["summary"]
+
+
+def _promo_cv(tmp_path, monkeypatch, **plan_arguments):
+    """
+    Return a server and the id of a strategy of 7 steps on data with the
+    exogenous column `promo`, for a plan with `plan_arguments`, without the
+    foundation model among the candidates.
+    """
+    monkeypatch.setattr(
+        "skforecast_ai.execution.comparison.foundation_backend_installed",
+        lambda info: False,
+    )
+    path = write_csv(tmp_path, "promo.csv", df_single)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, _, cv_id = cv_of(server, path, target="sales", steps=7, **plan_arguments)
+
+    return server, cv_id
+
+
+def test_tool_compare_default_candidates_inherit_use_exog_false(
+    tmp_path, monkeypatch
+):
+    """
+    Test that `compare` without candidates on a strategy of a plan with
+    `use_exog: false`, on data with an exogenous column, runs every
+    candidate without it (finding of the 0.5.0 agent check: the winner
+    needed future values of `promo`, and nothing said so): the plan of the
+    winner does not use it and there is no `FutureExogNotice`.
+    """
+    server, cv_id = _promo_cv(tmp_path, monkeypatch, use_exog=False)
+
+    result = content_of(call(server, "compare", {"cv_id": cv_id}))
+    best_plan = content_of(
+        call(server, "describe_object", {"object_id": result["links"]["best_plan_id"]})
+    )
+
+    assert "Strategy plan" not in result["summary"]
+    assert "Exogenous variables included" not in result["summary"]
+    assert "use_exog: true" not in best_plan["summary"]
+    assert "FutureExogNotice" not in [n["category"] for n in result["notices"]]
+
+
+def test_tool_compare_future_exog_notice_when_the_winner_uses_exog(
+    tmp_path, monkeypatch
+):
+    """
+    Test that `compare` whose winner uses the exogenous column `promo` (the
+    only candidate given, which reads it) says that `forecast` of the plan
+    of the winner needs its future values from the user.
+    """
+    server, cv_id = _promo_cv(tmp_path, monkeypatch, use_exog=False)
+    candidates = [{"name": "with_promo", "config": {"use_exog": True}}]
+
+    result = content_of(
+        call(server, "compare", {"cv_id": cv_id, "candidates": candidates})
+    )
+
+    assert [n for n in result["notices"] if n["category"] == "FutureExogNotice"] == [
+        {
+            "source": "plan",
+            "category": "FutureExogNotice",
+            "message": (
+                "The plan of the winner (`links.best_plan_id`) uses the "
+                "exogenous columns 'promo': `forecast` needs their future "
+                "values, which only the user has, in a CSV file (`exog_path`). "
+                "Never write that file yourself: ask the user for it, or use "
+                "`use_exog: false` and tell them those columns were left out."
+            ),
+            "count": 1,
+        }
+    ]

@@ -256,6 +256,9 @@ def test_skill_md_covers_what_agents_get_wrong(phrase):
         "nor as the forecast of the future: its dates are already in the data",
         "carries an `EstimatorNotRecommendedNotice`: say in your answer which "
         "estimator ran, which one the rules recommend and why it was changed",
+        "A coverage measured on few values is a rough check, not the reliable "
+        "level of the interval: quote the level the user asked for, with the "
+        "warning the server gives",
     ],
     ids=lambda phrase: phrase[:40],
 )
@@ -265,8 +268,9 @@ def test_skill_md_states_the_rules_agents_broke_in_the_agent_check(phrase):
     agent check: where the allowed directory is named, what MASE is scaled
     by, that the agent never copies a file of the user into the allowed
     directory, that a license is quoted from a response, what `get_code`
-    says to install, that an error names one problem of a file and that a
-    switch of estimator is said in the answer.
+    says to install, that an error names one problem of a file, that a
+    switch of estimator is said in the answer and that a coverage measured
+    on few values is not quoted as the level of the interval.
     """
     skill = _flat(SKILL_PATH.read_text(encoding="utf-8"))
 

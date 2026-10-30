@@ -2,7 +2,7 @@
 
 from skforecast_ai import ForecastingAssistant
 
-from .fixtures_assistant import df_multi_wide, df_no_exog
+from .fixtures_assistant import df_multi_wide, df_no_exog, df_single
 from .fixtures_datasets import df_h2o, df_items_sales_long
 
 assistant = ForecastingAssistant()
@@ -80,6 +80,13 @@ cv_sales_direct_default_refit = assistant.create_cv(
 cv_sales_direct_refit = assistant.create_cv(
     profile=profile_sales, plan=plan_sales_direct_lags, refit=True
 )
+
+# --- Exogenous column `promo`: a plan that leaves it out by choice of the
+# --- user (finding of the 0.5.0 agent check: the automatic candidates of
+# --- `compare` used it, so the winner needed its future values).
+profile_promo = assistant.profile(data=df_single, target="sales", date_column="date")
+plan_promo_no_exog = assistant.plan(profile=profile_promo, steps=7, use_exog=False)
+cv_promo_no_exog = assistant.create_cv(profile=profile_promo, plan=plan_promo_no_exog)
 
 # --- One forecaster left: the automatic candidates vary the estimator
 # --- ('ForecasterRecursive+Ridge' and 'ForecasterRecursive+RandomForestRegressor').
