@@ -295,4 +295,19 @@ def test_resolve_cv_config_output_when_last_fold_is_incomplete(gap, expected):
     cv_config, explanation = resolve_cv_config(cv, profile_single_daily_100)
 
     assert cv_config["n_folds"] == 7
+    assert cv_config["last_fold_steps"] == (4 if gap == 0 else 2)
     assert explanation == expected
+
+
+def test_resolve_cv_config_output_has_no_last_fold_steps_when_folds_are_full():
+    """
+    Test that `last_fold_steps` is left out of the configuration when every
+    fold is a full horizon: 100 observations from 60 with 5 steps leave 8
+    folds of 5.
+    """
+    cv = TimeSeriesFold(steps=5, initial_train_size=60, refit=False)
+
+    cv_config, _ = resolve_cv_config(cv, profile_single_daily_100)
+
+    assert cv_config["n_folds"] == 8
+    assert "last_fold_steps" not in cv_config

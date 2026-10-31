@@ -456,7 +456,8 @@ class BacktestResult(SingleRunResult):
         Resolved `TimeSeriesFold` parameters plus the resulting `n_folds`
         and `n_fits` (trainings), for traceability. For a
         `ForecasterFoundation` plan, also `inference_windows`, its cost:
-        one forecast per series and fold.
+        one forecast per series and fold. When the last fold predicts
+        fewer steps than the horizon, also `last_fold_steps`.
     metrics : pandas DataFrame
         Backtesting metric values returned by skforecast.
     predictions : pandas DataFrame
@@ -534,7 +535,8 @@ class CVResult(PickleDefaultsMixin, DisplayMixin, ExplainableResult, BaseModel):
         Resolved `TimeSeriesFold` parameters plus the resulting `n_folds`
         and `n_fits` (trainings). For a `ForecasterFoundation` plan, also
         `inference_windows`, its cost: one forecast per series and fold.
-        For a `ForecasterStats` plan, the strategy skforecast runs:
+        When the last fold predicts fewer steps than the horizon, also
+        `last_fold_steps`. For a `ForecasterStats` plan, the strategy skforecast runs:
         `refit=True` (it refits ARIMA in every fold) and, when `cv` does
         not refit, `fixed_train_size=True`.
     code : str

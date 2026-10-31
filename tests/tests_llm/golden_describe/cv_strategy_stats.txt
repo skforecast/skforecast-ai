@@ -35,6 +35,7 @@ A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 204 ob
 - allow_incomplete_fold: True
 - n_folds: 6
 - n_fits: 6
+- last_fold_steps: 2
 </backtesting_strategy>
 <deterministic_summary>
 Initial training up to 2003-04-01, fixed window, refit every fold (6 trainings), 12-step horizon, 6 folds (the last one has only 2 steps). ForecasterStats is refitted in every fold whatever `refit` says: skforecast requires it for ARIMA models. Initial training size by default: 70% of the 204 observations (142), up to 2003-04-01.

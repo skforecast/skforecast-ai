@@ -902,10 +902,17 @@ def render_script_section(
                 else f"training the forecaster {n_fits} time"
                      f"{'s' if n_fits != 1 else ''}"
             )
+            # Without it, "N folds of M steps" was read as N full folds
+            # (0.5.0 check of the contexts).
+            last = cv_config.get("last_fold_steps")
+            incomplete = (
+                f" (the last one has only {last} step{'s' if last != 1 else ''})"
+                if last else ""
+            )
             mode = (
                 f"backtesting: predicts {n_folds} fold"
                 f"{'s' if n_folds != 1 else ''} of {cv_config['steps']} step"
-                f"{'s' if cv_config['steps'] != 1 else ''}, "
+                f"{'s' if cv_config['steps'] != 1 else ''}{incomplete}, "
                 f"{trained}, and scores the predictions of every fold against "
                 f"the held-out observations"
             )
