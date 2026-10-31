@@ -2041,6 +2041,15 @@ sobre `0.5.x` en `b238223`:
 - El truncado a 20000 caracteres no se alcanza en la práctica: con 600
   series el resumen del plan tiene 2.566. Lo cubre un test unitario
   (`tests/tests_mcp/test_tool_profile.py`).
+- Claude Desktop (macOS), con el servidor local en `claude_desktop_config.json`
+  (el Python del entorno y `--allow-dir`): arranca rápido, sin tocar el
+  timeout, y un chat que pide comparar modelos y el script del mejor recorre
+  `profile`, `plan`, `create_cv`, `compare` y `get_code` y escribe el script.
+  La respuesta lee bien el último fold de 2 pasos y el MAPE como porcentaje;
+  como en el check con agentes, añade una cifra derivada ("un 8 % al Ridge")
+  y una suposición propia. Pide permiso en cada herramienta, sin un
+  "permitir todo" en el diálogo: es del cliente. Las herramientas que solo
+  leen ya llevan `readOnlyHint`; las demás escriben en la carpeta de salida.
 - Sin hacer: el timeout real de un cliente y los objetos huérfanos (piden un
   cliente que corte), Cursor y Codex (no instalados), Cowork y Windows.
   El plugin instala `skforecast-ai-mcp==0.5.0` de PyPI: se comprueba
