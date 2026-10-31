@@ -775,7 +775,7 @@ def test_standalone_script_matches_forecast_when_csv_daily_data_closed_on_sunday
     # predicts.
     with pytest.warns(MissingValuesWarning):
         with pytest.warns(
-            UserWarning, match=re.escape("reads missing values of the target")
+            UserWarning, match=re.escape("The last window of the target")
         ):
             executed = assistant.forecast(**kwargs)
 
@@ -806,7 +806,7 @@ def test_standalone_script_matches_forecast_when_csv_last_window_has_missing_val
         code = assistant.forecast_code(**kwargs).code
     with pytest.warns(MissingValuesWarning):
         with pytest.warns(
-            UserWarning, match=re.escape("reads missing values of the target")
+            UserWarning, match=re.escape("The last window of the target")
         ):
             executed = assistant.forecast(**kwargs)
 

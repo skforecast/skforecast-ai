@@ -235,7 +235,8 @@ def test_validate_last_window_InvalidInputError_when_multiseries_final_rows_and_
     data.iloc[-5, 0] = np.nan
 
     err_msg = re.escape(
-        "The forecaster reads missing values of the target to predict ('item_1': 1 "
+        "The last window of the target, the values the forecast starts from (the "
+        "last ones before the dates it predicts), has missing values ('item_1': 1 "
         "value(s), such as '2012-04-25')."
     )
     with pytest.warns(UserWarning, match="ignores its last 2 row"):
@@ -365,9 +366,11 @@ def test_validate_last_window_InvalidInputError_when_lag_reads_missing_value(
     data = with_missing(data_single, [position])
 
     err_msg = re.escape(
-        f"The forecaster reads missing values of the target to predict ('y': 1 "
+        "The last window of the target, the values the forecast starts from (the "
+        f"last ones before the dates it predicts), has missing values ('y': 1 "
         f"value(s), such as '{date}'). {plan.forecaster} with Ridge cannot use "
-        f"them, so its predictions would be missing. "
+        f"them, so the forecast cannot run: "
+        f"its predictions would be missing. "
         f"Either they are filled in, or the plan uses an estimator that "
         f"accepts missing values (such as 'RandomForestRegressor')."
     )
@@ -399,7 +402,8 @@ def test_validate_last_window_UserWarning_when_estimator_tolerates_missing_value
     data = with_missing(data_single, [5])
 
     warn_msg = re.escape(
-        "The forecaster reads missing values of the target to predict ('y': 1 "
+        "The last window of the target, the values the forecast starts from (the "
+        "last ones before the dates it predicts), has missing values ('y': 1 "
         "value(s), such as '2023-02-25'). LGBMRegressor treats them as missing "
         "values; check that they are meant to be missing."
     )
@@ -454,7 +458,8 @@ def test_validate_last_window_InvalidInputError_when_differentiation_reads_it(pl
     if plan.estimator == "LGBMRegressor":
         assert str(exc_info.value).endswith(
             "The differentiation of ForecasterRecursive reads the last 2 value(s), "
-            "so its predictions would be missing. Those values have to be "
+            "so the forecast cannot run: "
+            "its predictions would be missing. Those values have to be "
             "filled in before predicting."
         )
 
@@ -494,7 +499,8 @@ def test_validate_last_window_InvalidInputError_when_equivalent_date_missing(
     data = with_missing(data_single, [position])
 
     err_msg = re.escape(
-        "ForecasterEquivalentDate repeats them as missing predictions. Those "
+        "ForecasterEquivalentDate repeats them as missing predictions, "
+        "so the forecast cannot run. Those "
         "values have to be filled in before predicting."
     )
     with pytest.raises(InvalidInputError, match=err_msg):
@@ -544,11 +550,13 @@ def test_validate_last_window_no_error_when_no_lags_and_missing_value(kind, posi
 
 
 _MISSING_ITEM_1 = re.escape(
-    "The forecaster reads missing values of the target to predict ('item_1': 1 "
+    "The last window of the target, the values the forecast starts from (the "
+    "last ones before the dates it predicts), has missing values ('item_1': 1 "
     "value(s), such as '2012-04-26')."
 )
 _MISSING_ITEM_2_LONG = re.escape(
-    "The forecaster reads missing values of the target to predict (series "
+    "The last window of the target, the values the forecast starts from (the "
+    "last ones before the dates it predicts), has missing values (series "
     "'item_2': 1 value(s), such as '2012-04-26')."
 )
 
@@ -784,7 +792,7 @@ def test_validate_last_window_dates_equal_those_of_generated_script(data, kwargs
     with pytest.raises(InvalidInputError) as exc_info:
         validate_last_window(data=data, profile=profile.data_profile, plan=plan)
     series = "series " if long_format else ""
-    assert f"to predict ({series}{expected})." in str(exc_info.value)
+    assert f"has missing values ({series}{expected})." in str(exc_info.value)
 
 
 def _with_kwargs(plan, steps=None, drop=(), **forecaster_kwargs):
@@ -1042,7 +1050,9 @@ def test_validate_last_window_InvalidInputError_names_column_of_single_long_seri
     data = with_missing_long(item_1, "item_1", [4])
     plan = plan_single_ridge.model_copy()
 
-    err_msg = re.escape("to predict ('value': 1 value(s), such as '2012-04-26').")
+    err_msg = re.escape(
+        "has missing values ('value': 1 value(s), such as '2012-04-26')."
+    )
     with pytest.raises(InvalidInputError, match=err_msg):
         validate_last_window(data=data, profile=profile, plan=plan)
 
@@ -1108,7 +1118,8 @@ def test_validate_last_window_InvalidInputError_when_wide_last_row_off_grid():
         _ignored_rows_message("2012-04-29", "1 row(s) (2012-04-30 12:00:00)")
     )
     err_msg = re.escape(
-        "The forecaster reads missing values of the target to predict ('item_1': 1 "
+        "The last window of the target, the values the forecast starts from (the "
+        "last ones before the dates it predicts), has missing values ('item_1': 1 "
         "value(s), such as '2012-04-27')."
     )
     with pytest.warns(UserWarning, match=warn_msg):
@@ -1209,9 +1220,11 @@ def test_validate_last_window_InvalidInputError_when_final_rows_false_and_ridge_
         )
 
     err_msg = re.escape(
-        "The forecaster reads missing values of the target to predict ('y': 1 "
+        "The last window of the target, the values the forecast starts from (the "
+        "last ones before the dates it predicts), has missing values ('y': 1 "
         "value(s), such as '2023-03-01'). ForecasterRecursive with Ridge cannot "
-        "use them, so its predictions would be missing. "
+        "use them, so the forecast cannot run: "
+        "its predictions would be missing. "
         "Either they are filled in, or the plan uses an estimator that "
         "accepts missing values (such as 'RandomForestRegressor')."
     )
@@ -1232,7 +1245,8 @@ def test_validate_last_window_UserWarning_when_final_rows_false_and_lightgbm_rea
     with an estimator that tolerates missing values (LGBMRegressor).
     """
     warn_msg = re.escape(
-        "The forecaster reads missing values of the target to predict ('y': 1 "
+        "The last window of the target, the values the forecast starts from (the "
+        "last ones before the dates it predicts), has missing values ('y': 1 "
         "value(s), such as '2023-03-01'). LGBMRegressor treats them as missing "
         "values; check that they are meant to be missing."
     )
@@ -1337,10 +1351,12 @@ def test_validate_last_window_DataContentError_names_closed_days():
     observations).
     """
     err_msg = re.escape(
-        "The forecaster reads missing values of the target to predict ('y': "
+        "The last window of the target, the values the forecast starts from (the "
+        "last ones before the dates it predicts), has missing values ('y': "
         "1 value(s), such as '2023-02-26'). All of them are on Sundays, when "
         "the target never has a value. ForecasterRecursive with Ridge cannot "
-        "use them, so its predictions would be missing. If the business is "
+        "use them, so the forecast cannot run: "
+        "its predictions would be missing. If the business is "
         "closed on Sundays, fill them with 0 in the data, after asking the "
         "user; otherwise, either they are imputed, or the plan uses an "
         "estimator that accepts missing values (such as "

@@ -1565,9 +1565,11 @@ def test_forecast_InvalidInputError_when_last_window_missing_value_and_ridge():
     data.iloc[-13, 0] = np.nan
 
     err_msg = re.escape(
-        "The forecaster reads missing values of the target to predict ('x': 1 "
+        "The last window of the target, the values the forecast starts from (the "
+        "last ones before the dates it predicts), has missing values ('x': 1 "
         "value(s), such as '2007-06-01'). ForecasterRecursive with Ridge cannot "
-        "use them, so its predictions would be missing. "
+        "use them, so the forecast cannot run: "
+        "its predictions would be missing. "
         "Either they are filled in, or the plan uses an estimator that "
         "accepts missing values (such as 'RandomForestRegressor')."
     )
@@ -1588,7 +1590,8 @@ def test_forecast_UserWarning_when_last_window_missing_value_and_lightgbm():
     data.iloc[-13, 0] = np.nan
 
     warn_msg = re.escape(
-        "The forecaster reads missing values of the target to predict ('x': 1 "
+        "The last window of the target, the values the forecast starts from (the "
+        "last ones before the dates it predicts), has missing values ('x': 1 "
         "value(s), such as '2007-06-01'). LGBMRegressor treats them as missing "
         "values; check that they are meant to be missing."
     )
@@ -1607,7 +1610,7 @@ def test_forecast_UserWarning_when_last_window_missing_value_and_lightgbm():
     # The warning points at the call of the user.
     filenames = [
         warning.filename for warning in record
-        if "reads missing values of the target" in str(warning.message)
+        if "The last window of the target" in str(warning.message)
     ]
     assert filenames == [__file__]
 
@@ -1624,7 +1627,7 @@ def test_forecast_output_when_evaluation_mode_and_last_window_missing_value():
 
     # skforecast warns about the missing value, when profiling and fitting.
     with (
-        pytest.warns(UserWarning, match="reads missing values of the target") as record,
+        pytest.warns(UserWarning, match="The last window of the target") as record,
         pytest.warns(MissingValuesWarning),
     ):
         result = ForecastingAssistant().forecast(
@@ -1633,10 +1636,11 @@ def test_forecast_output_when_evaluation_mode_and_last_window_missing_value():
 
     messages = [
         str(warning.message) for warning in record
-        if "reads missing values of the target" in str(warning.message)
+        if "The last window of the target" in str(warning.message)
     ]
     assert messages == [
-        "The forecaster reads missing values of the target to predict ('x': 1 "
+        "The last window of the target, the values the forecast starts from (the "
+        "last ones before the dates it predicts), has missing values ('x': 1 "
         "value(s), such as '2007-03-01'). LGBMRegressor treats them as missing "
         "values; check that they are meant to be missing."
     ]
@@ -1644,7 +1648,8 @@ def test_forecast_output_when_evaluation_mode_and_last_window_missing_value():
 
 
 _H2O_LAST_TRAINING_READ = (
-    "The forecaster reads missing values of the target to predict ('x': 1 "
+    "The last window of the target, the values the forecast starts from (the "
+    "last ones before the dates it predicts), has missing values ('x': 1 "
     "value(s), such as '2007-06-01'). "
 )
 _H2O_LGBM_PREDICTIONS = [
@@ -1673,9 +1678,11 @@ def test_forecast_InvalidInputError_when_evaluation_training_ends_with_missing_a
         data.iloc[position, 0] = np.nan
 
         err_msg = re.escape(
-            "The forecaster reads missing values of the target to predict ('x': "
+            "The last window of the target, the values the forecast starts from (the "
+            "last ones before the dates it predicts), has missing values ('x': "
             f"1 value(s), such as '{date}'). ForecasterRecursive with Ridge "
-            "cannot use them, so its predictions would be missing. "
+            "cannot use them, so the forecast cannot run: "
+            "its predictions would be missing. "
             "Either they are filled in, or the plan uses an estimator that "
             "accepts missing values (such as 'RandomForestRegressor')."
         )
@@ -1735,7 +1742,7 @@ def test_forecast_output_when_evaluation_missing_value_not_read_by_lags():
 
     assert not [
         warning for warning in record
-        if "reads missing values of the target" in str(warning.message)
+        if "The last window of the target" in str(warning.message)
     ]
     expected = pd.DataFrame(
         {"pred": _H2O_RIDGE_FAR_PREDICTIONS},
@@ -2035,7 +2042,8 @@ def test_forecast_evaluation_mode_when_last_training_date_absent():
 
     err_msg = re.escape(
         _H2O_LAST_TRAINING_READ + "ForecasterRecursive with Ridge cannot use "
-        "them, so its predictions would be missing. "
+        "them, so the forecast cannot run: "
+        "its predictions would be missing. "
         "Either they are filled in, or the plan uses an estimator that "
         "accepts missing values (such as 'RandomForestRegressor')."
     )

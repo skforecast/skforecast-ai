@@ -228,6 +228,67 @@ def validate_estimator(
         )
 
 
+def _estimator_class(estimator: str | None) -> type | None:
+    """
+    Class of a supported machine-learning estimator, or of the `Arima` model
+    of `ForecasterStats`. None for any other name, and when the package of
+    the estimator is not installed (`importlib.util.find_spec` imports
+    nothing to find it out).
+    """
+
+    if estimator == "Arima":
+        # The ARIMA model of ForecasterStats, which skforecast ships.
+        from skforecast.stats import Arima
+
+        return Arima
+    if estimator not in SUPPORTED_ESTIMATORS:
+        return None
+    module_name = SUPPORTED_ESTIMATORS[estimator]
+    if importlib.util.find_spec(module_name.split(".")[0]) is None:
+        return None
+
+    return getattr(importlib.import_module(module_name), estimator)
+
+
+def estimator_param_defaults(estimator: str | None) -> dict[str, object]:
+    """
+    Default values of the named parameters of an estimator constructor.
+
+    Parameters
+    ----------
+    estimator : str, None
+        Name of a supported machine-learning estimator, or `'Arima'`.
+
+    Returns
+    -------
+    defaults : dict
+        Default value of each named parameter that has one, collected along
+        the constructor chain as `_estimator_param_names()` walks it (the
+        closest constructor wins). Empty for any other name, and when the
+        package of the estimator is not installed.
+    """
+
+    cls = _estimator_class(estimator)
+    if cls is None:
+        return {}
+    defaults: dict[str, object] = {}
+    for klass in cls.__mro__:
+        init = klass.__dict__.get("__init__")
+        if init is None:
+            continue
+        try:
+            params = list(inspect.signature(init).parameters.values())
+        except (TypeError, ValueError):
+            break
+        for p in params:
+            if p.default is not inspect.Parameter.empty:
+                defaults.setdefault(p.name, p.default)
+        if not any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params):
+            break
+
+    return defaults
+
+
 def _estimator_param_names(cls: type) -> set[str]:
     """
     Collect the parameter names an estimator constructor accepts.
@@ -339,17 +400,8 @@ def validate_estimator_kwargs(
     warning_messages: list[str] = []
     if not estimator_kwargs:
         return warning_messages
-    if estimator == "Arima":
-        # The ARIMA model of ForecasterStats, which skforecast ships.
-        from skforecast.stats import Arima
-
-        cls = Arima
-    elif estimator in SUPPORTED_ESTIMATORS:
-        module_name = SUPPORTED_ESTIMATORS[estimator]
-        if importlib.util.find_spec(module_name.split(".")[0]) is None:
-            return warning_messages
-        cls = getattr(importlib.import_module(module_name), estimator)
-    else:
+    cls = _estimator_class(estimator)
+    if cls is None:
         return warning_messages
     names = _estimator_param_names(cls)
     extra_names = _library_param_names(estimator)

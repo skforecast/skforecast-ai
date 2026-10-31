@@ -679,10 +679,12 @@ def test_tool_backtest_confirm_cost_of_an_expensive_run(tmp_path):
         "field": "confirm_cost",
         "hint": (
             "Do not call `backtest` again until the user answers: tell them "
-            "these numbers and the cheaper strategies (an integer `refit` "
-            "(retrain every n folds), fewer folds (a later `initial_train_size`, "
-            "a larger `fold_stride` or `skip_folds`) or `refit=false` (train "
-            "once)), and ask whether to run it. Only if they choose to run it as "
+            "these numbers and the cheaper strategies (`refit=2` (retrain "
+            "every 2 folds: 42 estimator fits), fewer folds (a later "
+            "`initial_train_size`, a "
+            "larger `fold_stride` or `skip_folds`) or `refit=false` (train "
+            "once: 6 estimator fits)), and ask whether to run it. Only if they "
+            "choose to run it as "
             "it is, call `backtest` again with the same arguments and "
             "`confirm_cost: 84`. Asking to retrain the model, or to evaluate it "
             "as in production, is not that choice."

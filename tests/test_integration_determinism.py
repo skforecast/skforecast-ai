@@ -141,7 +141,7 @@ def test_forecast_workflow_is_deterministic_when_daily_data_closed_on_sundays(
         # predicts.
         with pytest.warns(MissingValuesWarning):
             with pytest.warns(
-                UserWarning, match=re.escape("reads missing values of the target")
+                UserWarning, match=re.escape("The last window of the target")
             ):
                 results.append(
                     assistant.forecast(data=csv_path, steps=5, test_size=5, **kwargs)

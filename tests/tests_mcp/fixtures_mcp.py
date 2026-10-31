@@ -107,6 +107,24 @@ df_numeric_ids_future_exog = pd.DataFrame(
     }
 )
 
+# Two years of hourly values (17544 rows), as bike_sharing: a plan of 24
+# steps has 220 folds with the default strategy, where the fit budget of
+# `compare()` leaves ForecasterDirect out until `refit=12` (review of the
+# 0.5.0 agent check fixes).
+_hours = pd.date_range("2011-01-01", periods=17544, freq="h")
+df_hourly_two_years = pd.DataFrame(
+    {
+        "date_time": _hours.strftime("%Y-%m-%d %H:%M:%S"),
+        "users": np.round(
+            100
+            + 60 * np.sin(2 * np.pi * _hours.hour / 24)
+            + 20 * (_hours.dayofweek < 5)
+            + np.random.default_rng(42).normal(0, 10, len(_hours)),
+            1,
+        ),
+    }
+)
+
 # Candidates of `compare` for h2o: two that run and one that fails.
 COMPARE_CANDIDATES = [
     {

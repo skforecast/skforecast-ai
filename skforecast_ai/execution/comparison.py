@@ -20,12 +20,14 @@ from .._constants import (
 from .._foundation import foundation_backend_installed, resolve_foundation_model
 from .._utils import discarded_plan_edits, long_training_message, plan_override_value
 from .._validation import (
+    estimator_param_defaults,
     is_symmetric_interval,
     missing_estimator_package,
     missing_package_message,
 )
 from ..exceptions import InvalidInputError, InvalidInputTypeError
 from .interval_coverage import interval_label
+from ..rendering._helpers import _ESTIMATOR_DEFAULTS
 from ..recommendation import (
     baseline_missing_values_note,
     count_estimator_fits,
@@ -397,12 +399,58 @@ def strategy_candidate_config(plan: ForecastPlan) -> CandidateConfig:
     return config
 
 
+def _is_default_value(value: object, default: object) -> bool:
+    """
+    Whether an estimator keyword argument holds its default value. `1` is
+    the default `1.0`, but `True` is not `1`: a bool only equals a bool.
+    """
+
+    if isinstance(value, bool) != isinstance(default, bool):
+        return False
+    try:
+        return bool(value == default)
+    except Exception:
+        return False
+
+
+def _without_default_estimator_kwargs(plan: ForecastPlan) -> ForecastPlan:
+    """
+    Plan whose `estimator_kwargs` leave out the keys that hold the default
+    of a machine-learning estimator, so `Ridge(alpha=1)` makes the same
+    decision as `Ridge()`.
+
+    The default of a key is the value the script writes for it when the key
+    is not given (`_ESTIMATOR_DEFAULTS`, such as `random_state=123`), and
+    otherwise the default of the constructor. Other estimators (the ARIMA
+    model, whose script writes its own defaults, and the foundation models)
+    keep their keyword arguments as they are.
+    """
+
+    if not plan.estimator_kwargs or plan.estimator not in _ESTIMATOR_DEFAULTS:
+        return plan
+    defaults = {
+        **estimator_param_defaults(plan.estimator),
+        **_ESTIMATOR_DEFAULTS[plan.estimator],
+    }
+    kwargs = {
+        key: value
+        for key, value in plan.estimator_kwargs.items()
+        if key not in defaults or not _is_default_value(value, defaults[key])
+    }
+
+    return plan.model_copy(update={"estimator_kwargs": kwargs})
+
+
 def _same_plan_decisions(first: ForecastPlan, second: ForecastPlan) -> bool:
     """
     Whether two plans make the same decisions, so they render the same
     script: the explanation, the warnings and the marks of who made each
-    decision are not compared.
+    decision are not compared. An estimator keyword argument that holds its
+    default makes the same decision as leaving it out.
     """
+
+    first = _without_default_estimator_kwargs(first)
+    second = _without_default_estimator_kwargs(second)
 
     return (
         not discarded_plan_edits(first, second, set())
@@ -642,7 +690,10 @@ def resolve_default_candidates(
     folds), the plan of the
     strategy when it is none of them, and without the alternatives above
     the fit budget (the recommended forecaster and the plan of the strategy
-    always run). The baseline is added afterwards.
+    always run). The baseline is added afterwards. When the user left the
+    exogenous variables out of the plan of the strategy (`use_exog=False`),
+    every candidate of the profile leaves them out too, so the winner never
+    needs their future values.
 
     Parameters
     ----------
@@ -678,6 +729,16 @@ def resolve_default_candidates(
                      profile    = profile,
                      exclude    = excluded | skipped,
                  )
+    # A choice of the user about the data, not about the forecaster, so it
+    # applies to every candidate (as `refine_plan()` carries it over).
+    if (
+        strategy_plan is not None
+        and "use_exog" in strategy_plan.overridden_fields
+        and not strategy_plan.use_exog
+    ):
+        candidates = [
+            (name, {**config, "use_exog": False}) for name, config in candidates
+        ]
     # Before the plan of the strategy is added: that one is the choice of
     # the user, who was warned when it was made, and runs as it is.
     candidates, estimator_note = missing_estimator_candidates(candidates)

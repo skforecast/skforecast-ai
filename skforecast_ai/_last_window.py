@@ -579,10 +579,21 @@ def _report(
     if len(found) > _SHOWN:
         shown += f"; and {len(found) - _SHOWN} more series"
     series = "series " if by_series else ""
-    message = (
-        f"The forecaster reads missing values of the target to predict"
-        f"{where} ({series}{shown})."
-    )
+    if where:
+        message = (
+            f"The forecaster reads missing values of the target to predict"
+            f"{where} ({series}{shown})."
+        )
+        blocked = "so its predictions would be missing"
+    else:
+        # Read as a gap inside a test fold (0.5.0 agent check): the text
+        # says where the values are and that the forecast is what fails.
+        message = (
+            f"The last window of the target, the values the forecast starts "
+            f"from (the last ones before the dates it predicts), has missing "
+            f"values ({series}{shown})."
+        )
+        blocked = "so the forecast cannot run: its predictions would be missing"
     days = _closed_days(missing, closed or {})
     if days is not None:
         owner = "the target never has" if len(missing) == 1 else (
@@ -601,8 +612,11 @@ def _report(
         return f"{closed_days_remedy(days)}; otherwise, {imputed}"
 
     if plan.forecaster == "ForecasterEquivalentDate":
+        repeats = "repeats them as missing predictions"
+        if not where:
+            repeats += ", so the forecast cannot run"
         raise DataContentError(
-            f"{message} {plan.forecaster} repeats them as missing predictions. "
+            f"{message} {plan.forecaster} {repeats}. "
             f"{remedy('those values have to be filled in before predicting.')}",
             field = "data",
         )
@@ -611,7 +625,7 @@ def _report(
         # predictions are missing whatever the estimator.
         raise DataContentError(
             f"{message} The differentiation of {plan.forecaster} reads the "
-            f"last {order} value(s), so its predictions would be missing. "
+            f"last {order} value(s), {blocked}. "
             f"{remedy('those values have to be filled in before predicting.')}",
             field = "data",
         )
@@ -619,7 +633,7 @@ def _report(
         estimator = tolerant_estimator_phrase(nan_tolerant_estimator(plan, profile))
         raise DataContentError(
             f"{message} {plan.forecaster} with {plan.estimator} cannot use "
-            f"them, so its predictions would be missing. "
+            f"them, {blocked}. "
             + remedy(
                 f"either they are filled in, or the plan uses {estimator}."
             ),

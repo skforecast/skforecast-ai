@@ -146,7 +146,10 @@ gives, next to the nominal coverage, the share of the actual values that
 fell inside the interval (`coverage`) and its mean width in the units of
 the target (`interval_width`), by series in `files.metrics` and as columns
 of the leaderboard (they do not rank). Report the measured coverage with
-the interval, by series when there are several. An
+the interval, by series when there are several. A coverage measured on few
+values is a rough check, not the reliable level of the interval: quote the
+level the user asked for, with the warning the server gives (such as
+intervals estimated from few residuals). An
 `IntervalCoverageNotice` says that it is clearly below the nominal level:
 then never present the interval at its nominal level, nor in a `forecast`
 of the same plan; give the measured coverage instead. A `forecast` with

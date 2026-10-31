@@ -2,7 +2,7 @@
 
 import pytest
 
-from skforecast_ai._utils import cost_remedies
+from skforecast_ai._utils import RefitFits, cost_remedies
 
 _REFIT = "an integer `refit` (retrain every n folds)"
 _FOLDS_SKIP = (
@@ -85,3 +85,67 @@ def test_cost_remedies_output_when_skip_folds_is_false():
 
     assert refits == [_REFIT, _FOLDS, _NO_REFIT]
     assert foundation == [_FOLDS, "fewer series"]
+
+
+@pytest.mark.parametrize(
+    "fits, expected",
+    [
+        (
+            RefitFits(train_once=6, refit=2, refit_fits=36),
+            [
+                "`refit=2` (retrain every 2 folds: 36 estimator fits)",
+                _FOLDS_SKIP,
+                "`refit=False` (train once: 6 estimator fits)",
+            ],
+        ),
+        (
+            RefitFits(train_once=1, refit=2, refit_fits=1),
+            [
+                "`refit=2` (retrain every 2 folds: 1 estimator fit)",
+                _FOLDS_SKIP,
+                "`refit=False` (train once: 1 estimator fit)",
+            ],
+        ),
+        (
+            RefitFits(train_once=56, refit=None, refit_fits=None),
+            [
+                "an integer `refit` (retrain every n folds: none fits 50 "
+                "estimators or fewer)",
+                _FOLDS_SKIP,
+                "`refit=False` (train once: 56 estimator fits)",
+            ],
+        ),
+    ],
+    ids=["integer_found", "one_fit", "no_integer"],
+)
+def test_cost_remedies_output_with_the_fits_of_refit(fits, expected):
+    """
+    Test that, with the estimator fits of the cheaper values of `refit`,
+    the remedies name the smallest integer `refit` at or below the
+    threshold with its fits (or say that none is) and `refit=False` with
+    its fits, in the singular for one fit; the other remedies do not
+    change.
+    """
+    result = cost_remedies(
+        forecasters = ["ForecasterDirect"],
+        n_fits      = 11,
+        steps       = 6,
+        fits        = fits,
+    )
+
+    assert result == expected
+
+
+def test_cost_remedies_output_with_fits_when_refit_lowers_nothing():
+    """
+    Test that the fits of `refit` change nothing when `refit` lowers
+    nothing (ForecasterStats, refitted in every fold whatever it says).
+    """
+    result = cost_remedies(
+        forecasters = ["ForecasterStats"],
+        n_fits      = 9,
+        steps       = 5,
+        fits        = RefitFits(train_once=9, refit=None, refit_fits=None),
+    )
+
+    assert result == [_FOLDS]

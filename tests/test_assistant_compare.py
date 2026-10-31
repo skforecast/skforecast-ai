@@ -52,6 +52,7 @@ from tests.fixtures_last_window import long_starting_late
 from tests.fixtures_compare import (
     cv_h2o_refined,
     cv_multivariate,
+    cv_promo_no_exog,
     cv_sales,
     cv_sales_direct,
     cv_sales_direct_default_refit,
@@ -62,6 +63,7 @@ from tests.fixtures_compare import (
     plan_sales_edited,
     profile_h2o,
     profile_multi,
+    profile_promo,
     profile_sales,
     profile_sales_one_forecaster,
 )
@@ -3809,7 +3811,8 @@ def test_compare_strategy_plan_row_when_plan_was_refined(monkeypatch):
         "rows named after a forecaster run the configurations the profile "
         "recommends, not that plan. Shared cross-validation strategy: Initial "
         "training up to 2003-04-01, trained once (no refit), 12-step horizon, "
-        "6 folds. ForecasterStats is refitted in every fold on a fixed window "
+        "6 folds (the last one has only 2 steps). ForecasterStats is refitted "
+        "in every fold on a fixed window "
         "(6 trainings): skforecast requires it for ARIMA models. Best: "
         "'ForecasterStats' (ForecasterStats / Arima) = 0.0607, 2.1% ahead of "
         "'ForecasterRecursive' (0.0620). 2 of 4 configurations beat the "
@@ -4523,3 +4526,34 @@ def test_compare_output_when_interval_adds_coverage_columns_without_changing_ran
         result.results[["coverage"]].to_numpy(),
         [[0.6451612903225806], [0.5967741935483871]],
     )
+
+
+def test_compare_default_candidates_leave_out_exog_when_the_user_did(monkeypatch):
+    """
+    Test that compare() without candidates, on a strategy created for a plan
+    that leaves the exogenous variables out by choice of the user
+    (`use_exog=False`), runs every candidate without them, so the winner
+    needs no future values; the recommended forecaster is the row of that
+    plan and no 'Strategy plan' row is added.
+    """
+    monkeypatch.setattr(
+        comparison_module, "foundation_backend_installed", lambda info: False
+    )
+
+    with pytest.warns(MissingBackendWarning, match="ForecasterFoundation left out"):
+        result = assistant.compare(
+            data          = df_single,
+            cv            = cv_promo_no_exog,
+            profile       = profile_promo,
+            show_progress = False,
+        )
+
+    assert {
+        name: candidate.plan.use_exog for name, candidate in result.candidates.items()
+    } == {
+        "ForecasterRecursive": False,
+        "ForecasterDirect": False,
+        "ForecasterStats": False,
+        "Baseline (seasonal naive)": False,
+    }
+    assert result.strategy_plan_name == "ForecasterRecursive"

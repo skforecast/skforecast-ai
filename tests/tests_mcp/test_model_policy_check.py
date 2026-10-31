@@ -35,7 +35,9 @@ def test_model_policy_check_ServerError_when_restricted_model_not_allowed():
     """
     Test that a restricted model is `model_not_allowed` with its license
     and, in the hint, the license of the default model (an agent told only
-    its name stated a license from memory, or offered other models), and
+    its name stated a license from memory, or offered other models), a hint
+    that starts by stopping the agent and says it runs nothing until the
+    user chooses (an agent ran another model before the user answered), and
     passes once its prefix (or a longer one) is allowed, but not with
     the prefix of another model.
     """
@@ -55,12 +57,13 @@ def test_model_policy_check_ServerError_when_restricted_model_not_allowed():
         "`--allow-model`."
     )
     assert error.hint == (
-        "Tell the user about the license and, if they accept it, ask them to "
-        "restart the server with `--allow-model google/timesfm-3.0`. "
-        "The only alternative to offer is the default model, "
-        "'autogluon/chronos-2-small' (license Apache-2.0, as skforecast "
-        "registers it): leave `estimator` out for it. Name no other model and "
-        "no other license: nothing here tells you which ones the server runs."
+        "Stop here and answer the user: tell them about the license and, if "
+        "they accept it, ask them to restart the server with `--allow-model "
+        "google/timesfm-3.0`. The only alternative to offer is the default "
+        "model, 'autogluon/chronos-2-small' (license Apache-2.0, as skforecast "
+        "registers it): leave `estimator` out for it. Run nothing, that model "
+        "included, until the user chooses. Name no other model and no other "
+        "license: nothing here tells you which ones the server runs."
     )
     assert error.details == {
         "model_id": "google/timesfm-3.0-pytorch",
