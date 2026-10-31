@@ -20,7 +20,7 @@ import tempfile
 import threading
 import warnings
 from collections import OrderedDict
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable, Hashable, Iterable
 from dataclasses import dataclass, field
 from importlib import metadata
 from pathlib import Path
@@ -553,15 +553,15 @@ def _estimator_notices(plan: Any, profile: Any, run: str) -> list[ToolNotice]:
 def _refit_fits(
     cv: Any,
     data_profile: Any,
-    count: Callable[[Any], int],
+    count: Callable[[Any], tuple[int, Hashable]],
     n_fits: int,
 ) -> Any:
     """
     Estimator fits of the cheaper values of `refit` (`refit_fits()`), which
     the cheaper strategies state, so an agent does not count them itself.
-    `count` gives the estimator fits of the run on a strategy. None when
-    the strategy trains once: `refit` lowers nothing then, and
-    `cost_remedies` does not name it.
+    `count` gives the estimator fits of the run on a strategy and the runs
+    they add up. None when the strategy trains once: `refit` lowers nothing
+    then, and `cost_remedies` does not name it.
     """
 
     from .._utils import refit_fits
@@ -589,9 +589,8 @@ def _cost_notices(
     steps: int,
     compare_cost: ComparisonCost,
     compare_n_fits: int,
-    cv: Any,
-    data_profile: Any,
-    compare_count: Callable[[Any], int],
+    backtest_fits: Any = None,
+    compare_fits: Any = None,
 ) -> list[ToolNotice]:
     """
     Notice of `create_cv` for a strategy whose backtest, or whose `compare`
@@ -627,14 +626,12 @@ def _cost_notices(
     compare_n_fits : int
         Number of folds in which the shared strategy of that `compare`
         trains a forecaster.
-    cv : TimeSeriesFold
-        The strategy, to count the estimator fits of the cheaper values of
-        `refit` that the notice states (`refit_fits()`).
-    data_profile : DataProfile
-        Profile of the data the strategy runs on.
-    compare_count : Callable
-        Function of a strategy that returns the estimator fits of a
-        `compare` without candidates on it, see `_default_compare_count`.
+    backtest_fits : RefitFits, default None
+        Estimator fits of the backtest with the cheaper values of `refit`
+        (`refit_fits()`), which the notice states. None to name them
+        without their cost.
+    compare_fits : RefitFits, default None
+        The same for a `compare` without candidates.
 
     Returns
     -------
@@ -648,7 +645,6 @@ def _cost_notices(
         cost_remedies,
         expensive_run_figure,
         join_remedies,
-        run_estimator_fits,
     )
 
     backtest_parts = []
@@ -667,18 +663,6 @@ def _cost_notices(
         )
     if not backtest_parts and not compare_parts:
         return []
-
-    backtest_fits = None
-    if backtest_parts:
-        backtest_fits = _refit_fits(
-                            cv,
-                            data_profile,
-                            run_estimator_fits(data_profile, [forecaster], steps),
-                            cost["n_fits"],
-                        )
-    compare_fits = None
-    if compare_parts:
-        compare_fits = _refit_fits(cv, data_profile, compare_count, compare_n_fits)
 
     def message_of(figures: bool) -> str:
         runs = []
@@ -2163,27 +2147,28 @@ def _default_compare_count(
     profile: Any,
     cv_result: Any,
     plans: dict[str, Any] | None = None,
-) -> Callable[[Any], int]:
+) -> Callable[[Any], tuple[int, Hashable]]:
     """
     Function of a strategy that returns the estimator fits of a `compare`
     without candidates on it (`_default_compare_cost` with that strategy in
-    place of the one of `cv_result`), for `refit_fits()`. Its candidates
-    are counted again for each strategy: a cheaper one can run an
-    alternative that the fit budget of `compare()` leaves out. The plans
-    are built once, in `plans` (see `_default_compare_cost`), which the
-    caller shares when it counts the strategy as it is.
+    place of the one of `cv_result`) and the names of the candidates they
+    add up, for `refit_fits()`. Its candidates are counted again for each
+    strategy: a cheaper one can run an alternative that the fit budget of
+    `compare()` leaves out. The plans are built once, in `plans` (see
+    `_default_compare_cost`), which the caller shares when it counts the
+    strategy as it is.
     """
 
     plans = {} if plans is None else plans
 
-    def count(cv: Any) -> int:
+    def count(cv: Any) -> tuple[int, Hashable]:
         cost, _ = _default_compare_cost(
                       assistant,
                       profile,
                       cv_result.model_copy(update={"cv": cv}),
                       plans,
                   )
-        return cost.estimator_fits
+        return cost.estimator_fits, tuple(cost.candidates)
 
     return count
 
@@ -2761,7 +2746,11 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         )
 
         def work(control: CallControl):
-            from .._utils import warn_long_inference, warn_long_training
+            from .._utils import (
+                run_estimator_fits,
+                warn_long_inference,
+                warn_long_training,
+            )
 
             # The core turns what skforecast rejects in the strategy (an
             # `initial_train_size` beyond the data, a `gap` too large) into
@@ -2803,19 +2792,39 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             )
             cost["compare_estimator_fits"] = compare_cost.estimator_fits
             cost["compare_inference_windows"] = compare_cost.inference_windows
+            # The fits of the cheaper values of `refit` of each expensive
+            # run, counted once here, off the event loop, for the notices.
+            data_profile = plan_entry.profile.data_profile
+            backtest_fits = compare_fits = None
+            if cost["estimator_fits"] > LONG_TRAINING_FITS:
+                backtest_fits = _refit_fits(
+                                    result.cv,
+                                    data_profile,
+                                    run_estimator_fits(
+                                        data_profile,
+                                        [result.plan.forecaster],
+                                        result.plan.steps,
+                                    ),
+                                    cost["n_fits"],
+                                )
+            if cost["compare_estimator_fits"] > LONG_TRAINING_FITS:
+                compare_fits = _refit_fits(
+                                   result.cv, data_profile, compare_count,
+                                   compare_n_fits,
+                               )
             object_id = store.new_id("cv")
             summary = state.summary(object_id, result.describe())
             code_file = state.code_file(object_id, result.code)
             control.wrote(summary[2], code_file)
             return (
                 object_id, result, summary, code_file, cost, compare_cost,
-                compare_n_fits, compare_count,
+                compare_n_fits, backtest_fits, compare_fits,
             )
 
         outcome = await run_call(work, report=_report(ctx), label="create_cv")
         (
             object_id, result, summary, code_file, cost, compare_cost,
-            compare_n_fits, compare_count,
+            compare_n_fits, backtest_fits, compare_fits,
         ) = outcome.value
         compare_candidates = compare_cost.candidates.values()
         compare_skip_folds = all(
@@ -2844,12 +2853,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                            steps       = result.plan.steps,
                            skip_folds  = compare_skip_folds,
                            false       = "false",
-                           fits        = _refit_fits(
-                                             result.cv,
-                                             plan_entry.profile.data_profile,
-                                             compare_count,
-                                             compare_n_fits,
-                                         ),
+                           fits        = compare_fits,
                        )
             compare_notice.append(
                 ToolNotice(
@@ -2915,11 +2919,8 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                                         steps          = result.plan.steps,
                                         compare_cost   = compare_cost,
                                         compare_n_fits = compare_n_fits,
-                                        cv             = result.cv,
-                                        data_profile   = (
-                                            plan_entry.profile.data_profile
-                                        ),
-                                        compare_count  = compare_count,
+                                        backtest_fits  = backtest_fits,
+                                        compare_fits   = compare_fits,
                                     ),
                                     *_missing_values_notices(
                                         plan_entry.obj, plan_entry.profile

@@ -11,6 +11,7 @@ from .fixtures_mcp import (
     call,
     content_of,
     df_h2o_backtest_gaps_csv,
+    df_hourly_two_years,
     error_of,
     h2o_server,
     profile_and_plan,
@@ -279,6 +280,47 @@ def test_tool_create_cv_cost_notice_figures_count_the_candidates_again(
         "larger `fold_stride`) or `refit=false` (train once: 32 estimator fits)."
     )
     assert once["cost"]["compare_estimator_fits"] == 32
+
+
+def test_tool_create_cv_cost_notice_figures_when_a_larger_refit_readmits_a_candidate(
+    tmp_path, monkeypatch
+):
+    """
+    Test the case of the review of the 0.5.0 agent check fixes (two years of
+    hourly values, 24 steps, `refit=true`: 220 folds). For a `compare`
+    without candidates, ForecasterDirect is above the fit budget until
+    `refit=12`, so its fits do not fall as `refit` grows: the notice gives
+    `refit=5` (44 fits, ForecasterRecursive alone), the cost `create_cv`
+    gives for it, and not `refit=110` (50 fits, ForecasterDirect back in).
+    `refit=4` gives 55, above 50.
+    """
+    monkeypatch.setattr(
+        "skforecast_ai.execution.comparison.foundation_backend_installed",
+        lambda info: False,
+    )
+    path = write_csv(tmp_path, "hourly.csv", df_hourly_two_years)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, plan_id = profile_and_plan(server, path, target="users", steps=24)
+
+    def cost(refit):
+        return content_of(
+            call(server, "create_cv", {"plan_id": plan_id, "refit": refit})
+        )
+
+    result = cost(True)
+    message = result["notices"][0]["message"]
+    costs = {refit: cost(refit)["cost"] for refit in (4, 5, 110)}
+
+    assert result["cost"]["n_folds"] == 220
+    assert result["cost"]["compare_estimator_fits"] == 220
+    assert (
+        "for `compare`, a list of `candidates`, `refit=5` (retrain every 5 "
+        "folds: 44 estimator fits), "
+    ) in message
+    assert "`refit=false` (train once: 1 estimator fit); for `compare`" in message
+    assert [costs[refit]["compare_estimator_fits"] for refit in (4, 5, 110)] == [
+        55, 44, 50
+    ]
 
 
 def test_tool_create_cv_cost_notice_without_figures_when_they_do_not_fit(

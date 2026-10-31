@@ -10,7 +10,7 @@ import copy
 import numbers
 import re
 import warnings
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Hashable, Iterable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
@@ -3141,7 +3141,7 @@ def run_estimator_fits(
     data_profile: DataProfile,
     forecasters: Iterable[str],
     steps: int,
-) -> Callable[[TimeSeriesFold], int]:
+) -> Callable[[TimeSeriesFold], tuple[int, Hashable]]:
     """
     Function that counts the estimator fits of a run on a strategy, for
     `refit_fits()`: those of a backtest (one forecaster) or of a comparison
@@ -3160,7 +3160,8 @@ def run_estimator_fits(
     Returns
     -------
     count : Callable
-        Function of a `TimeSeriesFold` that returns the estimator fits.
+        Function of a `TimeSeriesFold` that returns the estimator fits and
+        the runs they add up, here always the same (None).
     """
 
     forecasters = list(forecasters)
@@ -3171,10 +3172,10 @@ def run_estimator_fits(
         "time_zone": data_profile.time_zone,
     }
 
-    def count(cv: TimeSeriesFold) -> int:
+    def count(cv: TimeSeriesFold) -> tuple[int, Hashable]:
         n_fits = count_cv_fits(cv, **span)
         n_folds = count_cv_folds(cv, **span)
-        return sum(
+        fits = sum(
             count_estimator_fits(
                 n_fits     = n_fits,
                 forecaster = forecaster,
@@ -3183,6 +3184,7 @@ def run_estimator_fits(
             )
             for forecaster in forecasters
         )
+        return fits, None
 
     return count
 
@@ -3190,7 +3192,7 @@ def run_estimator_fits(
 def refit_fits(
     cv: TimeSeriesFold,
     n_folds: int,
-    count: Callable[[TimeSeriesFold], int],
+    count: Callable[[TimeSeriesFold], tuple[int, Hashable]],
 ) -> RefitFits:
     """
     Count the estimator fits of a run with `refit=False` and with the
@@ -3200,9 +3202,21 @@ def refit_fits(
     Each figure is `count` of the strategy with that value of `refit`, the
     other parameters unchanged, so it is the cost the run would have. The
     integers tried go from 2 (1 is `refit=True`) to the number of folds
-    minus 1, or 2 (a larger one trains once, as `refit=False` does), by
-    bisection: the fits fall as the integer grows, except when a smaller
-    cost lets a comparison run a candidate that its fit budget left out.
+    minus 1, or 2 (a larger one trains once, as `refit=False` does).
+
+    The fits of each run fall as the integer grows, but their total does
+    not when the runs change: a `compare()` without candidates leaves out
+    the alternatives above its fit budget, and a larger integer lets one
+    back in, so the total jumps up (a single bisection then misses a
+    smaller integer before that jump). The runs only grow as the integer
+    grows, one at a time, so they change at most once per candidate:
+    `count` says which runs it counted, the integers where they change are
+    found by bisection (the same runs at both ends of a range means none
+    changes inside it), and within each range of the same runs, where the
+    total only falls, the smallest integer at or below the threshold is
+    found by bisection too, from the smallest range up. This takes a few
+    counts per candidate and the logarithm of the folds, where scanning
+    every integer would take one count per fold.
 
     Parameters
     ----------
@@ -3212,7 +3226,9 @@ def refit_fits(
         Number of folds of the strategy, see `count_cv_folds`.
     count : Callable
         Function of a `TimeSeriesFold` that returns the estimator fits of
-        the run on it, such as `run_estimator_fits()`.
+        the run on it and the runs they add up (any value that changes only
+        when they do, such as the names of the candidates of a comparison),
+        such as `run_estimator_fits()`.
 
     Returns
     -------
@@ -3221,28 +3237,46 @@ def refit_fits(
         `refit` at or below `LONG_TRAINING_FITS` with its fits, if any.
     """
 
-    def total(refit: bool | int) -> int:
-        refitted = copy.deepcopy(cv)
-        refitted.set_params({"refit": refit})
-        return count(refitted)
+    counted: dict[bool | int, tuple[int, Hashable]] = {}
 
-    train_once = total(False)
+    def total(refit: bool | int) -> tuple[int, Hashable]:
+        if refit not in counted:
+            refitted = copy.deepcopy(cv)
+            refitted.set_params({"refit": refit})
+            counted[refit] = count(refitted)
+        return counted[refit]
+
+    def same_runs(low: int, high: int) -> list[tuple[int, int]]:
+        """Split `low` to `high` into ranges of integers with the same runs."""
+        if total(low)[1] == total(high)[1]:
+            return [(low, high)]
+        if high - low == 1:
+            return [(low, low), (high, high)]
+        middle = (low + high) // 2
+        return [*same_runs(low, middle), *same_runs(middle + 1, high)]
+
+    train_once, _ = total(False)
     # With 2 folds, `refit=2` is the only integer that trains less than
     # `refit=True`.
-    low, high = 2, max(2, n_folds - 1)
-    found = None
-    while low <= high:
-        middle = (low + high) // 2
-        fits = total(middle)
-        if fits <= LONG_TRAINING_FITS:
-            found = (middle, fits)
-            high = middle - 1
-        else:
-            low = middle + 1
-    if found is None:
-        return RefitFits(train_once, None, None)
+    for low, high in same_runs(2, max(2, n_folds - 1)):
+        # Within a range the total only falls: if its largest integer is
+        # above the threshold, so is every other one.
+        if total(high)[0] > LONG_TRAINING_FITS:
+            continue
+        while low < high:
+            middle = (low + high) // 2
+            if total(middle)[0] <= LONG_TRAINING_FITS:
+                high = middle
+            else:
+                low = middle + 1
+        return RefitFits(train_once, low, total(low)[0])
 
-    return RefitFits(train_once, *found)
+    return RefitFits(train_once, None, None)
+
+
+def _estimator_fits_text(n: int) -> str:
+    """`'1 estimator fit'`, `'36 estimator fits'`."""
+    return f"{n} estimator fit" if n == 1 else f"{n} estimator fits"
 
 
 def cost_remedies(
@@ -3307,7 +3341,7 @@ def cost_remedies(
         if fits is not None and fits.refit is not None:
             remedies.append(
                 f"`refit={fits.refit}` (retrain every {fits.refit} folds: "
-                f"{fits.refit_fits} estimator fits)"
+                f"{_estimator_fits_text(fits.refit_fits)})"
             )
         elif fits is not None:
             remedies.append(
@@ -3326,7 +3360,9 @@ def cost_remedies(
             ways = "a later `initial_train_size` or a larger `fold_stride`"
         remedies.append(f"fewer folds ({ways})")
     if refits:
-        once = f": {fits.train_once} estimator fits" if fits is not None else ""
+        once = (
+            f": {_estimator_fits_text(fits.train_once)}" if fits is not None else ""
+        )
         remedies.append(f"`refit={false}` (train once{once})")
     if (
         n_fits <= 1

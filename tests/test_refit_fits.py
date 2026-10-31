@@ -83,3 +83,70 @@ def test_refit_fits_output_with_two_folds():
     result = refit_fits(cv=cv, n_folds=2, count=_count(["ForecasterDirect"]))
 
     assert result == RefitFits(train_once=6, refit=2, refit_fits=6)
+
+
+def _budget_count(n_folds, steps, budget=500):
+    """
+    Estimator fits of a comparison of ForecasterRecursive and
+    ForecasterDirect on `n_folds` folds, as `compare()` without candidates
+    counts them: the direct one (one estimator per step) is left out while
+    its fits are above `budget`, so a larger `refit` lets it back in.
+    """
+
+    def count(cv):
+        trainings = 1 if cv.refit is False else -(-n_folds // cv.refit)
+        direct = steps * trainings
+        if direct > budget:
+            return trainings, ("ForecasterRecursive",)
+        return trainings + direct, ("ForecasterRecursive", "ForecasterDirect")
+
+    return count
+
+
+def test_refit_fits_output_when_a_larger_refit_lets_a_candidate_back_in():
+    """
+    Test the comparison of the 0.5.0 review (bike_sharing hourly, 24 steps,
+    220 folds): ForecasterDirect is left out up to `refit=11` and runs from
+    `refit=12`, so the fits jump up there. The smallest integer at or below
+    50 fits is 5 (44 trainings of ForecasterRecursive alone), not 110 (2 +
+    48 with ForecasterDirect back in), which a single bisection returned.
+    """
+    cv = TimeSeriesFold(steps=24, initial_train_size=120, refit=True)
+
+    result = refit_fits(cv=cv, n_folds=220, count=_budget_count(220, steps=24))
+
+    assert result == RefitFits(train_once=25, refit=5, refit_fits=44)
+
+
+def test_refit_fits_output_when_the_integer_is_after_the_jump():
+    """
+    Test that, when no integer before the jump is at or below 50 fits, the
+    smallest one after it is given: with 5264 folds of 1 step,
+    ForecasterRecursive alone needs `refit=106` (50 fits) but
+    ForecasterDirect is back in from `refit=11`, so both run there and the
+    smallest integer is 211 (25 + 25 fits).
+    """
+    cv = TimeSeriesFold(steps=1, initial_train_size=120, refit=True)
+
+    result = refit_fits(cv=cv, n_folds=5264, count=_budget_count(5264, steps=1))
+
+    assert result == RefitFits(train_once=2, refit=211, refit_fits=50)
+
+
+def test_refit_fits_counts_few_strategies_when_no_integer_fits():
+    """
+    Test that, when no integer is at or below 50 fits (a ForecasterStats
+    plan, refitted in every one of 5264 folds), the answer comes from a
+    few counts, about the logarithm of the folds, and not one per fold.
+    """
+    cv = TimeSeriesFold(steps=1, initial_train_size=120, refit=True)
+    calls = []
+
+    def count(strategy):
+        calls.append(strategy.refit)
+        return 5264, None
+
+    result = refit_fits(cv=cv, n_folds=5264, count=count)
+
+    assert result == RefitFits(train_once=5264, refit=None, refit_fits=None)
+    assert len(calls) == 3

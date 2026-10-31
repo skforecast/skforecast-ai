@@ -27,7 +27,8 @@ def test_run_estimator_fits_output(forecasters, refit, expected):
     of `forecasters` on a strategy of 14 folds of 6 steps (h2o from 120
     observations), added up: one estimator per step and training for a
     direct forecaster, every fold for ForecasterStats whatever `refit`
-    says, none for a foundation model or the baseline.
+    says, none for a foundation model or the baseline. The runs it counts
+    are always the same, so it gives None for them.
     """
     count = run_estimator_fits(
                 data_profile = profile_h2o.data_profile,
@@ -36,4 +37,4 @@ def test_run_estimator_fits_output(forecasters, refit, expected):
             )
     cv = TimeSeriesFold(steps=6, initial_train_size=120, refit=refit)
 
-    assert count(cv) == expected
+    assert count(cv) == (expected, None)

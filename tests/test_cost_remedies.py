@@ -99,6 +99,14 @@ def test_cost_remedies_output_when_skip_folds_is_false():
             ],
         ),
         (
+            RefitFits(train_once=1, refit=2, refit_fits=1),
+            [
+                "`refit=2` (retrain every 2 folds: 1 estimator fit)",
+                _FOLDS_SKIP,
+                "`refit=False` (train once: 1 estimator fit)",
+            ],
+        ),
+        (
             RefitFits(train_once=56, refit=None, refit_fits=None),
             [
                 "an integer `refit` (retrain every n folds: none fits 50 "
@@ -108,14 +116,15 @@ def test_cost_remedies_output_when_skip_folds_is_false():
             ],
         ),
     ],
-    ids=["integer_found", "no_integer"],
+    ids=["integer_found", "one_fit", "no_integer"],
 )
 def test_cost_remedies_output_with_the_fits_of_refit(fits, expected):
     """
     Test that, with the estimator fits of the cheaper values of `refit`,
     the remedies name the smallest integer `refit` at or below the
     threshold with its fits (or say that none is) and `refit=False` with
-    its fits; the other remedies do not change.
+    its fits, in the singular for one fit; the other remedies do not
+    change.
     """
     result = cost_remedies(
         forecasters = ["ForecasterDirect"],
