@@ -526,9 +526,11 @@ Hecho en [#126](https://github.com/skforecast/skforecast-ai/pull/126) (D34).
    estimadores y pedía `confirm_cost` (4b, D23; la tarjeta muestra ahora
    la llamada con `confirm_cost=True` y la cifra), y
    `generate_mcp_overview_data.py` leía la frase del baseline con la
-   redacción de la 0.4. Las cifras de las comparaciones no cambian. Queda
-   `generate_agent_session_data.py`, que sale de un informe del check con
-   agentes: después del punto 2. Al volver a grabar los notebooks (punto
+   redacción de la 0.4. Las cifras de las comparaciones no cambian.
+   `generate_agent_session_data.py` lee ya `compare_code__r2` de
+   `0.5.0-fix1`, con sus dos GIF, en
+   [#135](https://github.com/skforecast/skforecast-ai/pull/135)
+   (2026-10-31). Al volver a grabar los notebooks (punto
    1), una celda de `backtest()` o `compare()` de más de 50 ajustes pide
    `confirm_cost=True`: ninguno lo pasa hoy.
 4. Comprobaciones a mano (abajo).
@@ -2018,6 +2020,32 @@ Lo que el README del check y la auditoría listan como no cubierto:
   de un cliente y los objetos huérfanos; el truncado del resumen a 20000
   caracteres.
 
+Hechas en local el 2026-10-31, con el servidor en proceso (`create_server`)
+sobre `0.5.x` en `b238223`:
+
+- `chronos`: el plan del modelo por defecto da su `ModelLicenseNotice`
+  (Apache-2.0) y `forecast` corre con `HF_HUB_OFFLINE=1` (pesos en caché,
+  16 s). `Salesforce/moirai-2.0-R-small` da `model_not_allowed` con el hint
+  nuevo (#130) y el prefijo `Salesforce/moirai-2`; con
+  `--allow-model Salesforce/moirai-2` el plan pasa con su aviso CC-BY-NC, y
+  `forecast` da `missing_dependency` con `uni2ts` y cómo instalarlo.
+- XGBoost 3.3 instalado: plan y backtest de `XGBRegressor`, con su
+  `EstimatorNotRecommendedNotice`. CatBoost sin instalar (V02): el plan
+  avisa con `MissingDependencyNotice` y `backtest` da `missing_dependency`
+  con `pip install "catboost"` o `--with "catboost"`.
+- `--max-file-mb 1` con un CSV de 1,3 MB: `file_too_large`, sin leer nada.
+- `--max-memory-mb 1` con un backtest de 63.000 predicciones: se queda el
+  backtest, salen los tres objetos anteriores (`removed: 3` en
+  `list_objects`) y `get_code` del plan expulsado da `unknown_id` con
+  "was removed to keep the server within its limits".
+- El truncado a 20000 caracteres no se alcanza en la práctica: con 600
+  series el resumen del plan tiene 2.566. Lo cubre un test unitario
+  (`tests/tests_mcp/test_tool_profile.py`).
+- Sin hacer: el timeout real de un cliente y los objetos huérfanos (piden un
+  cliente que corte), Cursor y Codex (no instalados), Cowork y Windows.
+  El plugin instala `skforecast-ai-mcp==0.5.0` de PyPI: se comprueba
+  después de publicar.
+
 ## Herramientas de mantenimiento
 
 No bloquean la release; se hacen cuando haya hueco.
@@ -2025,10 +2053,10 @@ No bloquean la release; se hacen cuando haya hueco.
 - **Tests unitarios de `tools/mcp/check_mcp_agent.py`.** No tiene ninguno,
   y casi todos los defectos de las dos revisiones de código estaban en sus
   heurísticas (redirecciones, fallos falsos, herramientas que se escapaban).
-- **Enmascarar el directorio personal y el usuario del sistema** en lo que
-  renderiza el informe del check, como ya hace con el workspace. Hoy
-  aparecen en salidas de `ls -la`, y una ruta se quitó a mano de un informe:
-  un `--report-only` la devolvería.
+- ~~Enmascarar el directorio personal y el usuario del sistema~~ en lo que
+  renderiza el informe del check: hecho en
+  [#132](https://github.com/skforecast/skforecast-ai/pull/132) (`<user>` y
+  `<tmp>`, también antes de cortar el detalle de una llamada denegada).
 - Una sesión del check puede cargar los skills de fábrica de Claude Code con
   `Skill`.
 - El `WARN` de H11 da un aviso en falso cuando el plan se reconstruye igual
