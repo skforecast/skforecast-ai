@@ -495,8 +495,18 @@ Hecho en [#126](https://github.com/skforecast/skforecast-ai/pull/126) (D34).
    errores, sin el MAPE como porcentaje ni el MSE. Sin comprobar: si
    `ask(context=profile, plan=plan)` explica el script sin la codificación
    ni el formato de fecha de las exógenas (pregunta 4 de #97); el check no
-   tiene ese escenario.
-2. Check con agentes de `tools/mcp/` (cambian el SKILL, el coste y las
+   tiene ese escenario. Repetido el 2026-10-31 tras #130, #131 y #133 (sus
+   contextos solo cambian en el último fold incompleto): los informes y la
+   fila del log son de esa pasada, en
+   [#134](https://github.com/skforecast/skforecast-ai/pull/134).
+2. Check con agentes: hecho (2026-10-29 a 2026-10-31), en
+   [#132](https://github.com/skforecast/skforecast-ai/pull/132). Sus
+   hallazgos del servidor y del SKILL se arreglaron en
+   [#130](https://github.com/skforecast/skforecast-ai/pull/130) y
+   [#131](https://github.com/skforecast/skforecast-ai/pull/131); el
+   periodo del baseline sin nombrar en el resumen de `compare` queda para
+   la 0.6.0 (cambia lo que recibe el LLM). Lo pedido abajo está cubierto.
+   Check con agentes de `tools/mcp/` (cambian el SKILL, el coste y las
    descripciones: está en "When to run it"), al menos con sonnet y con haiku
    en los escenarios críticos. Debe incluir un escenario con un CSV de Excel
    en español (miles con `.`, fechas día primero, cp1252) y otro multiserie
