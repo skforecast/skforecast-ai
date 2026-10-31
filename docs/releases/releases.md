@@ -125,7 +125,7 @@ The main changes in this release are:
 
 + The description of a cross-validation strategy, in [<code>ForecastingAssistant.create_cv()</code>][assistant], `backtest()`, `compare()`, the context of `ask()` and the MCP server, says how many steps the last fold has when it is shorter than the horizon: `6 folds (the last one has only 2 steps)` ([#130](https://github.com/skforecast/skforecast-ai/pull/130)).
 
-+ The error of [<code>ForecastingAssistant.forecast()</code>][assistant] for a missing value of the target that the forecast starts from says that it is in the last window and that the forecast cannot run; that of `backtest()` says that the values come before the start of the folds it names. Neither is read as a gap in a test fold ([#130](https://github.com/skforecast/skforecast-ai/pull/130)).
++ The error of [<code>ForecastingAssistant.forecast()</code>][assistant] for a missing value of the target that the forecast starts from says that it is in the last window and that the forecast cannot run; that of `backtest()` says that the values come before the start of the folds it names. Neither is read as a gap in a test fold ([#130](https://github.com/skforecast/skforecast-ai/pull/130), [#131](https://github.com/skforecast/skforecast-ai/pull/131)).
 
 + The `CostNotice` of `create_cv` in the MCP server and its `cost_not_confirmed` error give the estimator fits of each cheaper strategy: `refit=false` and the smallest integer `refit` at or below 50 fits, counted as the cost of the run is. See the [MCP server reference][mcp] ([#130](https://github.com/skforecast/skforecast-ai/pull/130)).
 
