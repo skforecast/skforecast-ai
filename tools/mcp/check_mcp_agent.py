@@ -1943,6 +1943,12 @@ def write_report(run_dir: Path, pending: list[str]) -> None:
     user = getpass.getuser()
     if user:
         report = re.sub(rf"(?<![\w.]){re.escape(user)}(?![\w])", "<user>", report)
+    # A path the agent mistyped is not the workspace, so `<ws>` misses it,
+    # and the temporary folder of macOS is unique to the machine.
+    temp = os.path.realpath(tempfile.gettempdir())
+    for root in sorted({temp, temp.removeprefix("/private")}, key=len, reverse=True):
+        if len(root) > len("/tmp"):
+            report = report.replace(root, "<tmp>")
     (run_dir / "report.md").write_text(
         report, encoding="utf-8"
     )
