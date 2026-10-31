@@ -50,7 +50,7 @@ import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-RUN = "0.4.0-final2"
+RUN = "0.5.0-fix1"
 SESSION = "compare_code__r2"
 REPORT = REPO_ROOT / "tools" / "mcp" / "agent_reports" / RUN / "report.md"
 OUTPUT = REPO_ROOT / "docs" / "animations" / "agent-session-data.js"
@@ -79,15 +79,17 @@ EXCERPTS = {
     ],
     5: [
         ["Initial training up to 2003-04-01, trained once (no refit), "
-         "12-step horizon, 6 folds.", '"compare_estimator_fits": 19'],
+         "12-step horizon, 6 folds (the last one has only 2 steps).",
+         '"compare_estimator_fits": 19'],
     ],
     6: [
         ["Candidates evaluated: 5", "Winner: ForecasterFoundation"],
         ["Best: 'ForecasterFoundation' (ForecasterFoundation / "
-         "autogluon/chronos-2-small) = 0.0570, 8.0% ahead of "
-         "'ForecasterRecursive' (0.0620)."],
-        ["'ForecasterFoundation' beats the baseline 'Baseline (seasonal naive)' "
-         "(0.0661) by 13.7%."],
+         "autogluon/chronos-2-small) = 0.0570, 6.0% ahead of "
+         "'ForecasterStats' (0.0607)."],
+        ["3 of 4 configurations beat the baseline 'Baseline (seasonal naive)' "
+         "(0.0661); 'ForecasterDirect' does not.",
+         "The best, 'ForecasterFoundation', beats it by 13.7%."],
         ["ModelLicenseNotice", "its license is Apache-2.0"],
     ],
     7: [
@@ -98,7 +100,7 @@ EXCERPTS = {
 
 # The short cut. Messages of the agent between calls that it keeps, by the
 # text each one starts with.
-SHORT_TEXTS = ["Cost is low", "The winner is"]
+SHORT_TEXTS = ["Compare cost is"]
 
 # Consecutive calls it draws as one row, with the names of the tools and one
 # line of fragments: (step number, fragment of the response of that step).
@@ -106,14 +108,15 @@ SHORT_GROUP = [
     (3, "Observations: 204"),
     (3, "Frequency: MS"),
     (4, "ForecasterRecursive + Ridge"),
-    (5, "6 folds"),
+    (5, "6 folds (the last one has only 2 steps)"),
 ]
 
 # Fragments of its other responses: one line each.
 SHORT_EXCERPTS = {
     6: [
-        ["'ForecasterFoundation' beats the baseline 'Baseline (seasonal naive)' "
-         "(0.0661) by 13.7%."],
+        ["3 of 4 configurations beat the baseline 'Baseline (seasonal naive)' "
+         "(0.0661); 'ForecasterDirect' does not.",
+         "The best, 'ForecasterFoundation', beats it by 13.7%."],
     ],
     7: EXCERPTS[7],
 }
@@ -128,12 +131,17 @@ ANSWER_TRIMS = [
 ]
 
 # Paragraphs of the final answer left out of the short cut, by the text each
-# one starts with: the table, the requirements and the script stay.
+# one starts with: the table, the baseline, the script and its requirements
+# stay.
 SHORT_ANSWER_OMITS = [
-    "I compared 5",
-    "**Winner: ForecasterFoundation",
-    "Note: this is a pre-trained",
-    "I adjusted the data path",
+    "I compared five",
+    "**Setup:**",
+    "**Chronos-2 notes:**",
+    "- It uses no training",
+    "- The first run downloads",
+    "- I haven't produced",
+    "I left the script",
+    "I can also run",
 ]
 
 # Paths of a home directory, or the placeholder of the workspace, left over.
