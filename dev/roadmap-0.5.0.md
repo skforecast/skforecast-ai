@@ -2057,6 +2057,14 @@ acortarlas, medir si Claude Code y los demás clientes pasan el
 `outputSchema` al modelo: si no lo pasan, no cuestan nada. Si lo pasan,
 dejar en cada herramienta lo suyo y el resto en las instrucciones.
 
+### El periodo del baseline en el resumen de `compare`
+
+El resumen llama al baseline "seasonal naive" sin su periodo (24 en datos
+horarios, 12 en mensuales; `select_baseline_seasonal_period`): la frase
+de `select_baseline_config` que lo dice no llega al resumen, y en el check
+con agentes de la 0.5.0 cuatro sesiones lo dedujeron solas (bien). Cambia
+lo que recibe el LLM: goldens y check de pago.
+
 ### Leer Parquet y Excel por ruta
 
 #### Por qué
