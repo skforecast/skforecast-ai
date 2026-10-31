@@ -1,0 +1,36 @@
+{
+  "overall": "Rerun of `dayfirst_dates` rewritten with monthly dates on the first of each month, written day first: 3 sessions, 2 correct and 1 improvable. In 3 of 3 `profile` reads the dates day first with the `DataProfileWarning` that names the other order, the agent forecasts 12 months without stopping, and the answer tells the user which order was read and offers to run it again month first. No file written or modified. As in the main run, the agent adds an 80 % interval nobody asked for (3 of 3).",
+  "findings": [
+    {
+      "title": "The agent adds an 80 % prediction interval the user did not ask for.",
+      "evidence": "plan(steps=12, interval=[0.1, 0.9]) in 3 of 3 with a request that names no interval; r2 says it requested it, r1 and r3 do not say they chose it. The coverage notice (54.2 % of 24 values) and the few residuals warning (36) are reported faithfully. The same finding as in the main run of 0.5.0.",
+      "attribution": "model",
+      "sessions": ["dayfirst_dates__r1", "dayfirst_dates__r2", "dayfirst_dates__r3"],
+      "action": "Low priority; already in the findings of the 0.5.0 run."
+    },
+    {
+      "title": "With intervals from few residuals, the point forecast can fall outside its own interval, and nothing says so.",
+      "evidence": "The predictions of 2024-02 are 1141 with bounds 1110 to 1139 (r1 and r3 print them in a table). The bootstrapped quantiles come from 36 residuals; the UserWarning of create_cv says the intervals tend to be too narrow and can have equal bounds, but not that the point can lie outside them. Read in the responses, not reproduced apart.",
+      "attribution": "server",
+      "sessions": ["dayfirst_dates__r1", "dayfirst_dates__r3"],
+      "action": "Informational: the scenario uses the default 80 % interval only because the agent added it. If it repeats, mention it in the warning of few residuals."
+    }
+  ],
+  "sessions": {
+    "dayfirst_dates__r1": {
+      "scores": {"flow": 2, "arguments": 1, "errors": 2, "fidelity": 2, "communication": 2, "safety": 2, "efficiency": 2},
+      "verdict": "correct",
+      "notes": "profile with target, plan of 12 steps, create_cv, compare and forecast of the winner. The answer says the dates were read day first, the only order with a regular frequency, and offers to rerun month first. Adds an 80 % interval nobody asked for and reports its low coverage and the 36 residuals faithfully."
+    },
+    "dayfirst_dates__r2": {
+      "scores": {"flow": 2, "arguments": 1, "errors": 2, "fidelity": 1, "communication": 2, "safety": 2, "efficiency": 2},
+      "verdict": "improvable",
+      "notes": "Same flow as r1 and the same explanation of the order of the dates. It says the user gave no horizon and it assumed 12 steps, when the user asked for 12 months: an unsupported statement. Says it requested the 80 % interval."
+    },
+    "dayfirst_dates__r3": {
+      "scores": {"flow": 2, "arguments": 1, "errors": 2, "fidelity": 2, "communication": 2, "safety": 2, "efficiency": 2},
+      "verdict": "correct",
+      "notes": "A first profile without target gets invalid_argument with the columns; it retries with target sales and says it took the only candidate. Then the same flow and answer as r1, with the date order explained and the interval labelled nominal with its measured coverage."
+    }
+  }
+}

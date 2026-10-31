@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import datetime as dt
+import getpass
 import hashlib
 import importlib.metadata
 import importlib.util
@@ -165,19 +166,56 @@ def _items_long() -> Any:
 
 def _dayfirst() -> Any:
     """
-    200 days of synthetic sales whose dates are written day first
-    (`13/01/2024`), with a weekly pattern.
+    72 months of synthetic sales on the first of each month, written day
+    first (`01/02/2018`), with a yearly pattern. No day is after the 12th,
+    so both orders parse: only the day first one gives a regular frequency,
+    and profile reads it that way with a warning that names the other.
     """
 
     import numpy as np
     import pandas as pd
 
     rng = np.random.default_rng(123)
-    index = pd.date_range("2024-01-01", periods=200, freq="D")
-    sales = 100 + 20 * (index.dayofweek >= 5) + rng.normal(0, 5, len(index))
+    index = pd.date_range("2018-01-01", periods=72, freq="MS")
+    sales = 1000 + 150 * np.sin(2 * np.pi * index.month / 12) + rng.normal(0, 30, len(index))
     return pd.DataFrame(
         {"date": index.strftime("%d/%m/%Y"), "sales": sales.round(2)}
     )
+
+
+def _items_numeric_ids() -> Any:
+    """
+    The long items sales with numeric ids of the stores (101, 102, 103), as
+    an export from a database writes them.
+    """
+
+    data = _items_long().rename(columns={"series": "store", "value": "sales"})
+    ids = {name: 101 + number for number, name in enumerate(sorted(data["store"].unique()))}
+    return data.assign(store=data["store"].map(ids))
+
+
+def _excel_spanish() -> bytes:
+    """
+    400 days of synthetic sales as the Excel of Spain saves a CSV file: `;`
+    between fields, `,` as decimal mark and `.` between thousands, dates
+    written day first and cp1252, with accents in the header.
+    """
+
+    import numpy as np
+    import pandas as pd
+
+    rng = np.random.default_rng(7)
+    index = pd.date_range("2024-01-01", periods=400, freq="D")
+    sales = (
+        2500 + 400 * (index.dayofweek >= 5) + 300 * np.sin(2 * np.pi * index.dayofyear / 365)
+        + rng.normal(0, 60, len(index))
+    )
+    lines = ["Fecha;Ventas (€);Promoción"]
+    for day, value, promo in zip(index, sales, rng.integers(0, 2, len(index))):
+        whole, cents = f"{value:.2f}".split(".")
+        amount = f"{int(whole):,}".replace(",", ".") + "," + cents
+        lines.append(f"{day:%d/%m/%Y};{amount};{'sí' if promo else 'no'}")
+    return ("\r\n".join(lines) + "\r\n").encode("cp1252")
 
 
 DATASETS: dict[str, Any] = {
@@ -192,6 +230,8 @@ DATASETS: dict[str, Any] = {
     "bike_two_years": lambda: _fetch("bike_sharing")[["date_time", "users"]],
     "items_long": _items_long,
     "dayfirst": _dayfirst,
+    "items_numeric_ids": _items_numeric_ids,
+    "excel_spanish": _excel_spanish,
     "note": lambda: "Put the CSV files to forecast in this folder.\n",
 }
 
@@ -270,6 +310,9 @@ def prepare_workspace(scenario: Scenario, with_skill: bool) -> Path:
         content = DATASETS[dataset]()
         if isinstance(content, str):
             path.write_text(content, encoding="utf-8")
+        elif isinstance(content, bytes):
+            # A file written with its own encoding (the Excel of Spain).
+            path.write_bytes(content)
         else:
             content.to_csv(path, index=False)
     if with_skill:
@@ -1176,7 +1219,9 @@ def run_checks(session: Session) -> None:
         not session.denials and not session.missing_calls,
         "; ".join(
             [
-                f"{d['tool']}({json.dumps(d['input'])[:100]})"
+                # The workspace is masked before the cut, which could
+                # leave part of its path.
+                f"{d['tool']}({json.dumps(d['input']).replace(session.root, '<ws>')[:100]})"
                 if d["tool"] in SHOWN_CLIENT_TOOLS else f"{d['tool']}(...)"
                 for d in session.denials
             ] + [
@@ -1220,7 +1265,8 @@ def auto_status(session: Session) -> str:
 # =============================================================================
 # Numbers with a source
 # =============================================================================
-NUMBER = re.compile(r"(?<![\w.])-?\d[\d,]*(?:\.\d+)?(?:[eE][-+]?\d+)?%?")
+# `6.8 %`, with a space, is a percentage too.
+NUMBER = re.compile(r"(?<![\w.])-?\d[\d,]*(?:\.\d+)?(?:[eE][-+]?\d+)?(?:\s?%)?")
 NOISE = re.compile(
     r"\b[a-z_]+-\d+-[0-9a-f]{6}\b"          # ids of the server
     r"|\b\d{4}-\d{2}(?:-\d{2})?(?:[T ]\d{2}:\d{2}(?::\d{2})?)?\b"   # dates
@@ -1241,7 +1287,7 @@ def _numbers(text: str) -> list[tuple[str, float, int, bool]]:
     for match in NUMBER.finditer(text):
         literal = match.group(0)
         percent = literal.endswith("%")
-        digits = literal.rstrip("%").replace(",", "")
+        digits = literal.rstrip("%").rstrip().replace(",", "")
         try:
             value = float(digits)
         except ValueError:
@@ -1894,8 +1940,20 @@ def write_report(run_dir: Path, pending: list[str]) -> None:
         version = session.init.get("claude_code_version")
         if version:
             run["versions"]["claude_code"] = version
+    report = render_report(run, sessions, evaluation, pending, run_dir)
+    # The report is versioned: a listing the agent ran (`ls -la`) names the
+    # local user, as the workspace path would without `<ws>`.
+    user = getpass.getuser()
+    if user:
+        report = re.sub(rf"(?<![\w.]){re.escape(user)}(?![\w])", "<user>", report)
+    # A path the agent mistyped is not the workspace, so `<ws>` misses it,
+    # and the temporary folder of macOS is unique to the machine.
+    temp = os.path.realpath(tempfile.gettempdir())
+    for root in sorted({temp, temp.removeprefix("/private")}, key=len, reverse=True):
+        if len(root) > len("/tmp"):
+            report = report.replace(root, "<tmp>")
     (run_dir / "report.md").write_text(
-        render_report(run, sessions, evaluation, pending, run_dir), encoding="utf-8"
+        report, encoding="utf-8"
     )
     (run_dir / "results.json").write_text(
         json.dumps(results_json(run, sessions, evaluation, pending), indent=2) + "\n",
