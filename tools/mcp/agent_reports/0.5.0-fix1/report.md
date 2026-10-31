@@ -715,9 +715,7 @@ Index range: 2008-07-01 00:00:00 to 2009-06-01 00:00:00
 
 ### Numbers without a source
 
-In the text of the agent and in no response, file read or message of the user (to read by hand: a rounding or an invention):
-
-- `50`: ...Cost is 19 fits for compare, below 50. Running compare (includes baseline)....
+None.
 
 ### Evaluation
 
@@ -1041,9 +1039,7 @@ Index range: 2008-07-01 00:00:00 to 2009-06-01 00:00:00
 
 ### Numbers without a source
 
-In the text of the agent and in no response, file read or message of the user (to read by hand: a rounding or an invention):
-
-- `50`: ...Compare cost is 19 fits (under 50), so I'll run the comparison with the b...
+None.
 
 ### Evaluation
 
@@ -1314,9 +1310,7 @@ Index range: 2008-07-01 00:00:00 to 2009-06-01 00:00:00
 
 ### Numbers without a source
 
-In the text of the agent and in no response, file read or message of the user (to read by hand: a rounding or an invention):
-
-- `50`: ...Compare costs 19 fits (under 50), so I'll run it to get a baseline....
+None.
 
 ### Evaluation
 
@@ -1612,9 +1606,7 @@ Index range: 2008-07-01 00:00:00 to 2009-06-01 00:00:00
 
 ### Numbers without a source
 
-In the text of the agent and in no response, file read or message of the user (to read by hand: a rounding or an invention):
-
-- `50`: ...Compare costs 19 fits, under the 50 threshold, so I'll run it....
+None.
 
 ### Evaluation
 
@@ -1912,7 +1904,6 @@ Index range: 2008-07-01 00:00:00 to 2009-06-01 00:00:00
 
 In the text of the agent and in no response, file read or message of the user (to read by hand: a rounding or an invention):
 
-- `50`: ...Compare costs 19 fits (under 50), so I'll run it, since it includes the...
 - `0.0037`: ...dels are small. Chronos is ahead of ARIMA by only 0.0037 in MAE, and the data can't tell you the...
 
 ### Evaluation
@@ -4631,9 +4622,7 @@ Index range: 2008-07-01 00:00:00 to 2009-06-01 00:00:00
 
 ### Numbers without a source
 
-In the text of the agent and in no response, file read or message of the user (to read by hand: a rounding or an invention):
-
-- `50`: ...Compare cost is 19 fits (under 50), so I'll run it with the default candi...
+None.
 
 ### Evaluation
 
@@ -4966,9 +4955,7 @@ print(predictions)
 
 ### Numbers without a source
 
-In the text of the agent and in no response, file read or message of the user (to read by hand: a rounding or an invention):
-
-- `50`: ...Compare cost is 19 fits, under the 50 threshold....
+None.
 
 ### Evaluation
 
@@ -5298,9 +5285,7 @@ print(predictions)
 
 ### Numbers without a source
 
-In the text of the agent and in no response, file read or message of the user (to read by hand: a rounding or an invention):
-
-- `50`: ...Compare cost is 19 fits, under the 50 threshold....
+None.
 
 ### Evaluation
 
@@ -5798,9 +5783,7 @@ Only the winning configuration is detailed below. The other candidates are repre
 
 ### Numbers without a source
 
-In the text of the agent and in no response, file read or message of the user (to read by hand: a rounding or an invention):
-
-- `50`: ...Compare cost is 19 fits, under the 50 threshold....
+None.
 
 ### Evaluation
 
@@ -6051,9 +6034,7 @@ Only the winning configuration is detailed below. The other candidates are repre
 
 ### Numbers without a source
 
-In the text of the agent and in no response, file read or message of the user (to read by hand: a rounding or an invention):
-
-- `50`: ...Compare cost is 19 fits, under the 50 threshold....
+None.
 
 ### Evaluation
 
@@ -7968,9 +7949,7 @@ Index range: 2006-07-01 00:00:00 to 2008-06-01 00:00:00
 
 ### Numbers without a source
 
-In the text of the agent and in no response, file read or message of the user (to read by hand: a rounding or an invention):
-
-- `50`: ...would cost 15 estimator fits, which is under the 50‑fit threshold....
+None.
 
 ### Evaluation
 
@@ -8414,7 +8393,6 @@ Index range: 2006-07-01 00:00:00 to 2008-06-01 00:00:00
 In the text of the agent and in no response, file read or message of the user (to read by hand: a rounding or an invention):
 
 - `90`: ...eatures. - **Interval:** nominal 80% (the 10th to 90th percentile), estimated by bootstrappi...
-- `50`: ...hoice. It would cost 15 estimator fits, under the 50-fit threshold. The predictions and met...
 
 ### Evaluation
 
@@ -8922,9 +8900,7 @@ Raw trace: [`traces/out_of_scope__r1.jsonl`](traces/out_of_scope__r1.jsonl). Ser
 
 ### Numbers without a source
 
-In the text of the agent and in no response, file read or message of the user (to read by hand: a rounding or an invention):
-
-- `50`: ...of estimator fits and ask you first if it's above 50. - **Profile and forecast:** I can prof...
+None.
 
 ### Evaluation
 
@@ -8990,9 +8966,7 @@ Raw trace: [`traces/out_of_scope__r2.jsonl`](traces/out_of_scope__r2.jsonl). Ser
 
 ### Numbers without a source
 
-In the text of the agent and in no response, file read or message of the user (to read by hand: a rounding or an invention):
-
-- `50`: ...es that you name. If the run would need more than 50 estimator fits, I'll tell you the numbe...
+None.
 
 ### Evaluation
 

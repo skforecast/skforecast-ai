@@ -435,9 +435,7 @@
       "n_server_calls": 5,
       "error_codes": [],
       "denials": [],
-      "unsourced_numbers": [
-        "50"
-      ],
+      "unsourced_numbers": [],
       "usage": {
         "input_tokens": 14,
         "output_tokens": 1471,
@@ -601,9 +599,7 @@
       "n_server_calls": 5,
       "error_codes": [],
       "denials": [],
-      "unsourced_numbers": [
-        "50"
-      ],
+      "unsourced_numbers": [],
       "usage": {
         "input_tokens": 16,
         "output_tokens": 1851,
@@ -760,9 +756,7 @@
       "n_server_calls": 5,
       "error_codes": [],
       "denials": [],
-      "unsourced_numbers": [
-        "50"
-      ],
+      "unsourced_numbers": [],
       "usage": {
         "input_tokens": 14,
         "output_tokens": 1287,
@@ -919,9 +913,7 @@
       "n_server_calls": 5,
       "error_codes": [],
       "denials": [],
-      "unsourced_numbers": [
-        "50"
-      ],
+      "unsourced_numbers": [],
       "usage": {
         "input_tokens": 14,
         "output_tokens": 1524,
@@ -1079,7 +1071,6 @@
       "error_codes": [],
       "denials": [],
       "unsourced_numbers": [
-        "50",
         "0.0037"
       ],
       "usage": {
@@ -2490,9 +2481,7 @@
       "n_server_calls": 6,
       "error_codes": [],
       "denials": [],
-      "unsourced_numbers": [
-        "50"
-      ],
+      "unsourced_numbers": [],
       "usage": {
         "input_tokens": 14,
         "output_tokens": 1929,
@@ -2650,9 +2639,7 @@
       "n_server_calls": 5,
       "error_codes": [],
       "denials": [],
-      "unsourced_numbers": [
-        "50"
-      ],
+      "unsourced_numbers": [],
       "usage": {
         "input_tokens": 14,
         "output_tokens": 1709,
@@ -2810,9 +2797,7 @@
       "n_server_calls": 5,
       "error_codes": [],
       "denials": [],
-      "unsourced_numbers": [
-        "50"
-      ],
+      "unsourced_numbers": [],
       "usage": {
         "input_tokens": 14,
         "output_tokens": 1840,
@@ -3106,9 +3091,7 @@
       "n_server_calls": 4,
       "error_codes": [],
       "denials": [],
-      "unsourced_numbers": [
-        "50"
-      ],
+      "unsourced_numbers": [],
       "usage": {
         "input_tokens": 12,
         "output_tokens": 1251,
@@ -3255,9 +3238,7 @@
       "n_server_calls": 4,
       "error_codes": [],
       "denials": [],
-      "unsourced_numbers": [
-        "50"
-      ],
+      "unsourced_numbers": [],
       "usage": {
         "input_tokens": 12,
         "output_tokens": 1358,
@@ -4419,9 +4400,7 @@
       "n_server_calls": 4,
       "error_codes": [],
       "denials": [],
-      "unsourced_numbers": [
-        "50"
-      ],
+      "unsourced_numbers": [],
       "usage": {
         "input_tokens": 12,
         "output_tokens": 1421,
@@ -4736,8 +4715,7 @@
       "error_codes": [],
       "denials": [],
       "unsourced_numbers": [
-        "90",
-        "50"
+        "90"
       ],
       "usage": {
         "input_tokens": 12,
@@ -5366,9 +5344,7 @@
       "n_server_calls": 0,
       "error_codes": [],
       "denials": [],
-      "unsourced_numbers": [
-        "50"
-      ],
+      "unsourced_numbers": [],
       "usage": {
         "input_tokens": 2,
         "output_tokens": 482,
@@ -5483,9 +5459,7 @@
       "n_server_calls": 0,
       "error_codes": [],
       "denials": [],
-      "unsourced_numbers": [
-        "50"
-      ],
+      "unsourced_numbers": [],
       "usage": {
         "input_tokens": 2,
         "output_tokens": 535,
