@@ -580,9 +580,13 @@ def _report(
         shown += f"; and {len(found) - _SHOWN} more series"
     series = "series " if by_series else ""
     if where:
+        # The dates come before the folds, in the window their predictions
+        # start from; "to predict N test folds" alone was read as a gap
+        # inside a fold (0.5.0 agent check).
         message = (
-            f"The forecaster reads missing values of the target to predict"
-            f"{where} ({series}{shown})."
+            f"To predict{where}, the forecaster reads values of the target "
+            f"before the start of those folds, the ones their predictions "
+            f"start from, and some are missing ({series}{shown})."
         )
         blocked = "so its predictions would be missing"
     else:

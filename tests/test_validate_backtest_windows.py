@@ -52,8 +52,10 @@ def test_validate_backtest_windows_InvalidInputError_when_estimator_cannot_use_m
     field 'data'. The other two (positions 30 and 31) are read by no fold.
     """
     err_msg = re.escape(
-        "The forecaster reads missing values of the target to predict 1 of "
-        "the 3 test folds ('x': 1 value(s), such as '2004-10-01'). "
+        "To predict 1 of the 3 test folds, the forecaster reads "
+        "values of the target before the start of those folds, the ones "
+        "their predictions start from, and some are missing "
+        "('x': 1 value(s), such as '2004-10-01'). "
         "ForecasterRecursive with Ridge cannot use them, so its predictions "
         "would be missing. "
         "Either they are filled in, or the plan uses an estimator that "
@@ -75,8 +77,10 @@ def test_validate_backtest_windows_InvalidInputError_when_missing_value_in_incom
     before it.
     """
     err_msg = re.escape(
-        "The forecaster reads missing values of the target to predict 1 of "
-        "the 3 test folds ('x': 1 value(s), such as '2007-04-01'). "
+        "To predict 1 of the 3 test folds, the forecaster reads "
+        "values of the target before the start of those folds, the ones "
+        "their predictions start from, and some are missing "
+        "('x': 1 value(s), such as '2007-04-01'). "
         "ForecasterRecursive with Ridge cannot use them, so its predictions "
         "would be missing. "
         "Either they are filled in, or the plan uses an estimator that "
@@ -100,8 +104,10 @@ def test_validate_backtest_windows_InvalidInputError_when_forecaster_is_baseline
     with its own wording.
     """
     err_msg = re.escape(
-        "The forecaster reads missing values of the target to predict 1 of "
-        "the 3 test folds ('x': 1 value(s), such as '2004-10-01'). "
+        "To predict 1 of the 3 test folds, the forecaster reads "
+        "values of the target before the start of those folds, the ones "
+        "their predictions start from, and some are missing "
+        "('x': 1 value(s), such as '2004-10-01'). "
         "ForecasterEquivalentDate repeats them as missing predictions. Those "
         "values have to be filled in before predicting."
     )
@@ -119,8 +125,10 @@ def test_validate_backtest_windows_UserWarning_when_estimator_tolerates_missing(
     the same fold count and date as the error of Ridge.
     """
     warn_msg = re.escape(
-        "The forecaster reads missing values of the target to predict 1 of "
-        "the 3 test folds ('x': 1 value(s), such as '2004-10-01'). "
+        "To predict 1 of the 3 test folds, the forecaster reads "
+        "values of the target before the start of those folds, the ones "
+        "their predictions start from, and some are missing "
+        "('x': 1 value(s), such as '2004-10-01'). "
         "LGBMRegressor treats them as missing values; check that they are "
         "meant to be missing."
     )
@@ -220,8 +228,10 @@ def test_validate_backtest_windows_DataContentError_when_fold_reads_missing():
     InvalidInputError.
     """
     err_msg = re.escape(
-        "The forecaster reads missing values of the target to predict 1 of "
-        "the 3 test folds ('x': 1 value(s), such as '2004-10-01'). "
+        "To predict 1 of the 3 test folds, the forecaster reads "
+        "values of the target before the start of those folds, the ones "
+        "their predictions start from, and some are missing "
+        "('x': 1 value(s), such as '2004-10-01'). "
         "ForecasterRecursive with Ridge cannot use them, so its predictions "
         "would be missing. "
         "Either they are filled in, or the plan uses an estimator that "
@@ -338,8 +348,10 @@ def test_validate_backtest_windows_DataContentError_names_closed_days_of_trainin
 def _multivariate_message(column, date, why):
     """Return the error of a missing value that a fold of DMV reads."""
     return (
-        f"The forecaster reads missing values of the target to predict 1 of "
-        f"the 12 test folds ({column!r}: 1 value(s), such as '{date}'). {why}"
+        "To predict 1 of the 12 test folds, the forecaster reads "
+        "values of the target before the start of those folds, the ones "
+        "their predictions start from, and some are missing "
+        f"({column!r}: 1 value(s), such as '{date}'). {why}"
     )
 
 
@@ -390,8 +402,10 @@ def test_validate_backtest_windows_UserWarning_when_multivariate_estimator_toler
     data, profile = wide_missing(column, position)
 
     expected = (
-        f"The forecaster reads missing values of the target to predict 1 of "
-        f"the 12 test folds ({column!r}: 1 value(s), such as "
+        "To predict 1 of the 12 test folds, the forecaster reads "
+        "values of the target before the start of those folds, the ones "
+        "their predictions start from, and some are missing "
+        f"({column!r}: 1 value(s), such as "
         f"'{data.index[position].date()}'). LGBMRegressor treats them as "
         f"missing values; check that they are meant to be missing."
     )

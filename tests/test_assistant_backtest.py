@@ -680,8 +680,10 @@ def test_backtest_InvalidInputError_when_lag_reads_missing_timestamp():
         cv = assistant.create_cv(profile, plan, initial_train_size=84, refit=False)
 
     err_msg = re.escape(
-        "The forecaster reads missing values of the target to predict 1 of "
-        "the 3 test folds ('x': 1 value(s), such as '2004-10-01'). "
+        "To predict 1 of the 3 test folds, the forecaster reads "
+        "values of the target before the start of those folds, the ones "
+        "their predictions start from, and some are missing "
+        "('x': 1 value(s), such as '2004-10-01'). "
         "ForecasterRecursive with Ridge cannot use them, so its predictions "
         "would be missing. "
         "Either they are filled in, or the plan uses an estimator that "

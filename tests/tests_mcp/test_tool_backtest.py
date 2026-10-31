@@ -460,8 +460,10 @@ def test_tool_backtest_invalid_argument_when_lag_reads_missing_month(tmp_path):
     assert [n["category"] for n in cv["notices"]][:1] == ["MissingValuesNotice"]
     assert (error["code"], error["field"]) == ("invalid_argument", "data_path")
     assert error["message"] == (
-        "The forecaster reads missing values of the target to predict 1 of "
-        "the 3 test folds ('x': 1 value(s), such as '2004-10-01'). "
+        "To predict 1 of the 3 test folds, the forecaster reads "
+        "values of the target before the start of those folds, the ones "
+        "their predictions start from, and some are missing "
+        "('x': 1 value(s), such as '2004-10-01'). "
         "ForecasterRecursive with Ridge cannot use them, so its predictions "
         "would be missing. "
         "Either they are filled in, or the plan uses an estimator that "

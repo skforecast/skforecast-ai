@@ -451,8 +451,10 @@ def test_server_backtest_when_multivariate_window_has_missing_value(tmp_path):
 
     assert (backtest["code"], backtest["field"]) == ("invalid_argument", "data_path")
     assert backtest["message"] == (
-        "The forecaster reads missing values of the target to predict 2 of the "
-        "12 test folds ('item_2': 1 value(s), such as '2012-04-07'). "
+        "To predict 2 of the 12 test folds, the forecaster reads "
+        "values of the target before the start of those folds, the ones "
+        "their predictions start from, and some are missing "
+        "('item_2': 1 value(s), such as '2012-04-07'). "
         "ForecasterDirectMultiVariate with Ridge cannot use them, so its "
         "predictions would be missing. Either they are filled in, or the plan "
         "uses an estimator that accepts missing values (such as "
