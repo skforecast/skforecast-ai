@@ -125,7 +125,7 @@ Then ask in plain language: *"Forecast the next 12 months of `data/sales.csv` an
   <img src="https://github.com/skforecast/skforecast-ai/blob/main/docs/img/agent-session-short.gif?raw=true" alt="A coding agent asked to compare models for the next 12 months of a monthly series calls the skforecast-ai MCP server (profile, plan, create_cv, compare, get_code) and answers with the leaderboard against a seasonal naive baseline and the script of the winner" width="100%">
 </p>
 
-<sub>A real Claude Code session with the server and its skill, from the agent check of skforecast-ai 0.4.0, abridged: the first three calls share a row, and an ellipsis marks every cut in a response or in the answer. The <a href="https://github.com/skforecast/skforecast-ai/blob/main/docs/img/agent-session.gif">whole session</a> shows every call, every message of the agent and its complete answer.</sub>
+<sub>A real Claude Code session with the server and its skill, from the agent check of skforecast-ai 0.5.0, abridged: the first three calls share a row, and an ellipsis marks every cut in a response or in the answer. The <a href="https://github.com/skforecast/skforecast-ai/blob/main/docs/img/agent-session.gif">whole session</a> shows every call, every message of the agent and its complete answer.</sub>
 
 In VS Code, this button adds the server and asks for the directory with your data (it needs [uv](https://docs.astral.sh/uv/)):
 

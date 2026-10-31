@@ -1298,13 +1298,27 @@ def _numbers(text: str) -> list[tuple[str, float, int, bool]]:
     return found
 
 
+def _fixed_sources(with_skill: bool) -> str:
+    """
+    Text every session reads before its first call: the instructions of the
+    server and, when the session has it, the skill. The thresholds of the
+    cost rule (50 estimator fits) are written there and in no response.
+    """
+
+    from skforecast_ai.mcp.server import INSTRUCTIONS
+
+    skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8") if with_skill else ""
+    return f"{INSTRUCTIONS} {skill}"
+
+
 def find_unsourced(session: Session) -> None:
     """
     Numbers of the text the agent wrote that are in no tool result, in no
-    file it read and in no message of the user, also after rounding the
-    source to the decimals of the answer (and as a percentage). They are
-    listed to be read by hand: a rounding rule this function does not know
-    looks the same as an invented number.
+    file it read, in no message of the user and not in the instructions of
+    the server or the skill of the session, also after rounding the source
+    to the decimals of the answer (and as a percentage). They are listed to
+    be read by hand: a rounding rule this function does not know looks the
+    same as an invented number.
     """
 
     root = session.root
@@ -1312,6 +1326,7 @@ def find_unsourced(session: Session) -> None:
         [text for kind, text in session.steps if kind == "user"]
         + [call.text for call in session.calls]
         + [json.dumps(call.input) for call in session.calls]
+        + [_fixed_sources(session.with_skill)]
     ).replace(root, "")
     # The sources keep their dates and names, so a year or a part of a
     # date the agent quotes has an origin; signs are ignored (`1.2-1.5`).
