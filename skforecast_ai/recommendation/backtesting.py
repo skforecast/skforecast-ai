@@ -1325,8 +1325,10 @@ def resolve_cv_config(
         `initial_train_size`, `refit`, `fixed_train_size`, `gap`,
         `fold_stride`, `skip_folds`, `allow_incomplete_fold`) plus `n_folds`
         and `n_fits` (folds in which the forecaster is trained, 0 when it is
-        not trained), and for `ForecasterFoundation` `inference_windows`
-        (one per series and fold, see `count_inference_windows`).
+        not trained), for `ForecasterFoundation` `inference_windows`
+        (one per series and fold, see `count_inference_windows`), and
+        `last_fold_steps` when the last fold predicts fewer steps than
+        `steps`.
     explanation : str
         Multi-sentence description of the strategy, see
         `build_cv_explanation`.
@@ -1371,6 +1373,11 @@ def resolve_cv_config(
                                 forecaster = forecaster,
                             )
         cv_config["inference_windows"] = inference_windows
+    # Only when the last fold is shorter than the horizon, as the
+    # explanation says it: the section of a backtest script reads the folds
+    # from here, and "N folds of M steps" alone was read as full folds.
+    if last_fold_steps is not None and 0 < last_fold_steps < cv.steps:
+        cv_config["last_fold_steps"] = last_fold_steps
     explanation = build_cv_explanation(
                       cv_params         = cv_config,
                       n_observations    = span_index_length,
