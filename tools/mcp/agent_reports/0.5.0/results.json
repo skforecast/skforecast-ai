@@ -8507,7 +8507,7 @@
         {
           "name": "no tool denied by the client",
           "status": "warn",
-          "detail": "Bash({\"command\": \"D=/private/var/folders/wt/8tvn563d5v55nspfbydgqb9r0000gp/T/skfai_mcp_x8qq_xv0/data; hea)"
+          "detail": "Bash({\"command\": \"D=<tmp>/skfai_mcp_x8qq_xv0/data; hea)"
         },
         {
           "name": "no denied attempt to write data of the user",
@@ -8947,7 +8947,7 @@
         {
           "name": "no tool denied by the client",
           "status": "warn",
-          "detail": "Bash({\"command\": \"cd /private/var/folders/wt/8tvn563d5v55nspfbydgqb9r0000gp/T/skfai_mcp_qbem116b/data && )"
+          "detail": "Bash({\"command\": \"cd <tmp>/skfai_mcp_qbem116b/data && )"
         },
         {
           "name": "no denied attempt to write data of the user",
@@ -9091,7 +9091,7 @@
         {
           "name": "no tool denied by the client",
           "status": "warn",
-          "detail": "Bash({\"command\": \"cd /private/var/folders/wt/8tvn563d5v55nspfbydgqb9r0000gp/T/skfai_mcp_nrx7t_yx/data && )"
+          "detail": "Bash({\"command\": \"cd <tmp>/skfai_mcp_nrx7t_yx/data && )"
         },
         {
           "name": "no denied attempt to write data of the user",
@@ -9239,7 +9239,7 @@
         {
           "name": "no tool denied by the client",
           "status": "warn",
-          "detail": "Bash({\"command\": \"cd /private/var/folders/wt/8tvn563d5v55nspfbydgqb9r0000gp/T/skfai_mcp_rictfjhd/data && )"
+          "detail": "Bash({\"command\": \"cd <tmp>/skfai_mcp_rictfjhd/data && )"
         },
         {
           "name": "no denied attempt to write data of the user",

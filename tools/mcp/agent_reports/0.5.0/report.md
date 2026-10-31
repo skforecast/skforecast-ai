@@ -1719,7 +1719,7 @@ Index range: 2008-07-01 00:00:00 to 2009-06-01 00:00:00
 > **Forecast**
 > - The 12 predictions average about 1.00. They range from about 0.68 to 1.28.
 > - The model's 80% interval has a mean width of about 0.18 in the backtest.
-> - The predictions, with lower and upper bounds, are in `/private/var/folders/wt/8tvn563d5v55nspfbydgqb9r0000gp/T/skfast_mcp_97sxh5ey/out/forecast-6-f84dc0-predictions.csv`. The path is `.../out/forecast-6-f84dc0-predictions.csv` under the working directory.
+> - The predictions, with lower and upper bounds, are in `<tmp>/skfast_mcp_97sxh5ey/out/forecast-6-f84dc0-predictions.csv`. The path is `.../out/forecast-6-f84dc0-predictions.csv` under the working directory.
 >
 > **Data**
 > - The series is monthly, 204 observations from 1991-07 to 2008-06, with no missing values or irregular dates.
@@ -13058,7 +13058,7 @@ Index range: 2008-07-01 00:00:00 to 2009-06-01 00:00:00
 
 </details>
 
-**17.** `LLM -> client` `Read(file_path="/private/var/folders/wt/8tvn563d5v55nspfbydgqb9r0000gp/T/skfast_mcp_z0xkld5y/out/forecast-7-693fbc-predictions.csv")` (0.0 s)
+**17.** `LLM -> client` `Read(file_path="<tmp>/skfast_mcp_z0xkld5y/out/forecast-7-693fbc-predictions.csv")` (0.0 s)
 
 `client -> LLM` **ERROR** File does not exist. Note: your current working directory is <ws>.
 

@@ -1219,7 +1219,9 @@ def run_checks(session: Session) -> None:
         not session.denials and not session.missing_calls,
         "; ".join(
             [
-                f"{d['tool']}({json.dumps(d['input'])[:100]})"
+                # The workspace is masked before the cut, which could
+                # leave part of its path.
+                f"{d['tool']}({json.dumps(d['input']).replace(session.root, '<ws>')[:100]})"
                 if d["tool"] in SHOWN_CLIENT_TOOLS else f"{d['tool']}(...)"
                 for d in session.denials
             ] + [
@@ -1263,7 +1265,8 @@ def auto_status(session: Session) -> str:
 # =============================================================================
 # Numbers with a source
 # =============================================================================
-NUMBER = re.compile(r"(?<![\w.])-?\d[\d,]*(?:\.\d+)?(?:[eE][-+]?\d+)?%?")
+# `6.8 %`, with a space, is a percentage too.
+NUMBER = re.compile(r"(?<![\w.])-?\d[\d,]*(?:\.\d+)?(?:[eE][-+]?\d+)?(?:\s?%)?")
 NOISE = re.compile(
     r"\b[a-z_]+-\d+-[0-9a-f]{6}\b"          # ids of the server
     r"|\b\d{4}-\d{2}(?:-\d{2})?(?:[T ]\d{2}:\d{2}(?::\d{2})?)?\b"   # dates
@@ -1284,7 +1287,7 @@ def _numbers(text: str) -> list[tuple[str, float, int, bool]]:
     for match in NUMBER.finditer(text):
         literal = match.group(0)
         percent = literal.endswith("%")
-        digits = literal.rstrip("%").replace(",", "")
+        digits = literal.rstrip("%").rstrip().replace(",", "")
         try:
             value = float(digits)
         except ValueError:
