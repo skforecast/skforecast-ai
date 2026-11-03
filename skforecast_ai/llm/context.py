@@ -20,6 +20,7 @@ from .._constants import (
     OBSERVED_COLUMN,
 )
 from ..profiling.data_profile import plan_data_warnings
+from ..rendering.backtesting import _get_quantiles_from_plan
 from ..schemas import ComparisonResult, ForecastingProfile, ForecastPlan
 
 
@@ -1038,13 +1039,34 @@ def render_script_section(
         # was answered as if the script computed only the primary one.
         # skforecast 0.27 adds a count of points after the metrics and the
         # observed value next to each prediction; both are named so the
-        # count is not read as one more metric.
+        # count is not read as one more metric. The columns of the forecast
+        # are named too: with the identifiers alone, the point forecast and
+        # the bounds of the interval of the plan were taken as absent (0.5.0
+        # check after skforecast 0.27).
+        quantiles = (
+            _get_quantiles_from_plan(plan) if plan.task_type == "foundation"
+            else None
+        )
+        if quantiles is not None:
+            columns = ", ".join(f"`q_{quantile}`" for quantile in quantiles)
+            predicted = (
+                f"the quantiles of the forecast ({columns}; `q_0.5` is the "
+                f"point forecast)"
+            )
+        elif plan.interval is not None:
+            predicted = (
+                "the point forecast `pred` and the bounds of the interval "
+                "(`lower_bound`, `upper_bound`)"
+            )
+        else:
+            predicted = "the point forecast `pred`"
         outputs = (
             f"metrics (one column per metric: {metric_names}; one row per "
             f"series when there are several; then `n_evaluated`, the number "
             f"of points each row is measured on, which is not a metric), and "
             f"predictions of every fold with the columns `fold`, `step` (the "
-            f"step of the horizon) and `y_true` (the observed value)"
+            f"step of the horizon), `y_true` (the observed value) and "
+            f"{predicted}"
         )
     elif plan.end_train is not None:
         mode = (
