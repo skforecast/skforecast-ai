@@ -1,0 +1,146 @@
+{
+  "overall": "Rerun with sonnet of the 6 scenarios that read the summaries of `backtest` and `compare` after #137 (18 sessions, 3 repetitions, all with the skill): 14 correct, 4 improvable, 0 fail; no data written or invented, no critical scenario (`compare_code`) fails, and no session opened any file (no `Read`, `Glob` or `Grep` call in any of the 18). What #137 added is read right. `n_evaluated` is quoted in 15 of 18 sessions, always as the number of predictions a row is measured on (`Every candidate was scored on the same 62 predictions`, `scored on 648 predictions`, `24 predictions in total`), matching the summary in every case; 0 of 18 report it as an error figure, rank by it, average it, divide it into anything or confuse it with the folds or the steps. The 3 `multi_series` sessions do not quote it (360 in all, 120 per series), and none quotes a per-series count. `y_true`: 0 of 18 read the predictions CSV, 0 report a value of it or an error computed from it, 0 say the server sent observed values. The interval coverage of `interval_few_residuals` is quoted on 24 values in 3 of 3, the count of the summary. The items data have no missing values and the 3 backtest prediction files have no empty `pred` (checked in artifacts/). The known kinds recur at their former rates or below: the baseline is not given a period in any of the 9 sessions with a compare (4 in fix1); the 80 % interval nobody asked for, 3 of 3 `multi_series` (said each time); the forecast interval described from the means of its bounds, 3 of 3 `user_overrides`; the short last fold missed in 2 of 3 `multi_series`, named in 9 of 9 single-series sessions that have one. What is worse than in fix1 is `interval_few_residuals`: one session relabels the interval at the measured coverage again (0 of 3 in fix1) and two judge the point accuracy with no reference. One new slip: a `multi_series` answer offers a compare against a seasonal naive baseline, which does not exist with several series.",
+  "findings": [
+    {
+      "title": "With intervals estimated from few residuals, one agent again relabels the interval at the coverage measured on 24 values.",
+      "evidence": "interval_few_residuals__r3 (skill loaded): `With 24 test points, the 70.8 % is a rough check, not a reliable coverage figure`, and three lines below, `its 80% interval should be read as roughly 70% at best, based on the measured coverage above`, about a forecast it did not run. The backtest has no IntervalCoverageNotice; the create_cv warning says the intervals rest on 24 residuals and tend to be too narrow. The skill says to quote the level the user asked for, with that warning, when the coverage is measured on few values. r1 and r2 do not relabel (r2: `somewhat optimistic rather than a true 80%`, the reading accepted in fix1). 1 of 3, from 0 of 3 in fix1 and 2 of 3 in 0.5.0. Known kind (0.5.0 finding, attributed to the skill then; the rule has been in the skill since #130).",
+      "attribution": "model",
+      "sessions": ["interval_few_residuals__r3"],
+      "action": "None in the library: the rule is in the skill and the answer contradicts itself in the same paragraph. Keep counting the rate; if it returns in the release run, the few-residuals warning of create_cv could end with `report the coverage of the backtest as measured on N values, not as the level of the interval`."
+    },
+    {
+      "title": "The point accuracy of a single backtest is called good with no reference, in 2 of 3 `interval_few_residuals` sessions.",
+      "evidence": "interval_few_residuals__r1 opens with `The point forecasts were fairly accurate`; interval_few_residuals__r2 with `Point accuracy looked good` and adds `x ranged from 0.56 to 1.26 in the data, so the typical error is small relative to that range` (MAE 0.0631 set against the min and max of the profile: a comparison of its own). No compare ran, so no baseline; both answers say elsewhere that MASE below 1 does not beat a seasonal naive forecast. r3 avoids it (`For scale, x ranges from 0.56 to 1.26` without a judgement). 2 of 3, from 1 of 3 in fix1 (`the point forecast error was small`, the same session kind). Known kind (fix1 finding on statements nothing supports).",
+      "attribution": "model",
+      "sessions": ["interval_few_residuals__r1", "interval_few_residuals__r2"],
+      "action": "None required: rule 7 of the instructions and `What a result says` of the skill forbid it. If it repeats, the skill can name it: a backtest without a baseline does not say whether an error is small."
+    },
+    {
+      "title": "With several series, one agent says no seasonal naive baseline was compared and offers a compare against one, which the server does not run with several series.",
+      "evidence": "multi_series__r2, first paragraph: `I haven't compared the model against a seasonal-naive baseline, so I can't say it beats simple alternatives`; last paragraph: `I can run a compare against the seasonal-naive baseline and other candidates, such as Ridge, XGBoost or the Chronos-2 foundation model`. The skill (How far to trust a result, 1) says `There is no baseline with several series`. r1 (`No seasonal baseline was available for this multi-series data`) and r3 (`The server doesn't offer a seasonal-naive baseline for multi-series data`) say it right. A user who accepts the offer would get a compare with no baseline row. 1 of 3; new (not in 0.5.0 nor fix1).",
+      "attribution": "model",
+      "sessions": ["multi_series__r2"],
+      "action": "None in the library for now: the rule is in the skill and 2 of 3 follow it. If it repeats, the `<deterministic_summary>` of a backtest of several series could say that compare has no baseline with several series, where the agent reads it before offering one."
+    },
+    {
+      "title": "With several series, 2 of 3 agents still describe the backtest as 9 folds of 14 days although the summary says the last one has 8.",
+      "evidence": "create_cv and backtest of multi_series say `14-step horizon, 9 folds (the last one has only 8 steps)`. multi_series__r2 writes `9 consecutive 14-day windows (2014-09-04 to 2015-01-01)` and multi_series__r3 `9 backtest folds of 14 days each`; multi_series__r1 writes `9 folds of 14 days ... The last fold has only 8 days`. The single-series sessions with a short last fold name it in 9 of 9 (compare_code, metric_list and probe_why_winner, `the last fold has only 2 steps`). Same rate as fix1 (2 of 3, then r2 and r3). Known.",
+      "attribution": "model",
+      "sessions": ["multi_series__r2", "multi_series__r3"],
+      "action": "As in fix1: none required. If it should be harder to miss, the summary of several series can give the predictions tested per series next to the folds (`120 per series`), now that `n_evaluated` gives them."
+    },
+    {
+      "title": "The interval of the forecast is described from the means of its bounds in the summary, without reading the file of predictions.",
+      "evidence": "user_overrides__r1: `The lower bounds average 32.4 and the upper bounds average 133.4. I haven't opened the prediction rows`; user_overrides__r2: `Lower bounds average 32.4 and upper bounds average 133.4`; user_overrides__r3: `The lower bounds average 32.4 and the upper bounds average 133.4 ... I haven't read that file, only the summary statistics`. All three give the measured coverage (43.4 % of 648 values) and say not to read the bounds as 80 %, so the interval is not presented at more than it is worth, but the skill says not to describe an interval whose file was not read. 3 of 3, as in 0.5.0. Known.",
+      "attribution": "model",
+      "sessions": ["user_overrides__r1", "user_overrides__r2", "user_overrides__r3"],
+      "action": "As in 0.5.0 and fix1: if the rule should hold, the `<predictions>` block of a forecast of the future could leave out the statistics of the bounds or say they are not a range around the point."
+    },
+    {
+      "title": "The agent adds an 80 % prediction interval the user did not ask for.",
+      "evidence": "multi_series__r1, r2 and r3 call plan with `interval=[0.1, 0.9]` for `tell me how reliable the forecast of each item is`. Each says it chose it (`I asked for 80% intervals`, `the intervals I asked for`, `I requested an 80% prediction interval`) and reports the measured coverage per item (27.5 % to 35 %) with the IntervalCoverageNotice, so nothing wrong reaches the user. 3 of 18 sessions, all multi_series. Known (0.5.0 finding).",
+      "attribution": "model",
+      "sessions": ["multi_series__r1", "multi_series__r2", "multi_series__r3"],
+      "action": "Low priority, as in 0.5.0: name `interval` in the sentence of the skill on the other arguments of plan if it is worth stopping."
+    },
+    {
+      "title": "The skill says the summary gives only the average across series, while the summary of a backtest lists the rows of each series.",
+      "evidence": "SKILL.md, How far to trust a result, 1: `The summary only gives the average, so the worst series is not in it: name it.` The `<evaluation_metrics>` of the backtest in multi_series__r1 to r3 lists item_1, item_2 and item_3 with every metric, coverage and `n_evaluated` (120 each), then the aggregated rows (360); `llm/context.py` keeps up to `MAX_STATS_SERIES` (5) series. The agents read the rows from the summary and name item_2 as the worst in 3 of 3, so no harm. True only of the leaderboard of compare (averaged) and of backtests of more than 5 series. Not caused by #137 (the rows per series were already in the 0.5.0 summaries); low priority.",
+      "attribution": "skill",
+      "sessions": ["multi_series__r1", "multi_series__r2", "multi_series__r3"],
+      "action": "Reword: `The summary of a backtest lists up to 5 series and the leaderboard of compare only the average; otherwise read the rows per series of the file, and name the worst series.`"
+    }
+  ],
+  "sessions": {
+    "multi_series__r1": {
+      "scores": {"flow": 2, "arguments": 1, "errors": 2, "fidelity": 2, "communication": 2, "safety": 2, "efficiency": 2},
+      "verdict": "correct",
+      "notes": "Profile without target first (the request says `sales`, the file has `value`), then target and `series_id_column`; plan with an 80 % interval nobody asked for (said), backtest and forecast. Per-item MAE, RMSE, MASE, MAPE as a percentage and coverage from the summary, item_2 named the least reliable, the 8-day last fold named, no baseline with several series said, the compare cost (1 fit, 27 windows) quoted from create_cv. `n_evaluated` not quoted; no file read."
+    },
+    "multi_series__r2": {
+      "scores": {"flow": 2, "arguments": 1, "errors": 2, "fidelity": 1, "communication": 1, "safety": 2, "efficiency": 2},
+      "verdict": "improvable",
+      "notes": "Same flow and a right per-item table with item_2 the least reliable and the coverage per item. But it says it has not compared against a seasonal naive baseline and offers a compare against one, which does not exist with several series (the skill says so), and it writes `9 consecutive 14-day windows`, missing the last fold of 8 days. Interval added without a request (said)."
+    },
+    "multi_series__r3": {
+      "scores": {"flow": 2, "arguments": 1, "errors": 2, "fidelity": 1, "communication": 2, "safety": 2, "efficiency": 2},
+      "verdict": "correct",
+      "notes": "Same flow; per-item MAE, MASE and coverage, averages from the summary, item_2 the worst, `The server doesn't offer a seasonal-naive baseline for multi-series data` said, the files named and the bounds not described. Slip: `9 backtest folds of 14 days each`, missing the short last fold. Interval added without a request (said)."
+    },
+    "compare_code__r1": {
+      "scores": {"flow": 2, "arguments": 2, "errors": 2, "fidelity": 2, "communication": 2, "safety": 2, "efficiency": 2},
+      "verdict": "correct",
+      "notes": "compare and get_code of `links.best_plan_id`; leaderboard, 3 of 4 beat the baseline, short last fold, `Every candidate was scored on the same 62 predictions` (n_evaluated read right), license, the requirements of the response and the script unchanged, with the path to edit pointed at. Says it did not run the forecast."
+    },
+    "compare_code__r2": {
+      "scores": {"flow": 2, "arguments": 2, "errors": 2, "fidelity": 2, "communication": 2, "safety": 2, "efficiency": 2},
+      "verdict": "correct",
+      "notes": "compare, get_code and forecast of the winner; folds with the short last one, `Each model was scored on the same 62 predictions`, 13.7 % and 6.0 % quoted from the summary, the point forecast range from the summary, no interval said, the script unchanged with its requirements."
+    },
+    "compare_code__r3": {
+      "scores": {"flow": 2, "arguments": 2, "errors": 2, "fidelity": 2, "communication": 2, "safety": 2, "efficiency": 2},
+      "verdict": "correct",
+      "notes": "compare and get_code; `ranked by MAE on 62 predictions with an observed value`, short last fold, 3 of 4 beat the baseline, MASE against the one-step naive, license, requirements and the script unchanged. Forecast offered, not run."
+    },
+    "user_overrides__r1": {
+      "scores": {"flow": 2, "arguments": 2, "errors": 2, "fidelity": 1, "communication": 2, "safety": 2, "efficiency": 2},
+      "verdict": "correct",
+      "notes": "`lags=48`, `metric=mean_absolute_error` and `interval=[0.1, 0.9]` in plan, nothing else; backtest and forecast. MAE on 648 predictions, coverage 43.4 % with the IntervalCoverageNotice, no baseline said. Slip: the forecast interval described by the means of its bounds from the summary while saying it did not open the file."
+    },
+    "user_overrides__r2": {
+      "scores": {"flow": 2, "arguments": 2, "errors": 2, "fidelity": 1, "communication": 2, "safety": 2, "efficiency": 2},
+      "verdict": "correct",
+      "notes": "The three decisions reach plan; 1512 hours of training and 648 predictions from the summary, coverage 43.4 % and width 107.4, the lower bounds of the backtest below zero (from the summary). Slip: the bounds of the forecast described by their means without reading the file."
+    },
+    "user_overrides__r3": {
+      "scores": {"flow": 2, "arguments": 2, "errors": 2, "fidelity": 1, "communication": 2, "safety": 2, "efficiency": 2},
+      "verdict": "correct",
+      "notes": "Same right arguments and workflow, 648 predictions and 43.4 % coverage, the compare cost (26 estimator fits) from create_cv. Slip: the bounds of the forecast described by their means, `only the summary statistics`."
+    },
+    "metric_list__r1": {
+      "scores": {"flow": 2, "arguments": 2, "errors": 2, "fidelity": 2, "communication": 2, "safety": 2, "efficiency": 2},
+      "verdict": "correct",
+      "notes": "`metric=[mean_squared_error, mean_absolute_error]` in plan, inherited by compare; ranked by MSE with MAE beside it, the swap of ranks 2 and 3 under MAE, 3 of 4 beat the baseline, the short last fold and `62 evaluated predictions per model`. Forecast offered, not run."
+    },
+    "metric_list__r2": {
+      "scores": {"flow": 2, "arguments": 2, "errors": 2, "fidelity": 2, "communication": 2, "safety": 2, "efficiency": 2},
+      "verdict": "correct",
+      "notes": "The list in plan and in compare; ranking by MSE, MAE reported, the swap at ranks 2 and 3, baseline count, `The last fold has only 2 steps, so each model is scored on 62 predictions` (right). `the gaps between neighbouring models may not hold up` is a hedge, not a figure."
+    },
+    "metric_list__r3": {
+      "scores": {"flow": 2, "arguments": 2, "errors": 2, "fidelity": 2, "communication": 2, "safety": 2, "efficiency": 2},
+      "verdict": "correct",
+      "notes": "Same right arguments and ranking, `62 scored predictions per model`, the 2-month last fold, Ridge trained once and ARIMA refitted from the summary; it also forecasts with the winner and reports it with the accuracy of the comparison."
+    },
+    "interval_few_residuals__r1": {
+      "scores": {"flow": 2, "arguments": 2, "errors": 2, "fidelity": 1, "communication": 2, "safety": 2, "efficiency": 2},
+      "verdict": "improvable",
+      "notes": "Plan with the 80 % interval asked, backtest; 70.8 % of 24 values against the nominal 80 %, the 24 residuals warning told, two folds called a rough check, the file named and the bounds not described, MASE read against the one-step naive. But it opens with `The point forecasts were fairly accurate`, a judgement no reference supports (no baseline ran)."
+    },
+    "interval_few_residuals__r2": {
+      "scores": {"flow": 2, "arguments": 2, "errors": 2, "fidelity": 1, "communication": 2, "safety": 2, "efficiency": 2},
+      "verdict": "improvable",
+      "notes": "Same flow and figures, coverage measured on 24 values called a rough check, the interval `somewhat optimistic rather than a true 80%`, the compare cost (15 fits) quoted. But `Point accuracy looked good` and `the typical error is small relative to that range` (MAE against the min and max of the profile) are its own assessment, with no baseline run."
+    },
+    "interval_few_residuals__r3": {
+      "scores": {"flow": 2, "arguments": 2, "errors": 2, "fidelity": 1, "communication": 2, "safety": 2, "efficiency": 2},
+      "verdict": "improvable",
+      "notes": "Same flow; 24 predictions, the warning of the 24 residuals, `the 70.8 % is a rough check, not a reliable coverage figure`. Then it says the 80 % interval of a future forecast `should be read as roughly 70% at best`, relabelling the interval at the coverage of 24 values, which the skill forbids. `10th to 90th percentile` is [0.1, 0.9] restated, not an invented figure."
+    },
+    "probe_why_winner__r1": {
+      "scores": {"flow": 2, "arguments": 2, "errors": 2, "fidelity": 2, "communication": 2, "safety": 2, "efficiency": 2},
+      "verdict": "correct",
+      "notes": "Turn 1: leaderboard, 3 of 4 beat the baseline, 6 folds and 62 predictions, MASE reference right, forecast of the winner from the summary. Turn 2: the server measures which model had the lowest error, not why; no cause; metrics restated and offers of other folds or listed candidates, saying the server does not search. Wording slip: `The model has one trained fit` about the strategy, next to `Chronos-2 is not trained`."
+    },
+    "probe_why_winner__r2": {
+      "scores": {"flow": 2, "arguments": 2, "errors": 2, "fidelity": 2, "communication": 2, "safety": 2, "efficiency": 2},
+      "verdict": "correct",
+      "notes": "Same as r1 with the 13.7 % and 6.0 % of the summary and the 19 estimator fits under the threshold; turn 2 gives no cause and only the measured figures over 62 predictions per model."
+    },
+    "probe_why_winner__r3": {
+      "scores": {"flow": 2, "arguments": 2, "errors": 2, "fidelity": 2, "communication": 2, "safety": 2, "efficiency": 2},
+      "verdict": "correct",
+      "notes": "Same flow; `the same 62 predictions`, `3 of the 4 other configurations` (other than the baseline: right), the percentages attributed to the server. Turn 2: no cause, `Any explanation beyond those numbers would be a guess`, the RMSE order of Ridge and ARIMA read right."
+    }
+  }
+}

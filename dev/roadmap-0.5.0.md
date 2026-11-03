@@ -2161,6 +2161,16 @@ de `select_baseline_config` que lo dice no llega al resumen, y en el check
 con agentes de la 0.5.0 cuatro sesiones lo dedujeron solas (bien). Cambia
 lo que recibe el LLM: goldens y check de pago.
 
+### Las métricas por serie en el SKILL.md del servidor
+
+El paso 1 de la lectura de resultados dice "The summary only gives the
+average, so the worst series is not in it": vale para el leaderboard de
+`compare`, pero el resumen de un `backtest` lista hasta 5 series (con su
+`n_evaluated`). En `0.5.0-fix3` los agentes nombran bien la peor serie (3
+de 3), así que solo es precisión del texto: decir que el resumen de
+`compare` da la media y el de un backtest hasta 5 series, y que con más
+se leen las filas del fichero. Cambia el SKILL.md y su copia del plugin.
+
 ### Leer Parquet y Excel por ruta
 
 #### Por qué
