@@ -64,7 +64,7 @@ Shape: 36 rows x 5 columns
 Columns: ['level', 'fold', 'step', 'y_true', 'pred']
 Folds: 2
 Steps of the horizon: 1 to 7
-The predictions also have a `y_true` column with the observed value of each prediction; it is not shown: its values are those of the dataset, sent only with `send_data_to_llm=True`.
+The predictions also have a `y_true` column with the observed value of each prediction; it is not shown: its values are those of the dataset.
   pred: min=100.0, max=117.5, mean=108.75, std=5.267826876426369
 Per-level summary of pred (all rows):
   store_a: min=100.0, max=117.0, mean=109.21428571428571

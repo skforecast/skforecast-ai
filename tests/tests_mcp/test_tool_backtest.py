@@ -987,7 +987,7 @@ def test_tool_backtest_summary_never_carries_the_values_of_y_true(tmp_path):
     which the server has no `send_data_to_llm` to allow, gives none of the
     observed values of `y_true` (values of the dataset; the largest one is
     also the maximum of the data, which the dataset section states) and says
-    that the column exists.
+    that the column exists, without naming `send_data_to_llm`.
     """
     data = df_single.assign(sales=df_single["sales"] + 0.3125)
     path = write_csv(tmp_path, "sales.csv", data)
@@ -1010,3 +1010,4 @@ def test_tool_backtest_summary_never_carries_the_values_of_y_true(tmp_path):
     assert leaked == []
     assert "y_true:" not in result["summary"]
     assert "The predictions also have a `y_true` column" in result["summary"]
+    assert "send_data_to_llm" not in result["summary"]

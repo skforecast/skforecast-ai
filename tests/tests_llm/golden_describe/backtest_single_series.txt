@@ -46,7 +46,7 @@ Shape: 40 rows x 4 columns
 Columns: ['fold', 'step', 'y_true', 'pred']
 Folds: 8
 Steps of the horizon: 1 to 5
-The predictions also have a `y_true` column with the observed value of each prediction; it is not shown: its values are those of the dataset, sent only with `send_data_to_llm=True`.
+The predictions also have a `y_true` column with the observed value of each prediction; it is not shown: its values are those of the dataset.
   pred: min=1000.0, max=1097.5, mean=1048.75, std=29.226129861250303
 Index range: 2023-03-02 00:00:00 to 2023-04-10 00:00:00
 </predictions>

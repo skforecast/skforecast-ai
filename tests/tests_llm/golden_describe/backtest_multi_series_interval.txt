@@ -55,7 +55,7 @@ Shape: 40 rows x 7 columns
 Columns: ['level', 'fold', 'step', 'y_true', 'pred', 'lower_bound', 'upper_bound']
 Folds: 4
 Steps of the horizon: 1 to 5
-The predictions also have a `y_true` column with the observed value of each prediction; it is not shown: its values are those of the dataset, sent only with `send_data_to_llm=True`.
+The predictions also have a `y_true` column with the observed value of each prediction; it is not shown: its values are those of the dataset.
   pred: min=1000.0, max=1097.5, mean=1048.75, std=29.226129861250303
   lower_bound: min=980.0, max=1067.5, mean=1023.75, std=24.967928145872175
   upper_bound: min=1020.0, max=1127.5, mean=1073.75, std=33.70783215690307

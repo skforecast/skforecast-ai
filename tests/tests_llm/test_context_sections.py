@@ -649,20 +649,24 @@ def test_render_predictions_section_withholds_y_true_when_send_observed_false(
     Test that no observed value of a backtest (`y_true`, values of the
     dataset), nor any statistic of them, reaches the context without
     `send_observed`, in the rows (`send_data=True`) or in the summary
-    (`send_data=False`), and that the section says the column exists.
+    (`send_data=False`), and that the section says the column exists. Only
+    the rows, the path of `ask()`, name `send_data_to_llm`: the summary is
+    that of `describe()`, which the MCP server returns without such an
+    argument.
     """
     section = render_predictions_section(
         predictions_backtest, send_data=send_data, send_observed=False
     )
     observed = predictions_backtest["y_true"]
+    how = ", sent only with `send_data_to_llm=True`" if send_data else ""
 
     for value in [*observed, observed.min(), observed.max(), observed.mean()]:
         assert str(value) not in section
     assert "y_true:" not in section
     assert (
-        "The predictions also have a `y_true` column with the observed value "
-        "of each prediction; it is not shown: its values are those of the "
-        "dataset, sent only with `send_data_to_llm=True`."
+        f"The predictions also have a `y_true` column with the observed value "
+        f"of each prediction; it is not shown: its values are those of the "
+        f"dataset{how}."
     ) in section
 
 

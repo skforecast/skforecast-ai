@@ -288,7 +288,9 @@ def join_sections(sections: list[str | None]) -> str:
     )
 
 
-def _without_observed(df: Any, send_observed: bool) -> tuple[Any, str]:
+def _without_observed(
+    df: Any, send_observed: bool, name_flag: bool = True
+) -> tuple[Any, str]:
     """
     Leave the observed values out of a frame of predictions unless they
     may be sent.
@@ -305,6 +307,11 @@ def _without_observed(df: Any, send_observed: bool) -> tuple[Any, str]:
         Frame of predictions.
     send_observed : bool
         Whether the values of `y_true` may be included.
+    name_flag : bool, default True
+        Whether the sentence names `send_data_to_llm`. The summary of
+        `describe()`, which the MCP server returns, leaves it out: the
+        server has no such argument, so naming it would send its agent
+        after a setting it cannot change.
 
     Returns
     -------
@@ -316,10 +323,11 @@ def _without_observed(df: Any, send_observed: bool) -> tuple[Any, str]:
 
     if send_observed or OBSERVED_COLUMN not in df.columns:
         return df, ""
+    how = ", sent only with `send_data_to_llm=True`" if name_flag else ""
     notice = (
         f"The predictions also have a `{OBSERVED_COLUMN}` column with the "
         f"observed value of each prediction; it is not shown: its values "
-        f"are those of the dataset, sent only with `send_data_to_llm=True`."
+        f"are those of the dataset{how}."
     )
 
     return df.drop(columns=OBSERVED_COLUMN), notice
@@ -509,7 +517,7 @@ def _summarize_dataframe(df: Any, send_observed: bool = False) -> str:
     missing_notice = _missing_predictions_note(df)
     if missing_notice:
         parts.append(missing_notice)
-    df, observed_notice = _without_observed(df, send_observed)
+    df, observed_notice = _without_observed(df, send_observed, name_flag=False)
     if observed_notice:
         parts.append(observed_notice)
     numeric_cols = df.select_dtypes(include="number").drop(
