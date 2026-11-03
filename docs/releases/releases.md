@@ -36,6 +36,7 @@ The main changes in this release are:
     + The `compare` tool of the MCP server reports in `cost.n_fits` the trainings of all its candidates instead of those of the shared strategy, and its `cost` counts the candidates that fail while running too. See **Fixed**.
 
     + [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` of ForecasterStats with an automatic `Arima` or `Ets` and a strategy that refits give other metrics from the second fold, and run faster: skforecast 0.27 keeps the model selected in the first fit, which the scripts already asked for with `freeze_params=True` ([#116](https://github.com/skforecast/skforecast-ai/pull/116)).
+    + The predictions of [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` have the columns `step` and `y_true` of skforecast 0.27 (`level, fold, step, y_true, pred, ...`), their metrics end with `n_evaluated`, also a column of the table of `compare()`, and with several series the predictions are missing at the dates without an observed value. See **Changed**.
     + [<code>ForecastingAssistant.forecast()</code>][assistant] with `test_size` on data in a time zone with daylight saving time ends the training an hour later, at the right date, when the test set starts after the spring change: other predictions and metrics. See **Fixed**.
 
     And some code needs to be updated:
@@ -129,10 +130,18 @@ The main changes in this release are:
 
 + The `CostNotice` of `create_cv` in the MCP server and its `cost_not_confirmed` error give the estimator fits of each cheaper strategy: `refit=false` and the smallest integer `refit` at or below 50 fits, counted as the cost of the run is. See the [MCP server reference][mcp] ([#130](https://github.com/skforecast/skforecast-ai/pull/130)).
 
++ The predictions of [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` carry the `step` of the horizon and the observed value `y_true` of skforecast 0.27, and their metrics end with `n_evaluated`, the number of points each row is measured on. It is not a metric: the table of `compare()` has it as a column that does not rank, and the summaries state it apart from the metrics.
+
++ `y_true` holds values of your data, so [<code>ForecastingAssistant.ask()</code>][assistant] sends them only with `send_data_to_llm=True`; otherwise its context says the column exists, as `describe()` and the summaries of the MCP server always do. See [LLM configuration][llm-config].
+
++ [<code>ForecastingAssistant.ask()</code>][assistant] no longer loads the `baseline-forecasting` skill with several series, which `ForecasterEquivalentDate` cannot forecast, so the largest selection of skills fits again in the 32,768 tokens of a local model. See [Skills][skills].
+
 + The skill of the MCP server says that a coverage measured on few values is a rough check, so agents quote the level the user asked for with the warning of the server, and the `model_not_allowed` hint tells the agent to stop and run nothing until the user chooses. See [MCP server][mcp-guide] ([#130](https://github.com/skforecast/skforecast-ai/pull/130)).
 
 
 **Fixed**
+
++ A plan built or loaded with a metric repeated in `metrics_to_compute` failed inside the generated script. It now raises `InvalidInputError` when validated (`invalid_argument` in the MCP server), as does `n_evaluated` passed as a metric to [<code>ForecastingAssistant.plan()</code>][assistant], `refine_plan()` or `compare()`.
 
 + Fixed an issue in [<code>ForecastingAssistant.profile()</code>][assistant] and the MCP server where a CSV file whose first row has more fields than its header (a separator at the end of every row, a field too many in the first row) gave a target without values or a profile with the dates as an exogenous variable. It now raises `data_unreadable`, as does a column without name and values, also in the file of future exogenous variables ([#85](https://github.com/skforecast/skforecast-ai/pull/85)).
 
@@ -628,6 +637,7 @@ First public release. `skforecast-ai` wraps the [`skforecast`](https://skforecas
 [cli-guide]: ../user-guides/cli-usage.md
 [config]: ../user-guides/cli-usage.md#configuration
 [llm-config]: ../user-guides/llm-configuration.md
+[skills]: ../user-guides/skills.md
 [agentic-guide]: ../user-guides/agentic-forecasting.ipynb#what-is-skforecast-ai
 [agentic-guide-backtesting]: ../user-guides/agentic-forecasting.ipynb#backtesting
 [agentic-guide-compare]: ../user-guides/agentic-forecasting.ipynb#comparing-forecaster-configurations

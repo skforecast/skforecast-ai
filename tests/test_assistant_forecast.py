@@ -1066,7 +1066,9 @@ def test_forecast_and_backtest_output_when_baseline_plan_and_metric_is_rmse():
         {"root_mean_squared_error": [7.0], "mean_squared_error": [49.0]}
     )
     pd.testing.assert_frame_equal(forecast.metrics, expected_metrics)
-    pd.testing.assert_frame_equal(backtest.metrics, expected_metrics)
+    pd.testing.assert_frame_equal(
+        backtest.metrics, expected_metrics.assign(n_evaluated=[40])
+    )
     assert (
         "metric            = ['root_mean_squared_error', 'mean_squared_error'],"
         in backtest.code
@@ -2126,7 +2128,9 @@ def test_forecast_metrics_have_the_columns_of_the_backtest(forecaster, levels):
     of those of backtest() of the same plan: one per metric, named as the
     metric, and `levels` when skforecast gives it, which is with several
     series and with ForecasterDirectMultiVariate (its one level, the first
-    target column), not with a single series.
+    target column), not with a single series. The backtest ends with
+    `n_evaluated` (skforecast 0.27), a count of points that the hold-out
+    metrics of forecast() do not have.
     """
     assistant = ForecastingAssistant()
     if levels is None:
@@ -2147,7 +2151,7 @@ def test_forecast_metrics_have_the_columns_of_the_backtest(forecaster, levels):
     ]
     columns = metric_columns if levels is None else ["levels", *metric_columns]
     assert list(forecast.metrics.columns) == columns
-    assert list(backtest.metrics.columns) == columns
+    assert list(backtest.metrics.columns) == [*columns, "n_evaluated"]
     if levels is not None:
         assert list(forecast.metrics["levels"]) == levels
 

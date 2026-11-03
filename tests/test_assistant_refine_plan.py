@@ -74,6 +74,40 @@ def test_refine_plan_ValueError_when_lags_duplicated():
         assistant.refine_plan(profile, plan, lags=[2, 2])
 
 
+@pytest.mark.parametrize(
+    "metric, err_msg",
+    [
+        (
+            ["mean_squared_error", "mean_squared_error"],
+            "`metric` repeats ['mean_squared_error']: list each metric once.",
+        ),
+        (
+            ["mean_squared_error", "n_evaluated"],
+            "'n_evaluated' is not a metric: it is the column of the "
+            "backtesting metrics with the number of points evaluated.",
+        ),
+    ],
+    ids=["repeated", "n_evaluated"],
+)
+def test_refine_plan_InvalidInputError_when_metric_repeated_or_n_evaluated(
+    metric, err_msg
+):
+    """
+    Test that a repeated metric, or `n_evaluated` (a column of the
+    backtesting metrics of skforecast, not a metric), is rejected with
+    `field='metric'` before the plan is rebuilt, not by skforecast inside the
+    script.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+
+    with pytest.raises(InvalidInputError, match=re.escape(err_msg)) as info:
+        assistant.refine_plan(profile, plan, metric=metric)
+
+    assert info.value.field == "metric"
+
+
 def test_refine_plan_output_when_lags_within_budget():
     """
     Test that an explicit lag override within the data budget is applied.

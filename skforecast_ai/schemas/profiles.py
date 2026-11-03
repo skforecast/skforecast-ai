@@ -618,7 +618,13 @@ class ForecastingProfile(
     def _rich_body(self, console, options):
         yield render_profile(self)
 
-    def _build_llm_context(self, *, send_data: bool, for_describe: bool = False):
+    def _build_llm_context(
+        self,
+        *,
+        send_data: bool,
+        for_describe: bool = False,
+        send_observed: bool = False,
+    ):
         """
         Describe the profile to the LLM.
 
@@ -634,6 +640,10 @@ class ForecastingProfile(
         for_describe : bool, default False
             Whether the context is built for `describe()`, which leaves out
             the sentences addressed to the LLM of `ask()`.
+        send_observed : bool, default False
+            Whether values of the dataset may be included. Has no effect
+            here, for the same reason. The parameter is part of the
+            `ExplainableResult` interface.
 
         Returns
         -------

@@ -16,6 +16,7 @@ from .._constants import (
     DEFAULT_FOUNDATION_MODEL_ID,
     FORECASTER_TASK_TYPES,
     FOUNDATION_FORECASTERS,
+    N_EVALUATED_COLUMN,
 )
 from .._foundation import foundation_backend_installed, resolve_foundation_model
 from .._utils import discarded_plan_edits, long_training_message, plan_override_value
@@ -939,7 +940,9 @@ def build_comparison_table(
     rows : list of tuple of (dict, float)
         Per-candidate `(row, ranking_value)` pairs.
     metric_columns : list of str
-        Metric column names, in display order.
+        Metric column names, in display order, followed by the columns
+        that do not rank (`coverage`, `interval_width`, `n_evaluated`).
+        `n_evaluated` is cast to a nullable integer.
     any_error : bool
         Whether at least one candidate failed (controls the `'error'`
         column).
@@ -968,7 +971,12 @@ def build_comparison_table(
     ordered = ["rank", "name", "forecaster", "estimator", *metric_columns]
     if any_error:
         ordered.append("error")
-    return results[ordered]
+    results = results[ordered]
+    # A count, not a metric: integers, empty for a candidate that failed.
+    if N_EVALUATED_COLUMN in results.columns:
+        results = results.astype({N_EVALUATED_COLUMN: "Int64"})
+
+    return results
 
 def exclude_costly_candidates(
     candidate_configs: list[tuple[str, CandidateConfig]],
@@ -1227,7 +1235,11 @@ def build_comparison_explanation(
     Returns
     -------
     explanation : str
-        Human-readable summary of the comparison.
+        Human-readable summary of the comparison. When the metrics of the
+        candidates have `n_evaluated` (skforecast 0.27.0 or later), it gives
+        the number of points each one is measured on (their range when they
+        differ), and says that the column of the table is a count, not a
+        metric, and does not rank.
     """
 
     best_name, best_result, best_value = ranked[0]
@@ -1325,6 +1337,31 @@ def build_comparison_explanation(
             f"({stats_cv['n_fits']} trainings): skforecast requires it for "
             f"ARIMA models."
         )
+    # The count is a column of the table next to the metrics, so it is named
+    # and given: without it, a column of figures next to the errors reads as
+    # one. Counts that differ mean the metrics do not cover the same points.
+    counts = [
+        aggregate_metrics(result.metrics).get(N_EVALUATED_COLUMN)
+        for _, result, _ in ranked
+    ]
+    counts = [int(count) for count in counts if count is not None and not pd.isna(count)]
+    if counts:
+        summed = ", summed across series," if averaged else ""
+        column = (
+            "(n_evaluated in the table: a count, not a metric, and it does "
+            "not change the ranking)"
+        )
+        if min(counts) == max(counts):
+            parts.append(
+                f"Each configuration is measured on {counts[0]} predictions "
+                f"with an observed value{summed} {column}."
+            )
+        else:
+            parts.append(
+                f"The configurations are measured on {min(counts)} to "
+                f"{max(counts)} predictions with an observed value{summed} "
+                f"{column}, so their metrics do not cover the same points."
+            )
     parts.append(best_sentence)
     if baseline_name is not None:
         parts.append(_baseline_sentence(ranked, baseline_name, ranking_metric))

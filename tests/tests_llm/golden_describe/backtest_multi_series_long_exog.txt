@@ -47,21 +47,24 @@ The dataset contains 3 series, so a multi-series forecaster (ForecasterRecursive
 - n_fits: 1
 </backtesting_strategy>
 <deterministic_summary>
-Using 84% of data (76 observations) for initial training, trained once (no refit), 7-step horizon, 2 folds. Results (average across series): mean_absolute_error: 1.3467, root_mean_squared_error: 1.6592, mean_absolute_scaled_error: 0.6800.
+Using 84% of data (76 observations) for initial training, trained once (no refit), 7-step horizon, 2 folds. Results (average across series): mean_absolute_error: 1.3467, root_mean_squared_error: 1.6592, mean_absolute_scaled_error: 0.6800. They are measured on 36 predictions with an observed value across the series (n_evaluated).
 </deterministic_summary>
 <evaluation_metrics>
-          levels  mean_absolute_error  root_mean_squared_error  mean_absolute_scaled_error
-         store_a               1.2100                   1.5199                       0.620
-         store_b               1.3500                   1.6912                       0.680
-         store_c               1.4800                   1.7664                       0.740
-         average               1.3467                   1.6592                       0.680
-weighted_average               1.3244                   1.6413                       0.670
-         pooling               1.3244                   1.6444                       0.665
+          levels  mean_absolute_error  root_mean_squared_error  mean_absolute_scaled_error  n_evaluated
+         store_a               1.2100                   1.5199                       0.620           14
+         store_b               1.3500                   1.6912                       0.680           14
+         store_c               1.4800                   1.7664                       0.740            8
+         average               1.3467                   1.6592                       0.680           36
+weighted_average               1.3244                   1.6413                       0.670           36
+         pooling               1.3244                   1.6444                       0.665           36
+`n_evaluated` is not a metric: it is the number of predictions with an observed value each row is measured on (summed in the aggregated rows).
 </evaluation_metrics>
 <predictions>
-Shape: 36 rows x 3 columns
-Columns: ['level', 'fold', 'pred']
+Shape: 36 rows x 5 columns
+Columns: ['level', 'fold', 'step', 'y_true', 'pred']
 Folds: 2
+Steps of the horizon: 1 to 7
+The predictions also have a `y_true` column with the observed value of each prediction; it is not shown: its values are those of the dataset, sent only with `send_data_to_llm=True`.
   pred: min=100.0, max=117.5, mean=108.75, std=5.267826876426369
 Per-level summary of pred (all rows):
   store_a: min=100.0, max=117.0, mean=109.21428571428571

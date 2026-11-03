@@ -24,6 +24,7 @@ from ._constants import (
     BLOCKING_PREPROCESSING_TEMPLATES,
     FORECASTER_TASK_TYPES,
     ML_TASK_TYPES,
+    N_EVALUATED_COLUMN,
     PASSTHROUGH_KWARGS_ESTIMATORS,
     SUPPORTED_ESTIMATORS,
     SUPPORTED_TRANSFORMERS,
@@ -688,10 +689,26 @@ def validate_metrics(metrics: list[str], field: str = "metric") -> None:
     -----
     A `ValueError` listing `ALLOWED_METRICS` is raised for any other name,
     including skforecast's classification scores, which are higher is
-    better while `compare()` ranks ascending.
+    better while `compare()` ranks ascending, and `'n_evaluated'`, the
+    column of the backtesting metrics with the number of points evaluated.
+    A repeated name is also rejected: the names are the columns of the
+    metrics, and skforecast would fail on it inside the script.
     """
 
+    repeated = sorted({name for name in metrics if metrics.count(name) > 1})
+    if repeated:
+        raise InvalidInputError(
+            f"`{field}` repeats {repeated}: list each metric once.",
+            field = field,
+        )
     for metric in metrics:
+        if metric == N_EVALUATED_COLUMN:
+            raise InvalidInputError(
+                f"{metric!r} is not a metric: it is the column of the "
+                f"backtesting metrics with the number of points evaluated. "
+                f"Supported metrics: {list(ALLOWED_METRICS)}.",
+                field = field,
+            )
         if metric not in ALLOWED_METRICS:
             raise InvalidInputError(
                 f"Unknown metric {metric!r}. Supported metrics: "

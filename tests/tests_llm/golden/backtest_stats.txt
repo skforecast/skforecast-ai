@@ -40,27 +40,29 @@ Note: A validated Python script implementing this plan is generated separately. 
 - last_fold_steps: 2
 </backtesting_strategy>
 <deterministic_summary>
-Initial training up to 2003-04-01, fixed window, refit every fold (6 trainings), 12-step horizon, 6 folds (the last one has only 2 steps). ForecasterStats is refitted in every fold whatever `refit` says: skforecast requires it for ARIMA models. Results: mean_absolute_error: 0.0612, root_mean_squared_error: 0.0781, mean_absolute_scaled_error: 0.8514.
+Initial training up to 2003-04-01, fixed window, refit every fold (6 trainings), 12-step horizon, 6 folds (the last one has only 2 steps). ForecasterStats is refitted in every fold whatever `refit` says: skforecast requires it for ARIMA models. Results: mean_absolute_error: 0.0612, root_mean_squared_error: 0.0781, mean_absolute_scaled_error: 0.8514. They are measured on 62 predictions with an observed value (n_evaluated).
 </deterministic_summary>
 <evaluation_metrics>
- mean_absolute_error  root_mean_squared_error  mean_absolute_scaled_error
-              0.0612                   0.0781                      0.8514
+ mean_absolute_error  root_mean_squared_error  mean_absolute_scaled_error  n_evaluated
+              0.0612                   0.0781                      0.8514           62
+`n_evaluated` is not a metric: it is the number of predictions with an observed value each row is measured on.
 </evaluation_metrics>
 <predictions>
 Total rows: 62. Only the first 5 and last 5 rows are shown; the 52 interior rows were not provided. Do not describe trends, growth, or progression across the horizon from these rows, and do not compare an early row against a late row as if they were adjacent. Use the per-column summary below for any statement about the full set of rows.
+The predictions also have a `y_true` column with the observed value of each prediction; it is not shown: its values are those of the dataset, sent only with `send_data_to_llm=True`.
 
-            fold   pred
-2003-05-01     0  0.600
-2003-06-01     0  0.605
-2003-07-01     0  0.610
-2003-08-01     0  0.615
-2003-09-01     0  0.620
+            fold  step   pred
+2003-05-01     0     1  0.600
+2003-06-01     0     2  0.605
+2003-07-01     0     3  0.610
+2003-08-01     0     4  0.615
+2003-09-01     0     5  0.620
 ... (52 rows omitted) ...
-2008-02-01  4  0.885
-2008-03-01  4  0.890
-2008-04-01  4  0.895
-2008-05-01  5  0.900
-2008-06-01  5  0.905
+2008-02-01  4  10  0.885
+2008-03-01  4  11  0.890
+2008-04-01  4  12  0.895
+2008-05-01  5   1  0.900
+2008-06-01  5   2  0.905
 
 Per-column summary (all rows):
   pred: min=0.6, max=0.905, mean=0.7525000000000001

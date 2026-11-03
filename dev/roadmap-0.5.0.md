@@ -1934,6 +1934,63 @@ Hecho en [#126](https://github.com/skforecast/skforecast-ai/pull/126) (D34).
     del SKILL.md remite al esquema para los argumentos de `plan`: lo
     confirma el check con agentes de la fase 7, con haiku.
 
+- **D35. 7b: `n_evaluated` no es una métrica** (2026-11-03, PR de la fase
+  7b, skforecast [#1437](https://github.com/skforecast/skforecast/pull/1437)).
+  - Se queda donde lo pone skforecast: en las métricas de `backtest()`, su
+    CSV y el script (el código que se ve es el que corrió). No entra en
+    `metrics_to_compute`, nunca ordena y no se presenta como métrica.
+    `forecast()` con `test_size` no lo tiene: sus métricas las calcula el
+    script de skforecast-ai, no el backtesting, y los tests de "las mismas
+    columnas que el backtest" pasan a "las mismas métricas, más
+    `n_evaluated` en el backtest".
+  - En el leaderboard de `compare()` es una columna que no ordena, tras
+    `coverage` e `interval_width` (el precedente de `INTERVAL_METRICS`),
+    entero con nulos (`Int64`): vacío en un candidato que falla, `NaN` en
+    el contexto de `ask()` (`<NA>` se leía como una etiqueta). El resumen
+    de `compare()` da el número (o el rango, si difiere entre candidatos:
+    entonces sus métricas no cubren los mismos puntos) antes de "Best:",
+    para no romper que la frase del baseline cierre la explicación.
+  - El resumen de `backtest()` lo saca de "Results" y lo dice en una frase
+    propia (en el `average` de varias series es la suma). La sección de
+    métricas de `ask()` y `describe()` añade que no es una métrica; la del
+    script lo nombra tras las métricas; la tabla rich lo muestra entero; el
+    SKILL.md y `docs/api/mcp.md` lo explican. Las notices del MCP solo
+    miran métricas por nombre, así que no lo tocan.
+  - La cobertura del intervalo toma de `n_evaluated` el número de
+    predicciones por serie (sin las de folds solapados, que las predicciones
+    conservan); sin él, cuenta las filas con ambas cotas e `y_true`.
+  - Nombres de métrica (skforecast
+    [#1438](https://github.com/skforecast/skforecast/pull/1438)): los
+    nombres ya son un conjunto cerrado, así que `n_evaluated` y la pinball
+    nunca llegan a skforecast; `validate_metrics` lo dice con su mensaje
+    propio y rechaza también un `metrics_to_compute` repetido de un plan
+    hecho a mano o cargado de JSON, que antes fallaba dentro del script.
+
+- **D36. 7b: `y_true` son valores del dataset** (2026-11-03, PR de la fase
+  7b, skforecast [#1437](https://github.com/skforecast/skforecast/pull/1437)).
+  - Se queda en las predicciones, el script y los CSV. `ask()` construye el
+    contexto con `send_data=True` (valores del resultado) y ahora también
+    `send_observed=self.send_data_to_llm`, un parámetro nuevo de
+    `to_llm_context` y de `_build_llm_context`: sin él, ni las filas ni el
+    resumen por columna llevan `y_true`, y una frase dice que la columna
+    existe. `describe()`, y con él los resúmenes del MCP (que no tiene
+    `send_data_to_llm`), nunca lo dan. El aviso `DataSentToLLMWarning`, la
+    guía de configuración del LLM y los docstrings dejan de decir que un
+    resultado no tiene datos de entrada. Tests: con `send_data_to_llm`
+    False ningún valor de `y_true` (ni su mínimo, máximo o media) llega al
+    mensaje; con True, sí; el resumen del MCP no lleva ninguno.
+  - `step` se trata como `fold`: sin estadísticos (su media no es una
+    medida); el resumen sin filas da el rango de pasos.
+  - Las predicciones multiserie con NaN en todas las columnas en las fechas
+    sin observado: el resumen cuenta esas filas y dice por qué (los
+    estadísticos las saltaban sin decirlo); los CSV las dejan vacías.
+  - Presupuesto de skills: tras la sincronización de #1437 la peor selección
+    de `multi_series` y `multivariate` pedía 33.096 tokens para una ventana
+    de 32.768 (`llms-base.txt` creció 427). Se arregla en las tablas de
+    `llm/skills.py`: `forecasting-multiple-series` suprime
+    `baseline-forecasting`, porque `ForecasterEquivalentDate.fit` toma una
+    sola serie y `compare()` no añade baseline con varias. Queda en 31.167.
+
 ## Decisiones abiertas
 
 Se toman en el PR que las necesita y se pasan a la sección de arriba.
@@ -1966,7 +2023,8 @@ arranque de las sesiones en la nube instala skforecast desde su rama
 | Sin issue ([#1432](https://github.com/skforecast/skforecast/pull/1432), encontrado en 3f-2, 2026-10-22) | Con varias series y un estimador lineal, una exógena que falta en la predicción da predicciones NaN sin ningún error: el camino rápido de predicción (`np.dot`) se salta la comprobación de NaN de sklearn, y el NaN se propaga a los pasos recursivos. Después, las métricas multiserie descartan esas predicciones sin avisar. Reproducido con skforecast puro (10 predicciones NaN, métricas sin ellas, ningún aviso ni con `suppress_warnings=False`). Ahora `predict` falla con un predictor que falta, y también con uno de los últimos valores que revierten la diferenciación, con cualquier estimador (encontrado al revisar la PR). El backtesting de una serie falla en las métricas solo si hay predicciones NaN en fechas con valor observado: un faltante en una fila del `gap` que ningún retardo lleva al fold ya no lo rompe (regresión encontrada al revisar la PR, 2026-10-27). El backtesting multiserie sigue con predicciones NaN y un `MissingValuesWarning` | Nada que rodear: la comprobación previa de 3f-2 (D29) ya lo evita antes de ejecutar, así que el usuario sigue viendo el `DataContentError` de skforecast-ai. Los contrastes con skforecast de los tests (`test_read_positions.py`, `test_validate_backtest_exog.py`) fijan el comportamiento nuevo. Suite en verde contra `0.27.x` (2026-10-27) | Resuelto en `0.27.x` (2026-10-27) |
 | Sin issue ([#1431](https://github.com/skforecast/skforecast/pull/1431)) | Las búsquedas de hiperparámetros ordenaban los candidatos por la tarea del forecaster (minimizar en regresión) y no por la métrica: con una métrica de "mayor es mejor" (`r2_score`) elegían el peor candidato. Ahora la dirección se deduce de la métrica (`_metric_greater_is_better`) | Nada: skforecast-ai no lanza búsquedas, y todas sus métricas son de "menor es mejor", así que `compare` sigue ordenando ascendente. Suite en verde contra su rama (2026-10-22). Importará en el ajuste de hiperparámetros de la 0.6.0. Cambian los skills `hyperparameter-optimization` y `metric-selection` y `llms-base.txt`: hay que sincronizarlos cuando entre | Resuelto en `0.27.x`; los skills y `llms-base.txt` sincronizados coinciden con su cabeza (`sync_skforecast_assets.py --check`, 2026-10-31) |
 | [#1356](https://github.com/skforecast/skforecast/issues/1356) ([#1435](https://github.com/skforecast/skforecast/pull/1435)) | `X_train_series_names_in_` de ForecasterRecursiveMultiSeries seguía el orden alfabético con `encoding` distinto de `onehot`, y con él las filas de `predict` con `levels=None` y las claves de los residuos | Los scripts de forecast multiserie llaman a `predict` sin `levels`: con datos anchos cuyas columnas no van en orden alfabético, las filas de las predicciones siguen ahora el orden de las columnas (mismos valores); con datos largos no cambia, porque el reshape ya ordena los ids. Ningún test lo fijaba (los datos de los tests van en orden alfabético): lo fija uno desde [#123](https://github.com/skforecast/skforecast-ai/pull/123); falta una línea en "Before upgrading" al consolidar las notas. Suite en verde contra `0.27.x` (2026-10-26) | Resuelto en `0.27.x` (2026-10-26) |
-| Sin issue (PR en curso en una rama local de skforecast, roadmap de 2026-10-30) | Salidas del backtesting, sin flag y anunciadas en su "Before upgrading": columnas `step` (QW-10) e `y_true` (QW-04) en las predicciones de los cuatro backtesting (orden `level, fold, step, y_true, pred, lower_bound, upper_bound`), columna `n_evaluated` (QW-12) en sus métricas, con la suma en los agregados, y nombres de métrica repetidos o reservados (lo que queda de QW-08) | Una PR de skforecast-ai cuando entre en `0.27.x`: `n_evaluated` no es una métrica y no ordena (como `coverage` e `interval_width`, `INTERVAL_METRICS` en `execution/interval_coverage.py`): el leaderboard de `compare`, `metrics_to_compute`, los ficheros de métricas, los resúmenes y los contextos de `ask()`; las predicciones traen `step` e `y_true` (ficheros, resúmenes de columnas, goldens y valores fijos de los tests). Puede servir: `y_true` evita reunir las predicciones con los datos para medir el error por fold, y `n_evaluated` dice cuántos puntos entran en cada fila de métricas. Una línea en "Before upgrading" de la 0.5.0 | En curso; la suite de `0.5.x` pasa contra la cabeza de `0.27.x` sin ella (`18684b5`, 7046 tests, 2026-10-31) |
+| Sin issue ([#1437](https://github.com/skforecast/skforecast/pull/1437)) | Salidas del backtesting, sin flag y anunciadas en su "Before upgrading": columnas `step` (QW-10) e `y_true` (QW-04) en las predicciones de los cuatro backtesting (orden `level, fold, step, y_true, pred, lower_bound, upper_bound`), columna `n_evaluated` (QW-12) en sus métricas, con la suma en los agregados, todas las columnas de predicción NaN en las fechas sin observado del backtesting multiserie, y `n_evaluated` como nombre reservado | La PR de la fase 7b (D35, D36): `n_evaluated` es una columna que no ordena en el leaderboard y se dice aparte de las métricas en resúmenes, contextos, tabla y SKILL.md; `y_true` llega a `ask()` solo con `send_data_to_llm=True`, y nunca a `describe()` ni al MCP; `step` sin estadísticos; la cobertura cuenta con `n_evaluated`; el resumen cuenta las predicciones NaN. Los skills sincronizados tras ella desbordaban la ventana de 32.768 con varias series: se arregla en las tablas de `llm/skills.py`. Goldens de backtest, comparación y scripts de backtest regenerados; una línea en "Before upgrading" de la 0.5.0. Suite en verde contra la cabeza de `0.27.x` (7.069 tests, 2026-11-03) | Resuelto en `0.27.x`, con la PR de la fase 7b |
+| Sin issue ([#1438](https://github.com/skforecast/skforecast/pull/1438)) | Las búsquedas multiserie eligen las métricas por nombre; la pinball se llama `mean_pinball_loss_q_{alpha}`; dos métricas con el mismo nombre, o una llamada `n_evaluated`, fallan con `ValueError` en `check_backtesting_input` | Nada que rodear: los nombres de métrica de skforecast-ai son un conjunto cerrado (`ALLOWED_METRICS`), sin pinball. La PR de la fase 7b hace que `validate_metrics` rechace con `InvalidInputError` (`invalid_argument` en el MCP) un nombre repetido, también en el `metrics_to_compute` de un plan hecho a mano, y `n_evaluated` con su propio mensaje, antes de llegar al script. Importará en el ajuste de hiperparámetros de la 0.6.0 | Resuelto en `0.27.x` (2026-11-03) |
 
 Detalle de cada uno:
 

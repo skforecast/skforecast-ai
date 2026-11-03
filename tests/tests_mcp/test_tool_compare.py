@@ -652,7 +652,7 @@ def test_tool_compare_metric_of_the_call_or_of_the_plan(tmp_path):
     ))
 
     assert text_of(given["files"]["leaderboard"]).splitlines()[0].endswith(
-        "median_absolute_error"
+        "median_absolute_error,n_evaluated"
     )
     assert "- Ranking metric: mean_squared_error" in of_plan["summary"]
     assert "Primary metric: mean_squared_error, as requested" in best["summary"]
@@ -1133,7 +1133,7 @@ def test_tool_compare_output_when_interval_adds_coverage_without_changing_rankin
     assert leaderboard[0] == (
         ",rank,name,forecaster,estimator,mean_absolute_error,"
         "root_mean_squared_error,mean_absolute_scaled_error,"
-        "mean_absolute_percentage_error,coverage,interval_width"
+        "mean_absolute_percentage_error,coverage,interval_width,n_evaluated"
     )
     assert [line.split(",")[2] for line in leaderboard[1:]] == [
         line.split(",")[2] for line in plain_leaderboard[1:]

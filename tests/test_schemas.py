@@ -180,6 +180,17 @@ def test_forecast_plan_ValidationError_when_foundation_model_invalid(
             "Unknown metric 'f1_score'",
         ),
         (
+            {
+                "estimator": "Ridge",
+                "metrics_to_compute": ["mean_absolute_error", "mean_absolute_error"],
+            },
+            "`metrics_to_compute` repeats ['mean_absolute_error']",
+        ),
+        (
+            {"estimator": "Ridge", "metrics_to_compute": ["n_evaluated"]},
+            "'n_evaluated' is not a metric",
+        ),
+        (
             {"estimator": "Ridge", "interval": [5, 95]},
             "`interval` must be `[lower, upper]` with 0 < lower < upper < 1",
         ),
@@ -219,6 +230,8 @@ def test_forecast_plan_ValidationError_when_foundation_model_invalid(
         "estimator",
         "estimator_kwargs key",
         "metric",
+        "repeated metric",
+        "n_evaluated as metric",
         "interval",
         "forecaster",
         "forecaster_kwargs key",

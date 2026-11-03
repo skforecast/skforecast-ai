@@ -111,6 +111,7 @@ def test_tool_refine_plan_keeps_omitted_and_resets_null_keys(tmp_path):
     [
         ({"metric": "accuracy"}, "overrides.metric"),
         ({"metric": ["mean_squared_error", "mean_squared_error"]}, "overrides.metric"),
+        ({"metric": ["mean_squared_error", "n_evaluated"]}, "overrides.metric"),
         ({"preprocessing_steps": []}, "overrides.preprocessing_steps"),
         ({"steps": "6"}, "overrides.steps"),
         ({"lags": [0]}, "overrides.lags"),

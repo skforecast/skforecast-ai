@@ -26,12 +26,12 @@ The ranking is a deterministic ascending sort of the MAE column (lower is better
 </comparison_overview>
 <leaderboard>
 Candidates listed: 5 (all shown below).
-   rank                       name                forecaster      estimator  MAE
-0     1               candidate_01       ForecasterRecursive          Ridge  1.5
-1     2               candidate_02       ForecasterRecursive          Ridge  2.5
-2     3               candidate_03       ForecasterRecursive          Ridge  3.5
-3     4  Baseline (seasonal naive)  ForecasterEquivalentDate           None  4.5
-4     5              Strategy plan       ForecasterRecursive  LGBMRegressor  5.5
+   rank                       name                forecaster      estimator  MAE n_evaluated
+0     1               candidate_01       ForecasterRecursive          Ridge  1.5          30
+1     2               candidate_02       ForecasterRecursive          Ridge  2.5          30
+2     3               candidate_03       ForecasterRecursive          Ridge  3.5          30
+3     4  Baseline (seasonal naive)  ForecasterEquivalentDate           None  4.5          30
+4     5              Strategy plan       ForecasterRecursive  LGBMRegressor  5.5          30
 </leaderboard>
 <backtesting_strategy>
 Applied identically to every candidate.
@@ -43,7 +43,7 @@ Applied identically to every candidate.
 - n_folds: 6
 </backtesting_strategy>
 <deterministic_summary>
-Compared 5 configurations, ranked ascending by MAE. 'Strategy plan' runs the plan the strategy was created for (ForecasterRecursive / LGBMRegressor), ranked 5 of 5 (5.5000); the rows named after a forecaster run the configurations the profile recommends, not that plan. Shared cross-validation strategy: Initial training of 70 observations, 6 folds. Best: 'candidate_01' (ForecasterRecursive / Ridge) = 1.5000, 40.0% ahead of 'candidate_02' (2.5000). 3 of 4 configurations beat the baseline 'Baseline (seasonal naive)' (4.5000); 'Strategy plan' does not. The best, 'candidate_01', beats it by 66.7%.
+Compared 5 configurations, ranked ascending by MAE. 'Strategy plan' runs the plan the strategy was created for (ForecasterRecursive / LGBMRegressor), ranked 5 of 5 (5.5000); the rows named after a forecaster run the configurations the profile recommends, not that plan. Shared cross-validation strategy: Initial training of 70 observations, 6 folds. Each configuration is measured on 30 predictions with an observed value (n_evaluated in the table: a count, not a metric, and it does not change the ranking). Best: 'candidate_01' (ForecasterRecursive / Ridge) = 1.5000, 40.0% ahead of 'candidate_02' (2.5000). 3 of 4 configurations beat the baseline 'Baseline (seasonal naive)' (4.5000); 'Strategy plan' does not. The best, 'candidate_01', beats it by 66.7%.
 </deterministic_summary>
 <winning_candidate>
 Name: candidate_01

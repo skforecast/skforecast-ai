@@ -498,6 +498,43 @@ def test_validate_metrics_ValueError_when_metric_not_supported(metric):
         validate_metrics(["mean_absolute_error", metric])
 
 
+def test_validate_metrics_ValueError_when_metric_is_n_evaluated():
+    """
+    Test that `n_evaluated`, the column of the backtesting metrics of
+    skforecast with the number of points evaluated, is rejected as a metric
+    name with the field that carries it.
+    """
+    err_msg = re.escape(
+        "'n_evaluated' is not a metric: it is the column of the backtesting "
+        "metrics with the number of points evaluated. Supported metrics:"
+    )
+    with pytest.raises(ValueError, match=err_msg) as info:
+        validate_metrics(
+            ["mean_absolute_error", "n_evaluated"], field="metrics_to_compute"
+        )
+
+    assert info.value.field == "metrics_to_compute"
+
+
+def test_validate_metrics_ValueError_when_metric_is_repeated():
+    """
+    Test that a repeated metric is rejected before it reaches skforecast,
+    which raises a ValueError of its own inside the script (the names are the
+    columns of the metrics).
+    """
+    err_msg = re.escape(
+        "`metrics_to_compute` repeats ['mean_absolute_error']: list each "
+        "metric once."
+    )
+    with pytest.raises(ValueError, match=err_msg) as info:
+        validate_metrics(
+            ["mean_absolute_error", "root_mean_squared_error", "mean_absolute_error"],
+            field = "metrics_to_compute",
+        )
+
+    assert info.value.field == "metrics_to_compute"
+
+
 # =============================================================================
 # Tests: validate_kwarg_names
 # =============================================================================

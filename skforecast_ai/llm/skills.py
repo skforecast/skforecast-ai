@@ -100,6 +100,15 @@ _SKILL_OVERRIDES: dict[str, set[str]] = {
         "feature-engineering",
         "feature-selection",
     },
+    # ForecasterEquivalentDate fits a single series (`fit(y)` takes one
+    # pandas Series) and `compare()` adds no baseline with several series,
+    # so the baseline skill describes nothing the user can run on them. It
+    # also kept the worst selection of several series (every keyword
+    # pattern at once) above the smallest context window once the synced
+    # skills and `llms-base.txt` grew (skforecast 0.27.0).
+    "forecasting-multiple-series": {
+        "baseline-forecasting",
+    },
 }
 
 # Measured token estimates (chars / 4) for each skill (SKILL.md + references/).

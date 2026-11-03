@@ -16,6 +16,8 @@ from .._constants import (
     MAX_CONTEXT_DATAFRAME_ROWS,
     MAX_DESCRIBE_ITEMS,
     MAX_LEADERBOARD_ROWS,
+    N_EVALUATED_COLUMN,
+    OBSERVED_COLUMN,
 )
 from ..profiling.data_profile import plan_data_warnings
 from ..schemas import ComparisonResult, ForecastingProfile, ForecastPlan
@@ -32,6 +34,9 @@ MAX_PACF_LAGS = 15
 # the aggregated rows. Each cut says how many items there were. The
 # context of `ask()` keeps its own limits.
 _AGGREGATED_METRIC_ROWS = ("average", "weighted_average", "pooling")
+# Columns of the backtest predictions that identify a prediction rather than
+# measure it, so they get no statistics.
+_IDENTIFIER_COLUMNS = ("fold", "step")
 
 # Sentences addressed to the LLM of `ask()`: they tell it how to use the
 # context, they state nothing about the result. `describe()` leaves them
@@ -283,8 +288,84 @@ def join_sections(sections: list[str | None]) -> str:
     )
 
 
+def _without_observed(df: Any, send_observed: bool) -> tuple[Any, str]:
+    """
+    Leave the observed values out of a frame of predictions unless they
+    may be sent.
+
+    The `y_true` column of the backtest predictions of skforecast (0.27.0
+    or later) holds values of the dataset, which reach the LLM only with
+    `send_data_to_llm=True`. Without it, the column is dropped and a
+    sentence says that it exists, so a question about it is not answered
+    as if the predictions had none.
+
+    Parameters
+    ----------
+    df : pandas DataFrame
+        Frame of predictions.
+    send_observed : bool
+        Whether the values of `y_true` may be included.
+
+    Returns
+    -------
+    df : pandas DataFrame
+        The frame, without `y_true` when its values may not be sent.
+    notice : str
+        Sentence saying that `y_true` is withheld, or an empty string.
+    """
+
+    if send_observed or OBSERVED_COLUMN not in df.columns:
+        return df, ""
+    notice = (
+        f"The predictions also have a `{OBSERVED_COLUMN}` column with the "
+        f"observed value of each prediction; it is not shown: its values "
+        f"are those of the dataset, sent only with `send_data_to_llm=True`."
+    )
+
+    return df.drop(columns=OBSERVED_COLUMN), notice
+
+
+def _missing_predictions_note(df: Any) -> str:
+    """
+    Sentence counting the rows of a frame of predictions without a point
+    prediction, or an empty string when there is none.
+
+    The per-column statistics skip missing values, so without it the rows
+    without a prediction go unnoticed. skforecast (0.27.0 or later) leaves
+    every prediction column missing in a backtest of several series at the
+    dates without an observed value, which its metrics do not evaluate; the
+    sentence says so only when every row without a prediction is one of
+    them.
+    """
+    point_col = next((col for col in ("pred", "q_0.5") if col in df.columns), None)
+    if point_col is None:
+        return ""
+    missing = df[point_col].isna()
+    n_missing = int(missing.sum())
+    if n_missing == 0:
+        return ""
+    rows = f"{n_missing} row{'s' if n_missing != 1 else ''}"
+    if (
+        OBSERVED_COLUMN in df.columns
+        and df.loc[missing, OBSERVED_COLUMN].isna().all()
+    ):
+        return (
+            f"{rows} {'have' if n_missing != 1 else 'has'} no prediction "
+            f"(missing in every prediction column): the dates "
+            f"without an observed value of the series, which the metrics do "
+            f"not evaluate."
+        )
+
+    return (
+        f"{rows} {'have' if n_missing != 1 else 'has'} no prediction "
+        f"(missing value in `{point_col}`)."
+    )
+
+
 def _serialize_dataframe(
-    df: Any, max_rows: int = MAX_CONTEXT_DATAFRAME_ROWS
+    df: Any,
+    max_rows: int = MAX_CONTEXT_DATAFRAME_ROWS,
+    send_observed: bool = False,
 ) -> str:
     """
     Serialize a DataFrame for LLM context, truncating if too large.
@@ -297,6 +378,10 @@ def _serialize_dataframe(
         Frames with at most this many rows are rendered in full. Larger
         frames are reduced to their head and tail plus a per-column
         summary.
+    send_observed : bool, default False
+        Whether the observed values of a backtest (`y_true`), which are
+        values of the dataset, may be included. When False the column is
+        left out of the rows and of the summary, and a sentence says so.
 
     Returns
     -------
@@ -304,9 +389,17 @@ def _serialize_dataframe(
         Rendered frame.
     """
 
+    missing_notice = _missing_predictions_note(df)
+    df, observed_notice = _without_observed(df, send_observed)
+    observed_notice = "".join(
+        f"\n{line}" for line in (missing_notice, observed_notice) if line
+    )
     n_rows = len(df)
     if n_rows <= max_rows:
-        return f"Total rows: {n_rows} (all shown below).\n{df.to_string()}"
+        return (
+            f"Total rows: {n_rows} (all shown below).{observed_notice}\n"
+            f"{df.to_string()}"
+        )
 
     head = df.head(CONTEXT_HEAD_TAIL_ROWS).to_string()
     tail = df.tail(CONTEXT_HEAD_TAIL_ROWS).to_string(header=False)
@@ -326,10 +419,11 @@ def _serialize_dataframe(
         f"rows."
     )
 
-    # `fold` is an identifier, not a measurement: the mean fold index is
-    # noise that would be quoted back as if it described the predictions.
+    # `fold` and `step` are identifiers, not measurements: the mean fold
+    # index or step is noise that would be quoted back as if it described
+    # the predictions.
     numeric_cols = df.select_dtypes(include="number").drop(
-        columns="fold", errors="ignore"
+        columns=list(_IDENTIFIER_COLUMNS), errors="ignore"
     )
     stats = ""
     if not numeric_cols.empty:
@@ -352,7 +446,8 @@ def _serialize_dataframe(
         stats = "\n" + "\n".join(lines)
 
     return (
-        f"{notice}\n\n{head}\n... ({omitted} rows omitted) ...\n{tail}{stats}"
+        f"{notice}{observed_notice}\n\n{head}\n... ({omitted} rows omitted) "
+        f"...\n{tail}{stats}"
     )
 
 
@@ -393,17 +488,32 @@ def _per_level_summary(df: Any, numeric_cols: Any) -> list[str]:
     return lines
 
 
-def _summarize_dataframe(df: Any) -> str:
-    """Produce a privacy-safe summary without row-level values."""
+def _summarize_dataframe(df: Any, send_observed: bool = False) -> str:
+    """
+    Produce a privacy-safe summary without row-level values.
+
+    The observed values of a backtest (`y_true`), values of the dataset,
+    are summarized only when `send_observed` is True; otherwise a sentence
+    says that the column exists and is not shown.
+    """
     parts = [f"Shape: {df.shape[0]} rows x {df.shape[1]} columns"]
     parts.append(f"Columns: {list(df.columns)}")
-    # `fold` is an identifier, not a measurement (as in
-    # `_serialize_dataframe`): its statistics would be quoted back as if
-    # they described the predictions, so only the number of folds is given.
+    # `fold` and `step` are identifiers, not measurements (as in
+    # `_serialize_dataframe`): their statistics would be quoted back as if
+    # they described the predictions, so only the number of folds and the
+    # range of the steps are given.
     if "fold" in df.columns:
         parts.append(f"Folds: {df['fold'].nunique()}")
+    if "step" in df.columns and len(df) > 0:
+        parts.append(f"Steps of the horizon: {df['step'].min()} to {df['step'].max()}")
+    missing_notice = _missing_predictions_note(df)
+    if missing_notice:
+        parts.append(missing_notice)
+    df, observed_notice = _without_observed(df, send_observed)
+    if observed_notice:
+        parts.append(observed_notice)
     numeric_cols = df.select_dtypes(include="number").drop(
-        columns="fold", errors="ignore"
+        columns=list(_IDENTIFIER_COLUMNS), errors="ignore"
     )
     if not numeric_cols.empty:
         # No format spec, for the same reason as `_serialize_dataframe`:
@@ -918,10 +1028,15 @@ def render_script_section(
             )
         # The metrics are named: without them, a question about one of them
         # was answered as if the script computed only the primary one.
+        # skforecast 0.27 adds a count of points after the metrics and the
+        # observed value next to each prediction; both are named so the
+        # count is not read as one more metric.
         outputs = (
             f"metrics (one column per metric: {metric_names}; one row per "
-            f"series when there are several), and predictions of every fold "
-            f"with a `fold` column"
+            f"series when there are several; then `n_evaluated`, the number "
+            f"of points each row is measured on, which is not a metric), and "
+            f"predictions of every fold with the columns `fold`, `step` (the "
+            f"step of the horizon) and `y_true` (the observed value)"
         )
     elif plan.end_train is not None:
         mode = (
@@ -1116,6 +1231,20 @@ def render_metrics_section(
             body = _first_series_metrics(metrics)
         else:
             body = metrics.to_string(index=False)
+        # A column of integers next to the errors was read as one more
+        # error figure; the sentence says what it counts.
+        if N_EVALUATED_COLUMN in metrics.columns:
+            summed = (
+                " (summed in the aggregated rows)"
+                if "levels" in metrics.columns
+                and metrics["levels"].isin(_AGGREGATED_METRIC_ROWS).any()
+                else ""
+            )
+            body = (
+                f"{body}\n`n_evaluated` is not a metric: it is the number of "
+                f"predictions with an observed value each row is measured "
+                f"on{summed}."
+            )
         if plan is not None and plan.end_train is not None:
             # Agents presented the predictions of such a run as the next
             # periods (H4 of the 0.4.0 check): nothing in the context said
@@ -1176,7 +1305,11 @@ def _first_series_metrics(metrics: Any) -> str:
     )
 
 
-def render_predictions_section(predictions: Any, send_data: bool = False) -> str:
+def render_predictions_section(
+    predictions: Any,
+    send_data: bool = False,
+    send_observed: bool = False,
+) -> str:
     """
     Render the `<predictions>` section.
 
@@ -1187,6 +1320,11 @@ def render_predictions_section(predictions: Any, send_data: bool = False) -> str
     send_data : bool, default False
         Whether row-level values may be included. When False, only
         aggregate statistics are rendered.
+    send_observed : bool, default False
+        Whether the observed values of a backtest (`y_true`), which are
+        values of the dataset, may be included, row by row with
+        `send_data` or in the statistics without it. When False, the
+        section says that the column exists and is not shown.
 
     Returns
     -------
@@ -1198,9 +1336,9 @@ def render_predictions_section(predictions: Any, send_data: bool = False) -> str
         return ""
 
     body = (
-        _serialize_dataframe(predictions)
+        _serialize_dataframe(predictions, send_observed=send_observed)
         if send_data
-        else _summarize_dataframe(predictions)
+        else _summarize_dataframe(predictions, send_observed=send_observed)
     )
 
     return _tag("predictions", body)
@@ -1345,6 +1483,15 @@ def render_leaderboard_section(
         Tagged section.
     """
 
+    # A nullable integer (`n_evaluated`) prints a failed candidate as
+    # `<NA>`, which reads as a tag; it is written as NaN, as the metrics.
+    results = results.assign(**{
+        column: results[column].astype(object).where(
+            results[column].notna(), float("nan")
+        )
+        for column in results.columns
+        if isinstance(results[column].dtype, pd.Int64Dtype)
+    })
     n_rows = len(results)
     if n_rows <= max_rows:
         body = f"Candidates listed: {n_rows} (all shown below).\n{results.to_string()}"
@@ -1454,6 +1601,7 @@ def build_context_message(
     cv_overridden: list[str] | None = None,
     cv_without_effect: list[str] | None = None,
     cv_llm_configured: bool = False,
+    send_observed: bool = False,
 ) -> str:
     """
     Serialize a single forecasting run into a context block for the LLM.
@@ -1502,6 +1650,10 @@ def build_context_message(
     cv_llm_configured : bool, default False
         Whether the LLM of `create_cv(prompt=...)` set the other
         parameters.
+    send_observed : bool, default False
+        Whether the observed values of a backtest (`y_true` of the
+        predictions), values of the dataset, may be included, see
+        `render_predictions_section`.
 
     Returns
     -------
@@ -1527,7 +1679,9 @@ def build_context_message(
             for_describe    = for_describe,
             plan            = plan if cv_config is None else None,
         ),
-        render_predictions_section(predictions, send_data=send_data),
+        render_predictions_section(
+            predictions, send_data=send_data, send_observed=send_observed
+        ),
     ])
 
 

@@ -24,9 +24,9 @@ The ranking is a deterministic ascending sort of the MAE column (lower is better
 </comparison_overview>
 <leaderboard>
 Candidates listed: 2 (all shown below).
-   rank          name           forecaster estimator  MAE
-0     1  candidate_01  ForecasterRecursive     Ridge  1.5
-1     2  candidate_02  ForecasterRecursive     Ridge  2.5
+   rank          name           forecaster estimator  MAE n_evaluated
+0     1  candidate_01  ForecasterRecursive     Ridge  1.5          30
+1     2  candidate_02  ForecasterRecursive     Ridge  2.5          30
 </leaderboard>
 <backtesting_strategy>
 Applied identically to every candidate.

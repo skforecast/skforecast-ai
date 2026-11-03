@@ -135,10 +135,12 @@ def test_run_backtest_single_series_metrics_is_dataframe():
     metrics = result["metrics"]
     assert isinstance(metrics, pd.DataFrame)
     assert not metrics.empty
-    # All non-level columns should have numeric values
+    # The metrics are floats; `n_evaluated` (skforecast 0.27), the number of
+    # points they are measured on, is an integer count.
     for col in metrics.columns:
-        if col not in ("levels", "level"):
+        if col not in ("levels", "level", "n_evaluated"):
             assert metrics[col].dtype.kind == "f"
+    assert metrics["n_evaluated"].dtype.kind == "i"
 
 
 def test_run_backtest_single_series_predictions_is_dataframe():
@@ -303,7 +305,9 @@ def test_run_backtest_baseline_returns_metrics_and_conformal_intervals():
     Test that run_backtest runs the ForecasterEquivalentDate baseline with
     conformal intervals and returns one metrics row plus the predictions.
     With an interval, skforecast 0.27 adds `coverage` and `interval_width`
-    after the requested metrics.
+    after the requested metrics, and the number of points evaluated
+    (`n_evaluated`) last; the predictions start with `fold`, `step` and the
+    observed value `y_true`.
     """
     result = run_backtest(
         data           = df_single,
@@ -320,9 +324,12 @@ def test_run_backtest_baseline_returns_metrics_and_conformal_intervals():
         "mean_absolute_scaled_error",
         "coverage",
         "interval_width",
+        "n_evaluated",
     ]
     assert len(result["metrics"]) == 1
-    assert {"pred", "lower_bound", "upper_bound"} <= set(result["predictions"].columns)
+    assert list(result["predictions"].columns) == [
+        "fold", "step", "y_true", "pred", "lower_bound", "upper_bound"
+    ]
     assert "interval_method   = 'conformal'" in result["rendered_code"].core
 
 

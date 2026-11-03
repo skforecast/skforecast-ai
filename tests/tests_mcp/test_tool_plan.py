@@ -203,6 +203,7 @@ def test_tool_plan_MissingDependencyNotice_when_estimator_not_installed(
         ({"steps": 0}, "invalid_argument", "steps"),
         ({"steps": 12, "metric": "accuracy"}, "invalid_argument", "metric"),
         ({"steps": 12, "metric": []}, "invalid_argument", "metric"),
+        ({"steps": 12, "metric": "n_evaluated"}, "invalid_argument", "metric"),
         (
             {"steps": 12, "metric": ["mean_absolute_error", "mean_absolute_error"]},
             "invalid_argument",

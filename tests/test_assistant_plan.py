@@ -1707,15 +1707,22 @@ def test_plan_output_when_metric_given(
             "`metric` repeats ['mean_squared_error']: list each metric once.",
         ),
         ("accuracy", ValueError, "Unknown metric 'accuracy'."),
+        (
+            ["mean_absolute_error", "n_evaluated"],
+            ValueError,
+            "'n_evaluated' is not a metric: it is the column of the "
+            "backtesting metrics with the number of points evaluated.",
+        ),
         (3, TypeError, "`metric` must be a metric name or a list of metric names"),
         ([1], TypeError, "`metric` must be a metric name or a list of metric names"),
     ],
-    ids=["empty", "repeated", "unknown", "int", "list of int"],
+    ids=["empty", "repeated", "unknown", "n_evaluated", "int", "list of int"],
 )
 def test_plan_error_when_metric_invalid(metric, error, message):
     """
-    Test that an empty, repeated, unknown or non-text metric is rejected
-    with `field='metric'`.
+    Test that an empty, repeated, unknown or non-text metric, or
+    `n_evaluated` (a column of the backtesting metrics, not a metric), is
+    rejected with `field='metric'`.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")

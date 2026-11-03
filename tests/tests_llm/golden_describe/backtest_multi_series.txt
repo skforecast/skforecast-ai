@@ -40,13 +40,17 @@ The dataset contains 2 series, so a multi-series forecaster (ForecasterRecursive
 Backtested with 6 folds of 5 steps each, starting from an initial training window of 70 observations, without refitting.
 </deterministic_summary>
 <evaluation_metrics>
- levels  mean_absolute_error  root_mean_squared_error  mean_absolute_scaled_error
-store_a                  2.5                   3.0414                         0.8
-store_b                  3.5                   4.0620                         1.2
+ levels  mean_absolute_error  root_mean_squared_error  mean_absolute_scaled_error  n_evaluated
+store_a                  2.5                   3.0414                         0.8           20
+store_b                  3.5                   4.0620                         1.2           20
+`n_evaluated` is not a metric: it is the number of predictions with an observed value each row is measured on.
 </evaluation_metrics>
 <predictions>
-Shape: 40 rows x 2 columns
-Columns: ['level', 'pred']
+Shape: 40 rows x 5 columns
+Columns: ['level', 'fold', 'step', 'y_true', 'pred']
+Folds: 4
+Steps of the horizon: 1 to 5
+The predictions also have a `y_true` column with the observed value of each prediction; it is not shown: its values are those of the dataset, sent only with `send_data_to_llm=True`.
   pred: min=1000.0, max=1097.5, mean=1048.75, std=29.226129861250303
 Per-level summary of pred (all rows):
   store_a: min=1000.0, max=1047.5, mean=1023.75

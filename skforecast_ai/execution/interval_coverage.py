@@ -12,6 +12,7 @@ import warnings
 from typing import Any, NamedTuple
 import pandas as pd
 
+from .._constants import N_EVALUATED_COLUMN, OBSERVED_COLUMN
 from ..exceptions import IntervalCoverageWarning
 
 
@@ -141,9 +142,11 @@ def series_coverages(
     Coverage and width of the prediction interval of each series of a
     backtest, as the backtesting of skforecast measured them.
 
-    Nothing is computed here but the number of predictions of each series:
-    the coverage and the width are the `coverage` and `interval_width`
-    columns of the metrics.
+    Nothing is computed here: the coverage and the width are the
+    `coverage` and `interval_width` columns of the metrics, and the number
+    of predictions they are measured on is their `n_evaluated` column
+    (skforecast 0.27.0 or later). Without it, the predictions with both
+    bounds (and an observed value, when they carry `y_true`) are counted.
 
     Parameters
     ----------
@@ -176,6 +179,14 @@ def series_coverages(
     if bounds is None:
         return []
     with_bounds = predictions[list(bounds)].notna().all(axis=1)
+    if OBSERVED_COLUMN in predictions.columns:
+        with_bounds &= predictions[OBSERVED_COLUMN].notna()
+
+    def evaluated(row: pd.Series, counted: int) -> int:
+        # skforecast counts the points that enter its metrics, without the
+        # predictions of overlapping folds, which the predictions keep.
+        value = row.get(N_EVALUATED_COLUMN)
+        return counted if value is None or pd.isna(value) else int(value)
 
     coverages = []
     if "levels" in metrics.columns:
@@ -186,7 +197,7 @@ def series_coverages(
         rows = metrics[~metrics["levels"].isin(_AGGREGATED_ROWS)]
         for _, row in rows.iterrows():
             series = str(row["levels"])
-            n_predictions = int(counts.get(series, 0))
+            n_predictions = evaluated(row, int(counts.get(series, 0)))
             if pd.isna(row["coverage"]) or n_predictions == 0:
                 continue
             coverages.append(
@@ -199,7 +210,7 @@ def series_coverages(
             )
     else:
         row = metrics.iloc[0]
-        n_predictions = int(with_bounds.sum())
+        n_predictions = evaluated(row, int(with_bounds.sum()))
         if not pd.isna(row["coverage"]) and n_predictions > 0:
             coverages.append(
                 SeriesCoverage(
