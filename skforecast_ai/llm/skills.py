@@ -100,30 +100,39 @@ _SKILL_OVERRIDES: dict[str, set[str]] = {
         "feature-engineering",
         "feature-selection",
     },
+    # ForecasterEquivalentDate fits a single series (`fit(y)` takes one
+    # pandas Series) and `compare()` adds no baseline with several series,
+    # so the baseline skill describes nothing the user can run on them. It
+    # also kept the worst selection of several series (every keyword
+    # pattern at once) above the smallest context window once the synced
+    # skills and `llms-base.txt` grew (skforecast 0.27.0).
+    "forecasting-multiple-series": {
+        "baseline-forecasting",
+    },
 }
 
 # Measured token estimates (chars / 4) for each skill (SKILL.md + references/).
 _SKILL_TOKEN_ESTIMATES: dict[str, int] = {
     "autocorrelation-and-lag-selection": 2035,
-    "backtesting-configuration": 2641,
+    "backtesting-configuration": 3052,
     "baseline-forecasting": 1929,
     "choosing-a-forecaster": 3034,
     "complete-api-reference": 12678,
-    "deep-learning-forecasting": 6216,
+    "deep-learning-forecasting": 6211,
     "drift-detection": 1249,
     "feature-engineering": 11003,
     "feature-selection": 1579,
     "forecasting-multiple-series": 1869,
     "forecasting-single-series": 1505,
-    "foundation-forecasting": 10220,
+    "foundation-forecasting": 10246,
     "hyperparameter-optimization": 6022,
-    "metric-selection": 6250,
-    "prediction-intervals": 4952,
+    "metric-selection": 6288,
+    "prediction-intervals": 4959,
     "statistical-models": 4363,
     "troubleshooting-common-errors": 3125,
 }
 
-_REFERENCE_TOKEN_ESTIMATE = 9510  # llms-base.txt measured size
+_REFERENCE_TOKEN_ESTIMATE = 9937  # llms-base.txt measured size
 
 # Derived from the prompt rather than hardcoded. A hardcoded figure has to
 # be re-measured by hand after every prompt edit, and silently understates

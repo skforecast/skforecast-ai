@@ -255,6 +255,16 @@ ALLOWED_METRICS: tuple[str, ...] = (
     "symmetric_mean_absolute_percentage_error",
 )
 
+# Last column of the backtesting metrics of skforecast (0.27.0 or later):
+# the number of points that enter the metrics of each row (prediction and
+# observed value not missing), summed in the aggregated rows of several
+# series. It is not a metric: it never ranks and is never listed with them.
+N_EVALUATED_COLUMN = "n_evaluated"
+# Column of the backtesting predictions of skforecast (0.27.0 or later) with
+# the observed value of each prediction: values of the dataset, which reach
+# the LLM of `ask()` only with `send_data_to_llm=True`.
+OBSERVED_COLUMN = "y_true"
+
 # Blocking preprocessing steps a generated script can contain. Blocking
 # steps are written into the script, so the snippet of a plan must match one
 # of these `(action, code_snippet)` pairs exactly: a plan loaded from JSON

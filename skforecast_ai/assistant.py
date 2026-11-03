@@ -31,6 +31,7 @@ from ._constants import (
     DIRECT_FORECASTERS,
     FORECASTER_TASK_TYPES,
     MAX_FEATURE_FRACTION,
+    N_EVALUATED_COLUMN,
     OLLAMA_MAX_CONTEXT_TOKENS,
     REQUIRES_DATETIME_FREQ,
     SUPPORTED_TRANSFORMERS,
@@ -723,9 +724,12 @@ class ForecastingAssistant:
         metrics) are sent to the LLM when the result is passed to
         `ask()` as `context`. When False, `ask()` still sends them but
         emits `DataSentToLLMWarning`; when True the warning is silenced.
-        The input data is never sent in either mode: profiles carry
-        summary statistics only, and a result holds the model's output,
-        not the data it was fitted on.
+        It also lets `ask()` send the observed values that the predictions
+        of a backtest carry (`y_true`, values of the dataset); when False
+        the context says that the column exists and gives none of them. No
+        other value of the input data is sent in either mode: profiles
+        carry summary statistics only, and a result holds the model's
+        output, not the data it was fitted on.
 
     Attributes
     ----------
@@ -3592,8 +3596,12 @@ class ForecastingAssistant:
             - metrics: backtesting metric values returned by skforecast.
             With an interval, skforecast adds `coverage` (share of the
             actual values inside it) and `interval_width` (its mean width,
-            in the units of the series) after the requested metrics.
-            - predictions: full backtest predictions across all folds.
+            in the units of the series) after the requested metrics. The
+            last column, `n_evaluated`, is not a metric: the number of
+            points each row is measured on, summed in the aggregated rows.
+            - predictions: full backtest predictions across all folds, with
+            the `fold`, the `step` of the horizon and the observed value
+            (`y_true`) of each prediction.
             - code: generated Python script reproducing the workflow.
             - explanation: human-readable summary of the configuration
             and results, with the coverage and the width of the interval
@@ -3926,7 +3934,9 @@ class ForecastingAssistant:
             resulting `n_folds`, applied
             identically to every candidate.
             - results: ranked comparison table, one row per candidate
-            sorted best to worst by `ranking_metric`.
+            sorted best to worst by `ranking_metric`. Its `n_evaluated`
+            column, the number of points each candidate was measured on,
+            does not rank.
             - candidates: mapping of candidate name to the full
             `BacktestResult` of every candidate that ran successfully,
             ordered best to worst.
@@ -4100,11 +4110,13 @@ class ForecastingAssistant:
             ranking_metric = metric_override[0]
             metric_columns = metric_override
         # With an interval, the coverage and the width that skforecast
-        # measured follow the metrics in the table; they never rank.
-        table_columns = (
-            [*metric_columns, *INTERVAL_METRICS]
-            if interval is not None else list(metric_columns)
-        )
+        # measured follow the metrics in the table, and the number of points
+        # each candidate was measured on closes it; they never rank.
+        table_columns = [
+            *metric_columns,
+            *(INTERVAL_METRICS if interval is not None else ()),
+            N_EVALUATED_COLUMN,
+        ]
 
         steps = cv.steps
 
@@ -4532,8 +4544,11 @@ class ForecastingAssistant:
             (its predictions and metrics) are always sent to the LLM,
             regardless of `send_data_to_llm`, since a question about a
             result cannot be answered from summary statistics alone. The
-            input data is never sent: a result holds only the model's
-            output, and a profile holds summary statistics only.
+            input data is not sent: the observed values that the
+            predictions of a backtest carry (`y_true`) are sent only with
+            `send_data_to_llm=True` (otherwise the context says that the
+            column exists), a result holds no other value of the data, and
+            a profile holds summary statistics only.
         plan : ForecastPlan, default None
             Plan to explain together with the profile passed as
             `context`. The two are rendered into the same script
@@ -4649,16 +4664,22 @@ class ForecastingAssistant:
             # so say so: a user who set it to False for privacy reasons
             # would otherwise ship predicted values without being told.
             # The context itself reports whether it ships any such values.
-            llm_context = context.to_llm_context(send_data=True)
+            # The observed values of a backtest (`y_true`) are values of the
+            # dataset, not of the result: they follow `send_data_to_llm`.
+            llm_context = context.to_llm_context(
+                send_data     = True,
+                send_observed = self.send_data_to_llm,
+            )
             if not self.send_data_to_llm and llm_context.sends_result_values:
                 warnings.warn(
                     "`send_data_to_llm=False` does not apply to `context`: the "
                     "predicted values it carries are sent to the LLM, because "
                     "a question about a result cannot be answered from "
-                    "summary statistics alone. Your input data is not sent: a "
-                    "result holds only the model's output, never the data it "
-                    "was fitted on. To keep predictions local, ask without "
-                    "`context`.",
+                    "summary statistics alone. Your input data is not sent: the "
+                    "observed values that the predictions of a backtest carry "
+                    "(`y_true`) are left out, and a result holds no other "
+                    "value of the data it was fitted on. To keep predictions "
+                    "local, ask without `context`.",
                     DataSentToLLMWarning,
                     stacklevel=2,
                 )

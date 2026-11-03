@@ -20,6 +20,7 @@ from ..rendering.backtesting import (
     render_backtesting_single_series,
     render_backtesting_statistical,
 )
+from .._constants import N_EVALUATED_COLUMN
 from ..schemas import DataProfile, ForecastPlan, RenderedScript
 from ..exceptions import InvalidInputError
 from .comparison import aggregate_metrics
@@ -213,7 +214,9 @@ def _build_backtest_explanation(
     prediction interval, the coverage and the width that skforecast
     measured (`coverage` and `interval_width` of the metrics) are not
     listed with the other metrics: a sentence of their own states them by
-    series next to the nominal coverage of the interval.
+    series next to the nominal coverage of the interval. Neither is the
+    number of points evaluated (`n_evaluated`), which is not a metric: a
+    sentence after the results states it.
 
     Parameters
     ----------
@@ -237,10 +240,12 @@ def _build_backtest_explanation(
     # aggregate rows (`average`, `weighted_average`, `pooling`); averaging
     # the whole column would blend them with the per-series rows into a
     # number that matches no row, so the `average` row is used instead.
+    aggregated = aggregate_metrics(metrics)
     summary_parts = [
         f"{name}: {value:.4f}"
-        for name, value in aggregate_metrics(metrics).items()
-        if isinstance(value, float) and name not in INTERVAL_METRICS
+        for name, value in aggregated.items()
+        if isinstance(value, float)
+        and name not in (*INTERVAL_METRICS, N_EVALUATED_COLUMN)
     ]
 
     explanation = cv_explanation
@@ -249,6 +254,16 @@ def _build_backtest_explanation(
         multi_series = metrics is not None and "levels" in metrics.columns
         label = "Results (average across series)" if multi_series else "Results"
         explanation = f"{cv_explanation} {label}: {metrics_str}."
+        # The count of points is stated apart from the metrics, so it is
+        # never read as an error figure. In the `average` row of several
+        # series skforecast sums it, it does not average it.
+        n_evaluated = aggregated.get(N_EVALUATED_COLUMN)
+        if n_evaluated is not None and not pd.isna(n_evaluated):
+            across = " across the series" if multi_series else ""
+            explanation = (
+                f"{explanation} They are measured on {int(n_evaluated)} "
+                f"predictions with an observed value{across} (n_evaluated)."
+            )
     coverage = describe_interval_coverage(metrics, predictions, interval)
     if coverage is not None:
         explanation = f"{explanation} {coverage}"

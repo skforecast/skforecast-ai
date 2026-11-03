@@ -619,7 +619,7 @@ def test_tool_backtest_output_when_metric_is_root_mean_squared_error(tmp_path):
     )
 
     assert text_of(result["files"]["metrics"]) == csv_of(expected.metrics)
-    assert list(metrics.columns) == metric
+    assert list(metrics.columns) == [*metric, "n_evaluated"]
     np.testing.assert_almost_equal(
         metrics["root_mean_squared_error"].iloc[0],
         np.sqrt(metrics["mean_squared_error"].iloc[0]),
@@ -832,7 +832,7 @@ def test_tool_backtest_interval_coverage_notice_when_series_cover_less(
         f"but it covered clearly less in {measured} {_COVERAGE_NOTICE_END}"
     )
     header = text_of(result["files"]["metrics"]).splitlines()[0]
-    assert header.endswith(",coverage,interval_width")
+    assert header.endswith(",coverage,interval_width,n_evaluated")
     assert (
         "Prediction interval [0.1, 0.9] (nominal coverage 80 %), share of the "
         "actual values inside it (coverage) and mean width in the units of "
@@ -978,3 +978,36 @@ def test_tool_backtest_notice_of_missing_exog_with_an_estimator_that_accepts_the
         "'2008-03-01'). LGBMRegressor treats them as missing values; check "
         "that they are meant to be missing."
     ) in messages
+
+
+def test_tool_backtest_summary_never_carries_the_values_of_y_true(tmp_path):
+    """
+    Test that the predictions CSV of a backtest keeps the columns of
+    skforecast 0.27 (`fold`, `step`, `y_true`, `pred`), while its summary,
+    which the server has no `send_data_to_llm` to allow, gives none of the
+    observed values of `y_true` (values of the dataset; the largest one is
+    also the maximum of the data, which the dataset section states) and says
+    that the column exists, without naming `send_data_to_llm`.
+    """
+    data = df_single.assign(sales=df_single["sales"] + 0.3125)
+    path = write_csv(tmp_path, "sales.csv", data)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, _, cv_id = cv_of(
+        server, path, target="sales", steps=5,
+        cv_arguments={"initial_train_size": 60},
+    )
+
+    result = content_of(call(server, "backtest", {"cv_id": cv_id}))
+    predictions = pd.read_csv(result["files"]["predictions"], index_col=0)
+    observed = predictions["y_true"]
+
+    assert list(predictions.columns) == ["fold", "step", "y_true", "pred"]
+    assert observed.iloc[0] == 60.3125
+    leaked = [
+        value for value in [*observed[observed < 99.3125], observed.mean()]
+        if str(value) in result["summary"]
+    ]
+    assert leaked == []
+    assert "y_true:" not in result["summary"]
+    assert "The predictions also have a `y_true` column" in result["summary"]
+    assert "send_data_to_llm" not in result["summary"]

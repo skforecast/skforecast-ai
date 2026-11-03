@@ -24,7 +24,14 @@ from skforecast_ai.llm.context import (
 )
 
 from tests.fixtures_assistant import df_single, make_comparison_result
-from tests.fixtures_llm import plan_single, profile_single
+from tests.fixtures_llm import (
+    metrics_backtest_single,
+    metrics_interval_multi,
+    plan_single,
+    predictions_backtest,
+    predictions_backtest_multi,
+    profile_single,
+)
 
 assistant = ForecastingAssistant()
 
@@ -395,7 +402,10 @@ def test_render_script_section_describes_backtesting_script(
         "- Variables defined: metrics (one column per metric: "
         "mean_absolute_error, root_mean_squared_error, "
         "mean_absolute_scaled_error; one row per series when there are "
-        "several), and predictions of every fold with a `fold` column\n"
+        "several; then `n_evaluated`, the number of points each row is "
+        "measured on, which is not a metric), and predictions of every fold "
+        "with the columns `fold`, `step` (the step of the horizon) and "
+        "`y_true` (the observed value)\n"
     ) in section
     assert "prediction: trains on all the data" not in section
 
@@ -629,6 +639,155 @@ def test_render_predictions_section_withholds_values_when_send_data_false():
 
     assert "Shape: 3 rows x 1 columns" in section
     assert "11.5" not in section
+
+
+@pytest.mark.parametrize("send_data", [True, False], ids=lambda v: f"send_data={v}")
+def test_render_predictions_section_withholds_y_true_when_send_observed_false(
+    send_data,
+):
+    """
+    Test that no observed value of a backtest (`y_true`, values of the
+    dataset), nor any statistic of them, reaches the context without
+    `send_observed`, in the rows (`send_data=True`) or in the summary
+    (`send_data=False`), and that the section says the column exists. Only
+    the rows, the path of `ask()`, name `send_data_to_llm`: the summary is
+    that of `describe()`, which the MCP server returns without such an
+    argument.
+    """
+    section = render_predictions_section(
+        predictions_backtest, send_data=send_data, send_observed=False
+    )
+    observed = predictions_backtest["y_true"]
+    how = ", sent only with `send_data_to_llm=True`" if send_data else ""
+
+    for value in [*observed, observed.min(), observed.max(), observed.mean()]:
+        assert str(value) not in section
+    assert "y_true:" not in section
+    assert (
+        f"The predictions also have a `y_true` column with the observed value "
+        f"of each prediction; it is not shown: its values are those of the "
+        f"dataset{how}."
+    ) in section
+
+
+def test_render_predictions_section_includes_y_true_when_send_observed_true():
+    """
+    Test that the observed values of a backtest reach the context with
+    `send_observed`: the rows of the head carry them, and the per-column
+    summary gives their statistics, without the withholding sentence.
+    """
+    rows = render_predictions_section(
+        predictions_backtest, send_data=True, send_observed=True
+    )
+    summary = render_predictions_section(
+        predictions_backtest, send_data=False, send_observed=True
+    )
+
+    assert "1003.125" in rows
+    assert "y_true: min=1003.125, max=1100.625, mean=1051.875" in rows
+    assert "y_true: min=1003.125, max=1100.625, mean=1051.875, std=" in summary
+    assert "it is not shown" not in rows + summary
+
+
+@pytest.mark.parametrize("send_data", [True, False], ids=lambda v: f"send_data={v}")
+def test_render_predictions_section_treats_step_as_identifier(send_data):
+    """
+    Test that the `step` column of the backtest predictions, like `fold`,
+    gets no statistics (its mean would be read as a measurement), while the
+    summary without rows states the folds and the range of the steps.
+    """
+    section = render_predictions_section(
+        predictions_backtest_multi, send_data=send_data
+    )
+
+    assert "step:" not in section
+    assert "fold:" not in section
+    if not send_data:
+        assert "Folds: 4\nSteps of the horizon: 1 to 5" in section
+
+
+def test_render_predictions_section_counts_rows_without_prediction():
+    """
+    Test that the rows of a backtest of several series without an observed
+    value, where skforecast 0.27 leaves every prediction column missing, are
+    counted and explained, since the statistics skip them; and that missing
+    predictions at dates with an observed value are counted without that
+    explanation.
+    """
+    without_observed = predictions_backtest_multi.copy()
+    without_observed.iloc[[3, 4], [3, 4]] = np.nan
+    with_observed = predictions_backtest_multi.copy()
+    with_observed.iloc[3, 4] = np.nan
+
+    assert (
+        "2 rows have no prediction (missing in every prediction column): the "
+        "dates without an observed value of the series, which the metrics do "
+        "not evaluate."
+    ) in render_predictions_section(without_observed, send_data=False)
+    assert "1 row has no prediction (missing value in `pred`)." in (
+        render_predictions_section(with_observed, send_data=True)
+    )
+    assert "no prediction" not in render_predictions_section(
+        predictions_backtest_multi, send_data=True
+    )
+
+
+@pytest.mark.parametrize(
+    "metrics, expected",
+    [
+        (
+            metrics_backtest_single,
+            "`n_evaluated` is not a metric: it is the number of predictions "
+            "with an observed value each row is measured on.",
+        ),
+        (
+            metrics_interval_multi,
+            "`n_evaluated` is not a metric: it is the number of predictions "
+            "with an observed value each row is measured on (summed in the "
+            "aggregated rows).",
+        ),
+    ],
+    ids=["single series", "several series with aggregated rows"],
+)
+def test_render_metrics_section_says_n_evaluated_is_not_a_metric(metrics, expected):
+    """
+    Test that the metrics of a backtest with `n_evaluated` (skforecast 0.27)
+    say that the column counts the points each row is measured on and is
+    not a metric, summed in the aggregated rows of several series, and that
+    metrics without it say nothing about it.
+    """
+    section = render_metrics_section(metrics)
+
+    assert section.endswith(f"{expected}\n</evaluation_metrics>")
+    assert "n_evaluated" not in render_metrics_section(
+        metrics_backtest_single.drop(columns="n_evaluated")
+    )
+
+
+def test_render_leaderboard_section_writes_missing_count_as_nan():
+    """
+    Test that the `n_evaluated` of a failed candidate, a missing value of a
+    nullable integer column, is written as NaN like its metrics, not as
+    `<NA>`, which the tag escaping would turn into a broken tag.
+    """
+    results = pd.DataFrame({
+        "rank":        [1, 2],
+        "name":        ["winner", "broken"],
+        "MAE":         [1.5, np.nan],
+        "n_evaluated": pd.array([30, None], dtype="Int64"),
+    })
+
+    section = render_leaderboard_section(results)
+
+    assert "NA>" not in section
+    assert section == (
+        "<leaderboard>\n"
+        "Candidates listed: 2 (all shown below).\n"
+        "   rank    name  MAE n_evaluated\n"
+        "0     1  winner  1.5          30\n"
+        "1     2  broken  NaN         NaN\n"
+        "</leaderboard>"
+    )
 
 
 def test_render_winning_candidate_section_nests_the_plan():

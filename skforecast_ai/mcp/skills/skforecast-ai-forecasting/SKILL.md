@@ -136,6 +136,14 @@ so). That reference is not a seasonal naive forecast nor the baseline of
 `compare`: never report a value below 1 as beating either, nor turn it
 into a percentage against them.
 
+`n_evaluated`, the last column of the metrics of a backtest and of the
+leaderboard, is not a metric: it is the number of predictions with an
+observed value that each row is measured on (summed in the aggregated rows
+of several series). Never report it as an error nor rank by it. The
+predictions of a backtest have `fold`, `step` (the step of the horizon)
+and `y_true` (the observed value, from the data of the user) before
+`pred`; the summary never gives the values of `y_true`.
+
 Prediction intervals are estimates: report them as such, and only from the
 rows of `files.predictions` (the bounds of each step). If you have not read
 that file, do not describe the interval: name the file. The summary gives

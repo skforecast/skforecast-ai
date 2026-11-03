@@ -143,7 +143,9 @@ def test_tool_forecast_metrics_csv_has_the_columns_of_the_backtest(
     columns of the CSV of metrics of a `backtest` of the same plan (V05 of
     the audit): one per metric, named as the metric, which is the name the
     `MetricReferenceNotice` of the same response uses, and `levels` with
-    the series when there are several, as skforecast's backtesting.
+    the series when there are several, as skforecast's backtesting, whose
+    CSV ends with `n_evaluated` (skforecast 0.27), the number of points
+    evaluated, which the hold-out metrics do not have.
     """
     path = write_csv(tmp_path, "data.csv", frame)
     server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
@@ -164,7 +166,7 @@ def test_tool_forecast_metrics_csv_has_the_columns_of_the_backtest(
     ]
 
     assert list(forecast_metrics.columns) == columns
-    assert list(backtest_metrics.columns) == columns
+    assert list(backtest_metrics.columns) == [*columns, "n_evaluated"]
     if "levels" in columns:
         assert list(forecast_metrics["levels"]) == target
     assert reference[0].startswith("`mean_absolute_scaled_error` divides")

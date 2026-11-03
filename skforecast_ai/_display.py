@@ -22,7 +22,7 @@ from rich.rule import Rule
 from rich.syntax import Syntax
 from rich.table import Table
 
-from ._constants import ML_TASK_TYPES, PLACEHOLDER_DATA_PATH
+from ._constants import ML_TASK_TYPES, N_EVALUATED_COLUMN, PLACEHOLDER_DATA_PATH
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -81,6 +81,13 @@ def _format_metric(value: Any) -> str:
     if isinstance(value, Number) and not isinstance(value, bool):
         return f"{value:.4f}"
     return escape(str(value))
+
+
+def _format_count(value: Any) -> str:
+    """Format a count cell (`n_evaluated`) as an integer, `"N/A"` if missing."""
+    if pd.isna(value):
+        return "N/A"
+    return f"{int(value):,}"
 
 
 def _format_missing(missing: dict[str, int]) -> str | None:
@@ -332,7 +339,8 @@ def render_metrics(metrics: DataFrame, title: str = "Metrics") -> Table:
 
     Handles the layout of skforecast's backtesting, which `forecast()`
     follows too: metric columns only, plus a `'levels'` column with several
-    series.
+    series. The `'n_evaluated'` column of a backtest, a count of points
+    and not a metric, is shown as an integer.
 
     Parameters
     ----------
@@ -358,7 +366,11 @@ def render_metrics(metrics: DataFrame, title: str = "Metrics") -> Table:
 
     for _, row in metrics.iterrows():
         values = [escape(str(row[series_col]))] if series_col is not None else []
-        values.extend(_format_metric(row[col]) for col in metric_cols)
+        values.extend(
+            _format_count(row[col]) if col == N_EVALUATED_COLUMN
+            else _format_metric(row[col])
+            for col in metric_cols
+        )
         table.add_row(*values)
 
     return table

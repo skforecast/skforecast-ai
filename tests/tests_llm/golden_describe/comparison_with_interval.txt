@@ -24,9 +24,9 @@ The ranking is a deterministic ascending sort of the MAE column (lower is better
 </comparison_overview>
 <leaderboard>
 Candidates listed: 2 (all shown below).
-   rank          name           forecaster estimator  MAE  coverage  interval_width
-0     1  candidate_01  ForecasterRecursive     Ridge  1.5       0.8             4.0
-1     2  candidate_02  ForecasterRecursive     Ridge  2.5       0.5             3.0
+   rank          name           forecaster estimator  MAE  coverage  interval_width n_evaluated
+0     1  candidate_01  ForecasterRecursive     Ridge  1.5       0.8             4.0          30
+1     2  candidate_02  ForecasterRecursive     Ridge  2.5       0.5             3.0          30
 </leaderboard>
 <backtesting_strategy>
 Applied identically to every candidate.
@@ -38,7 +38,7 @@ Applied identically to every candidate.
 - n_folds: 6
 </backtesting_strategy>
 <deterministic_summary>
-Compared 2 configurations, ranked ascending by MAE. Shared cross-validation strategy: Initial training of 70 observations, 6 folds. Best: 'candidate_01' (ForecasterRecursive / Ridge) = 1.5000, 40.0% ahead of 'candidate_02' (2.5000). The table also gives, for the prediction interval [0.1, 0.9] (nominal coverage 80 %), the share of the actual values inside it (coverage) and its mean width in the units of the target (interval_width); they do not change the ranking.
+Compared 2 configurations, ranked ascending by MAE. Shared cross-validation strategy: Initial training of 70 observations, 6 folds. Each configuration is measured on 30 predictions with an observed value (n_evaluated in the table: a count, not a metric, and it does not change the ranking). Best: 'candidate_01' (ForecasterRecursive / Ridge) = 1.5000, 40.0% ahead of 'candidate_02' (2.5000). The table also gives, for the prediction interval [0.1, 0.9] (nominal coverage 80 %), the share of the actual values inside it (coverage) and its mean width in the units of the target (interval_width); they do not change the ranking.
 </deterministic_summary>
 <winning_candidate>
 Name: candidate_01

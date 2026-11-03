@@ -206,3 +206,51 @@ def test_series_coverages_empty_when_interval_not_measured(
     )
 
     assert results == []
+
+
+def test_series_coverages_takes_the_count_from_n_evaluated():
+    """
+    Test that, with the `n_evaluated` column of skforecast 0.27, the number
+    of predictions of each series is the number of points its metrics are
+    measured on (without the predictions of overlapping folds, which the
+    predictions keep), not the rows of the predictions; a row with a missing
+    `n_evaluated` falls back to counting them.
+    """
+    metrics_single = metrics_single_06.assign(n_evaluated=[150])
+    metrics_multi = metrics_multi_3.assign(n_evaluated=[90, 80, None, 0, 0, 0])
+
+    single = series_coverages(
+        metrics     = metrics_single,
+        predictions = predictions_single_200,
+        interval    = interval,
+    )
+    multi = series_coverages(
+        metrics     = metrics_multi,
+        predictions = predictions_multi_3,
+        interval    = interval,
+    )
+
+    assert single == [
+        SeriesCoverage(
+            series=None, coverage=0.6, interval_width=4.0, n_predictions=150
+        )
+    ]
+    assert [c.n_predictions for c in multi] == [90, 80, 100]
+
+
+def test_series_coverages_does_not_count_rows_without_observed_value():
+    """
+    Test that, without `n_evaluated`, the predictions whose observed value
+    (`y_true` of skforecast 0.27) is missing are not counted, since the
+    coverage of skforecast is measured on the observed values.
+    """
+    predictions = predictions_single_200.assign(y_true=1.0)
+    predictions.loc[[0, 1, 2, 3], "y_true"] = float("nan")
+
+    results = series_coverages(
+        metrics     = metrics_single_06,
+        predictions = predictions,
+        interval    = interval,
+    )
+
+    assert results[0].n_predictions == 196

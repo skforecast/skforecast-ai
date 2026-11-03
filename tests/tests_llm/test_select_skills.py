@@ -285,6 +285,26 @@ def test_select_skills_deep_learning_overrides_multi_series():
     assert "forecasting-multiple-series" not in result
 
 
+@pytest.mark.parametrize(
+    "task_type", ["multi_series", "multivariate"], ids=lambda v: f"task_type={v}"
+)
+def test_select_skills_multiple_series_overrides_baseline(task_type):
+    """
+    Test that forecasting-multiple-series suppresses baseline-forecasting,
+    because ForecasterEquivalentDate fits a single series and `compare()`
+    adds no baseline with several series, while a single series keeps it.
+    """
+    question = "Does my model beat a seasonal naive baseline?"
+
+    result = select_skills(task_type=task_type, question=question)
+    single = select_skills(task_type="single_series", question=question)
+
+    assert result == ["choosing-a-forecaster", "forecasting-multiple-series"]
+    assert single == [
+        "choosing-a-forecaster", "forecasting-single-series", "baseline-forecasting"
+    ]
+
+
 def test_select_skills_foundation_task_type_unchanged():
     """
     Test that task_type='foundation' still works correctly (no regression).

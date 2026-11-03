@@ -102,6 +102,36 @@ def test_build_backtest_explanation_uses_average_row_when_multi_series():
     assert result == "CV. Results (average across series): mean_absolute_error: 2.0000."
 
 
+def test_build_backtest_explanation_states_n_evaluated_apart_from_the_metrics():
+    """
+    Test that `n_evaluated` (skforecast 0.27), a count of points and not a
+    metric, is left out of the results and stated in a sentence of its own,
+    for a single series (where pandas reads the row as floats) and for
+    several, where the `average` row holds the sum across the series.
+    """
+    single = pd.DataFrame({
+        "mean_absolute_error": [1.5], "n_evaluated": [40],
+    })
+    multi = pd.DataFrame({
+        "levels": ["a", "b", "average", "weighted_average", "pooling"],
+        "mean_absolute_error": [1.0, 3.0, 2.0, 2.0, 2.1],
+        "n_evaluated": [20, 18, 38, 38, 38],
+    })
+
+    result_single = _build_backtest_explanation(cv_explanation="CV.", metrics=single)
+    result_multi = _build_backtest_explanation(cv_explanation="CV.", metrics=multi)
+
+    assert result_single == (
+        "CV. Results: mean_absolute_error: 1.5000. They are measured on 40 "
+        "predictions with an observed value (n_evaluated)."
+    )
+    assert result_multi == (
+        "CV. Results (average across series): mean_absolute_error: 2.0000. "
+        "They are measured on 38 predictions with an observed value across "
+        "the series (n_evaluated)."
+    )
+
+
 # Tests: _build_backtest_explanation: prediction interval coverage
 
 

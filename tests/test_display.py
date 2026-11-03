@@ -268,6 +268,22 @@ def test_render_metrics_metric_only_layout():
     assert "2.5000" in text
 
 
+def test_render_metrics_shows_n_evaluated_as_an_integer():
+    """
+    Test that the `n_evaluated` column of a backtest (skforecast 0.27), a
+    count of points and not a metric, is shown as an integer with thousands
+    separators, also when pandas reads the single row of one series as
+    floats, while the metrics keep four decimals.
+    """
+    metrics = pd.DataFrame({"mae": [1.5], "n_evaluated": [1240]}).astype(float)
+
+    text = _render_to_text(render_metrics(metrics))
+
+    assert "1.5000" in text
+    assert "1,240" in text
+    assert "1240.0000" not in text
+
+
 def test_render_cv_config_renders_key_value_pairs():
     """
     Test that render_cv_config renders each parameter name with its formatted

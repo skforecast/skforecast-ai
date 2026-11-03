@@ -434,7 +434,8 @@ def test_backtest_ValueError_when_estimator_differs_from_plan():
 def test_backtest_output_when_baseline_plan():
     """
     Test that backtest() runs a ForecasterEquivalentDate plan and reports
-    the error of the seasonal naive baseline on a linear series (7 per step).
+    the error of the seasonal naive baseline on a linear series (7 per step),
+    measured on the 30 predictions of the 6 folds (`n_evaluated`).
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
@@ -453,6 +454,7 @@ def test_backtest_output_when_baseline_plan():
             "mean_absolute_error": [7.0],
             "root_mean_squared_error": [7.0],
             "mean_absolute_scaled_error": [7.0],
+            "n_evaluated": [30],
         }
     )
     assert isinstance(result, BacktestResult)
@@ -1296,7 +1298,7 @@ def test_backtest_output_when_cv_result_without_plan_keeps_its_plan():
     assert result.plan.estimator == "LGBMRegressor"
     assert result.plan.interval == [0.1, 0.9]
     assert list(result.predictions.columns) == [
-        "fold", "pred", "lower_bound", "upper_bound"
+        "fold", "step", "y_true", "pred", "lower_bound", "upper_bound"
     ]
     assert result.cv_config == cv_result.cv_config
 
@@ -1325,7 +1327,7 @@ def test_backtest_output_when_cv_result_and_estimator_passed_builds_new_plan():
 
     assert result.plan.estimator == "Ridge"
     assert result.plan.interval is None
-    assert list(result.predictions.columns) == ["fold", "pred"]
+    assert list(result.predictions.columns) == ["fold", "step", "y_true", "pred"]
 
 
 def test_backtest_output_when_bare_time_series_fold_builds_default_plan():
@@ -1515,7 +1517,7 @@ def test_backtest_output_when_data_have_more_rows_than_profile():
         "series_lengths, span_index_length, n_total_observations, "
         "target_stats): the profile was computed again from these data."
     ]
-    assert result.predictions.shape == (104, 2)
+    assert result.predictions.shape == (104, 4)
     assert result.predictions.index[-1] == pd.Timestamp("2008-06-01")
 
 
@@ -1594,7 +1596,7 @@ def test_backtest_output_when_lags_window_features_and_metric_given():
     assert result.plan.forecaster_kwargs["window_features"] == window_features
     assert result.plan.metrics_to_compute == ["mean_squared_error"]
     assert result.plan.overridden_fields == ["lags", "window_features", "metric"]
-    assert list(result.metrics.columns) == ["mean_squared_error"]
+    assert list(result.metrics.columns) == ["mean_squared_error", "n_evaluated"]
 
 
 def test_backtest_ValueError_when_metric_differs_from_plan():

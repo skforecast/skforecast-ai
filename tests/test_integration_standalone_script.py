@@ -1146,7 +1146,7 @@ def test_standalone_scripts_match_forecast_and_backtest_when_metric_override(
     assert forecast_code == forecast.code
     assert backtest_code == backtest.code
     assert list(forecast.metrics.columns) == metric
-    assert list(backtest.metrics.columns) == metric
+    assert list(backtest.metrics.columns) == [*metric, "n_evaluated"]
     _assert_same_predictions(_run_standalone(forecast_code, tmp_path), forecast.predictions)
     np.testing.assert_allclose(
         _run_standalone(backtest_code, tmp_path)["pred"].to_numpy(),
@@ -1202,7 +1202,7 @@ def test_standalone_scripts_match_forecast_and_backtest_when_metric_is_rmse(
     )
     columns = metric if levels is None else ["levels", *metric]
     assert list(forecast.metrics.columns) == columns
-    assert list(backtest.metrics.columns) == columns
+    assert list(backtest.metrics.columns) == [*columns, "n_evaluated"]
     if levels is not None:
         assert list(forecast.metrics["levels"]) == levels
     np.testing.assert_allclose(
@@ -1272,7 +1272,7 @@ def test_standalone_scripts_match_forecast_and_backtest_with_default_panel(
     assert f"metric            = {panel!r}," in backtest_code
     columns = panel if levels is None else ["levels", *panel]
     assert list(forecast.metrics.columns) == columns
-    assert list(backtest.metrics.columns) == columns
+    assert list(backtest.metrics.columns) == [*columns, "n_evaluated"]
     if levels is not None:
         pd.testing.assert_frame_equal(
             _run_standalone(forecast_code, tmp_path, variable="metrics_df"),
@@ -1314,7 +1314,7 @@ def test_standalone_scripts_match_forecast_and_backtest_when_target_crosses_zero
         "root_mean_squared_error",
         "mean_absolute_scaled_error",
     ]
-    assert list(backtest.metrics.columns) == list(forecast.metrics.columns)
+    assert list(backtest.metrics.columns) == [*forecast.metrics.columns, "n_evaluated"]
     _assert_same_predictions(_run_standalone(forecast_code, tmp_path), forecast.predictions)
     np.testing.assert_allclose(
         _run_standalone(backtest_code, tmp_path)["pred"].to_numpy(),

@@ -413,8 +413,10 @@ class DataSentToLLMWarning(UserWarning):
     off the machine without being told. A result that carries no such
     values (for example a `CodeGenerationResult`) does not trigger it.
 
-    The input data is not sent: a result holds only the model's output,
-    never the data it was fitted on.
+    The input data is not sent: the observed values that the predictions
+    of a backtest carry (`y_true`) are left out of the context unless
+    `send_data_to_llm` is True, and a result holds no other value of the
+    data it was fitted on.
     """
 
 

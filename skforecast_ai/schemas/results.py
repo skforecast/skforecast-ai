@@ -171,7 +171,11 @@ class CodeGenerationResult(
     code: str
 
     def _build_llm_context(
-        self, *, send_data: bool, for_describe: bool = False
+        self,
+        *,
+        send_data: bool,
+        for_describe: bool = False,
+        send_observed: bool = False,
     ) -> LLMContext:
         """
         Describe the generated script to the LLM.
@@ -186,6 +190,10 @@ class CodeGenerationResult(
         for_describe : bool, default False
             Whether the context is built for `describe()`, which leaves out
             the sentences addressed to the LLM of `ask()`.
+        send_observed : bool, default False
+            Whether values of the dataset that the result carries may be
+            included. Has no effect here: the result carries none. The
+            parameter is part of the `ExplainableResult` interface.
 
         Returns
         -------
@@ -312,7 +320,11 @@ class SingleRunResult(
     metrics: OptionalJSONFrame
 
     def _build_llm_context(
-        self, *, send_data: bool, for_describe: bool = False
+        self,
+        *,
+        send_data: bool,
+        for_describe: bool = False,
+        send_observed: bool = False,
     ) -> LLMContext:
         """
         Describe a single run to the LLM.
@@ -324,6 +336,11 @@ class SingleRunResult(
         for_describe : bool, default False
             Whether the context is built for `describe()`, which leaves out
             the sentences addressed to the LLM of `ask()`.
+        send_observed : bool, default False
+            Whether the observed values of a backtest (`y_true` of the
+            predictions), values of the dataset, may be included. `ask()`
+            passes `send_data_to_llm`; when False the context says that
+            the column exists and is not shown.
 
         Returns
         -------
@@ -393,7 +410,9 @@ class SingleRunResult(
                               ),
                           ),
                           render_predictions_section(
-                              self.predictions, send_data=send_data
+                              self.predictions,
+                              send_data     = send_data,
+                              send_observed = send_observed,
                           ),
                       ]),
             profile = self.profile,
@@ -415,8 +434,8 @@ class ForecastResult(SingleRunResult):
     code : str
         Generated Python script equivalent to the execution.
     metrics : pandas DataFrame, None
-        Evaluation metrics, with the columns of the metrics of a backtest
-        of the same plan: one column per metric of
+        Evaluation metrics, with the metric columns of a backtest of the
+        same plan (without its `n_evaluated`): one column per metric of
         `plan.metrics_to_compute`, named as the metric (by default
         `mean_absolute_error`, `root_mean_squared_error` and
         `mean_absolute_scaled_error`, plus `mean_absolute_percentage_error`
@@ -459,9 +478,16 @@ class BacktestResult(SingleRunResult):
         one forecast per series and fold. When the last fold predicts
         fewer steps than the horizon, also `last_fold_steps`.
     metrics : pandas DataFrame
-        Backtesting metric values returned by skforecast.
+        Backtesting metric values returned by skforecast. The last column,
+        `n_evaluated`, is not a metric: it is the number of points each row
+        is measured on (predictions with an observed value), summed in the
+        aggregated rows of several series.
     predictions : pandas DataFrame
-        Full backtest predictions across all folds.
+        Full backtest predictions across all folds, with the columns of
+        skforecast: `level` (several series), `fold`, `step` (the step of
+        the horizon of each prediction), `y_true` (the observed value, from
+        the data), `pred` and the interval bounds. `y_true` reaches the
+        LLM of `ask()` only with `send_data_to_llm=True`.
     code : str
         Generated Python script reproducing the backtesting workflow.
     explanation : str
@@ -607,7 +633,11 @@ class CVResult(PickleDefaultsMixin, DisplayMixin, ExplainableResult, BaseModel):
         )
 
     def _build_llm_context(
-        self, *, send_data: bool, for_describe: bool = False
+        self,
+        *,
+        send_data: bool,
+        for_describe: bool = False,
+        send_observed: bool = False,
     ) -> LLMContext:
         """
         Describe the cross-validation strategy to the LLM.
@@ -621,6 +651,10 @@ class CVResult(PickleDefaultsMixin, DisplayMixin, ExplainableResult, BaseModel):
         for_describe : bool, default False
             Whether the context is built for `describe()`, which leaves out
             the sentences addressed to the LLM of `ask()`.
+        send_observed : bool, default False
+            Whether values of the dataset that the result carries may be
+            included. Has no effect here: the result carries none. The
+            parameter is part of the `ExplainableResult` interface.
 
         Returns
         -------
@@ -1083,8 +1117,11 @@ class ComparisonResult(
         `['rank', 'name', 'forecaster', 'estimator', <metric columns...>]`,
         plus `'coverage'` and `'interval_width'` after the metrics when the
         comparison has an interval (measured by skforecast, averaged
-        across series with several; they do not rank), and an `'error'`
-        column when at least one candidate failed.
+        across series with several; they do not rank), then
+        `'n_evaluated'`, the number of points each candidate was measured
+        on (a nullable integer, summed across series with several; it is
+        not a metric and does not rank), and an `'error'` column when at
+        least one candidate failed.
     candidates : dict
         Mapping of candidate name to the full `BacktestResult` of every
         candidate that ran successfully, ordered best to worst. Never
@@ -1191,7 +1228,11 @@ class ComparisonResult(
         return self.candidates[self.best_name]
 
     def _build_llm_context(
-        self, *, send_data: bool, for_describe: bool = False
+        self,
+        *,
+        send_data: bool,
+        for_describe: bool = False,
+        send_observed: bool = False,
     ) -> LLMContext:
         """
         Describe the comparison to the LLM.
@@ -1214,6 +1255,10 @@ class ComparisonResult(
         for_describe : bool, default False
             Whether the context is built for `describe()`, which leaves out
             the sentences addressed to the LLM of `ask()`.
+        send_observed : bool, default False
+            Whether values of the dataset that the result carries may be
+            included. Has no effect here: the result carries none. The
+            parameter is part of the `ExplainableResult` interface.
 
         Returns
         -------

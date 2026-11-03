@@ -37,12 +37,16 @@ A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 100 ob
 Backtested with 6 folds of 5 steps each, starting from an initial training window of 70 observations, without refitting.
 </deterministic_summary>
 <evaluation_metrics>
- mean_absolute_error  root_mean_squared_error  mean_absolute_scaled_error
-                 2.5                   3.0414                         0.8
+ mean_absolute_error  root_mean_squared_error  mean_absolute_scaled_error  n_evaluated
+                 2.5                   3.0414                         0.8           40
+`n_evaluated` is not a metric: it is the number of predictions with an observed value each row is measured on.
 </evaluation_metrics>
 <predictions>
-Shape: 40 rows x 1 columns
-Columns: ['pred']
+Shape: 40 rows x 4 columns
+Columns: ['fold', 'step', 'y_true', 'pred']
+Folds: 8
+Steps of the horizon: 1 to 5
+The predictions also have a `y_true` column with the observed value of each prediction; it is not shown: its values are those of the dataset.
   pred: min=1000.0, max=1097.5, mean=1048.75, std=29.226129861250303
 Index range: 2023-03-02 00:00:00 to 2023-04-10 00:00:00
 </predictions>

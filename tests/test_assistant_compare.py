@@ -375,6 +375,7 @@ def test_compare_output_when_single_series():
         "mean_absolute_error",
         "root_mean_squared_error",
         "mean_absolute_scaled_error",
+        "n_evaluated",
     ]
     assert list(result.results.columns) == expected_cols
     # No "error" column when every candidate succeeds
@@ -544,6 +545,7 @@ def test_compare_output_when_metric_str_override():
         "forecaster",
         "estimator",
         "mean_absolute_scaled_error",
+        "n_evaluated",
     ]
 
 
@@ -570,6 +572,7 @@ def test_compare_output_when_metric_list_ranks_by_first():
         "estimator",
         "mean_squared_error",
         "mean_absolute_error",
+        "n_evaluated",
     ]
     ranking_values = result.results["mean_squared_error"].to_numpy()
     assert np.all(np.diff(ranking_values) >= 0)
@@ -604,6 +607,7 @@ def test_compare_output_when_metric_is_rmse():
         "estimator",
         "root_mean_squared_error",
         "mean_squared_error",
+        "n_evaluated",
     ]
     ranking_values = result.results["root_mean_squared_error"].to_numpy()
     assert np.all(np.diff(ranking_values) >= 0)
@@ -856,6 +860,12 @@ def test_compare_records_error_and_sorts_failed_candidate_last():
     assert result.best_name == "good"
     assert result.best_candidate.plan.forecaster == "ForecasterRecursive"
     assert "1 configuration failed to run and is ranked last." in result.explanation
+    # The count of points does not rank: a nullable integer, empty for the
+    # candidate that failed, between the metrics and `error`.
+    assert list(result.results.columns)[-2:] == ["n_evaluated", "error"]
+    assert result.results["n_evaluated"].dtype == "Int64"
+    assert good_row["n_evaluated"] == 30
+    assert pd.isna(bad_row["n_evaluated"])
 
 
 def test_compare_keeps_failure_snapshot_in_failures():
@@ -2118,7 +2128,10 @@ def test_compare_output_when_baseline_added_by_default():
 
     assert result.explanation == (
         f"Compared 3 configurations, ranked ascending by mean_absolute_error. "
-        f"Shared cross-validation strategy: {_CV_EXPLANATION} Best: "
+        f"Shared cross-validation strategy: {_CV_EXPLANATION} Each "
+        f"configuration is measured on 30 predictions with an observed value "
+        f"(n_evaluated in the table: a count, not a metric, and it does not "
+        f"change the ranking). Best: "
         f"'recursive_default' (ForecasterRecursive / Ridge) = 0.3652, 22.5% "
         f"ahead of 'direct_ridge' (0.4711). Both configurations beat the "
         f"baseline 'Baseline (seasonal naive)' (7.0000). The best, "
@@ -2360,6 +2373,51 @@ def test_build_comparison_explanation_when_baseline_failed():
         "failed to run, so the candidates cannot be checked against it. "
         "1 configuration failed to run and is ranked last."
     )
+
+
+def test_build_comparison_explanation_when_candidates_measured_on_other_points():
+    """
+    Test that the explanation gives the range of `n_evaluated` when the
+    candidates are measured on different numbers of points, summed across
+    series with several, and says that their metrics do not cover the same
+    points; candidates without the column (before skforecast 0.27) give no
+    sentence.
+    """
+    def entry(name, value, counts):
+        metrics = pd.DataFrame({
+            "levels": ["a", "b", "average"],
+            "mean_absolute_error": [value, value, value],
+            "n_evaluated": [*counts, sum(counts)],
+        })
+        backtest = SimpleNamespace(
+            plan=SimpleNamespace(forecaster="ForecasterRecursiveMultiSeries", estimator=None),
+            metrics=metrics,
+        )
+        return (name, backtest, value)
+
+    explanation = build_comparison_explanation(
+        n_candidates   = 2,
+        ranked         = [entry("full", 1.0, [20, 20]), entry("short", 2.0, [20, 12])],
+        ranking_metric = "mean_absolute_error",
+        any_error      = False,
+        cv_explanation = "Folds.",
+    )
+    without = build_comparison_explanation(
+        n_candidates   = 1,
+        ranked         = [_ranked_entry("model", "ForecasterRecursive", 1.0)],
+        ranking_metric = "mean_absolute_error",
+        any_error      = False,
+        cv_explanation = "Folds.",
+    )
+
+    assert (
+        "Shared cross-validation strategy: Folds. The configurations are "
+        "measured on 32 to 40 predictions with an observed value, summed "
+        "across series, (n_evaluated in the table: a count, not a metric, and "
+        "it does not change the ranking), so their metrics do not cover the "
+        "same points. Best: 'full'"
+    ) in explanation
+    assert "n_evaluated" not in without
 
 
 def test_build_comparison_explanation_when_only_baseline_ran():
@@ -2608,11 +2666,18 @@ def test_compare_ValueError_when_target_missing_in_test_folds():
         ({"metric": "f1_score"}, "Unknown metric 'f1_score'."),
         ({"metric": ["mean_absolute_error", "foo"]}, "Unknown metric 'foo'."),
         (
+            {"metric": ["mean_absolute_error", "n_evaluated"]},
+            "'n_evaluated' is not a metric",
+        ),
+        (
             {"interval": [5, 95]},
             "`interval` must be `[lower, upper]` with 0 < lower < upper < 1",
         ),
     ],
-    ids=["classification score", "unknown metric", "percentile interval"],
+    ids=[
+        "classification score", "unknown metric", "n_evaluated",
+        "percentile interval",
+    ],
 )
 def test_compare_ValueError_when_metric_or_interval_invalid(kwargs, match):
     """
@@ -3813,7 +3878,10 @@ def test_compare_strategy_plan_row_when_plan_was_refined(monkeypatch):
         "training up to 2003-04-01, trained once (no refit), 12-step horizon, "
         "6 folds (the last one has only 2 steps). ForecasterStats is refitted "
         "in every fold on a fixed window "
-        "(6 trainings): skforecast requires it for ARIMA models. Best: "
+        "(6 trainings): skforecast requires it for ARIMA models. Each "
+        "configuration is measured on 62 predictions with an observed value "
+        "(n_evaluated in the table: a count, not a metric, and it does not "
+        "change the ranking). Best: "
         "'ForecasterStats' (ForecasterStats / Arima) = 0.0607, 2.1% ahead of "
         "'ForecasterRecursive' (0.0620). 2 of 4 configurations beat the "
         "baseline 'Baseline (seasonal naive)' (0.0661): 'ForecasterStats' and "
@@ -3967,7 +4035,10 @@ def test_compare_strategy_plan_row_is_in_the_explanation_when_it_ran_last():
         "(16.2383); the rows named after a forecaster run the configurations "
         "the profile recommends, not that plan. Shared cross-validation "
         "strategy: Initial training up to 2023-03-11, trained once (no "
-        "refit), 5-step horizon, 6 folds. Best: 'ForecasterDirect' "
+        "refit), 5-step horizon, 6 folds. Each configuration is measured on 30 "
+        "predictions with an observed value (n_evaluated in the table: a "
+        "count, not a metric, and it does not change the ranking). Best: "
+        "'ForecasterDirect' "
         "(ForecasterDirect / Ridge) = 0.3163, 13.4% ahead of "
         "'ForecasterRecursive' (0.3652). 2 of 3 configurations beat the "
         "baseline 'Baseline (seasonal naive)' (7.0000); 'Strategy plan' does "
@@ -4516,6 +4587,7 @@ def test_compare_output_when_interval_adds_coverage_columns_without_changing_ran
         "rank", "name", "forecaster", "estimator", "mean_absolute_error",
         "root_mean_squared_error", "mean_absolute_scaled_error",
         "mean_absolute_percentage_error", "coverage", "interval_width",
+        "n_evaluated",
     ]
     assert list(result.results["name"]) == list(plain.results["name"])
     for _, row in result.results.iterrows():

@@ -25,6 +25,7 @@ from skforecast_ai.schemas import (
 )
 
 from tests.fixtures_assistant import df_single, make_comparison_result, patch_agent
+from tests.fixtures_llm import make_backtest_result, predictions_backtest
 
 
 # =============================================================================
@@ -354,6 +355,47 @@ def test_ask_no_DataSentToLLMWarning_when_send_data_to_llm_is_true(monkeypatch):
     with warnings.catch_warnings():
         warnings.simplefilter("error", DataSentToLLMWarning)
         assistant.ask(prompt="Why did it win?", context=comparison)
+
+
+@pytest.mark.parametrize(
+    "send_data_to_llm", [False, True], ids=lambda v: f"send_data_to_llm={v}"
+)
+def test_ask_sends_y_true_of_a_backtest_only_when_send_data_to_llm(
+    monkeypatch, send_data_to_llm
+):
+    """
+    Test that the observed values of a backtest (`y_true`, values of the
+    dataset) reach the LLM only with `send_data_to_llm=True`: without it no
+    value of the column, nor any statistic of it, is in the message and the
+    context says the column exists; the predicted values are sent either
+    way, with `DataSentToLLMWarning` when the flag is False.
+    """
+    assistant = ForecastingAssistant(
+        llm="openai:fake-model", send_data_to_llm=send_data_to_llm
+    )
+    result = make_backtest_result()
+    capture = {}
+    patch_agent(monkeypatch, assistant, output="It is accurate.", capture=capture)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DataSentToLLMWarning)
+        assistant.ask(prompt="How accurate is it?", context=result)
+
+    message = capture["message"]
+    observed = predictions_backtest["y_true"]
+    observed_values = [
+        str(value)
+        for value in [*observed, observed.min(), observed.max(), observed.mean()]
+    ]
+    withheld = "The predictions also have a `y_true` column"
+    assert "1000.0" in message
+    if send_data_to_llm:
+        assert "1003.125" in message
+        assert "y_true: min=1003.125, max=1100.625, mean=1051.875" in message
+        assert withheld not in message
+    else:
+        assert not [value for value in observed_values if value in message]
+        assert withheld in message
 
 
 def test_ask_output_when_forecast_result_provided(monkeypatch):
