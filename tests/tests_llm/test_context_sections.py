@@ -404,10 +404,53 @@ def test_render_script_section_describes_backtesting_script(
         "mean_absolute_scaled_error; one row per series when there are "
         "several; then `n_evaluated`, the number of points each row is "
         "measured on, which is not a metric), and predictions of every fold "
-        "with the columns `fold`, `step` (the step of the horizon) and "
-        "`y_true` (the observed value)\n"
+        "with the columns `fold`, `step` (the step of the horizon), "
+        "`y_true` (the observed value) and the point forecast `pred`\n"
     ) in section
     assert "prediction: trains on all the data" not in section
+
+
+@pytest.mark.parametrize(
+    "task_type, interval, interval_method, expected",
+    [
+        ("single_series", None, None, "the point forecast `pred`"),
+        (
+            "single_series",
+            [0.1, 0.9],
+            "bootstrapping",
+            "the point forecast `pred` and the bounds of the interval "
+            "(`lower_bound`, `upper_bound`)",
+        ),
+        (
+            "foundation",
+            [0.1, 0.9],
+            "native",
+            "the quantiles of the forecast (`q_0.1`, `q_0.5`, `q_0.9`; `q_0.5` "
+            "is the point forecast)",
+        ),
+    ],
+    ids=["no interval", "interval", "foundation quantiles"],
+)
+def test_render_script_section_names_the_prediction_columns_of_a_backtest(
+    task_type, interval, interval_method, expected
+):
+    """
+    Test that the outputs of a backtesting script name the columns of the
+    forecast after the identifiers and `y_true`: the point forecast, the
+    bounds of the interval of the plan, or the quantiles of a foundation
+    model. With the identifiers alone, the point forecast and the interval
+    were taken as absent.
+    """
+    backtest_plan = plan.model_copy(update={
+        "task_type"       : task_type,
+        "interval"        : interval,
+        "interval_method" : interval_method,
+    })
+    cv_config = {"steps": 5, "n_folds": 3, "n_fits": 1}
+
+    section = render_script_section(backtest_plan, _BACKTEST_CODE, cv_config=cv_config)
+
+    assert f"`y_true` (the observed value) and {expected}\n" in section
 
 
 def test_render_script_section_backtesting_script_says_how_to_get_its_metrics():
