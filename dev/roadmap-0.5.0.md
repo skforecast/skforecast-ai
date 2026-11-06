@@ -1990,6 +1990,25 @@ Hecho en [#126](https://github.com/skforecast/skforecast-ai/pull/126) (D34).
     `llm/skills.py`: `forecasting-multiple-series` suprime
     `baseline-forecasting`, porque `ForecasterEquivalentDate.fit` toma una
     sola serie y `compare()` no añade baseline con varias. Queda en 31.167.
+- **D37. El tope de skills sale de la ventana** (2026-11-06, skforecast
+  [#1447](https://github.com/skforecast/skforecast/pull/1447) y
+  [#1452](https://github.com/skforecast/skforecast/pull/1452)).
+  - Tras sincronizar los dos PRs, la peor selección de `single_series`
+    (19.506 tokens de skills) y de `statistical` (19.978) no cabía en la
+    ventana de 32.768: `llms-base.txt` creció 215 y deja sitio para 19.327,
+    y `MAX_SKILL_TOKENS` seguía en 20.000. Era la segunda vez en el ciclo
+    (D36 lo arregló con una supresión en las tablas).
+  - Ni otra supresión ni recortar los skills en skforecast (los usan agentes
+    con ventanas grandes, y seguirán creciendo): `_SKILL_TOKEN_CAP` de
+    `llm/skills.py` es el mínimo de `MAX_SKILL_TOKENS` y lo que deja la
+    ventana tras la respuesta, el prompt de rol y la referencia. Se ajusta
+    solo en cada sincronización; si una selección no cabe, el recorte que ya
+    existía quita el skill de menor prioridad (`baseline-forecasting` en
+    `single_series`, `hyperparameter-optimization` en `statistical`, solo
+    con una pregunta que toca todos los temas). Ollama ya recortaba por su
+    presupuesto real; cambia el tope de los proveedores sin ventana conocida.
+    Test del invariante en `test_select_skills.py`; las guías de skills y de
+    configuración del LLM dicen el tope nuevo.
 
 ## Decisiones abiertas
 
@@ -2026,6 +2045,8 @@ arranque de las sesiones en la nube instala skforecast desde su rama
 | Sin issue ([#1437](https://github.com/skforecast/skforecast/pull/1437)) | Salidas del backtesting, sin flag y anunciadas en su "Before upgrading": columnas `step` (QW-10) e `y_true` (QW-04) en las predicciones de los cuatro backtesting (orden `level, fold, step, y_true, pred, lower_bound, upper_bound`), columna `n_evaluated` (QW-12) en sus métricas, con la suma en los agregados, todas las columnas de predicción NaN en las fechas sin observado del backtesting multiserie, y `n_evaluated` como nombre reservado | [#137](https://github.com/skforecast/skforecast-ai/pull/137) (D35, D36): `n_evaluated` es una columna que no ordena en el leaderboard y se dice aparte de las métricas en resúmenes, contextos, tabla y SKILL.md; `y_true` llega a `ask()` solo con `send_data_to_llm=True`, y nunca a `describe()` ni al MCP; `step` sin estadísticos; la cobertura cuenta con `n_evaluated`; el resumen cuenta las predicciones NaN. Los skills sincronizados tras ella desbordaban la ventana de 32.768 con varias series: se arregla en las tablas de `llm/skills.py`. Goldens de backtest, comparación y scripts de backtest regenerados; una línea en "Before upgrading" de la 0.5.0. Suite en verde contra la cabeza de `0.27.x` (7.069 tests, 2026-11-03) | Resuelto en `0.27.x`, con [#137](https://github.com/skforecast/skforecast-ai/pull/137) |
 | Sin issue ([#1438](https://github.com/skforecast/skforecast/pull/1438)) | Las búsquedas multiserie eligen las métricas por nombre; la pinball se llama `mean_pinball_loss_q_{alpha}`; dos métricas con el mismo nombre, o una llamada `n_evaluated`, fallan con `ValueError` en `check_backtesting_input` | Nada que rodear: los nombres de métrica de skforecast-ai son un conjunto cerrado (`ALLOWED_METRICS`), sin pinball. [#137](https://github.com/skforecast/skforecast-ai/pull/137) hace que `validate_metrics` rechace con `InvalidInputError` (`invalid_argument` en el MCP) un nombre repetido, también en el `metrics_to_compute` de un plan hecho a mano, y `n_evaluated` con su propio mensaje, antes de llegar al script. Importará en el ajuste de hiperparámetros de la 0.6.0 | Resuelto en `0.27.x` (2026-11-03) |
 | Sin issue ([#1440](https://github.com/skforecast/skforecast/pull/1440)) | `fetch_dataset`, `load_demo_dataset` y `show_datasets_info` deprecan `version` (sin efecto: skforecast-datasets no tiene tags; `FutureWarning`, se quita en la 0.29.0), y `load_demo_dataset` se apoya en `fetch_dataset` (misma Series; si la descarga falla, `ValueError` con la URL en vez del `HTTPError` de urllib) | Nada: ninguna llamada del repositorio pasa `version` (paquete, tests, `tools/`, README, guías y notebooks), y nada captura el error de `load_demo_dataset`. El snippet del README y de `how-to-install.md` corre sin avisos (`-W error`) contra la cabeza de `0.27.x`, y los assets sincronizados coinciden con ella (`sync_skforecast_assets.py --check`, 2026-11-03) | Resuelto en `0.27.x` (2026-11-02) |
+| Sin issue ([#1447](https://github.com/skforecast/skforecast/pull/1447)) | Las búsquedas multiserie dan `n_evaluated` por candidato y avisan una vez (`MissingValuesWarning`) cuando unos candidatos se miden sobre menos puntos que otros; `n_evaluated` como nombre de métrica falla en todas las búsquedas; con `OneStepAheadFold` y `levels` un subconjunto, `pooling` agrega solo `levels` | Nada hoy: skforecast-ai no lanza búsquedas. Crecen los skills `hyperparameter-optimization` y `forecasting-multiple-series` y `llms-base.txt`, que dejaron dos selecciones por encima de la ventana (D37). Importará en el ajuste de hiperparámetros de la 0.6.0 | Resuelto en `0.27.x` (2026-11-04); assets sincronizados (2026-11-06) |
+| Sin issue ([#1452](https://github.com/skforecast/skforecast/pull/1452)) | Los avisos de las búsquedas se muestran una vez y agrupados, `n_evaluated` llega a todas las búsquedas, y cambian dos textos del backtesting: el de predicciones NaN (#1432, ahora empieza por una frase fija) y el de series demasiado cortas para la ventana (#1415, más corto) | Nada: ningún código ni test de skforecast-ai depende de esos textos (el test que busca "predictions are NaN at dates with observed values" mira el `ForecastExecutionError` propio). Suite en verde contra la cabeza de `0.27.x` (`70bfeba`) tras D37: 7.079 | Resuelto en `0.27.x` (2026-11-06); assets sincronizados (2026-11-06) |
 
 Detalle de cada uno:
 
