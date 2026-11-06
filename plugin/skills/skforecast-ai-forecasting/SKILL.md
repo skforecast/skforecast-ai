@@ -315,7 +315,8 @@ the `estimator_kwargs` `context_length`, `cross_learning`,
 `n_fourier_terms`. Models whose license
 restricts commercial use, whose weights are gated or whose provider
 requires an account (today the prefixes `google/timesfm-3.0`,
-`Salesforce/moirai-2`, `priorlabs/tabpfn` and `taharnbl/TS-ICL`), and any
+`Salesforce/moirai-2`, `priorlabs/tabpfn`, `taharnbl/TS-ICL` and
+`mistralai/Timestral`), and any
 model for which skforecast gives no license information, only run when
 the user started the server with `--allow-model PREFIX`; without it they
 are `model_not_allowed`. A model

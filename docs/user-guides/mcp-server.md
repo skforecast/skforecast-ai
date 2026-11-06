@@ -290,6 +290,7 @@ The server reads the license of each foundation model from skforecast. By defaul
 | Moirai | `Salesforce/moirai-2` | With `--allow-model` | CC-BY-NC-4.0 |
 | TabPFN | `priorlabs/tabpfn` | With `--allow-model` | Non-commercial; Prior Labs requires an account and accepting its license |
 | TS-ICL | `taharnbl/TS-ICL` | With `--allow-model` | Non-commercial |
+| Timestral | `mistralai/Timestral` | With `--allow-model` | Modified MIT: no rights for companies above USD 20 million of monthly revenue |
 
 Without the option, `plan`, `refine_plan` and `compare` reject those models with `model_not_allowed`, whose hint tells the agent which option to ask you for.
 

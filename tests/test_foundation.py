@@ -113,13 +113,21 @@ def test_resolve_foundation_model_TypeError_when_model_id_not_str():
         ("pandas[performance]", True),
         ("package-that-is-not-installed-abc", False),
         ("package-that-is-not-installed-abc[torch]", False),
+        ("pandas>=1.0", True),
+        ("pandas @ git+https://github.com/pandas-dev/pandas.git", True),
+        (
+            "package-that-is-not-installed-abc @ git+https://example.com/abc.git",
+            False,
+        ),
     ],
     ids=lambda dt: f"backend_package, expected: {dt}",
 )
 def test_foundation_backend_installed_output(backend_package, expected):
     """
     Test that the backend check reads the installed distribution named by
-    `backend_package`, ignoring the extras.
+    `backend_package`, ignoring the extras, a version specifier and the
+    source of a direct reference (the backend of Timestral is
+    `timestral @ git+https://github.com/mistralai/timestral.git`).
     """
     info = dataclasses.replace(
         get_model_info("autogluon/chronos-2-small"),

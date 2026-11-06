@@ -1919,8 +1919,13 @@ def _pinned(package: str) -> str:
     """
     A package with the version installed where the server runs
     (`'pandas==2.3.1'`), or the package alone when it is not installed.
+    A direct reference (`'timestral @ git+https://...'`, the backend of
+    Timestral) is kept as it is: it names its source, and a version after
+    the URL would make the requirement invalid.
     """
 
+    if "@" in package:
+        return package
     try:
         return f"{package}=={metadata.version(package.split('[', 1)[0])}"
     except metadata.PackageNotFoundError:

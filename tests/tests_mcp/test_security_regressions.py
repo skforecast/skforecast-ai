@@ -505,7 +505,7 @@ def test_security_restricted_models_are_the_documented_ones():
     """
     Test that the foundation models the server rejects by default, derived
     from the information skforecast registers, are TimesFM 3.0, Moirai,
-    TabPFN and TS-ICL, and that Chronos-2, TimesFM 2.5, TabICL, t0 and Nori
+    TabPFN, TS-ICL and Timestral, and that Chronos-2, TimesFM 2.5, TabICL, t0 and Nori
     run without `--allow-model`.
     """
     assert RESTRICTED_MODELS == [
@@ -513,6 +513,7 @@ def test_security_restricted_models_are_the_documented_ones():
         "Salesforce/moirai-2.0-R-small",
         "priorlabs/tabpfn-ts",
         "taharnbl/TS-ICL",
+        "mistralai/Timestral-28M",
     ]
     assert [info.default_model_id for info in permissive_adapters()] == [
         "autogluon/chronos-2-small",

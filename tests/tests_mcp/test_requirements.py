@@ -55,6 +55,25 @@ def test_requirements_backend_of_the_foundation_model():
     assert [name.split("==")[0] for name in unknown] == ["pandas", "skforecast"]
 
 
+def test_requirements_backend_of_a_direct_reference_is_kept_as_it_is():
+    """
+    Test that a backend that skforecast gives as a direct reference (that
+    of Timestral, installed from its git repository) is the last
+    requirement as it is, without a version after the URL, which would
+    make it invalid.
+    """
+    code = (
+        "import pandas as pd\n"
+        "from skforecast.foundation import FoundationModel, ForecasterFoundation\n"
+    )
+
+    requirements = _requirements(code, "mistralai/Timestral-28M")
+
+    assert requirements[-1] == (
+        "timestral @ git+https://github.com/mistralai/timestral.git"
+    )
+
+
 def test_requirements_no_backend_when_the_script_loads_no_model():
     """
     Test that the script of a cross-validation strategy, which builds the

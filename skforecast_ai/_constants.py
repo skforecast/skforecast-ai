@@ -84,6 +84,7 @@ FOUNDATION_MODEL_ID_PREFIXES: tuple[str, ...] = (
     "theforecastingcompany/t0",
     "Synthefy/Nori",
     "taharnbl/TS-ICL",
+    "mistralai/Timestral",
 )
 
 BASELINE_FORECASTERS: set[str] = {

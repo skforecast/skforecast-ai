@@ -123,13 +123,41 @@ def foundation_context_length(
     return int(context_length)
 
 
+# Name of the distribution at the start of a requirement: `timesfm[torch]`,
+# `tabpfn-time-series>=1.3` or a direct reference such as
+# `timestral @ git+https://github.com/mistralai/timestral.git`.
+_DISTRIBUTION_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+
+
+def backend_distribution(requirement: str) -> str:
+    """
+    Distribution name of the backend requirement of a foundation model
+    (`FoundationModelInfo.backend_package`), without extras, version
+    specifiers or the URL of a direct reference.
+
+    Parameters
+    ----------
+    requirement : str
+        Requirement as passed to `pip install`.
+
+    Returns
+    -------
+    name : str
+        Name of the distribution, as installed.
+    """
+
+    return _DISTRIBUTION_NAME.match(requirement.strip()).group(0)
+
+
 def foundation_backend_installed(info: FoundationModelInfo) -> bool:
     """
     Check whether the backend package of a foundation model is installed.
 
     The check reads the installed distributions and imports nothing, so it
-    is cheap and never loads a deep learning framework. Only the package
-    is checked: extras such as `timesfm[torch]` are not.
+    is cheap and never loads a deep learning framework. Only the
+    distribution is checked: extras such as `timesfm[torch]`, a version
+    specifier or the source of a direct reference (`timestral @ git+...`)
+    are not.
 
     Parameters
     ----------
@@ -142,7 +170,7 @@ def foundation_backend_installed(info: FoundationModelInfo) -> bool:
     installed : bool
         Whether the distribution of `info.backend_package` is installed.
     """
-    package = info.backend_package.split("[", 1)[0]
+    package = backend_distribution(info.backend_package)
     try:
         distribution(package)
     except PackageNotFoundError:

@@ -339,7 +339,7 @@
             }
           ],
           "default": null,
-          "description": "Estimator: one of ['CatBoostRegressor', 'HistGradientBoostingRegressor', 'LGBMRegressor', 'RandomForestRegressor', 'Ridge', 'XGBRegressor'] for the machine learning forecasters, 'Arima' for ForecasterStats, or the Hugging Face model id of a foundation model for ForecasterFoundation (default 'autogluon/chronos-2-small'; model id prefixes: ['amazon/chronos-2', 'autogluon/chronos-2', 'google/timesfm-2.5', 'google/timesfm-3.0', 'Salesforce/moirai-2', 'soda-inria/tabicl', 'priorlabs/tabpfn', 'theforecastingcompany/t0', 'Synthefy/Nori', 'taharnbl/TS-ICL']). ForecasterEquivalentDate takes none. Null for the recommendation."
+          "description": "Estimator: one of ['CatBoostRegressor', 'HistGradientBoostingRegressor', 'LGBMRegressor', 'RandomForestRegressor', 'Ridge', 'XGBRegressor'] for the machine learning forecasters, 'Arima' for ForecasterStats, or the Hugging Face model id of a foundation model for ForecasterFoundation (default 'autogluon/chronos-2-small'; model id prefixes: ['amazon/chronos-2', 'autogluon/chronos-2', 'google/timesfm-2.5', 'google/timesfm-3.0', 'Salesforce/moirai-2', 'soda-inria/tabicl', 'priorlabs/tabpfn', 'theforecastingcompany/t0', 'Synthefy/Nori', 'taharnbl/TS-ICL', 'mistralai/Timestral']). ForecasterEquivalentDate takes none. Null for the recommendation."
         },
         "estimator_kwargs": {
           "anyOf": [
@@ -721,7 +721,7 @@
               "type": "string"
             },
             "estimator": {
-              "description": "Estimator: one of ['CatBoostRegressor', 'HistGradientBoostingRegressor', 'LGBMRegressor', 'RandomForestRegressor', 'Ridge', 'XGBRegressor'] for the machine learning forecasters, 'Arima' for ForecasterStats, or the Hugging Face model id of a foundation model for ForecasterFoundation (default 'autogluon/chronos-2-small'; model id prefixes: ['amazon/chronos-2', 'autogluon/chronos-2', 'google/timesfm-2.5', 'google/timesfm-3.0', 'Salesforce/moirai-2', 'soda-inria/tabicl', 'priorlabs/tabpfn', 'theforecastingcompany/t0', 'Synthefy/Nori', 'taharnbl/TS-ICL']). ForecasterEquivalentDate takes none.",
+              "description": "Estimator: one of ['CatBoostRegressor', 'HistGradientBoostingRegressor', 'LGBMRegressor', 'RandomForestRegressor', 'Ridge', 'XGBRegressor'] for the machine learning forecasters, 'Arima' for ForecasterStats, or the Hugging Face model id of a foundation model for ForecasterFoundation (default 'autogluon/chronos-2-small'; model id prefixes: ['amazon/chronos-2', 'autogluon/chronos-2', 'google/timesfm-2.5', 'google/timesfm-3.0', 'Salesforce/moirai-2', 'soda-inria/tabicl', 'priorlabs/tabpfn', 'theforecastingcompany/t0', 'Synthefy/Nori', 'taharnbl/TS-ICL', 'mistralai/Timestral']). ForecasterEquivalentDate takes none.",
               "type": "string"
             },
             "estimator_kwargs": {
@@ -1631,7 +1631,7 @@
               "type": "string"
             },
             "estimator": {
-              "description": "Estimator: one of ['CatBoostRegressor', 'HistGradientBoostingRegressor', 'LGBMRegressor', 'RandomForestRegressor', 'Ridge', 'XGBRegressor'] for the machine learning forecasters, 'Arima' for ForecasterStats, or the Hugging Face model id of a foundation model for ForecasterFoundation (default 'autogluon/chronos-2-small'; model id prefixes: ['amazon/chronos-2', 'autogluon/chronos-2', 'google/timesfm-2.5', 'google/timesfm-3.0', 'Salesforce/moirai-2', 'soda-inria/tabicl', 'priorlabs/tabpfn', 'theforecastingcompany/t0', 'Synthefy/Nori', 'taharnbl/TS-ICL']). ForecasterEquivalentDate takes none.",
+              "description": "Estimator: one of ['CatBoostRegressor', 'HistGradientBoostingRegressor', 'LGBMRegressor', 'RandomForestRegressor', 'Ridge', 'XGBRegressor'] for the machine learning forecasters, 'Arima' for ForecasterStats, or the Hugging Face model id of a foundation model for ForecasterFoundation (default 'autogluon/chronos-2-small'; model id prefixes: ['amazon/chronos-2', 'autogluon/chronos-2', 'google/timesfm-2.5', 'google/timesfm-3.0', 'Salesforce/moirai-2', 'soda-inria/tabicl', 'priorlabs/tabpfn', 'theforecastingcompany/t0', 'Synthefy/Nori', 'taharnbl/TS-ICL', 'mistralai/Timestral']). ForecasterEquivalentDate takes none.",
               "type": "string"
             },
             "estimator_kwargs": {

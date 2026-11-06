@@ -35,7 +35,7 @@ def test_is_permissive_splits_the_adapters_of_skforecast():
     """
     Test the split of the adapters of the installed skforecast: Chronos-2,
     TimesFM 2.5, TabICL, Nori and T0 run without `--allow-model`; TimesFM
-    3.0, Moirai, TabPFN and TS-ICL need it. A change of skforecast that
+    3.0, Moirai, TabPFN, TS-ICL and Timestral need it. A change of skforecast that
     moves an adapter fails here, so it is seen in review.
     """
     assert [info.adapter for info in permissive_adapters()] == [
@@ -50,6 +50,7 @@ def test_is_permissive_splits_the_adapters_of_skforecast():
         "MoiraiAdapter",
         "TabPFNAdapter",
         "TSICLAdapter",
+        "TimestralAdapter",
     ]
 
 
