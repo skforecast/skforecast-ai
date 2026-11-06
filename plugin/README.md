@@ -27,6 +27,7 @@ uvx skforecast-ai-mcp==<version> --allow-project-dir
 - **It writes** predictions, metrics and leaderboards to a new temporary directory, never into your project.
 - **It runs** the generated forecasting scripts in the process of the server, with your permissions.
 - **It opens no network connection itself.** Foundation models need a backend package that the plugin does not install. If you add one, it downloads the weights of the model from the Hugging Face Hub the first time and checks them on each run, without sending data.
+- **It reads no credential.** Like every local MCP server, it inherits the environment of the agent, API keys included, and does not read them. The one exception is the Hugging Face Hub client that a foundation model backend brings: if you saved a Hugging Face token (`HF_TOKEN` or `hf auth login`), it sends that token to huggingface.co when it downloads or checks the weights, as in any other program. `HF_HUB_OFFLINE=1` keeps it from connecting once the weights are in the cache.
 
 There are no hooks, no commands and no other scripts in the plugin.
 
