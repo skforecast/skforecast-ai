@@ -12,6 +12,7 @@ from skforecast_ai.llm.skills import (
     estimate_prompt_tokens,
     select_skills,
     _REFERENCE_TOKEN_ESTIMATE,
+    _SKILL_TOKEN_CAP,
     _SKILL_TOKEN_ESTIMATES,
     _STATIC_PROMPT_TOKEN_ESTIMATE,
 )
@@ -487,7 +488,7 @@ def test_worst_reachable_selection_fits_the_smallest_window(task_type):
 
 def test_select_skills_applies_the_cap_without_an_explicit_budget():
     """
-    Test that `MAX_SKILL_TOKENS` is enforced even when no budget is passed.
+    Test that the skill cap is enforced even when no budget is passed.
 
     Only local models expose a context window up front, so a hosted model
     is called with `token_budget=None`; without the cap a question that
@@ -497,7 +498,7 @@ def test_select_skills_applies_the_cap_without_an_explicit_budget():
         task_type="single_series", question=ALL_TOPICS_QUESTION
     )
 
-    assert sum(_SKILL_TOKEN_ESTIMATES[s] for s in uncapped) <= MAX_SKILL_TOKENS
+    assert sum(_SKILL_TOKEN_ESTIMATES[s] for s in uncapped) <= _SKILL_TOKEN_CAP
     assert uncapped[0] == "choosing-a-forecaster"
     # The question matches every pattern, so the cap must have dropped the
     # lowest-priority matches.
@@ -611,3 +612,26 @@ def test_select_skills_logs_info_when_trimmed(caplog):
         )
 
     assert any("trimmed" in record.message.lower() for record in caplog.records)
+
+
+
+def test_skill_token_cap_is_the_room_the_smallest_window_leaves():
+    """
+    Test that the skill cap is the room that the smallest supported window
+    leaves next to the API reference, the role prompt and the reserved
+    answer, never above `MAX_SKILL_TOKENS`: a sync that grows
+    `llms-base.txt` lowers it instead of pushing a selection over the window.
+    """
+    room = (
+        OLLAMA_MAX_CONTEXT_TOKENS
+        - RESERVED_RESPONSE_TOKENS
+        - _STATIC_PROMPT_TOKEN_ESTIMATE
+        - _REFERENCE_TOKEN_ESTIMATE
+    )
+
+    assert _SKILL_TOKEN_CAP == min(room, MAX_SKILL_TOKENS)
+    assert (
+        estimate_prompt_tokens(skills=[], include_reference=True)
+        + _SKILL_TOKEN_CAP
+        + RESERVED_RESPONSE_TOKENS
+    ) <= OLLAMA_MAX_CONTEXT_TOKENS

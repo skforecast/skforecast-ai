@@ -49,8 +49,9 @@ RESERVED_RESPONSE_TOKENS = 2048
 # Ceiling on the skill content of a single request, applied whatever the
 # provider. Hosted context windows are not known up front, so without it a
 # question matching many topics is sent unbounded and fails at the provider.
-# Sized so that the skills, the API reference, the role prompt and the reserved
-# answer still fit a 32k window.
+# An upper bound: `select_skills` lowers it to the room a 32k window leaves
+# next to the API reference, the role prompt and the reserved answer, which
+# shrinks as the synced reference grows (`_SKILL_TOKEN_CAP` in llm/skills.py).
 MAX_SKILL_TOKENS = 20_000
 
 # Ceiling for the static role prompt. It is paid on every call and is not

@@ -215,7 +215,7 @@ skforecast-ai check-llm --test-call --format json
 
 ## Skills and the API reference
 
-`ask()` briefs the model with skill documents chosen for the question: skforecast know-how synced from the skforecast repository. With `skills=None`, the default, the selection starts from the task type of the context and adds the skills matched by keywords in the question; pass a list to choose them yourself, or `skills=[]` to send none. `include_reference=True` adds the skforecast API reference (about 8500 tokens) on top; it is off by default. The skill content of one request is capped at 20 000 tokens for every provider, and additionally budgeted against the 32768 token window for Ollama. `AskResult.skills` records what was actually sent. The names, the selection rules and examples are in [Skills: how the LLM is briefed](skills.md).
+`ask()` briefs the model with skill documents chosen for the question: skforecast know-how synced from the skforecast repository. With `skills=None`, the default, the selection starts from the task type of the context and adds the skills matched by keywords in the question; pass a list to choose them yourself, or `skills=[]` to send none. `include_reference=True` adds the skforecast API reference (about 10,000 tokens) on top; it is off by default. The skill content of one request is capped for every provider at what a 32768 token window leaves next to the role prompt, the API reference and the answer (about 19,000 tokens, at most 20,000), and additionally budgeted against that window, with the rendered context, for Ollama. `AskResult.skills` records what was actually sent. The names, the selection rules and examples are in [Skills: how the LLM is briefed](skills.md).
 
 ---
 

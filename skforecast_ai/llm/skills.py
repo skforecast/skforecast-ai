@@ -10,7 +10,11 @@ import logging
 import re
 from functools import lru_cache
 from pathlib import Path
-from .._constants import MAX_SKILL_TOKENS, RESERVED_RESPONSE_TOKENS
+from .._constants import (
+    MAX_SKILL_TOKENS,
+    OLLAMA_MAX_CONTEXT_TOKENS,
+    RESERVED_RESPONSE_TOKENS,
+)
 from .prompts import _DOCUMENTATION_PREAMBLE, _STATIC_ROLE_PROMPT
 
 logger = logging.getLogger(__name__)
@@ -143,6 +147,20 @@ _STATIC_PROMPT_TOKEN_ESTIMATE = (
     len(_STATIC_ROLE_PROMPT) + len(_DOCUMENTATION_PREAMBLE)
 ) // 4
 
+# Skill content of a request without a known window (hosted providers): the
+# skills, the API reference, the role prompt and the reserved answer must fit
+# the smallest supported window. The reference grows with the syncs of
+# `llms-base.txt`, so the room left for skills is derived from it instead of
+# fixed: a fixed cap went over the window twice (skforecast 0.27.0), and each
+# time a task had to be rerouted by hand. `MAX_SKILL_TOKENS` stays the ceiling.
+_SKILL_TOKEN_CAP = min(
+    MAX_SKILL_TOKENS,
+    OLLAMA_MAX_CONTEXT_TOKENS
+    - RESERVED_RESPONSE_TOKENS
+    - _STATIC_PROMPT_TOKEN_ESTIMATE
+    - _REFERENCE_TOKEN_ESTIMATE,
+)
+
 _DOCS_VERSION_PATTERN = re.compile(r"^- Version:\s*(\S+)", re.M)
 
 
@@ -263,9 +281,11 @@ def select_skills(
         The user's natural-language question.
     token_budget : int, None, default None
         Maximum tokens available for skill content. If None, only the
-        provider-independent `MAX_SKILL_TOKENS` ceiling applies. When set,
-        the stricter of the two is used and skills are included in order
-        until it is exhausted.
+        provider-independent cap applies: the room the smallest supported
+        window leaves next to the API reference, the role prompt and the
+        reserved answer, at most `MAX_SKILL_TOKENS`. When set, the stricter
+        of the two is used and skills are included in order until it is
+        exhausted.
 
     Returns
     -------
@@ -297,9 +317,9 @@ def select_skills(
     selected.sort(key=lambda s: _SKILL_PRIORITY.get(s, len(_SKILL_PRIORITY)))
 
     budget = (
-        MAX_SKILL_TOKENS
+        _SKILL_TOKEN_CAP
         if token_budget is None
-        else min(token_budget, MAX_SKILL_TOKENS)
+        else min(token_budget, _SKILL_TOKEN_CAP)
     )
     before_trim = list(selected)
     selected = _trim_to_budget(selected, budget)
