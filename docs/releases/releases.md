@@ -137,7 +137,7 @@ The main changes in this release are:
 
 + The predictions of [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` carry the `step` of the horizon and the observed value `y_true` of skforecast 0.27, and their metrics end with `n_evaluated`, the number of points each row is measured on. It is not a metric: the table of `compare()` has it as a column that does not rank, and the summaries state it apart from the metrics ([#137](https://github.com/skforecast/skforecast-ai/pull/137)).
 
-+ [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` of a single series run when a test fold has missing target values, which they rejected: skforecast 0.27 leaves those dates out of the metrics, and the explanation counts them. They still raise when no test date has a value, and `forecast()` with `test_size` still rejects them.
++ [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` of a single series run when a test fold has missing target values, which they rejected: skforecast 0.27 leaves those dates out of the metrics, and the explanation counts them. They still raise when no test date has a value, and `forecast()` with `test_size` still rejects them ([#139](https://github.com/skforecast/skforecast-ai/pull/139)).
 
 + `y_true` holds values of your data, so [<code>ForecastingAssistant.ask()</code>][assistant] sends them only with `send_data_to_llm=True`; otherwise its context says the column exists, as `describe()` and the summaries of the MCP server always do. See [LLM configuration][llm-config] ([#137](https://github.com/skforecast/skforecast-ai/pull/137)).
 
