@@ -27,8 +27,8 @@ def _profile(**kwargs):
 
 
 _SCORED = (
-    " A missing value on a date that a backtest or `test_size` scores fails "
-    "with any estimator."
+    " A missing value on a date that `test_size` scores fails with any "
+    "estimator; a backtest leaves those dates out of its metrics."
 )
 _IMPUTE = " Imputing the target, after asking the user, avoids these errors."
 _SNIPPET_RIDGE = (
@@ -96,8 +96,7 @@ _EXOG_RIDGE = (
                 "out of the folds predicted from one), and `dropna_from_series` "
                 "only drops the training rows that read one. An estimator that "
                 "accepts missing values (such as 'LGBMRegressor') predicts from "
-                "them. A missing value on a date that `test_size` scores fails "
-                "with any estimator." + _IMPUTE,
+                "them." + _SCORED + _IMPUTE,
                 "# Option 1: an estimator that accepts missing values, "
                 "estimator='LGBMRegressor'\n"
                 "# Option 2: impute them in the data, after asking the user",
@@ -158,9 +157,10 @@ def test_missing_values_advice_output(
     the one of the rules (RandomForestRegressor for 120 observations,
     LGBMRegressor for 360 pooled) and filling them in, after asking the
     user; a missing exogenous column can also be left out of
-    `exog_columns`. A missing value that an evaluation scores fails with any
-    estimator (a backtest of several series drops them), and with the
-    differentiation so does one of the last values before a prediction.
+    `exog_columns`. A missing value that the evaluation of `test_size`
+    scores fails with any estimator (a backtest leaves it out of its
+    metrics), and with the differentiation so does one of the last values
+    before a prediction.
     ForecasterStats, without estimator or `dropna_from_series`, is told to
     impute.
     """

@@ -1987,10 +1987,10 @@ def validate_backtest_windows(
     Every fold is predicted from the values before it, as a forecast is from
     the last ones, and `dropna_from_series` only drops the missing values
     from the training matrices. A missing value (or a missing timestamp,
-    which `asfreq()` restores as one) that a lag reads in a fold gave
-    missing predictions and the metrics failed on them with "Input contains
-    NaN", although the same plan forecasts when its last values are
-    complete. ForecasterDirectMultiVariate never leaves a series out of the
+    which `asfreq()` restores as one) that a lag reads in a fold gives
+    missing predictions, which skforecast rejects inside the script (the
+    metrics failed on them with "Input contains NaN" before 0.27.0),
+    although the same plan forecasts when its last values are complete. ForecasterDirectMultiVariate never leaves a series out of the
     window it predicts from, so a missing value of any series there gave
     missing predictions of its level, which the metrics left out without a
     warning. The rule is that of the prediction mode
@@ -2700,8 +2700,8 @@ def warn_backtest_missing_values(plan: ForecastPlan, profile: DataProfile) -> No
     are is not known without the data, so the warning says when the
     backtest fails and what avoids it, each case a condition: `backtest()`
     checks every fold of the target and of the exogenous columns before
-    running (see `_check_evaluated_target`, `validate_backtest_windows` and
-    `validate_backtest_exog`).
+    running (see `validate_backtest_windows` and `validate_backtest_exog`;
+    `_check_evaluated_target` only rejects test folds without any value).
 
     Parameters
     ----------

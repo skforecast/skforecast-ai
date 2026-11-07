@@ -30,11 +30,14 @@ NO_BACKTEST = (
     " If you forecast without a backtest, say in your answer that the "
     "forecast has no measure of error and why."
 )
-IN_TEST_FOLD = (
-    "The target has 1 missing value(s) in test fold 5 of 6 (2007-10-01 "
-    "00:00:00), counting the missing timestamps that asfreq() restores. "
-    "skforecast cannot compute the metrics on them, whatever the estimator. "
-    "Impute the target, or evaluate on dates without missing values."
+EXOG_IN_TEST_FOLD = (
+    "The forecaster reads missing values of the exogenous variables to "
+    "predict 1 of the 6 test folds ('promo': 1 value(s), such as "
+    "'2008-02-01'). ForecasterRecursive with Ridge cannot use them, so its "
+    "predictions would be missing. Either they are filled in, after asking "
+    "the user, or the plan uses an estimator that accepts missing values "
+    "(such as 'RandomForestRegressor'), or the column is left out of "
+    "`exog_columns` when profiling."
 )
 
 
@@ -64,14 +67,16 @@ def test_server_workflow_when_target_and_exog_have_missing_values(tmp_path):
       after asking the user, or leaving the column out; never
       `dropna_from_series`, which the plan already sets.
     - `create_cv` leaves the values to the user, says that `backtest`
-      checks the folds before running, and offers that estimator without
-      promising that it lets every fold run; the library warns about the
-      target and the column apart.
-    - `backtest` names the date and the fold, says that no estimator avoids
-      it, and carries the hint that leaves the values to the user.
-    - With the estimator the notice named, `create_cv` offers no other one
-      and the column is no longer a problem, and `backtest` fails the same
-      way: what the notice did not promise.
+      checks the folds before running, and offers that estimator for the
+      error it avoids; the library warns about the target and the column
+      apart.
+    - `backtest` names the date of the missing exogenous value that a fold
+      reads and the estimator that avoids it, and carries the hint that
+      leaves the values to the user. The missing value of the target inside
+      a test fold is no error.
+    - With the estimator the notice named, `create_cv` has nothing to say,
+      and `backtest` runs: the metrics leave out the test date without a
+      value, and the explanation counts it.
     """
     path = write_csv(tmp_path, "monthly.csv", _monthly_data())
     server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
@@ -107,9 +112,8 @@ def test_server_workflow_when_target_and_exog_have_missing_values(tmp_path):
             cv_refined = content_of(
                 await client.call_tool("create_cv", {"plan_id": refined["id"]})
             )
-            backtest_refined = error_of(
-                await client.call_tool("backtest", {"cv_id": cv_refined["id"]}),
-                "backtest",
+            backtest_refined = content_of(
+                await client.call_tool("backtest", {"cv_id": cv_refined["id"]})
             )
             return plan, cv, backtest, cv_refined, backtest_refined
 
@@ -123,9 +127,10 @@ def test_server_workflow_when_target_and_exog_have_missing_values(tmp_path):
         "with Ridge cannot predict from them, and `dropna_from_series` only "
         "drops the training rows that read one. An estimator that accepts "
         "missing values (such as 'RandomForestRegressor') predicts from them. A "
-        "missing value on a date that a backtest or `test_size` scores fails "
-        "with any estimator. Imputing the target, after asking the user, avoids "
-        "these errors. The exogenous column 'promo' has missing values: "
+        "missing value on a date that `test_size` scores fails with any "
+        "estimator; a backtest leaves those dates out of its metrics. Imputing "
+        "the target, after asking the user, avoids these errors. The exogenous "
+        "column 'promo' has missing values: "
         "ForecasterRecursive with Ridge cannot predict from them, and "
         "`dropna_from_series` only drops the training rows that have one. An "
         "estimator that accepts missing values (such as 'RandomForestRegressor') "
@@ -145,35 +150,23 @@ def test_server_workflow_when_target_and_exog_have_missing_values(tmp_path):
         "a new `create_cv` to an estimator that accepts missing values (such "
         "as 'RandomForestRegressor') lets the plan predict from the missing "
         "exogenous values and, for the target, avoids the error of a fold "
-        "predicted from a missing value, not of a fold that holds one: if you "
-        "switch to it, say in your answer that you changed the estimator and "
-        "why." + NO_BACKTEST
+        "predicted from a missing value: if you switch to it, say in your "
+        "answer that you changed the estimator and why." + NO_BACKTEST
     ]
     assert [message[:44] for message in notices["UserWarning"]] == [
         "The target has missing values, and `backtest",
         "The exogenous column 'promo' has missing val",
     ]
     assert (backtest["code"], backtest["field"]) == ("invalid_argument", "data_path")
-    assert backtest["message"] == IN_TEST_FOLD
+    assert backtest["message"] == EXOG_IN_TEST_FOLD
     assert backtest["hint"] == DATA_VALUES_HINT
 
-    assert [
-        (notice["category"], notice["message"]) for notice in cv_refined["notices"]
-    ] == [
-        (
-            "MissingValuesNotice",
-            "The missing values of the target " + LEAVE + RUN + NO_BACKTEST,
-        ),
-        (
-            "UserWarning",
-            "The target has missing values, and `backtest()` checks every test "
-            "fold before running: it raises, naming the dates, when a test fold "
-            "holds one, whatever the estimator, since no metric is computed on "
-            "it. Impute the target to backtest every fold.",
-        ),
-    ]
-    assert backtest_refined["message"] == IN_TEST_FOLD
-    assert backtest_refined["hint"] == DATA_VALUES_HINT
+    assert cv_refined["notices"] == []
+    assert (
+        "They are measured on 35 predictions with an observed value "
+        "(n_evaluated). The metrics leave out 1 test date without an observed "
+        "value of the target."
+    ) in backtest_refined["summary"]
 
 
 def test_server_backtest_when_missing_values_leave_no_training_row(tmp_path):

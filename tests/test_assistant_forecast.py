@@ -2005,9 +2005,10 @@ def test_forecast_evaluation_mode_with_time_zone(tz):
     err_msg = re.escape(
         "The target has 1 missing value(s) in the test split "
         f"(2008-02-01 00:00:00{offset}), counting the missing timestamps that "
-        "asfreq() restores. skforecast cannot compute the metrics on them, "
-        "whatever the estimator. Impute the target, or evaluate on dates "
-        "without missing values."
+        "asfreq() restores. The metrics of the evaluation cannot be computed "
+        "on them, whatever the estimator. Impute the target, or evaluate on "
+        "dates without missing values. `backtest()` leaves the dates without "
+        "a value out of its metrics."
     )
     with pytest.warns(MissingValuesWarning):
         with pytest.raises(InvalidInputError, match=err_msg):
@@ -2088,9 +2089,9 @@ def test_forecast_evaluation_mode_with_direct_multivariate_checks_the_level():
     err_msg = re.escape(
         "The target has 1 missing value(s) in the test split "
         "(2012-04-25 00:00:00), counting the missing timestamps that asfreq() "
-        "restores. skforecast cannot compute the metrics on them, whatever the "
-        "estimator. Impute the target, or evaluate on dates without missing "
-        "values."
+        "restores. The metrics of the evaluation cannot be computed on them, "
+        "whatever the estimator. Impute the target, or evaluate on dates "
+        "without missing values."
     )
     with pytest.warns(MissingValuesWarning):
         with pytest.raises(InvalidInputError, match=err_msg) as exc_info:

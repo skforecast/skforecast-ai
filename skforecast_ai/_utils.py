@@ -2772,23 +2772,29 @@ def _check_evaluated_target(
     level: str | None = None,
 ) -> None:
     """
-    Reject an evaluation whose test dates have missing target values.
+    Reject an evaluation whose test dates have missing target values that
+    no metric can be computed without.
 
-    For a single series, skforecast computes the backtesting metrics on the
-    raw target of the test folds without dropping missing values, so one
-    missing value (or one missing timestamp, which `asfreq()` restores as a
-    missing value) in a test fold makes every metric fail with "Input
-    contains NaN", whatever the estimator. The generated evaluation script
-    fails the same way on the test split. This check names the dates up
-    front. When they all fall on days of the week on which the target never
-    has a value (a shop closed on Sundays), the message names those days and
-    says that a business closed on them can fill them with 0, after asking
-    the user. Multi-series backtesting drops them per series and is not
-    checked. `end_train` and a date of the strategy without time zone are
-    read in the time zone of the dates; a date of the strategy that
-    skforecast cannot place on them (a date with a time zone on an index
-    without one, a text that is not a date) skips the check, and the
-    validation of the strategy reports it.
+    - Evaluation-mode forecast (`end_train`): the generated script computes
+      the metrics on the test split as it is, so one missing value (or one
+      missing timestamp, which `asfreq()` restores as a missing value) makes
+      every metric fail with "Input contains NaN", whatever the estimator.
+      When the dates all fall on days of the week on which the target never
+      has a value (a shop closed on Sundays), the message names those days
+      and says that a business closed on them can fill them with 0, after
+      asking the user.
+    - Backtest (`cv`): skforecast (0.27.0 or later) leaves the test dates
+      without a value out of the metrics of a single series, as it does per
+      series with several, so only test folds without any value are
+      rejected: no metric can be computed then.
+
+    The dates are named up front. Multi-series data is not checked: its
+    backtest drops them per series, and the evaluation of several series has
+    its own check (`validate_evaluation_partition`). `end_train` and a date of
+    the strategy without time zone are read in the time zone of the dates; a
+    date of the strategy that skforecast cannot place on them (a date with a
+    time zone on an index without one, a text that is not a date) skips the
+    check, and the validation of the strategy reports it.
 
     Parameters
     ----------
@@ -2797,7 +2803,8 @@ def _check_evaluated_target(
     data_profile : DataProfile
         Profile of `data`.
     cv : TimeSeriesFold, default None
-        Cross-validation of a backtest. Its test folds are checked.
+        Cross-validation of a backtest. Its test folds are checked for at
+        least one value.
     end_train : str, default None
         Last training date of an evaluation-mode forecast. The `steps`
         dates after it are checked. Ignored when `cv` is given.
@@ -2815,7 +2822,8 @@ def _check_evaluated_target(
     Raises
     ------
     ValueError
-        If a checked date has a missing target value.
+        If a date of the test split has a missing target value, or if no
+        date of the test folds has a value.
     """
 
     if level is None and (
@@ -2865,21 +2873,26 @@ def _check_evaluated_target(
             position for start, end in bounds for position in range(start, end)
         })
         evaluated = y.iloc[positions]
-        # The folds that hold a missing value, numbered from 1 in the order
-        # the backtest runs them.
-        absent = np.flatnonzero(y.isna().to_numpy())
-        with_missing = [
-            number for number, (start, end) in enumerate(bounds, start=1)
-            if ((absent >= start) & (absent < end)).any()
-        ]
-        where = (
-            f"in {_test_folds_phrase(with_missing, len(bounds))}"
-            if with_missing else ""
+        if len(evaluated) == 0 or evaluated.notna().any():
+            # skforecast leaves the dates without a value out of the
+            # metrics, and the explanation of the backtest counts them.
+            return
+        missing = evaluated.index
+        shown = ", ".join(str(date) for date in missing[:5])
+        if len(missing) > 5:
+            shown += f" and {len(missing) - 5} more"
+        dates = "date" if len(missing) == 1 else "dates"
+        raise DataContentError(
+            f"The target has no value on the {len(missing)} {dates} of the "
+            f"test folds ({shown}), counting the missing timestamps that "
+            f"asfreq() restores, so no metric can be computed. Choose an "
+            f"`initial_train_size` whose test folds reach dates with values, "
+            f"or impute the target.",
+            field = "data",
         )
     elif end_train is not None and steps is not None:
         end = training_end(end_train, getattr(y.index, "tz", None))
         evaluated = y.loc[y.index > end].iloc[:steps]
-        where = "in the test split"
     else:
         return
 
@@ -2890,45 +2903,38 @@ def _check_evaluated_target(
     shown = ", ".join(str(date) for date in missing[:5])
     if len(missing) > 5:
         shown += f" and {len(missing) - 5} more"
+    # The script scores the test split as it is; a backtest leaves the dates
+    # without a value out of its metrics instead.
+    backtest = (
+        "`backtest()` leaves the dates without a value out of its metrics"
+        if level is None else ""
+    )
     closed = (
         closed_weekdays(with_value, data_profile.frequency)
         if isinstance(missing, pd.DatetimeIndex) else []
     )
     if closed and np.isin(missing.dayofweek, closed).all():
         days = weekday_names(sorted(set(missing.dayofweek)))
+        backtest_clause = f"; {backtest}" if backtest else ""
         raise DataContentError(
-            f"The target has {len(missing)} missing value(s) {where} "
+            f"The target has {len(missing)} missing value(s) in the test split "
             f"({shown}), counting the missing timestamps that asfreq() "
             f"restores: all of them on {days}, when the target never has a "
-            f"value. skforecast cannot compute the metrics on them, whatever "
-            f"the estimator. {closed_days_remedy(days)}; otherwise, impute the "
-            f"target, or evaluate on dates without missing values.",
+            f"value. The metrics of the evaluation cannot be computed on them, "
+            f"whatever the estimator. {closed_days_remedy(days)}; otherwise, "
+            f"impute the target, or evaluate on dates without missing "
+            f"values{backtest_clause}.",
             field = "data",
         )
+    backtest_sentence = f" {backtest}." if backtest else ""
     raise DataContentError(
-        f"The target has {len(missing)} missing value(s) {where} ({shown}), "
-        f"counting the missing timestamps that asfreq() restores. skforecast "
-        f"cannot compute the metrics on them, whatever the estimator. Impute "
-        f"the target, or evaluate on dates without missing values.",
+        f"The target has {len(missing)} missing value(s) in the test split "
+        f"({shown}), counting the missing timestamps that asfreq() restores. "
+        f"The metrics of the evaluation cannot be computed on them, whatever "
+        f"the estimator. Impute the target, or evaluate on dates without "
+        f"missing values.{backtest_sentence}",
         field = "data",
     )
-
-
-def _test_folds_phrase(numbers: list[int], n_folds: int) -> str:
-    """
-    Name test folds by their numbers, from 1: `'test fold 4 of 6'`,
-    `'test folds 2 and 4 of 6'`, up to 5 numbers and then `'and N more'`,
-    or `'all 6 test folds'`.
-    """
-    if len(numbers) == n_folds > 1:
-        return f"all {n_folds} test folds"
-    shown = [str(number) for number in numbers[:5]]
-    if len(numbers) > 5:
-        shown.append(f"{len(numbers) - 5} more")
-    if len(shown) == 1:
-        return f"test fold {shown[0]} of {n_folds}"
-
-    return f"test folds {', '.join(shown[:-1])} and {shown[-1]} of {n_folds}"
 
 
 def long_training_message(

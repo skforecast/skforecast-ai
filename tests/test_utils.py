@@ -1009,61 +1009,62 @@ def _gapped_single_series(drop: list[int]) -> tuple[pd.DataFrame, DataProfile]:
     return data, create_data_profile(data, target="y", date_column="date")
 
 
+def _single_series_without_values(start: int) -> tuple[pd.DataFrame, DataProfile]:
+    """
+    Daily series of 100 days whose target has no value from position `start`
+    on, and its profile.
+    """
+    dates = pd.date_range("2023-01-01", periods=100, freq="D")
+    y = np.arange(100, dtype=float)
+    y[start:] = np.nan
+    data = pd.DataFrame({"date": dates, "y": y})
+
+    return data, create_data_profile(data, target="y", date_column="date")
+
+
 @pytest.mark.parametrize(
-    "drop, initial_train_size, expected",
+    "drop, initial_train_size",
     [
-        ([85], 70, "in test fold 4 of 6 (2023-03-27 00:00:00)"),
-        (
-            [72, 77, 82, 87, 92, 97], 70,
-            "in all 6 test folds (2023-03-14 00:00:00, 2023-03-19 00:00:00, "
-            "2023-03-24 00:00:00, 2023-03-29 00:00:00, 2023-04-03 00:00:00 and "
-            "1 more)",
-        ),
-        (
-            [52, 57, 62, 67, 72, 77, 97], 50,
-            "in test folds 1, 2, 3, 4, 5 and 2 more of 10 (2023-02-22 00:00:00, "
-            "2023-02-27 00:00:00, 2023-03-04 00:00:00, 2023-03-09 00:00:00, "
-            "2023-03-14 00:00:00 and 2 more)",
-        ),
+        ([85], 70),
+        ([72, 77, 82, 87, 92, 97], 70),
+        ([52, 57, 62, 67, 72, 77, 97], 50),
     ],
     ids=["one fold", "every fold", "more than five folds"],
 )
-def test_check_evaluated_target_ValueError_names_the_folds(
-    drop, initial_train_size, expected
+def test_check_evaluated_target_output_when_test_folds_have_missing_values(
+    drop, initial_train_size
 ):
     """
-    Test that the message of a backtest names the test folds that hold a
-    missing value, numbered from 1 in the order the backtest runs them: up
-    to 5 numbers and then how many more, or every fold when all of them
-    hold one.
+    Test that missing timestamps inside the test folds of a backtest are
+    accepted while the folds have values: skforecast leaves the dates
+    without a value out of the metrics of a single series.
     """
     data, data_profile = _gapped_single_series(drop=drop)
     cv = TimeSeriesFold(
         steps=5, initial_train_size=initial_train_size, verbose=False
     )
 
-    err_msg = re.escape(f"missing value(s) {expected}, counting")
-    with pytest.raises(DataContentError, match=err_msg):
-        _check_evaluated_target(data=data, data_profile=data_profile, cv=cv)
+    assert _check_evaluated_target(data=data, data_profile=data_profile, cv=cv) is None
 
 
-def test_check_evaluated_target_ValueError_when_gap_in_test_folds():
+def test_check_evaluated_target_ValueError_when_test_folds_have_no_value():
     """
-    Test that a missing timestamp inside a test fold is reported with its
-    date before running, whatever the estimator, because skforecast cannot
-    compute single-series metrics on it, as a DataContentError on `data`.
+    Test that test folds without any value of the target are reported with
+    their dates before running, as a DataContentError on `data`: no metric
+    can be computed on them.
     """
-    data, data_profile = _gapped_single_series(drop=[85])
+    data, data_profile = _single_series_without_values(start=70)
     cv = TimeSeriesFold(steps=5, initial_train_size=70, verbose=False)
 
     err_msg = re.escape(
-        "The target has 1 missing value(s) in test fold 4 of 6 "
-        "(2023-03-27 00:00:00), counting the missing timestamps that asfreq() "
-        "restores. skforecast cannot compute the metrics on them, whatever "
-        "the estimator. Impute the target, or evaluate on dates without "
-        "missing values."
+        "The target has no value on the 30 dates of the test folds "
+        "(2023-03-12 00:00:00, 2023-03-13 00:00:00, 2023-03-14 00:00:00, "
+        "2023-03-15 00:00:00, 2023-03-16 00:00:00 and 25 more), counting the "
+        "missing timestamps that asfreq() restores, so no metric can be "
+        "computed. Choose an `initial_train_size` whose test folds reach dates "
+        "with values, or impute the target."
     )
-    with pytest.raises(ValueError, match=err_msg) as exc_info:
+    with pytest.raises(ValueError, match=f"^{err_msg}$") as exc_info:
         _check_evaluated_target(data=data, data_profile=data_profile, cv=cv)
 
     # The class that tells a problem of the content of the data from an
@@ -1074,50 +1075,40 @@ def test_check_evaluated_target_ValueError_when_gap_in_test_folds():
     )
 
 
-_CLOSED_SUNDAYS = (
-    "counting the missing timestamps that asfreq() restores: all of them on "
-    "Sundays, when the target never has a value. skforecast cannot compute "
-    "the metrics on them, whatever the estimator. If the business is closed "
-    "on Sundays, fill them with 0 in the data, after asking the user; "
-    "otherwise, impute the target, or evaluate on dates without missing "
-    "values."
-)
-
-
-@pytest.mark.parametrize(
-    "kwargs, found",
-    [
-        (
-            {"cv": TimeSeriesFold(steps=14, initial_train_size=320, verbose=False)},
-            "6 missing value(s) in test folds 1, 2 and 3 of 4 (2023-11-19 "
-            "00:00:00, "
-            "2023-11-26 00:00:00, 2023-12-03 00:00:00, 2023-12-10 00:00:00, "
-            "2023-12-17 00:00:00 and 1 more)",
-        ),
-        (
-            {"end_train": "2023-12-16", "steps": 14},
-            "2 missing value(s) in the test split (2023-12-17 00:00:00, "
-            "2023-12-24 00:00:00)",
-        ),
-    ],
-    ids=["test folds", "test split"],
-)
-def test_check_evaluated_target_ValueError_names_closed_days(kwargs, found):
+def test_check_evaluated_target_ValueError_names_closed_days():
     """
-    Test that missing timestamps of the test folds or of the test split that
-    all fall on days of the week without any value (a shop closed on
-    Sundays) are named with those days, with the advice of filling them with
-    0 if the business is closed, after asking the user.
+    Test that missing timestamps of the test split that all fall on days of
+    the week without any value (a shop closed on Sundays) are named with
+    those days, with the advice of filling them with 0 if the business is
+    closed, after asking the user, and that the test folds of a backtest
+    with values are accepted.
     """
     data_profile = create_data_profile(
         df_no_sundays, target="sales", date_column="date"
     )
 
-    err_msg = re.escape(f"The target has {found}, {_CLOSED_SUNDAYS}")
+    err_msg = re.escape(
+        "The target has 2 missing value(s) in the test split (2023-12-17 "
+        "00:00:00, 2023-12-24 00:00:00), counting the missing timestamps that "
+        "asfreq() restores: all of them on Sundays, when the target never has "
+        "a value. The metrics of the evaluation cannot be computed on them, "
+        "whatever the estimator. If the business is closed on Sundays, fill "
+        "them with 0 in the data, after asking the user; otherwise, impute the "
+        "target, or evaluate on dates without missing values; `backtest()` "
+        "leaves the dates without a value out of its metrics."
+    )
     with pytest.raises(DataContentError, match=f"^{err_msg}$"):
         _check_evaluated_target(
-            data=df_no_sundays, data_profile=data_profile, **kwargs
+            data         = df_no_sundays,
+            data_profile = data_profile,
+            end_train    = "2023-12-16",
+            steps        = 14,
         )
+
+    cv = TimeSeriesFold(steps=14, initial_train_size=320, verbose=False)
+    assert _check_evaluated_target(
+        data=df_no_sundays, data_profile=data_profile, cv=cv
+    ) is None
 
 
 def test_check_evaluated_target_ValueError_when_a_gap_falls_on_an_open_day():
@@ -1132,9 +1123,10 @@ def test_check_evaluated_target_ValueError_when_a_gap_falls_on_an_open_day():
     err_msg = re.escape(
         "The target has 3 missing value(s) in the test split (2023-12-10 "
         "00:00:00, 2023-12-17 00:00:00, 2023-12-18 00:00:00), counting the "
-        "missing timestamps that asfreq() restores. skforecast cannot compute "
-        "the metrics on them, whatever the estimator. Impute the target, or "
-        "evaluate on dates without missing values."
+        "missing timestamps that asfreq() restores. The metrics of the "
+        "evaluation cannot be computed on them, whatever the estimator. Impute "
+        "the target, or evaluate on dates without missing values. `backtest()` "
+        "leaves the dates without a value out of its metrics."
     )
     with pytest.raises(DataContentError, match=f"^{err_msg}$"):
         _check_evaluated_target(
@@ -1241,9 +1233,9 @@ def test_check_evaluated_target_ValueError_when_cv_dates_lack_the_time_zone():
     """
     Test that a `TimeSeriesFold` whose date has no time zone, on a tz-aware
     index, is checked: skforecast reads the date in the time zone of the
-    index, so the missing timestamp of a test fold is reported.
+    index, so test folds without any value are reported.
     """
-    data, _ = _gapped_single_series(drop=[85])
+    data, _ = _single_series_without_values(start=70)
     data["date"] = data["date"].dt.tz_localize("UTC")
     data_profile = create_data_profile(data, target="y", date_column="date")
     cv = TimeSeriesFold(
@@ -1251,9 +1243,8 @@ def test_check_evaluated_target_ValueError_when_cv_dates_lack_the_time_zone():
     )
 
     err_msg = re.escape(
-        "The target has 1 missing value(s) in test fold 3 of 6 "
-        "(2023-03-27 00:00:00+00:00), counting the missing timestamps that "
-        "asfreq() restores."
+        "The target has no value on the 29 dates of the test folds "
+        "(2023-03-13 00:00:00+00:00, "
     )
     with pytest.raises(DataContentError, match=err_msg):
         _check_evaluated_target(data=data, data_profile=data_profile, cv=cv)

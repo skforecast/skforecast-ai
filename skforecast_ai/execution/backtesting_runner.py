@@ -20,7 +20,7 @@ from ..rendering.backtesting import (
     render_backtesting_single_series,
     render_backtesting_statistical,
 )
-from .._constants import N_EVALUATED_COLUMN
+from .._constants import N_EVALUATED_COLUMN, OBSERVED_COLUMN
 from ..schemas import DataProfile, ForecastPlan, RenderedScript
 from ..exceptions import InvalidInputError
 from .comparison import aggregate_metrics
@@ -201,6 +201,24 @@ def _exec_rendered_code(
     return exec_rendered(code_to_exec, {"data": data.copy()}, "<backtesting>")
 
 
+def _dates_without_value(predictions: pd.DataFrame | None) -> int:
+    """
+    Count the test dates of a backtest of a single series whose target has
+    no observed value (`y_true` missing), which skforecast leaves out of the
+    metrics. A date that overlapping folds predict twice counts once, as in
+    `n_evaluated`. Zero for several series (a `level` column), whose
+    backtest drops them per series, and for predictions without `y_true`.
+    """
+    if (
+        predictions is None
+        or OBSERVED_COLUMN not in predictions.columns
+        or "level" in predictions.columns
+    ):
+        return 0
+
+    return int(predictions.index[predictions[OBSERVED_COLUMN].isna()].nunique())
+
+
 def _build_backtest_explanation(
     cv_explanation: str,
     metrics: pd.DataFrame,
@@ -216,7 +234,9 @@ def _build_backtest_explanation(
     listed with the other metrics: a sentence of their own states them by
     series next to the nominal coverage of the interval. Neither is the
     number of points evaluated (`n_evaluated`), which is not a metric: a
-    sentence after the results states it.
+    sentence after the results states it, and with a single series another
+    one counts the test dates without an observed value, which skforecast
+    leaves out of the metrics.
 
     Parameters
     ----------
@@ -263,6 +283,13 @@ def _build_backtest_explanation(
             explanation = (
                 f"{explanation} They are measured on {int(n_evaluated)} "
                 f"predictions with an observed value{across} (n_evaluated)."
+            )
+        without_value = _dates_without_value(predictions)
+        if without_value:
+            dates = "test date" if without_value == 1 else "test dates"
+            explanation = (
+                f"{explanation} The metrics leave out {without_value} {dates} "
+                f"without an observed value of the target."
             )
     coverage = describe_interval_coverage(metrics, predictions, interval)
     if coverage is not None:

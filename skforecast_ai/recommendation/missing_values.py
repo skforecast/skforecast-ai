@@ -18,11 +18,12 @@ from .forecaster_selection import (
 # What an estimator that accepts missing values changes in a backtest of a
 # single series. The warning of `create_cv()`, the notice and the hint of
 # the MCP server say it with these words: the advice of 0.4 promised that
-# it let every fold run, and a missing value inside a test fold fails with
-# any estimator.
+# it let every fold run, and with the differentiation a missing value
+# before a fold fails with any estimator (the warning says so apart). A
+# missing value inside a test fold fails with none: skforecast (0.27.0 or
+# later) leaves it out of the metrics.
 TOLERANT_ESTIMATOR_SCOPE = (
-    "avoids the error of a fold predicted from a missing value, not of a fold "
-    "that holds one"
+    "avoids the error of a fold predicted from a missing value"
 )
 
 # Columns an exogenous advice names before "(first 5 of N)".
@@ -192,10 +193,11 @@ class BacktestMissingValues(NamedTuple):
     Attributes
     ----------
     values : bool
-        Whether the target has missing values.
+        Whether the target has missing values that can make the backtest
+        fail (see `backtest_missing_values`).
     gaps : bool
         Whether the target has missing timestamps, which `asfreq()`
-        restores as missing values.
+        restores as missing values, that can make the backtest fail.
     closed_days : list of int
         Days of the week (0 for Monday) that every missing timestamp falls
         on when the target never has a date on them, the days a business
@@ -238,10 +240,10 @@ def backtest_missing_values(
     values, before the strategy is run and without the data: the profile
     holds how many values are missing, not where.
 
-    - A missing value of the target inside a test fold fails with any
-      estimator: the metrics cannot be computed on it. Every forecaster that
-      predicts from past values (the lag forecasters and
-      ForecasterEquivalentDate) is concerned.
+    - A missing value of the target inside a test fold does not fail:
+      skforecast (0.27.0 or later) leaves it out of the metrics, and the
+      explanation of the backtest counts the dates left out. Alone, it is
+      not reported here.
     - A test fold predicted from a missing value fails when the estimator
       does not accept missing values, and with ForecasterEquivalentDate,
       which repeats it. So does a training window whose rows all read one,
@@ -294,14 +296,17 @@ def backtest_missing_values(
         column for column in profile.exog_columns
         if profile.missing_exog.get(column)
     ] if lags and plan.use_exog and not tolerant else []
+    order = int(plan.forecaster_kwargs.get("differentiation") or 0) if lags else 0
+    # With an estimator that accepts missing values and no differentiation,
+    # the missing values of the target fail nowhere: the metrics leave out
+    # those of the test folds.
+    target = target and (cannot_predict is not None or order > 0)
     if not target and not exog:
         return None
 
-    order = int(plan.forecaster_kwargs.get("differentiation") or 0) if lags else 0
-
     return BacktestMissingValues(
-        values         = bool(profile.missing_target),
-        gaps           = profile.has_gaps,
+        values         = target and bool(profile.missing_target),
+        gaps           = target and profile.has_gaps,
         closed_days    = list(profile.closed_weekdays),
         cannot_predict = cannot_predict,
         order          = order,
@@ -341,10 +346,7 @@ def backtest_missing_values_messages(
     messages = []
     sentences = []
     if missing_values.target:
-        when = [
-            "a test fold holds one, whatever the estimator, since no metric is "
-            "computed on it"
-        ]
+        when = []
         if missing_values.cannot_predict is not None:
             when.append(
                 f"a test fold is predicted from one, since "
@@ -363,7 +365,8 @@ def backtest_missing_values_messages(
         what = _target_missing_phrase(missing_values.values, missing_values.gaps)
         sentences.append(
             f"The target has {what}, and `backtest()` checks every test fold "
-            f"before running: it raises, naming the dates, when {listed}."
+            f"before running: it raises, naming the dates, when {listed}. The "
+            f"metrics leave out the test dates without a value."
         )
         if missing_values.cannot_predict is not None and missing_values.estimator:
             sentences.append(
@@ -418,10 +421,10 @@ def missing_values_advice(
     it neither predicts from a missing value nor scores one. What does: an
     estimator that accepts missing values (the one of the rules), filling
     the values in (after asking the user, who owns them) and, for the
-    exogenous columns, leaving them out. A missing value on a date that an
-    evaluation scores fails with any estimator (a backtest of several
-    series drops them per series), and with the differentiation a missing
-    value among the last values before a prediction too.
+    exogenous columns, leaving them out. A missing value on a date that the
+    evaluation of `test_size` scores fails with any estimator (a backtest
+    leaves those dates out of its metrics), and with the differentiation a
+    missing value among the last values before a prediction too.
 
     Parameters
     ----------
@@ -492,12 +495,11 @@ def missing_values_advice(
     sentences = []
     if target:
         what = _target_missing_phrase(bool(profile.missing_target), profile.has_gaps)
-        # A backtest of several series drops them per series; `test_size`
-        # scores each series on every test date.
-        scorers = "a backtest or `test_size`" if single else "`test_size`"
+        # A backtest leaves them out of its metrics (per series with
+        # several); `test_size` scores every test date.
         scored = (
-            f" A missing value on a date that {scorers} scores fails with any "
-            f"estimator."
+            " A missing value on a date that `test_size` scores fails with any "
+            "estimator; a backtest leaves those dates out of its metrics."
         )
         if tolerant:
             sentences.append(
