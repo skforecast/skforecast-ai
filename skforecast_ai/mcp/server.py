@@ -197,9 +197,9 @@ SWITCH_ESTIMATOR_NOTE = (
 # and does not tell.
 # The estimator is the one the message names: the rules choose it for the
 # data (`select_nan_tolerant_estimator`), and a message names one only when
-# it avoids that error, never for a missing value inside a test fold. With
-# the differentiation it avoids it only in a plan without it, which the
-# message says too.
+# it avoids that error (a missing value inside a test fold is no error: the
+# metrics leave it out). With the differentiation it avoids it only in a
+# plan without it, which the message says too.
 DATA_VALUES_HINT = (
     "The values the message names are data of the user: do not fill in, drop "
     "or write any of them yourself, and ask before a corrected copy is "

@@ -41,10 +41,7 @@ SWITCH = (
     "'RandomForestRegressor') {does}: if you switch to it, say in your "
     "answer that you changed the estimator and why."
 )
-TARGET_SCOPE = (
-    "avoids the error of a fold predicted from a missing value, not of a fold "
-    "that holds one"
-)
+TARGET_SCOPE = "avoids the error of a fold predicted from a missing value"
 NO_BACKTEST = (
     " If you forecast without a backtest, say in your answer that the "
     "forecast has no measure of error and why."
@@ -59,11 +56,6 @@ NO_BACKTEST = (
             profile_h2o_gaps,
             _leave("the target") + RUN + SWITCH.format(does=TARGET_SCOPE)
             + NO_BACKTEST,
-        ),
-        (
-            plan_h2o_lgbm,
-            profile_h2o_gaps,
-            _leave("the target") + RUN + NO_BACKTEST,
         ),
         (
             plan_h2o_baseline,
@@ -93,7 +85,7 @@ NO_BACKTEST = (
         ),
     ],
     ids=[
-        "ridge_gap", "lgbm_gap", "baseline_gap", "ridge_exog", "ridge_target_and_exog"
+        "ridge_gap", "baseline_gap", "ridge_exog", "ridge_target_and_exog"
     ],
 )
 def test_missing_values_notices_output_when_backtest_can_fail_on_them(
@@ -105,10 +97,9 @@ def test_missing_values_notices_output_when_backtest_can_fail_on_them(
     `backtest` checks the folds before running (those of the target and of
     the exogenous columns), names the
     estimator of the rules (RandomForestRegressor, for 120 observations)
-    only when the plan's cannot use them, with what it does not avoid (V16:
-    a missing value inside a test fold fails with any estimator), and asks
-    to say when no backtest was run. With LGBMRegressor and the baseline,
-    no estimator is offered.
+    only when the plan's cannot use them, with the error it avoids (V16:
+    the notice of 0.4 promised that it let every fold run), and asks to say
+    when no backtest was run. With the baseline, no estimator is offered.
     """
     notices = _missing_values_notices(
         plan, SimpleNamespace(data_profile=data_profile)
@@ -129,17 +120,20 @@ def test_missing_values_notices_output_when_backtest_can_fail_on_them(
     [
         (plan_h2o_ridge, profile_h2o),
         (plan_h2o_exog_lgbm, profile_h2o_exog),
+        (plan_h2o_lgbm, profile_h2o_gaps),
         (plan_wide_ridge, profile_wide),
     ],
-    ids=["clean_data", "lgbm_exog", "several_series"],
+    ids=["clean_data", "lgbm_exog", "lgbm_gap", "several_series"],
 )
 def test_missing_values_notices_empty_when_the_backtest_cannot_fail_on_them(
     plan, data_profile
 ):
     """
     Test that there is no notice with data without missing values, with
-    missing exogenous values and an estimator that predicts from them, nor
-    with several series, whose backtest drops them per series.
+    missing values of the exogenous columns or of the target and an
+    estimator that predicts from them (the metrics leave out the test dates
+    without a value), nor with several series, whose backtest drops them per
+    series.
     """
     notices = _missing_values_notices(
         plan, SimpleNamespace(data_profile=data_profile)

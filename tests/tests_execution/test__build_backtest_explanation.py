@@ -132,6 +132,62 @@ def test_build_backtest_explanation_states_n_evaluated_apart_from_the_metrics():
     )
 
 
+def test_build_backtest_explanation_counts_test_dates_without_value():
+    """
+    Test that a single series whose predictions have test dates without an
+    observed value (`y_true` missing, left out of the metrics by skforecast
+    0.27) gets a sentence that counts them, a date predicted by two
+    overlapping folds once and a single date in the singular; several
+    series (a `level` column), whose backtest drops them per series, and
+    predictions without missing `y_true` get none.
+    """
+    metrics = pd.DataFrame({"mean_absolute_error": [1.5], "n_evaluated": [3]})
+    dates = pd.to_datetime(
+        ["2020-01-01", "2020-01-02", "2020-01-02", "2020-01-03", "2020-01-04",
+         "2020-01-05"]
+    )
+    predictions = pd.DataFrame(
+        {
+            "fold": [0, 0, 1, 1, 1, 1],
+            "y_true": [1.0, None, None, 2.0, None, 3.0],
+            "pred": [1.1, 1.2, 1.2, 2.1, 2.2, 3.1],
+        },
+        index=dates,
+    )
+    one_missing = predictions.assign(y_true=[1.0, 2.0, 2.0, None, 2.5, 3.0])
+    several = predictions.assign(level="a")
+
+    result = _build_backtest_explanation(
+        cv_explanation="CV.", metrics=metrics, predictions=predictions
+    )
+    result_one = _build_backtest_explanation(
+        cv_explanation="CV.", metrics=metrics, predictions=one_missing
+    )
+    result_several = _build_backtest_explanation(
+        cv_explanation="CV.", metrics=metrics, predictions=several
+    )
+    result_complete = _build_backtest_explanation(
+        cv_explanation="CV.",
+        metrics=metrics,
+        predictions=predictions.assign(y_true=1.0),
+    )
+
+    measured = (
+        "CV. Results: mean_absolute_error: 1.5000. They are measured on 3 "
+        "predictions with an observed value (n_evaluated)."
+    )
+    assert result == (
+        f"{measured} The metrics leave out 2 test dates without an observed "
+        f"value of the target."
+    )
+    assert result_one == (
+        f"{measured} The metrics leave out 1 test date without an observed "
+        f"value of the target."
+    )
+    assert result_several == measured
+    assert result_complete == measured
+
+
 # Tests: _build_backtest_explanation: prediction interval coverage
 
 

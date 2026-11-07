@@ -2634,20 +2634,20 @@ def test_compare_sort_key_ranks_baseline_first_on_tie():
     ]
 
 
-def test_compare_ValueError_when_target_missing_in_test_folds():
+def test_compare_ValueError_when_test_folds_have_no_value():
     """
-    Test that compare() stops before running any candidate when a test fold
-    contains a missing timestamp, instead of failing every candidate with
-    "Input contains NaN".
+    Test that compare() stops before running any candidate when the test
+    folds have no value of the target, instead of failing every candidate:
+    no metric can be computed on them.
     """
     dates = pd.date_range("2023-01-01", periods=100, freq="D")
-    data = pd.DataFrame(
-        {"date": dates, "sales": np.arange(100, dtype=float)}
-    ).drop(index=[85]).reset_index(drop=True)
+    sales = np.arange(100, dtype=float)
+    sales[70:] = np.nan
+    data = pd.DataFrame({"date": dates, "sales": sales})
 
     err_msg = re.escape(
-        "The target has 1 missing value(s) in test fold 4 of 6 (2023-03-27 "
-        "00:00:00)"
+        "The target has no value on the 30 dates of the test folds (2023-03-12 "
+        "00:00:00"
     )
     with pytest.raises(ValueError, match=err_msg):
         assistant.compare(
@@ -2658,6 +2658,34 @@ def test_compare_ValueError_when_target_missing_in_test_folds():
             candidates=_LIGHT_CANDIDATES,
             show_progress=False,
         )
+
+
+def test_compare_output_when_target_missing_in_test_folds():
+    """
+    Test that compare() runs a candidate when a test fold contains a missing
+    timestamp that no lag reads: skforecast leaves that date out of the
+    metrics, so they are measured on 29 of the 30 test dates.
+    """
+    dates = pd.date_range("2023-01-01", periods=100, freq="D")
+    data = pd.DataFrame(
+        {"date": dates, "sales": np.arange(100, dtype=float)}
+    ).drop(index=[85]).reset_index(drop=True)
+
+    result = assistant.compare(
+        data=data,
+        cv=_single_cv(),
+        target="sales",
+        date_column="date",
+        candidates=[_LIGHT_CANDIDATES[1]],
+        show_progress=False,
+    )
+
+    assert list(result.results["name"]) == ["direct_ridge"]
+    assert list(result.results["n_evaluated"]) == [29]
+    assert not result.failures
+    assert "is measured on 29 predictions with an observed value" in (
+        result.explanation
+    )
 
 
 @pytest.mark.parametrize(

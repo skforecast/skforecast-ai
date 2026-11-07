@@ -76,14 +76,6 @@ _RIDGE = "ForecasterRecursive with Ridge cannot predict from a missing value"
             ),
         ),
         (
-            plan_h2o_lgbm,
-            profile_h2o_gaps,
-            BacktestMissingValues(
-                values=False, gaps=True, closed_days=[],
-                cannot_predict=None, order=0, exog=[], estimator=None,
-            ),
-        ),
-        (
             plan_h2o_lgbm.model_copy(
                 update={
                     "forecaster_kwargs": {
@@ -140,7 +132,6 @@ _RIDGE = "ForecasterRecursive with Ridge cannot predict from a missing value"
         "ridge_values",
         "direct",
         "baseline",
-        "lgbm",
         "lgbm_differentiation",
         "ridge_exog",
         "ridge_target_and_exog",
@@ -151,11 +142,11 @@ _RIDGE = "ForecasterRecursive with Ridge cannot predict from a missing value"
 def test_backtest_missing_values_output_when_backtest_can_fail(plan, profile, expected):
     """
     Test what can make the backtest of a single series fail on missing
-    values: every forecaster that predicts from past values can meet one
-    inside a test fold; Ridge and ForecasterEquivalentDate cannot predict
-    from one, and only the lag forecaster has an estimator of the rules
+    values: Ridge and ForecasterEquivalentDate cannot predict from one, and
+    only the lag forecaster has an estimator of the rules
     (RandomForestRegressor, for 120 observations) to switch to; the
-    differentiation is reported with its order; the exogenous columns with
+    differentiation is reported with its order, with any estimator; the
+    exogenous columns with
     missing values count only for an estimator that cannot predict from
     them; the missing timestamps of daily data are the closed days of the
     profile when they all fall on a day of the week without dates (Sundays),
@@ -174,14 +165,20 @@ def test_backtest_missing_values_output_when_backtest_can_fail(plan, profile, ex
         (plans_h2o_without_lags["foundation"], profile_h2o_gaps),
         (plan_h2o_ridge, profile_h2o),
         (plan_h2o_exog_lgbm, profile_h2o_exog),
+        (plan_h2o_lgbm, profile_h2o_gaps),
         (plan_wide_ridge, profile_wide),
     ],
-    ids=["stats", "foundation", "clean_data", "lgbm_exog", "several_series"],
+    ids=[
+        "stats", "foundation", "clean_data", "lgbm_exog", "lgbm_target",
+        "several_series",
+    ],
 )
 def test_backtest_missing_values_None_when_nothing_to_report(plan, profile):
     """
     Test that there is nothing to report with a forecaster without lags,
-    clean data, missing exogenous values and an estimator that predicts from
-    them, or several series, whose backtest drops them per series.
+    clean data, missing values of the exogenous columns or of the target and
+    an estimator that predicts from them (without the differentiation, the
+    metrics leave out the missing values of the target inside the test
+    folds), or several series, whose backtest drops them per series.
     """
     assert backtest_missing_values(plan, profile) is None
