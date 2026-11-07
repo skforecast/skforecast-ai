@@ -445,8 +445,9 @@ def _check_backtest_run(
 ) -> None:
     """
     Make the checks of `backtest()` that depend on the plan, before anything
-    runs: the target the plan reads, the gap of a direct forecaster, the
-    folds ForecasterStats skips, the first training window, the series no
+    runs: the target the plan reads, the missing values of the test folds
+    for ForecasterStats, the gap of a direct forecaster, the folds
+    ForecasterStats skips, the first training window, the series no
     fold forecasts, the windows and the exogenous values of each fold, and
     the estimator installed. `compare()` makes them for every
     candidate before counting the cost, so a candidate that would fail on
@@ -460,6 +461,15 @@ def _check_backtest_run(
         plan       = plan,
         prediction = False,
     )
+    if plan.forecaster == "ForecasterStats":
+        # The metrics leave out the test dates without a value, but
+        # ForecasterStats cannot train or update its model on them.
+        _check_evaluated_target(
+            data         = data,
+            data_profile = data_profile,
+            cv           = cv,
+            forecaster   = plan.forecaster,
+        )
     _check_direct_gap(plan, cv)
     _check_stats_skip_folds(plan, cv)
     check_first_window(plan, cv, data_profile)
@@ -2792,6 +2802,7 @@ class ForecastingAssistant:
                     and isinstance(profile.data_profile.target, list)
                     else None
                 ),
+                forecaster   = plan.forecaster,
             )
         elif exog is not None:
             # The future values are read from their own file, with its

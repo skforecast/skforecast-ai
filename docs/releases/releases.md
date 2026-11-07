@@ -37,7 +37,7 @@ The main changes in this release are:
 
     + [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` of ForecasterStats with an automatic `Arima` or `Ets` and a strategy that refits give other metrics from the second fold, and run faster: skforecast 0.27 keeps the model selected in the first fit, which the scripts already asked for with `freeze_params=True` ([#116](https://github.com/skforecast/skforecast-ai/pull/116)).
     + The predictions of [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` have the columns `step` and `y_true` of skforecast 0.27 (`level, fold, step, y_true, pred, ...`), their metrics end with `n_evaluated`, also a column of the table of `compare()`, and with several series the predictions are missing at the dates without an observed value. See **Changed**.
-    + [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` of a single series with missing target values inside the test folds run, measured on the dates with a value, instead of raising `invalid_argument`. See **Changed**.
+    + [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` of a single series with missing target values inside the test folds run, measured on the dates with a value, instead of raising `invalid_argument` (except with ForecasterStats). See **Changed**.
     + [<code>ForecastingAssistant.forecast()</code>][assistant] with `test_size` on data in a time zone with daylight saving time ends the training an hour later, at the right date, when the test set starts after the spring change: other predictions and metrics. See **Fixed**.
 
     And some code needs to be updated:
@@ -137,7 +137,7 @@ The main changes in this release are:
 
 + The predictions of [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` carry the `step` of the horizon and the observed value `y_true` of skforecast 0.27, and their metrics end with `n_evaluated`, the number of points each row is measured on. It is not a metric: the table of `compare()` has it as a column that does not rank, and the summaries state it apart from the metrics ([#137](https://github.com/skforecast/skforecast-ai/pull/137)).
 
-+ [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` of a single series run when a test fold has missing target values, which they rejected: skforecast 0.27 leaves those dates out of the metrics, and the explanation counts them. They still raise when no test date has a value, and `forecast()` with `test_size` still rejects them ([#139](https://github.com/skforecast/skforecast-ai/pull/139)).
++ [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` of a single series run when a test fold has missing target values, which they rejected: skforecast 0.27 leaves those dates out of the metrics, and the explanation of `backtest()` counts them. They still raise with ForecasterStats, which cannot train on them, and when no test date has a value; `forecast()` with `test_size` still rejects them ([#139](https://github.com/skforecast/skforecast-ai/pull/139)).
 
 + `y_true` holds values of your data, so [<code>ForecastingAssistant.ask()</code>][assistant] sends them only with `send_data_to_llm=True`; otherwise its context says the column exists, as `describe()` and the summaries of the MCP server always do. See [LLM configuration][llm-config] ([#137](https://github.com/skforecast/skforecast-ai/pull/137)).
 

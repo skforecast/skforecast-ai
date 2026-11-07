@@ -2019,6 +2019,14 @@ Hecho en [#126](https://github.com/skforecast/skforecast-ai/pull/126) (D34).
     falta en un fold de test: con 0.27 la regla era falsa. Ahora solo
     rechaza unos folds de test sin ningún valor (sin métricas posibles), y
     la explicación del backtest cuenta las fechas que quedan fuera.
+    `ForecasterStats` es la excepción (lo encontró la revisión final del
+    PR): no entrena ni actualiza su modelo con un valor que falta ("`y` has
+    missing values" dentro del script, con y sin refit), así que con él se
+    sigue rechazando cada valor que falta de los folds de test, en los
+    chequeos por plan (`compare()` lo hace por candidato antes de correr).
+    Con `dropna_from_series=True` y un estimador que acepta los valores que
+    faltan, `create_cv()` sigue avisando: una ventana de entrenamiento sin
+    filas falla.
   - Se mantienen los errores de lo que sí falla: la ventana que leen los
     lags (`validate_backtest_windows`, el error de #1432 en skforecast), la
     diferenciación y las exógenas. Con un estimador que acepta los valores

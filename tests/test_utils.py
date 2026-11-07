@@ -1009,6 +1009,79 @@ def _gapped_single_series(drop: list[int]) -> tuple[pd.DataFrame, DataProfile]:
     return data, create_data_profile(data, target="y", date_column="date")
 
 
+@pytest.mark.parametrize(
+    "drop, initial_train_size, expected",
+    [
+        ([85], 70, "in test fold 4 of 6 (2023-03-27 00:00:00)"),
+        (
+            [72, 77, 82, 87, 92, 97], 70,
+            "in all 6 test folds (2023-03-14 00:00:00, 2023-03-19 00:00:00, "
+            "2023-03-24 00:00:00, 2023-03-29 00:00:00, 2023-04-03 00:00:00 and "
+            "1 more)",
+        ),
+        (
+            [52, 57, 62, 67, 72, 77, 97], 50,
+            "in test folds 1, 2, 3, 4, 5 and 2 more of 10 (2023-02-22 00:00:00, "
+            "2023-02-27 00:00:00, 2023-03-04 00:00:00, 2023-03-09 00:00:00, "
+            "2023-03-14 00:00:00 and 2 more)",
+        ),
+    ],
+    ids=["one fold", "every fold", "more than five folds"],
+)
+def test_check_evaluated_target_ValueError_names_the_folds_with_forecaster_stats(
+    drop, initial_train_size, expected
+):
+    """
+    Test that with ForecasterStats, which cannot train on a missing value nor
+    update its model with one, every missing value of the test folds is
+    rejected, naming the folds that hold one, numbered from 1 in the order
+    the backtest runs them: up to 5 numbers and then how many more, or every
+    fold when all of them hold one.
+    """
+    data, data_profile = _gapped_single_series(drop=drop)
+    cv = TimeSeriesFold(
+        steps=5, initial_train_size=initial_train_size, verbose=False
+    )
+
+    err_msg = re.escape(
+        f"The target has {len(drop)} missing value(s) {expected}, counting the "
+        f"missing timestamps that asfreq() restores. ForecasterStats cannot "
+        f"train on them nor update its model with them. Impute the target, or "
+        f"evaluate on dates without missing values."
+    )
+    with pytest.raises(DataContentError, match=f"^{err_msg}$"):
+        _check_evaluated_target(
+            data         = data,
+            data_profile = data_profile,
+            cv           = cv,
+            forecaster   = "ForecasterStats",
+        )
+
+
+def test_check_evaluated_target_ValueError_test_split_with_forecaster_stats():
+    """
+    Test that the message of the test split of ForecasterStats does not say
+    that `backtest()` leaves those dates out: its backtest fails on them.
+    """
+    data, data_profile = _gapped_single_series(drop=[97])
+
+    err_msg = re.escape(
+        "The target has 1 missing value(s) in the test split (2023-04-08 "
+        "00:00:00), counting the missing timestamps that asfreq() restores. "
+        "The metrics of the evaluation cannot be computed on them, whatever "
+        "the estimator. Impute the target, or evaluate on dates without "
+        "missing values."
+    )
+    with pytest.raises(DataContentError, match=f"^{err_msg}$"):
+        _check_evaluated_target(
+            data         = data,
+            data_profile = data_profile,
+            end_train    = "2023-04-05",
+            steps        = 5,
+            forecaster   = "ForecasterStats",
+        )
+
+
 def _single_series_without_values(start: int) -> tuple[pd.DataFrame, DataProfile]:
     """
     Daily series of 100 days whose target has no value from position `start`

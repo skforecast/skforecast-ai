@@ -43,8 +43,8 @@ _END_MESSAGE = (
     "`test_size`, or fill in those values."
 )
 _TEST_MESSAGE = (
-    "skforecast cannot compute the metrics on them, whatever the estimator. "
-    "Impute the target, or evaluate on dates without missing values."
+    "The metrics of the evaluation cannot be computed on them, whatever the "
+    "estimator. Impute the target, or evaluate on dates without missing values."
 )
 _READS_RIDGE = (
     "ForecasterRecursive with Ridge cannot use them, so the forecast cannot run: "
@@ -431,8 +431,9 @@ def test_validate_evaluation_partition_DataContentError_names_closed_days():
         "The target has missing values in the test split ('north': 2 value(s), "
         "such as '2023-12-17', '2023-12-24'; 'south': 2 value(s), such as "
         "'2023-12-17', '2023-12-24'), all of them on Sundays, when those "
-        "series never have a value. skforecast cannot compute the metrics on "
-        "them, whatever the estimator. If the business is closed on Sundays, "
+        "series never have a value. The metrics of the evaluation cannot be "
+        "computed on them, whatever the estimator. If the business is closed on "
+        "Sundays, "
         "fill them with 0 in the data, after asking the user; otherwise, "
         "impute the target, or evaluate on dates without missing values."
     )

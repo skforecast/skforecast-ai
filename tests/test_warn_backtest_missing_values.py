@@ -35,7 +35,18 @@ plan_h2o_lgbm_differenced = plan_h2o_lgbm.model_copy(
     deep=True,
 )
 
-GAPS = "missing timestamps (asfreq() restores them as missing values)"
+# ForecasterRecursive with LGBMRegressor that drops the training rows that
+# read a missing value.
+plan_h2o_lgbm_dropna = plan_h2o_lgbm.model_copy(
+    update={
+        "forecaster_kwargs": {
+            **plan_h2o_lgbm.forecaster_kwargs, "dropna_from_series": True
+        }
+    },
+    deep=True,
+)
+
+GAPS ="missing timestamps (asfreq() restores them as missing values)"
 TRAINING_ROWS = (
     " `dropna_from_series` only drops the training rows that read one, and "
     "a training window left without rows raises too. "
@@ -122,6 +133,15 @@ def _create_strategy(plan, profile):
             ) + IMPUTE,
         ),
         (
+            plan_h2o_lgbm_dropna,
+            profile_h2o_gaps,
+            _target(
+                GAPS,
+                "every training row of a fold reads one, since "
+                "`dropna_from_series` drops those rows",
+            ) + IMPUTE,
+        ),
+        (
             plan_h2o_exog_ridge,
             profile_h2o_exog,
             EXOG,
@@ -170,6 +190,7 @@ def _create_strategy(plan, profile):
         "nan_before_folds_direct",
         "nan_before_folds_baseline",
         "differentiation_lgbm",
+        "dropna_lgbm",
         "nan_in_exog_ridge",
         "nan_in_target_and_exog_ridge",
         "closed_days_daily",
@@ -186,7 +207,9 @@ def test_warn_backtest_missing_values_UserWarning_when_backtest_can_fail_on_them
     a fold predicted from one fails with Ridge and ForecasterEquivalentDate
     (a missing value inside a test fold is left out of the metrics); with
     the differentiation, one of the last values before a fold fails even
-    with LGBMRegressor; a missing exogenous value fails with Ridge, in a
+    with LGBMRegressor, and so does a training window left without rows
+    when it drops them (`dropna_from_series=True`); a missing exogenous
+    value fails with Ridge, in a
     warning of its own after the one of the target. The estimator offered
     is the one of the rules for 120 observations
     (RandomForestRegressor), and only where it avoids the error; daily data

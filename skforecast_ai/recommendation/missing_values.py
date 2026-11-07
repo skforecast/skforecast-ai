@@ -231,6 +231,18 @@ class BacktestMissingValues(NamedTuple):
         return self.values or self.gaps
 
 
+def _drops_training_rows(plan: ForecastPlan) -> bool:
+    """
+    Whether the plan drops the training rows that read a missing value
+    (`dropna_from_series=True`), which the training windows of a backtest
+    are checked for (only ForecasterRecursive and ForecasterDirect).
+    """
+    return (
+        plan.forecaster in {"ForecasterRecursive", "ForecasterDirect"}
+        and plan.forecaster_kwargs.get("dropna_from_series") is True
+    )
+
+
 def backtest_missing_values(
     plan: ForecastPlan,
     profile: DataProfile,
@@ -246,8 +258,9 @@ def backtest_missing_values(
       not reported here.
     - A test fold predicted from a missing value fails when the estimator
       does not accept missing values, and with ForecasterEquivalentDate,
-      which repeats it. So does a training window whose rows all read one,
-      since the plan drops them (`dropna_from_series`).
+      which repeats it. So does a training window whose rows all read one
+      when the plan drops them (`dropna_from_series`), also with an
+      estimator that accepts missing values.
     - With the differentiation, a missing value among the last `order`
       values before a test fold fails whatever the estimator: the inverse of
       the differentiation starts from them.
@@ -297,10 +310,12 @@ def backtest_missing_values(
         if profile.missing_exog.get(column)
     ] if lags and plan.use_exog and not tolerant else []
     order = int(plan.forecaster_kwargs.get("differentiation") or 0) if lags else 0
-    # With an estimator that accepts missing values and no differentiation,
-    # the missing values of the target fail nowhere: the metrics leave out
-    # those of the test folds.
-    target = target and (cannot_predict is not None or order > 0)
+    # With an estimator that accepts missing values, no differentiation and
+    # the training rows kept, the missing values of the target fail nowhere:
+    # the metrics leave out those of the test folds.
+    target = target and (
+        cannot_predict is not None or order > 0 or _drops_training_rows(plan)
+    )
     if not target and not exog:
         return None
 
@@ -357,6 +372,12 @@ def backtest_missing_values_messages(
                 f"one of the last {missing_values.order} value(s) before a test "
                 f"fold is missing, whatever the estimator, since the inverse of "
                 f"the differentiation starts from them"
+            )
+        if missing_values.cannot_predict is None and _drops_training_rows(plan):
+            # Said of the estimators that cannot predict from them below.
+            when.append(
+                "every training row of a fold reads one, since "
+                "`dropna_from_series` drops those rows"
             )
         listed = (
             when[0] if len(when) == 1

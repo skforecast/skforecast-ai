@@ -1270,6 +1270,39 @@ def test_backtest_output_when_target_missing_in_test_folds():
     )
 
 
+@pytest.mark.parametrize("refit", [False, True], ids=["no refit", "refit"])
+def test_backtest_DataContentError_when_forecaster_stats_and_target_missing_in_test_folds(
+    refit
+):
+    """
+    Test that backtest() of ForecasterStats rejects a missing value inside a
+    test fold before running, naming the fold: skforecast leaves the date
+    out of the metrics, but the model cannot train on it nor update itself
+    with it, so the script failed with "`y` has missing values".
+    """
+    y = 10 + np.sin(np.arange(200) * 2 * np.pi / 7) * 3
+    y[170] = np.nan
+    data = pd.DataFrame(
+        {"date": pd.date_range("2020-01-01", periods=200, freq="D"), "y": y}
+    )
+    cv = TimeSeriesFold(
+        steps=10, initial_train_size=150, refit=refit, verbose=False
+    )
+
+    err_msg = re.escape(
+        "The target has 1 missing value(s) in test fold 3 of 5 (2020-06-19 "
+        "00:00:00), counting the missing timestamps that asfreq() restores. "
+        "ForecasterStats cannot train on them nor update its model with them."
+    )
+    # The profile warns about the missing value in the autocorrelation.
+    with pytest.warns(MissingValuesWarning):
+        with pytest.raises(DataContentError, match=err_msg):
+            ForecastingAssistant().backtest(
+                data=data, cv=cv, target="y", date_column="date",
+                forecaster="ForecasterStats", show_progress=False,
+            )
+
+
 @pytest.mark.parametrize("tz", ["UTC", "Europe/Madrid"])
 def test_backtest_DataContentError_when_time_zone_data_and_cv_date_without_zone(
     tz

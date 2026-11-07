@@ -1839,9 +1839,9 @@ def test_forecast_InvalidInputError_when_evaluation_series_has_missing_test_valu
     """
     err_msg = re.escape(
         "The target has missing values in the test split ('item_2': 1 value(s), "
-        "such as '2012-04-25'). skforecast cannot compute the metrics on them, "
-        "whatever the estimator. Impute the target, or evaluate on dates "
-        "without missing values."
+        "such as '2012-04-25'). The metrics of the evaluation cannot be "
+        "computed on them, whatever the estimator. Impute the target, or "
+        "evaluate on dates without missing values."
     )
     with pytest.warns(MissingValuesWarning):
         with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
@@ -1908,8 +1908,9 @@ def test_forecast_InvalidInputError_when_foundation_evaluation_series_ends_early
     err_msg = re.escape(
         "The target has missing values in the test split ('item_2': 7 value(s), "
         "such as '2012-04-23', '2012-04-24', '2012-04-25', '2012-04-26', "
-        "'2012-04-27' and 2 more). skforecast cannot compute the metrics on "
-        "them, whatever the estimator. Impute the target, or evaluate on dates "
+        "'2012-04-27' and 2 more). The metrics of the evaluation cannot be "
+        "computed on them, whatever the estimator. Impute the target, or "
+        "evaluate on dates "
         "without missing values. Series without any value in the test split "
         "('item_2') end before it: remove them from the data, or evaluate on "
         "dates they reach."
