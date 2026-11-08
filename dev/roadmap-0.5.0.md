@@ -2063,6 +2063,28 @@ Hecho en [#126](https://github.com/skforecast/skforecast-ai/pull/126) (D34).
     estrategias y cómo elegir. Cambia lo que recibe el LLM: la comprobación
     con un modelo real (`check_ask_context.py`) la lanza el usuario.
 
+- **D40. El presupuesto de skills cuenta lo que se envía** (2026-11-08).
+  - D36, D37 y D39 fueron tres arreglos del mismo síntoma en un mes. La
+    causa no estaba en skforecast (sus skills siguen el estándar: SKILL.md
+    breves y `references/` para cargar a demanda), sino en la cuenta de
+    aquí: el tope de D37 descontaba siempre `llms-base.txt` (10.729
+    tokens), aunque `include_reference=False` es el valor por defecto, y no
+    contaba el contexto de los proveedores alojados. Sin ese descuento, los
+    dos casos de D39 cabían enteros.
+  - `ask()` calcula el presupuesto igual para todos los proveedores con
+    `compute_skill_token_budget`: lo que deja una ventana de 32.768 (el
+    `num_ctx` de Ollama y la más pequeña de los modelos alojados, que hay de
+    32k en Groq y Bedrock) tras el prompt de rol, el contexto, la referencia
+    solo si va y la respuesta. `MAX_SKILL_TOKENS` (20.000) queda como techo
+    de coste, no de ventana; desaparece `_SKILL_TOKEN_CAP`. D39 sigue como
+    degradación cuando un skill no cabe entero.
+  - Tests de invariantes en lugar de selecciones exactas que dependen del
+    tamaño de los skills: la selección cabe en la ventana con y sin
+    referencia, nunca pasa del techo, y el skill de la pregunta va entero o
+    como SKILL.md.
+  - Descartado para la 0.5.0: cargar las referencias a demanda con una
+    herramienta del agente (ver "A la 0.6.0").
+
 ## Decisiones abiertas
 
 Se toman en el PR que las necesita y se pasan a la sección de arriba.
@@ -2329,6 +2351,21 @@ alcance:
   de un CSV, o solo rutas.
 
 Fuera de este alcance: bases de datos y DuckDB.
+
+### Referencias de los skills a demanda
+
+Solo si la comprobación con un modelo real muestra respuestas a las que les
+faltan detalles de `references/` (D39, D40). `ask()` mandaría el SKILL.md
+de los skills elegidos, igual que hoy de forma determinista, y una
+herramienta de pydantic-ai devolvería una sección `##` de una referencia,
+apoyada en el `## Contents` que exige el validador de skforecast; las
+secciones leídas quedarían en `AskResult`. En contra, y por eso no entra
+en la 0.5.0: ayuda poco a los alojados (ventanas de 128k o más, el límite
+es el coste), Ollama es donde peor funcionan las herramientas y su
+`num_ctx` se fija antes de la llamada, lo que ve el modelo deja de ser
+reproducible, y el modelo puede no leer la sección que importa (las tablas
+comunes de `adapter-parameters.md` comparan todos los adaptadores). No hace
+falta partir los ficheros en skforecast: se lee por secciones.
 
 ### Ajuste de hiperparámetros
 

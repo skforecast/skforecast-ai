@@ -13,7 +13,6 @@ from skforecast_ai.llm.skills import (
     load_skill,
     select_skills,
     _REFERENCE_TOKEN_ESTIMATE,
-    _SKILL_TOKEN_CAP,
     _SKILL_TOKEN_ESTIMATES,
     _STATIC_PROMPT_TOKEN_ESTIMATE,
 )
@@ -325,17 +324,15 @@ def test_select_skills_foundation_keeps_hyperparameter_optimization():
     Test that foundation-forecasting does NOT suppress
     hyperparameter-optimization: that skill documents
     `bayesian_search_foundation`, the only way to tune a zero-shot
-    forecaster. Both do not fit the cap whole since skforecast 0.27.0, so
-    the second one is sent as its SKILL.md alone.
+    forecaster. It is sent whole or, when it does not fit, as its SKILL.md
+    alone.
     """
     result = select_skills(
         task_type="foundation",
         question="How do I tune context_length with a bayesian search?",
     )
-    assert result == [
-        "foundation-forecasting",
-        "hyperparameter-optimization/SKILL.md",
-    ]
+    names = [s.removesuffix("/SKILL.md") for s in result]
+    assert names == ["foundation-forecasting", "hyperparameter-optimization"]
 
 
 def test_select_skills_skill_md_alone_when_the_whole_skill_does_not_fit():
@@ -525,17 +522,32 @@ ALL_TOPICS_QUESTION = (
      "foundation", None],
     ids=lambda v: f"task_type={v}",
 )
-def test_worst_reachable_selection_fits_the_smallest_window(task_type):
+@pytest.mark.parametrize("include_reference", [False, True], ids=["no_ref", "ref"])
+def test_worst_reachable_selection_fits_the_smallest_window(
+    task_type, include_reference
+):
     """
-    Test that the largest selection the routing table can produce still
-    leaves room for the answer in the smallest supported window.
+    Test that the largest selection the routing table can produce, budgeted
+    as `ask()` budgets it, never goes above `MAX_SKILL_TOKENS` and still
+    leaves room for the answer in the smallest supported window, with and
+    without the API reference.
 
     Asserting a ceiling on the whole inventory would test a combination
     `select_skills` never returns, and would go red on any upstream sync
     that merely writes more documentation. This asserts what the caller
     can actually be served.
     """
-    skills = select_skills(task_type=task_type, question=ALL_TOPICS_QUESTION)
+    context_tokens = 1_500
+    budget = compute_skill_token_budget(
+        max_context_tokens = OLLAMA_MAX_CONTEXT_TOKENS,
+        context_tokens     = context_tokens,
+        include_reference  = include_reference,
+    )
+    skills = select_skills(
+        task_type    = task_type,
+        question     = ALL_TOPICS_QUESTION,
+        token_budget = budget,
+    )
 
     skill_tokens = estimate_prompt_tokens(skills) - _STATIC_PROMPT_TOKEN_ESTIMATE
     assert skill_tokens <= MAX_SKILL_TOKENS, (
@@ -544,7 +556,8 @@ def test_worst_reachable_selection_fits_the_smallest_window(task_type):
     )
 
     total = (
-        estimate_prompt_tokens(skills=skills, include_reference=True)
+        estimate_prompt_tokens(skills=skills, include_reference=include_reference)
+        + context_tokens
         + RESERVED_RESPONSE_TOKENS
     )
     assert total <= OLLAMA_MAX_CONTEXT_TOKENS, (
@@ -555,18 +568,16 @@ def test_worst_reachable_selection_fits_the_smallest_window(task_type):
 
 def test_select_skills_applies_the_cap_without_an_explicit_budget():
     """
-    Test that the skill cap is enforced even when no budget is passed.
-
-    Only local models expose a context window up front, so a hosted model
-    is called with `token_budget=None`; without the cap a question that
-    matches many topics would be sent unbounded.
+    Test that `MAX_SKILL_TOKENS` is enforced even when no budget is passed,
+    so a direct call with a question that matches many topics is never
+    sent unbounded.
     """
     uncapped = select_skills(
         task_type="single_series", question=ALL_TOPICS_QUESTION
     )
 
     skill_tokens = estimate_prompt_tokens(uncapped) - _STATIC_PROMPT_TOKEN_ESTIMATE
-    assert skill_tokens <= _SKILL_TOKEN_CAP
+    assert skill_tokens <= MAX_SKILL_TOKENS
     assert uncapped[0] == "choosing-a-forecaster"
     # The question matches every pattern, so the cap must have dropped the
     # lowest-priority matches.
@@ -681,26 +692,3 @@ def test_select_skills_logs_info_when_trimmed(caplog):
         )
 
     assert any("trimmed" in record.message.lower() for record in caplog.records)
-
-
-
-def test_skill_token_cap_is_the_room_the_smallest_window_leaves():
-    """
-    Test that the skill cap is the room that the smallest supported window
-    leaves next to the API reference, the role prompt and the reserved
-    answer, never above `MAX_SKILL_TOKENS`: a sync that grows
-    `llms-base.txt` lowers it instead of pushing a selection over the window.
-    """
-    room = (
-        OLLAMA_MAX_CONTEXT_TOKENS
-        - RESERVED_RESPONSE_TOKENS
-        - _STATIC_PROMPT_TOKEN_ESTIMATE
-        - _REFERENCE_TOKEN_ESTIMATE
-    )
-
-    assert _SKILL_TOKEN_CAP == min(room, MAX_SKILL_TOKENS)
-    assert (
-        estimate_prompt_tokens(skills=[], include_reference=True)
-        + _SKILL_TOKEN_CAP
-        + RESERVED_RESPONSE_TOKENS
-    ) <= OLLAMA_MAX_CONTEXT_TOKENS
