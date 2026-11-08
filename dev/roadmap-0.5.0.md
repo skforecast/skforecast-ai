@@ -2037,6 +2037,32 @@ Hecho en [#126](https://github.com/skforecast/skforecast-ai/pull/126) (D34).
     `backtest()`. Alinearlo cambia todos los scripts de evaluación: a la
     0.6.0.
 
+- **D39. Un skill que no cabe entero va solo con su SKILL.md** (2026-11-08,
+  skforecast [#1459](https://github.com/skforecast/skforecast/pull/1459) y
+  [#1463](https://github.com/skforecast/skforecast/pull/1463)).
+  - La sincronización de los dos PRs (TiRex-2 y el troceo de Timestral)
+    hizo crecer `foundation-forecasting` en 1.069 tokens y `llms-base.txt`
+    en 166, y el tope de D37 bajó de 18.916 a 18.750. Con él, el recorte de
+    D37 quitaba el skill que pedía la pregunta, no solo con una pregunta que
+    toca todos los temas: "What parameters does backtesting_forecaster
+    take?" se quedaba sin `complete-api-reference` (18.881) y afinar un
+    fundacional con una búsqueda bayesiana, sin
+    `hyperparameter-optimization` (19.477). Tres tests de
+    `test_select_skills.py` fallaban en `0.5.x` desde la sincronización.
+  - Ni otra supresión (D37) ni aceptar el recorte: `_trim_to_budget` prueba,
+    para cada skill que no cabe entero, su SKILL.md sin `references/`
+    (`'<skill>/SKILL.md'` en `AskResult.skills`, y lo que carga
+    `load_skill`), y el primero que no cabe de ninguna forma cierra la
+    selección, como antes. El tamaño del SKILL.md se mide del fichero, como
+    el del prompt de rol, así que la sincronización no tiene que escribirlo.
+    El sufijo también vale en `skills` de `ask()`.
+  - Límite: el SKILL.md de `complete-api-reference` es un índice sin
+    firmas (unos 1.000 tokens); la pregunta de firmas sigue teniendo
+    `backtesting-configuration` y, con `include_reference=True`,
+    `llms-base.txt`. El de `hyperparameter-optimization` sí lleva las
+    estrategias y cómo elegir. Cambia lo que recibe el LLM: la comprobación
+    con un modelo real (`check_ask_context.py`) la lanza el usuario.
+
 ## Decisiones abiertas
 
 Se toman en el PR que las necesita y se pasan a la sección de arriba.

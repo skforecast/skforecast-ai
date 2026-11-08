@@ -55,6 +55,17 @@ def test_load_skill_output_includes_references():
     assert "Reference:" in result
 
 
+def test_load_skill_output_skill_md_alone():
+    """
+    Test that load_skill with the suffix '/SKILL.md' returns the SKILL.md
+    of the skill without its references.
+    """
+    result = load_skill("feature-engineering/SKILL.md")
+
+    assert "Reference:" not in result
+    assert load_skill("feature-engineering").startswith(result)
+
+
 def test_load_llms_reference_output():
     """
     Test that load_llms_reference returns the content of llms-base.txt
@@ -195,6 +206,37 @@ def test_agent_loads_the_skills_carried_by_deps():
     instructions = captured["instructions"]
     assert '<skill name="drift-detection">' in instructions
     assert '<skill name="prediction-intervals">' not in instructions
+
+
+def test_agent_loads_the_skill_md_alone_of_a_trimmed_skill():
+    """
+    Test that a skill named with the suffix '/SKILL.md', as the budget
+    trimming selects it, reaches the instructions without its references.
+    """
+    pytest.importorskip("pydantic_ai")
+    from pydantic_ai.messages import ModelResponse, TextPart
+    from pydantic_ai.models.function import FunctionModel
+
+    from skforecast_ai.llm.agent import AskDeps, create_forecasting_agent
+
+    captured = {}
+
+    def respond(messages, info):
+        captured["instructions"] = info.instructions
+        return ModelResponse(parts=[TextPart(content="ok")])
+
+    agent = create_forecasting_agent(FunctionModel(respond))
+    deps = AskDeps(
+        profile = None,
+        plan    = None,
+        skills  = ["hyperparameter-optimization/SKILL.md"],
+    )
+    agent.run_sync("How do I tune context_length?", deps=deps)
+
+    instructions = captured["instructions"]
+    assert '<skill name="hyperparameter-optimization/SKILL.md">' in instructions
+    assert load_skill("hyperparameter-optimization/SKILL.md") in instructions
+    assert "## Reference: search-parameters.md" not in instructions
 
 
 def test_agent_wraps_the_skills_in_a_tagged_documentation_block():

@@ -10,6 +10,7 @@ from skforecast_ai._constants import (
 from skforecast_ai.llm.skills import (
     compute_skill_token_budget,
     estimate_prompt_tokens,
+    load_skill,
     select_skills,
     _REFERENCE_TOKEN_ESTIMATE,
     _SKILL_TOKEN_CAP,
@@ -89,10 +90,11 @@ def test_select_skills_base_routing(task_type, expected):
 )
 def test_select_skills_keyword_augmentation(question, expected_skill):
     """
-    Test that keyword patterns in the question add the corresponding skill.
+    Test that keyword patterns in the question add the corresponding skill,
+    whole or, when it does not fit the cap, as its SKILL.md alone.
     """
     result = select_skills(task_type=None, question=question)
-    assert expected_skill in result
+    assert expected_skill in [s.removesuffix("/SKILL.md") for s in result]
 
 
 @pytest.mark.parametrize(
@@ -323,14 +325,63 @@ def test_select_skills_foundation_keeps_hyperparameter_optimization():
     Test that foundation-forecasting does NOT suppress
     hyperparameter-optimization: that skill documents
     `bayesian_search_foundation`, the only way to tune a zero-shot
-    forecaster.
+    forecaster. Both do not fit the cap whole since skforecast 0.27.0, so
+    the second one is sent as its SKILL.md alone.
     """
     result = select_skills(
         task_type="foundation",
         question="How do I tune context_length with a bayesian search?",
     )
-    assert "foundation-forecasting" in result
-    assert "hyperparameter-optimization" in result
+    assert result == [
+        "foundation-forecasting",
+        "hyperparameter-optimization/SKILL.md",
+    ]
+
+
+def test_select_skills_skill_md_alone_when_the_whole_skill_does_not_fit():
+    """
+    Test that a skill that does not fit the budget whole is selected as its
+    SKILL.md alone when that fits, and is dropped when neither fits.
+    """
+    question = "How do I tune context_length with a bayesian search?"
+    foundation = _SKILL_TOKEN_ESTIMATES["foundation-forecasting"]
+    skill_md = len(
+        load_skill("hyperparameter-optimization/SKILL.md")
+    ) // 4
+
+    result = select_skills(
+        task_type    = "foundation",
+        question     = question,
+        token_budget = foundation + skill_md,
+    )
+    assert result == [
+        "foundation-forecasting",
+        "hyperparameter-optimization/SKILL.md",
+    ]
+
+    result = select_skills(
+        task_type    = "foundation",
+        question     = question,
+        token_budget = foundation + skill_md - 1,
+    )
+    assert result == ["foundation-forecasting"]
+
+
+def test_select_skills_first_skill_that_does_not_fit_ends_the_selection():
+    """
+    Test that a less foundational skill that would fit is not selected
+    after a more foundational one that fits in neither form, so the
+    trimming never favours the end of the priority order.
+    """
+    budget = _SKILL_TOKEN_ESTIMATES["choosing-a-forecaster"] + 10
+
+    result = select_skills(
+        task_type    = "single_series",
+        question     = "Is there drift in production?",
+        token_budget = budget,
+    )
+
+    assert result == ["choosing-a-forecaster"]
 
 
 # ---------------------------------------------------------------------------
@@ -378,6 +429,22 @@ def test_estimate_prompt_tokens_multiple_skills():
         _STATIC_PROMPT_TOKEN_ESTIMATE
         + sum(_SKILL_TOKEN_ESTIMATES[s] for s in skills)
     )
+
+
+def test_estimate_prompt_tokens_skill_md_alone():
+    """
+    Test that a skill named with the suffix '/SKILL.md' counts the
+    characters of its SKILL.md divided by 4, not the whole skill.
+    """
+    skill_md = load_skill("hyperparameter-optimization/SKILL.md")
+
+    result = estimate_prompt_tokens(
+        skills=["hyperparameter-optimization/SKILL.md"],
+        include_reference=False,
+    )
+
+    assert result == _STATIC_PROMPT_TOKEN_ESTIMATE + len(skill_md) // 4
+    assert len(skill_md) // 4 < _SKILL_TOKEN_ESTIMATES["hyperparameter-optimization"]
 
 
 def test_estimate_prompt_tokens_unknown_skill_uses_default():
@@ -470,7 +537,7 @@ def test_worst_reachable_selection_fits_the_smallest_window(task_type):
     """
     skills = select_skills(task_type=task_type, question=ALL_TOPICS_QUESTION)
 
-    skill_tokens = sum(_SKILL_TOKEN_ESTIMATES[s] for s in skills)
+    skill_tokens = estimate_prompt_tokens(skills) - _STATIC_PROMPT_TOKEN_ESTIMATE
     assert skill_tokens <= MAX_SKILL_TOKENS, (
         f"task_type={task_type!r} selects {skill_tokens} tokens of skills "
         f"(cap: {MAX_SKILL_TOKENS}). Skills: {skills}"
@@ -498,7 +565,8 @@ def test_select_skills_applies_the_cap_without_an_explicit_budget():
         task_type="single_series", question=ALL_TOPICS_QUESTION
     )
 
-    assert sum(_SKILL_TOKEN_ESTIMATES[s] for s in uncapped) <= _SKILL_TOKEN_CAP
+    skill_tokens = estimate_prompt_tokens(uncapped) - _STATIC_PROMPT_TOKEN_ESTIMATE
+    assert skill_tokens <= _SKILL_TOKEN_CAP
     assert uncapped[0] == "choosing-a-forecaster"
     # The question matches every pattern, so the cap must have dropped the
     # lowest-priority matches.
@@ -576,8 +644,9 @@ def test_select_skills_output_follows_the_inventory_order():
         ),
     )
 
-    assert result == sorted(result, key=ALL_SKILLS.index)
-    assert "baseline-forecasting" in result
+    names = [s.removesuffix("/SKILL.md") for s in result]
+    assert names == sorted(names, key=ALL_SKILLS.index)
+    assert "baseline-forecasting" in names
 
 
 # ---------------------------------------------------------------------------

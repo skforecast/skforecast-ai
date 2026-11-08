@@ -715,7 +715,8 @@ class AskResult(DisplayMixin, BaseModel):
         LLM-generated explanation or response.
     skills : list of str, default []
         Names of the skill documents sent to the model, after any
-        trimming to fit the context budget. Recorded because the budget
+        trimming to fit the context budget; a skill sent without its
+        references ends with `'/SKILL.md'`. Recorded because the budget
         depends on the profile and context size at call time, so the
         selection cannot be re-derived from the question alone.
     """

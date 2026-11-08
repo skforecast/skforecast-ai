@@ -16,7 +16,7 @@ The skills are the ones skforecast publishes in its own repository, copied verba
 Each skill follows the open [Agent Skills](https://agentskills.io/specification) standard: a directory named after the skill with a `SKILL.md` file whose YAML front matter declares `name` and `description`, a Markdown body with the instructions, and an optional `references/` folder with longer material (API signatures, worked examples). Because the format is standard, any agent that supports it (GitHub Copilot, Claude Code and others) can load the same skills directly from the skforecast repository.
 
 !!! note "How `ask()` departs from the standard"
-    In the Agent Skills model the agent reads every `description` and decides on its own which skill to activate, loading the body only when needed. `ask()` does not leave that choice to the model: the skills are selected deterministically from the context and the question (see below), and each selected skill is sent whole, `SKILL.md` and `references/` included, trimmed as a block to the token budget. The trade-off is reproducibility: the documentation the model saw is a function of the inputs and is recorded in `answer.skills`.
+    In the Agent Skills model the agent reads every `description` and decides on its own which skill to activate, loading the body only when needed. `ask()` does not leave that choice to the model: the skills are selected deterministically from the context and the question (see below), and each selected skill is sent whole, `SKILL.md` and `references/` included, or as its `SKILL.md` alone when the whole skill does not fit the token budget. The trade-off is reproducibility: the documentation the model saw is a function of the inputs and is recorded in `answer.skills`.
 
 ---
 
@@ -86,7 +86,7 @@ When `skills` is not passed, `ask()` selects them in three steps.
 | api, signature, kwargs, "parameters of", "default value" | `complete-api-reference` |
 | traceback, debug, exception, fails, TypeError, ValueError, InvalidInputError | `troubleshooting-common-errors` |
 
-**3. Conflict resolution and budget.** Some skills suppress others whose guidance would be misleading next to them: `foundation-forecasting` removes the lag, feature and interval skills (a foundation model needs none of them), `deep-learning-forecasting` removes the single and multi-series workflow skills, `statistical-models` removes them together with feature engineering and selection, and `forecasting-multiple-series` removes `baseline-forecasting` (`ForecasterEquivalentDate` fits a single series, and `compare()` adds no baseline with several). The remaining skills are sorted by the `ALL_SKILLS` priority and trimmed to a token budget: for every provider, the room a 32,768 token window leaves next to the role prompt, the API reference and the room reserved for the answer (at most 20,000 tokens; it shrinks when a sync grows the reference), and for local `ollama:` models also the space left in the context window after the role prompt, the rendered context and the room reserved for the answer. Trimming drops the last (least foundational) skills first.
+**3. Conflict resolution and budget.** Some skills suppress others whose guidance would be misleading next to them: `foundation-forecasting` removes the lag, feature and interval skills (a foundation model needs none of them), `deep-learning-forecasting` removes the single and multi-series workflow skills, `statistical-models` removes them together with feature engineering and selection, and `forecasting-multiple-series` removes `baseline-forecasting` (`ForecasterEquivalentDate` fits a single series, and `compare()` adds no baseline with several). The remaining skills are sorted by the `ALL_SKILLS` priority and trimmed to a token budget: for every provider, the room a 32,768 token window leaves next to the role prompt, the API reference and the room reserved for the answer (at most 20,000 tokens; it shrinks when a sync grows the reference), and for local `ollama:` models also the space left in the context window after the role prompt, the rendered context and the room reserved for the answer. A skill that does not fit whole is sent as its `SKILL.md` alone, without `references/`, when that fits, and is recorded with that suffix in `answer.skills` (`'hyperparameter-optimization/SKILL.md'`); the first skill that fits in neither form ends the selection, so trimming drops the last (least foundational) skills first.
 
 The final list is stored in the result:
 
@@ -116,7 +116,7 @@ answer = assistant.ask(
 )
 ```
 
-A name that is not in `ALL_SKILLS` is skipped with a warning in the log; it does not raise. Pass `include_reference=True` to append the full skforecast API reference to the prompt on top of the skills. It is large, so use it for questions about exact signatures and defaults.
+Append `/SKILL.md` to a name (`'complete-api-reference/SKILL.md'`) to send that skill without its `references/`. A name that is not in `ALL_SKILLS` is skipped with a warning in the log; it does not raise. Pass `include_reference=True` to append the full skforecast API reference to the prompt on top of the skills. It is large, so use it for questions about exact signatures and defaults.
 
 The CLI exposes the same option as a comma-separated list:
 
