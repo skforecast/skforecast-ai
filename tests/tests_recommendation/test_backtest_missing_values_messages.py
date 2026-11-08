@@ -31,14 +31,14 @@ def test_backtest_missing_values_messages_output_when_target_and_exog():
 
     assert backtest_missing_values_messages(missing_values, plan_h2o_exog_ridge) == [
         "The target has missing values, and `backtest()` checks every test fold "
-        "before running: it raises, naming the dates, when a test fold holds one, "
-        "whatever the estimator, since no metric is computed on it; and when a test "
-        "fold is predicted from one, since ForecasterRecursive with Ridge cannot "
-        "predict from a missing value. `dropna_from_series` only drops the training "
-        "rows that read one, and a training window left without rows raises too. An "
-        "estimator that accepts missing values (such as 'RandomForestRegressor') "
-        "avoids the error of a fold predicted from a missing value, not of a fold "
-        "that holds one. Impute the target to backtest every fold.",
+        "before running: it raises, naming the dates, when a test fold is predicted "
+        "from one, since ForecasterRecursive with Ridge cannot predict from a "
+        "missing value. The metrics leave out the test dates without a value. "
+        "`dropna_from_series` only drops the training rows that read one, and a "
+        "training window left without rows raises too. An estimator that accepts "
+        "missing values (such as 'RandomForestRegressor') avoids the error of a "
+        "fold predicted from a missing value. Impute the target to backtest every "
+        "fold.",
         "The exogenous columns 'promo', 'price' have missing values, and "
         "ForecasterRecursive with Ridge cannot predict from them: `backtest()` "
         "checks every test fold before running and raises, naming the dates, "

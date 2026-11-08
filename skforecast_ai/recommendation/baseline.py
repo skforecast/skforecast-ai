@@ -49,8 +49,9 @@ def baseline_missing_values_note(data_profile: DataProfile) -> str | None:
 
     `ForecasterEquivalentDate` has no `dropna_from_series` option and
     learns nothing it could impute with: a missing value at an equivalent
-    date becomes a missing prediction, and the backtesting metrics cannot
-    be computed on it.
+    date becomes a missing prediction, which the backtesting of skforecast
+    rejects on a date with an observed value (only the dates without one
+    are left out of the metrics).
 
     Parameters
     ----------

@@ -35,17 +35,24 @@ plan_h2o_lgbm_differenced = plan_h2o_lgbm.model_copy(
     deep=True,
 )
 
-GAPS = "missing timestamps (asfreq() restores them as missing values)"
-HOLDS = (
-    "a test fold holds one, whatever the estimator, since no metric is "
-    "computed on it"
+# ForecasterRecursive with LGBMRegressor that drops the training rows that
+# read a missing value.
+plan_h2o_lgbm_dropna = plan_h2o_lgbm.model_copy(
+    update={
+        "forecaster_kwargs": {
+            **plan_h2o_lgbm.forecaster_kwargs, "dropna_from_series": True
+        }
+    },
+    deep=True,
 )
+
+GAPS ="missing timestamps (asfreq() restores them as missing values)"
 TRAINING_ROWS = (
     " `dropna_from_series` only drops the training rows that read one, and "
     "a training window left without rows raises too. "
     "An estimator that accepts missing values (such as "
     "'RandomForestRegressor') avoids the error of a fold predicted from a "
-    "missing value, not of a fold that holds one."
+    "missing value."
 )
 IMPUTE = " Impute the target to backtest every fold."
 EXOG = (
@@ -63,7 +70,8 @@ EXOG = (
 def _target(what, when):
     return (
         f"The target has {what}, and `backtest()` checks every test fold "
-        f"before running: it raises, naming the dates, when {when}."
+        f"before running: it raises, naming the dates, when {when}. The "
+        f"metrics leave out the test dates without a value."
     )
 
 
@@ -80,9 +88,9 @@ def _create_strategy(plan, profile):
             profile_h2o_gaps,
             _target(
                 GAPS,
-                f"{HOLDS}; and when a test fold is predicted from one, since "
-                f"ForecasterRecursive with Ridge cannot predict from a missing "
-                f"value",
+                "a test fold is predicted from one, since "
+                "ForecasterRecursive with Ridge cannot predict from a missing "
+                "value",
             ) + TRAINING_ROWS + IMPUTE,
         ),
         (
@@ -90,9 +98,9 @@ def _create_strategy(plan, profile):
             profile_h2o_missing_target,
             _target(
                 "missing values",
-                f"{HOLDS}; and when a test fold is predicted from one, since "
-                f"ForecasterRecursive with Ridge cannot predict from a missing "
-                f"value",
+                "a test fold is predicted from one, since "
+                "ForecasterRecursive with Ridge cannot predict from a missing "
+                "value",
             ) + TRAINING_ROWS + IMPUTE,
         ),
         (
@@ -100,9 +108,9 @@ def _create_strategy(plan, profile):
             profile_h2o_gaps,
             _target(
                 GAPS,
-                f"{HOLDS}; and when a test fold is predicted from one, since "
-                f"ForecasterDirect with Ridge cannot predict from a missing "
-                f"value",
+                "a test fold is predicted from one, since "
+                "ForecasterDirect with Ridge cannot predict from a missing "
+                "value",
             ) + TRAINING_ROWS + IMPUTE,
         ),
         (
@@ -110,23 +118,27 @@ def _create_strategy(plan, profile):
             profile_h2o_gaps,
             _target(
                 GAPS,
-                f"{HOLDS}; and when a test fold is predicted from one, since "
-                f"ForecasterEquivalentDate repeats it as a missing prediction",
+                "a test fold is predicted from one, since "
+                "ForecasterEquivalentDate repeats it as a missing prediction",
             ) + IMPUTE,
-        ),
-        (
-            plan_h2o_lgbm,
-            profile_h2o_gaps,
-            _target(GAPS, HOLDS) + IMPUTE,
         ),
         (
             plan_h2o_lgbm_differenced,
             profile_h2o_gaps,
             _target(
                 GAPS,
-                f"{HOLDS}; and when one of the last 1 value(s) before a test "
-                f"fold is missing, whatever the estimator, since the inverse of "
-                f"the differentiation starts from them",
+                "one of the last 1 value(s) before a test "
+                "fold is missing, whatever the estimator, since the inverse of "
+                "the differentiation starts from them",
+            ) + IMPUTE,
+        ),
+        (
+            plan_h2o_lgbm_dropna,
+            profile_h2o_gaps,
+            _target(
+                GAPS,
+                "every training row of a fold reads one, since "
+                "`dropna_from_series` drops those rows",
             ) + IMPUTE,
         ),
         (
@@ -140,9 +152,9 @@ def _create_strategy(plan, profile):
             (
                 _target(
                     "missing values",
-                    f"{HOLDS}; and when a test fold is predicted from one, since "
-                    f"ForecasterRecursive with Ridge cannot predict from a "
-                    f"missing value",
+                    "a test fold is predicted from one, since "
+                    "ForecasterRecursive with Ridge cannot predict from a "
+                    "missing value",
                 ) + TRAINING_ROWS + IMPUTE,
                 EXOG,
             ),
@@ -152,9 +164,9 @@ def _create_strategy(plan, profile):
             profile_single_closed,
             _target(
                 GAPS,
-                f"{HOLDS}; and when a test fold is predicted from one, since "
-                f"ForecasterRecursive with Ridge cannot predict from a missing "
-                f"value",
+                "a test fold is predicted from one, since "
+                "ForecasterRecursive with Ridge cannot predict from a missing "
+                "value",
             )
             + TRAINING_ROWS
             + " If the business is closed on Sundays, fill them with 0 in the "
@@ -166,9 +178,9 @@ def _create_strategy(plan, profile):
             profile_single_random_gaps,
             _target(
                 GAPS,
-                f"{HOLDS}; and when a test fold is predicted from one, since "
-                f"ForecasterRecursive with Ridge cannot predict from a missing "
-                f"value",
+                "a test fold is predicted from one, since "
+                "ForecasterRecursive with Ridge cannot predict from a missing "
+                "value",
             ) + TRAINING_ROWS + IMPUTE,
         ),
     ],
@@ -177,8 +189,8 @@ def _create_strategy(plan, profile):
         "nan_before_folds_ridge_values",
         "nan_before_folds_direct",
         "nan_before_folds_baseline",
-        "nan_in_test_fold_lgbm",
         "differentiation_lgbm",
+        "dropna_lgbm",
         "nan_in_exog_ridge",
         "nan_in_target_and_exog_ridge",
         "closed_days_daily",
@@ -192,11 +204,14 @@ def test_warn_backtest_missing_values_UserWarning_when_backtest_can_fail_on_them
     Test that a single series whose backtest can fail on missing values
     warns, attributed to the caller of the caller of the helper, with every
     case as a condition (the profile does not say where the values are):
-    a missing value inside a test fold fails whatever the estimator; a fold
-    predicted from one fails with Ridge and ForecasterEquivalentDate; with
+    a fold predicted from one fails with Ridge and ForecasterEquivalentDate
+    (a missing value inside a test fold is left out of the metrics); with
     the differentiation, one of the last values before a fold fails even
-    with LGBMRegressor; a missing exogenous value fails with Ridge, in a
-    warning of its own after the one of the target. The estimator offered is the one of the rules for 120 observations
+    with LGBMRegressor, and so does a training window left without rows
+    when it drops them (`dropna_from_series=True`); a missing exogenous
+    value fails with Ridge, in a
+    warning of its own after the one of the target. The estimator offered
+    is the one of the rules for 120 observations
     (RandomForestRegressor), and only where it avoids the error; daily data
     whose missing timestamps all fall on a day of the week without dates
     gets the advice of the closed days, naming the day, and daily data with
@@ -218,16 +233,22 @@ def test_warn_backtest_missing_values_UserWarning_when_backtest_can_fail_on_them
         (plans_h2o_without_lags["foundation"], profile_h2o_gaps),
         (plan_h2o_ridge, profile_h2o),
         (plan_h2o_exog_lgbm, profile_h2o_exog),
+        (plan_h2o_lgbm, profile_h2o_gaps),
         (plan_wide_ridge, profile_wide),
     ],
-    ids=["stats", "foundation", "clean_data", "lgbm_exog", "several_series"],
+    ids=[
+        "stats", "foundation", "clean_data", "lgbm_exog", "lgbm_target",
+        "several_series",
+    ],
 )
 def test_warn_backtest_missing_values_no_warning_when_nothing_to_report(
     plan, profile
 ):
     """
     Test that there is no warning (warnings are errors in this suite) with a
-    forecaster without lags, clean data, missing exogenous values and an
-    estimator that predicts from them, or several series.
+    forecaster without lags, clean data, missing values of the exogenous
+    columns or of the target and an estimator that predicts from them
+    (without the differentiation, the missing values of the target inside
+    the test folds are left out of the metrics), or several series.
     """
     _create_strategy(plan, profile)

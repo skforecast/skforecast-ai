@@ -20,7 +20,6 @@ from .fixtures_mcp import (
     content_of,
     csv_of,
     df_h2o_csv,
-    error_of,
     text_of,
     write_csv,
 )
@@ -181,10 +180,11 @@ def test_server_workflow_when_daily_data_closed_on_sundays(tmp_path):
     Sundays, which had no frequency before (the cause of finding V14 of the
     MCP audit): `profile` infers 'D' and warns about the 51 Sundays missing,
     which a forecast predicts too and a business closed on them can fill
-    with 0 after asking the user; `plan` and `forecast` run; `backtest` says
-    that the Sundays asfreq() restores fall in its test folds, with the same
-    advice; and the script of `get_code` run as a file gives the predictions
-    of `forecast`.
+    with 0 after asking the user; `plan` and `forecast` run; `backtest` runs
+    too, warns that its lags read the Sundays asfreq() restores (its
+    estimator treats them as missing values) and leaves the Sundays of its
+    test folds out of the metrics; and the script of `get_code` run as a
+    file gives the predictions of `forecast`.
     """
     path = write_csv(tmp_path, "shop.csv", df_no_sundays)
     server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
@@ -204,8 +204,8 @@ def test_server_workflow_when_daily_data_closed_on_sundays(tmp_path):
             cv = content_of(
                 await client.call_tool("create_cv", {"plan_id": plan["id"]})
             )
-            backtest = error_of(
-                await client.call_tool("backtest", {"cv_id": cv["id"]}), "backtest"
+            backtest = content_of(
+                await client.call_tool("backtest", {"cv_id": cv["id"]})
             )
             forecast = content_of(
                 await client.call_tool("forecast", {"plan_id": plan["id"]})
@@ -234,22 +234,26 @@ def test_server_workflow_when_daily_data_closed_on_sundays(tmp_path):
             "count": 1,
         }
     ]
-    assert backtest["code"] == "invalid_argument"
-    assert backtest["message"] == (
-        "The target has 15 missing value(s) in all 8 test folds (2023-09-17 "
-        "00:00:00, 2023-09-24 00:00:00, 2023-10-01 00:00:00, 2023-10-08 "
-        "00:00:00, 2023-10-15 00:00:00 and 10 more), counting the missing "
-        "timestamps that asfreq() restores: all of them on Sundays, when the "
-        "target never has a value. skforecast cannot compute the metrics on "
-        "them, whatever the estimator. If the business is closed on Sundays, "
-        "fill them with 0 in the data, after asking the user; otherwise, "
-        "impute the target, or evaluate on dates without missing values."
-    )
-    # The backtest was rejected, so the plan of the forecast was never
-    # measured.
+    assert (
+        "The metrics leave out 15 test dates without an observed value of the "
+        "target."
+    ) in backtest["summary"]
+    assert [
+        notice["message"] for notice in backtest["notices"]
+        if notice["category"] == "UserWarning"
+    ] == [
+        "To predict 8 of the 8 test folds, the forecaster reads values of the "
+        "target before the start of those folds, the ones their predictions "
+        "start from, and some are missing ('sales': 17 value(s), such as "
+        "'2023-08-27', '2023-09-03', '2023-09-10', '2023-09-17', '2023-09-24' "
+        "and 12 more). All of them are on Sundays, when the target never has a "
+        "value. LGBMRegressor treats them as missing values; check that they "
+        "are meant to be missing."
+    ]
+    # The backtest ran, so the plan of the forecast is measured.
     assert [notice["category"] for notice in forecast["notices"]] == [
-        "UnmeasuredPlanNotice", "UserWarning", "MissingValuesWarning",
-        "MissingValuesWarning", "MissingValuesWarning",
+        "UserWarning", "MissingValuesWarning", "MissingValuesWarning",
+        "MissingValuesWarning",
     ]
     predictions = pd.read_csv(forecast["files"]["predictions"], index_col=0)
     assert list(predictions.index[:2]) == ["2023-12-31", "2024-01-01"]

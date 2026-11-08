@@ -501,8 +501,9 @@ def test_tool_forecast_invalid_argument_when_foundation_series_ends_early(
     assert error["message"] == (
         "The target has missing values in the test split ('item_2': 7 value(s), "
         "such as '2012-04-23', '2012-04-24', '2012-04-25', '2012-04-26', "
-        "'2012-04-27' and 2 more). skforecast cannot compute the metrics on "
-        "them, whatever the estimator. Impute the target, or evaluate on dates "
+        "'2012-04-27' and 2 more). The metrics of the evaluation cannot be "
+        "computed on them, whatever the estimator. Impute the target, or "
+        "evaluate on dates "
         "without missing values. Series without any value in the test split "
         "('item_2') end before it: remove them from the data, or evaluate on "
         "dates they reach."

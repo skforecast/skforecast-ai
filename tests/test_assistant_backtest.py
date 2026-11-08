@@ -1241,30 +1241,91 @@ def test_backtest_InvalidInputError_when_received_plan_clashes_with_exog_names()
     assert exc_info.value.field == "data"
 
 
+def test_backtest_output_when_target_missing_in_test_folds():
+    """
+    Test that backtest() of a single series runs when a test fold holds a
+    missing timestamp that no lag reads: skforecast (0.27) leaves that date
+    out of the metrics, the predictions keep it with `y_true` missing, and
+    the explanation counts it after the points evaluated.
+    """
+    dates = pd.date_range("2023-01-01", periods=100, freq="D")
+    data = pd.DataFrame(
+        {"date": dates, "sales": np.arange(100, dtype=float)}
+    ).drop(index=[85]).reset_index(drop=True)
+    cv = TimeSeriesFold(steps=5, initial_train_size=70, verbose=False)
+
+    result = ForecastingAssistant().backtest(
+        data=data, cv=cv, target="sales", date_column="date",
+        forecaster="ForecasterDirect", estimator="Ridge", lags=[1, 2, 3],
+        show_progress=False,
+    )
+
+    assert list(result.metrics["n_evaluated"]) == [29]
+    assert len(result.predictions) == 30
+    assert pd.isna(result.predictions.loc["2023-03-27", "y_true"])
+    assert result.explanation.endswith(
+        "They are measured on 29 predictions with an observed value "
+        "(n_evaluated). The metrics leave out 1 test date without an observed "
+        "value of the target."
+    )
+
+
+@pytest.mark.parametrize("refit", [False, True], ids=["no refit", "refit"])
+def test_backtest_DataContentError_when_forecaster_stats_and_target_missing_in_test_folds(
+    refit
+):
+    """
+    Test that backtest() of ForecasterStats rejects a missing value inside a
+    test fold before running, naming the fold: skforecast leaves the date
+    out of the metrics, but the model cannot train on it nor update itself
+    with it, so the script failed with "`y` has missing values".
+    """
+    y = 10 + np.sin(np.arange(200) * 2 * np.pi / 7) * 3
+    y[170] = np.nan
+    data = pd.DataFrame(
+        {"date": pd.date_range("2020-01-01", periods=200, freq="D"), "y": y}
+    )
+    cv = TimeSeriesFold(
+        steps=10, initial_train_size=150, refit=refit, verbose=False
+    )
+
+    err_msg = re.escape(
+        "The target has 1 missing value(s) in test fold 3 of 5 (2020-06-19 "
+        "00:00:00), counting the missing timestamps that asfreq() restores. "
+        "ForecasterStats cannot train on them nor update its model with them."
+    )
+    # The profile warns about the missing value in the autocorrelation.
+    with pytest.warns(MissingValuesWarning):
+        with pytest.raises(DataContentError, match=err_msg):
+            ForecastingAssistant().backtest(
+                data=data, cv=cv, target="y", date_column="date",
+                forecaster="ForecasterStats", show_progress=False,
+            )
+
+
 @pytest.mark.parametrize("tz", ["UTC", "Europe/Madrid"])
 def test_backtest_DataContentError_when_time_zone_data_and_cv_date_without_zone(
     tz
 ):
     """
-    Test that backtest() of tz-aware data with a missing value in a test fold
-    and an `initial_train_size` date without time zone reports the missing
-    value before any script runs: the date is read in the time zone of the
-    data, so the check of the evaluated target finds the test folds.
+    Test that backtest() of tz-aware data without any value in the test
+    folds and an `initial_train_size` date without time zone reports them
+    before any script runs: the date is read in the time zone of the data,
+    so the check of the evaluated target finds the test folds.
     """
     data = df_h2o.copy()
     data.index = data.index.tz_localize(tz)
-    data.iloc[-5, 0] = np.nan
-    cv = TimeSeriesFold(steps=12, initial_train_size="2004-01-01", verbose=False)
+    data.iloc[-50:, 0] = np.nan
+    cv = TimeSeriesFold(steps=12, initial_train_size="2004-04-01", verbose=False)
 
     err_msg = re.escape(
-        "The target has 1 missing value(s) in test fold 5 of 5 (2008-02-01"
+        "The target has no value on the 50 dates of the test folds (2004-05-01"
     )
-    with pytest.warns(MissingValuesWarning):
-        with pytest.raises(DataContentError, match=err_msg):
-            assistant.backtest(
-                data=data, cv=cv, target="x", estimator="Ridge",
-                show_progress=False,
-            )
+    with pytest.raises(DataContentError, match=err_msg):
+        assistant.backtest(
+            data=data, cv=cv, target="x", estimator="Ridge",
+            show_progress=False,
+        )
 
 
 # =============================================================================

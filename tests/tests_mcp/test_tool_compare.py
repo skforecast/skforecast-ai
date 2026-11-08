@@ -811,13 +811,13 @@ def test_tool_compare_invalid_argument_with_hint_when_the_target_has_missing_val
     tmp_path,
 ):
     """
-    Test that a comparison on data whose last rows have no target value is
+    Test that a comparison on data whose test folds have no target value is
     `invalid_argument` on `data_path` with the hint of the server that
     leaves the values to the user: the message says to impute them, which
     an agent does without asking.
     """
     data = df_h2o_csv.copy()
-    data.loc[data.index[-3:], "x"] = float("nan")
+    data.loc[data.index[-90:], "x"] = float("nan")
     path = write_csv(tmp_path, "tail.csv", data)
     server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
     _, _, cv_id = cv_of(server, path)
@@ -829,12 +829,12 @@ def test_tool_compare_invalid_argument_with_hint_when_the_target_has_missing_val
 
     assert (error["code"], error["field"]) == ("invalid_argument", "data_path")
     assert error["message"] == (
-        "The target has 3 missing value(s) in test folds 5 and 6 of 6 "
-        "(2008-04-01 "
-        "00:00:00, 2008-05-01 00:00:00, 2008-06-01 00:00:00), counting the "
-        "missing timestamps that asfreq() restores. skforecast cannot compute "
-        "the metrics on them, whatever the estimator. Impute the target, or "
-        "evaluate on dates without missing values."
+        "The target has no value on the 62 dates of the test folds (2003-05-01 "
+        "00:00:00, 2003-06-01 00:00:00, 2003-07-01 00:00:00, 2003-08-01 "
+        "00:00:00, 2003-09-01 00:00:00 and 57 more), counting the missing "
+        "timestamps that asfreq() restores, so no metric can be computed. "
+        "Choose an `initial_train_size` whose test folds reach dates with "
+        "values, or impute the target."
     )
     assert error["hint"] == DATA_VALUES_HINT
 

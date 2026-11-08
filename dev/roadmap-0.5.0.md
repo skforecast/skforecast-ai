@@ -2010,6 +2010,33 @@ Hecho en [#126](https://github.com/skforecast/skforecast-ai/pull/126) (D34).
     Test del invariante en `test_select_skills.py`; las guías de skills y de
     configuración del LLM dicen el tope nuevo.
 
+- **D38. Un valor que falta dentro de un fold de test ya no es error**
+  (2026-11-07, skforecast
+  [#1458](https://github.com/skforecast/skforecast/pull/1458)).
+  - Con una serie, skforecast 0.27 deja fuera de las métricas las fechas sin
+    `y_true`, como ya hacía por serie con varias. `_check_evaluated_target`
+    rechazaba antes de correr todo backtest y `compare()` con un valor que
+    falta en un fold de test: con 0.27 la regla era falsa. Ahora solo
+    rechaza unos folds de test sin ningún valor (sin métricas posibles), y
+    la explicación del backtest cuenta las fechas que quedan fuera.
+    `ForecasterStats` es la excepción (lo encontró la revisión final del
+    PR): no entrena ni actualiza su modelo con un valor que falta ("`y` has
+    missing values" dentro del script, con y sin refit), así que con él se
+    sigue rechazando cada valor que falta de los folds de test, en los
+    chequeos por plan (`compare()` lo hace por candidato antes de correr).
+    Con `dropna_from_series=True` y un estimador que acepta los valores que
+    faltan, `create_cv()` sigue avisando: una ventana de entrenamiento sin
+    filas falla.
+  - Se mantienen los errores de lo que sí falla: la ventana que leen los
+    lags (`validate_backtest_windows`, el error de #1432 en skforecast), la
+    diferenciación y las exógenas. Con un estimador que acepta los valores
+    que faltan y sin diferenciación, `create_cv()` y el `MissingValuesNotice`
+    ya no avisan del objetivo.
+  - `forecast()` con `test_size` sigue rechazándolos: su script calcula las
+    métricas con scikit-learn sobre el tramo de test, y el mensaje remite a
+    `backtest()`. Alinearlo cambia todos los scripts de evaluación: a la
+    0.6.0.
+
 ## Decisiones abiertas
 
 Se toman en el PR que las necesita y se pasan a la sección de arriba.
@@ -2050,6 +2077,7 @@ arranque de las sesiones en la nube instala skforecast desde su rama
 | Sin issue ([#1454](https://github.com/skforecast/skforecast/pull/1454)) | Nuevo `TimestralAdapter` (`mistralai/Timestral-5M` a `-209M`, por defecto `-28M`): exógenas pasadas, futuras y categóricas, 21 cuantiles fijos, licencia MIT modificada sin derechos por encima de 20 millones de USD de ingresos mensuales (`commercial_use_restricted`), y el backend se instala desde git (`timestral @ git+https://...`) | El servidor ya lo restringe solo (lee la licencia de skforecast), y `validate_foundation_interval` lee sus cuantiles. Faltaban las listas escritas a mano (`FOUNDATION_MODEL_ID_PREFIXES`, SKILL.md y su copia del plugin, la tabla de la guía del servidor, los tests que las fijan y el golden de los esquemas) y un fallo: `foundation_backend_installed` cortaba el nombre en `[` y, con un backend de referencia directa, decía que no estaba instalado aunque lo estuviera, así que `forecast()` y `backtest()` de Timestral daban `missing_dependency` siempre. `backend_distribution` lee el nombre de la distribución, y `_pinned` deja la referencia directa sin versión. Nota en Added | Resuelto en `0.27.x` (2026-11-06) |
 | Sin issue ([#1456](https://github.com/skforecast/skforecast/pull/1456)) | Las búsquedas saltan los candidatos que fallan (también los trials de Optuna) y el refit deja fuera las series demasiado cortas; tres mensajes nuevos del `ValueError` de `initial_train_size`, y su límite inferior pasa a estricto (`initial_train_size == window_size` falla) | Nada: skforecast-ai no lanza búsquedas, ningún código depende de los mensajes, y `first_window_issue` ya pedía la ventana más uno (ventana más `steps` con los directos) y deja fuera `ForecasterStats` y los fundacionales, los mismos que exime skforecast. Crecen el skill `hyperparameter-optimization` y `llms-base.txt`: el tope de D37 se ajusta solo al sincronizar | Resuelto en `0.27.x` (2026-11-06) |
 | Sin issue ([#1450](https://github.com/skforecast/skforecast/pull/1450), [#1455](https://github.com/skforecast/skforecast/pull/1455)) | `FoundationModel` rellena por la izquierda el contexto de los backends que piden series de igual longitud, con vuelta a CPU en MPS; las covariables numéricas pasan a float32 sin una Series intermedia | Nada: internos de los adaptadores. Suite en verde contra la cabeza de `0.27.x` (`d6eb16e`): 7.087 | Resuelto en `0.27.x` (2026-11-05 y 2026-11-06) |
+| Sin issue ([#1458](https://github.com/skforecast/skforecast/pull/1458)) | El backtesting de una serie deja fuera de las métricas las fechas sin valor observado (antes "Input contains NaN"); error nuevo cuando ningún fold de test tiene valor; el error de #1432 se mantiene | D38: `backtest()` y `compare()` dejan de rechazar los valores que faltan dentro de los folds de test, y la explicación cuenta las fechas fuera; consejos, aviso de `create_cv()` y notice del MCP corregidos | Resuelto en `0.27.x` (2026-11-07) |
 
 Detalle de cada uno:
 
@@ -2186,6 +2214,17 @@ de `select_baseline_config` que lo dice no llega al resumen, y en el check
 con agentes de la 0.5.0 cuatro sesiones lo dedujeron solas (bien). Cambia
 lo que recibe el LLM: goldens y check de pago.
 
+### Los valores que faltan en el tramo de test de `forecast()`
+
+Desde D38, `backtest()` deja fuera de las métricas las fechas de test sin
+valor (skforecast 0.27, #1458), pero `forecast()` con `test_size` las sigue
+rechazando: su script calcula las métricas con scikit-learn sobre
+`actual` tal cual. Alinearlo es escribir en el script la máscara de las
+fechas con valor (y `n_evaluated` en sus métricas), lo que cambia todos los
+scripts de evaluación (esperados byte a byte, tests standalone y
+determinismo). Con varias series, `validate_evaluation_partition` tiene la
+misma regla.
+
 ### Las métricas por serie en el SKILL.md del servidor
 
 El paso 1 de la lectura de resultados dice "The summary only gives the
@@ -2303,9 +2342,11 @@ La solución de fondo para un negocio que cierra los mismos días de la
 semana. Desde 1e
 ([#98](https://github.com/skforecast/skforecast-ai/pull/98), D9), unos
 datos diarios sin domingos son `'D'` con los domingos como fechas que
-faltan: `forecast` los predice, y `backtest` y `forecast` con `test_size`
-fallan porque caen en los folds de test. El aviso y los errores lo dicen y
-proponen rellenarlos con 0 pidiendo permiso. Una frecuencia sin esos días
+faltan: `forecast` los predice, `forecast` con `test_size` falla porque
+caen en el tramo de test, y `backtest` los deja fuera de las métricas (D38)
+pero falla con un estimador que no acepta valores que faltan, porque los
+lags los leen. El aviso y los errores lo dicen y proponen rellenarlos con 0
+pidiendo permiso. Una frecuencia sin esos días
 (`pd.offsets.CustomBusinessDay(weekmask='Mon Tue Wed Thu Fri Sat')`) no
 tendría huecos. Comprobado el 2026-10-16:
 
