@@ -128,7 +128,7 @@ _SKILL_TOKEN_ESTIMATES: dict[str, int] = {
     "feature-selection": 1579,
     "forecasting-multiple-series": 2001,
     "forecasting-single-series": 1505,
-    "foundation-forecasting": 12601,
+    "foundation-forecasting": 12740,
     "hyperparameter-optimization": 6876,
     "metric-selection": 6288,
     "prediction-intervals": 4978,
