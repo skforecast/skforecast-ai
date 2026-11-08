@@ -78,6 +78,7 @@ FOUNDATION_MODEL_ID_PREFIXES: tuple[str, ...] = (
     "autogluon/chronos-2",
     "google/timesfm-2.5",
     "google/timesfm-3.0",
+    "NX-AI/TiRex-2",
     "Salesforce/moirai-2",
     "soda-inria/tabicl",
     "priorlabs/tabpfn",
