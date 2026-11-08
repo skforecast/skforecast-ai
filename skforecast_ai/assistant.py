@@ -4734,18 +4734,16 @@ class ForecastingAssistant:
                 and "baseline" not in task_types
             ):
                 task_types.append("baseline")
-            # Budget the skills against the space the context block has
-            # already taken. Only local models expose a context window
-            # known up front; hosted windows are provider specific and
-            # generally far larger, so no budget is imposed for them and
-            # the full selection is sent.
-            token_budget = None
-            if self.llm.startswith("ollama:"):
-                token_budget = compute_skill_token_budget(
-                    max_context_tokens = OLLAMA_MAX_CONTEXT_TOKENS,
-                    context_tokens     = estimate_context_tokens(user_message),
-                    include_reference  = include_reference,
-                )
+            # Budget the skills against what the request actually sends: the
+            # context block, and the API reference only when it goes. The
+            # window is the smallest one `ask()` supports, the `num_ctx` of
+            # Ollama and the smallest of the hosted models, whose windows
+            # are not known up front.
+            token_budget = compute_skill_token_budget(
+                max_context_tokens = OLLAMA_MAX_CONTEXT_TOKENS,
+                context_tokens     = estimate_context_tokens(user_message),
+                include_reference  = include_reference,
+            )
             resolved_skills = select_skills(
                 task_type    = task_types,
                 question     = prompt,

@@ -150,6 +150,51 @@ def test_ask_records_the_auto_routed_skills(monkeypatch):
     assert result.skills
 
 
+@pytest.mark.parametrize(
+    "llm", ["openai:fake-model", "ollama:fake-model"], ids=lambda v: v
+)
+@pytest.mark.parametrize("include_reference", [False, True], ids=["no_ref", "ref"])
+def test_ask_budgets_the_skills_against_what_the_request_sends(
+    monkeypatch, llm, include_reference
+):
+    """
+    Test that every provider, hosted or local, budgets the skills against
+    the smallest supported window minus what the request sends: the
+    message with its context, and the API reference only when it goes.
+    """
+    import skforecast_ai.assistant as assistant_mod
+    from skforecast_ai._constants import OLLAMA_MAX_CONTEXT_TOKENS
+    from skforecast_ai.llm.skills import (
+        compute_skill_token_budget,
+        estimate_context_tokens,
+    )
+
+    assistant = ForecastingAssistant(llm=llm)
+    capture = {}
+    patch_agent(monkeypatch, assistant, output="answer", capture=capture)
+    monkeypatch.setattr(assistant_mod, "ensure_ollama_reachable", lambda url: None)
+    budgets = []
+
+    def recording_select_skills(*, task_type, question, token_budget):
+        budgets.append(token_budget)
+        return []
+
+    monkeypatch.setattr(assistant_mod, "select_skills", recording_select_skills)
+
+    assistant.ask(
+        prompt            = "How do I detect drift?",
+        include_reference = include_reference,
+    )
+
+    assert budgets == [
+        compute_skill_token_budget(
+            max_context_tokens = OLLAMA_MAX_CONTEXT_TOKENS,
+            context_tokens     = estimate_context_tokens(capture["message"]),
+            include_reference  = include_reference,
+        )
+    ]
+
+
 def test_ask_routes_skills_by_plan_task_type_when_baseline_plan(monkeypatch):
     """
     Test that the skills of the plan's task type are added to the ones of

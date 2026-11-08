@@ -143,7 +143,7 @@ The main changes in this release are:
 
 + [<code>ForecastingAssistant.ask()</code>][assistant] no longer loads the `baseline-forecasting` skill with several series, which `ForecasterEquivalentDate` cannot forecast, so the largest selection of skills fits again in the 32,768 tokens of a local model. See [Skills][skills] ([#137](https://github.com/skforecast/skforecast-ai/pull/137)).
 
-+ A skill that [<code>ForecastingAssistant.ask()</code>][assistant] selects but cannot fit whole in its token budget is sent as its `SKILL.md` alone, without its references, instead of being dropped, and `AskResult.skills` records it as `'<name>/SKILL.md'`. Questions about exact signatures, or about tuning a foundation model, keep their skill with the larger skills of skforecast 0.27.0. See [Skills][skills].
++ The token budget of the skills of [<code>ForecastingAssistant.ask()</code>][assistant] counts the API reference only with `include_reference=True`, and the rendered context for every provider, not only Ollama. A skill that still does not fit whole is sent as its `SKILL.md` alone instead of being dropped, recorded as `'<name>/SKILL.md'` in `AskResult.skills`. See [Skills][skills].
 
 + The skill of the MCP server says that a coverage measured on few values is a rough check, so agents quote the level the user asked for with the warning of the server, and the `model_not_allowed` hint tells the agent to stop and run nothing until the user chooses. See [MCP server][mcp-guide] ([#130](https://github.com/skforecast/skforecast-ai/pull/130)).
 

@@ -39,19 +39,21 @@ MAX_DESCRIBE_ITEMS = 15
 # Prompt budgeting
 # ---------------------------------------------------------------------------
 
-# Context window assumed for local Ollama models. Hosted providers expose
-# provider-specific windows, so no budget is imposed for them.
+# Context window that `ask()` budgets every request against: the `num_ctx`
+# of local Ollama models, and the smallest window of the hosted models it
+# supports (most have 128k or more, but some Groq and Bedrock models have
+# 32k, and no provider says it up front). The skills get what the role
+# prompt, the rendered context, the API reference when it is sent and the
+# reserved answer leave of it (`compute_skill_token_budget`).
 OLLAMA_MAX_CONTEXT_TOKENS = 32768
 
 # Tokens held back for the model's own answer when budgeting the prompt.
 RESERVED_RESPONSE_TOKENS = 2048
 
-# Ceiling on the skill content of a single request, applied whatever the
-# provider. Hosted context windows are not known up front, so without it a
-# question matching many topics is sent unbounded and fails at the provider.
-# An upper bound: `select_skills` lowers it to the room a 32k window leaves
-# next to the API reference, the role prompt and the reserved answer, which
-# shrinks as the synced reference grows (`_SKILL_TOKEN_CAP` in llm/skills.py).
+# Ceiling on the skill content of a single request, whatever room the
+# window leaves: every token of skills is paid on every call, so this is a
+# decision of cost and focus, not of fit. A skill that does not fit whole
+# goes as its SKILL.md alone (`select_skills`).
 MAX_SKILL_TOKENS = 20_000
 
 # Ceiling for the static role prompt. It is paid on every call and is not
