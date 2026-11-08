@@ -283,6 +283,7 @@ The server reads the license of each foundation model from skforecast. By defaul
 |:--|:--|:--|:--|
 | Chronos-2 (the default model) | `autogluon/chronos-2`, `amazon/chronos-2` | Yes | |
 | TimesFM 2.5 | `google/timesfm-2.5` | Yes | |
+| TiRex-2 | `NX-AI/TiRex-2` | Yes | |
 | TabICL | `soda-inria/tabicl` | Yes | |
 | Nori | `Synthefy/Nori` | Yes | |
 | t0 | `theforecastingcompany/t0` | Yes | |

@@ -258,6 +258,7 @@ def test_validate_foundation_estimator_kwargs_ValueError_when_model_id():
         ("google/timesfm-3.0-pytorch", [0.1, 0.9]),
         ("google/timesfm-3.0-pytorch", [0.2, 0.7]),
         ("taharnbl/TS-ICL", [0.05, 0.95]),
+        ("NX-AI/TiRex-2", [0.1, 0.9]),
     ],
     ids=lambda dt: f"model_id, interval: {dt}",
 )
@@ -267,7 +268,7 @@ def test_validate_foundation_interval_no_error_when_interval_supported(
     """
     Test that an interval is accepted when the model predicts any quantile
     level, or when both bounds are in its quantile grid (0.1 steps for
-    TimesFM, 0.01 steps for TS-ICL).
+    TimesFM and TiRex-2, 0.01 steps for TS-ICL).
     """
     validate_foundation_interval(get_model_info(model_id), interval)
 
