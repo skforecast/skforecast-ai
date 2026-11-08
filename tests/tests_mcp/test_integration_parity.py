@@ -253,7 +253,6 @@ def test_server_workflow_when_daily_data_closed_on_sundays(tmp_path):
     # The backtest ran, so the plan of the forecast is measured.
     assert [notice["category"] for notice in forecast["notices"]] == [
         "UserWarning", "MissingValuesWarning", "MissingValuesWarning",
-        "MissingValuesWarning",
     ]
     predictions = pd.read_csv(forecast["files"]["predictions"], index_col=0)
     assert list(predictions.index[:2]) == ["2023-12-31", "2024-01-01"]

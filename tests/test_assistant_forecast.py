@@ -1142,9 +1142,12 @@ def test_forecast_output_when_data_has_missing_timestamps():
         {"date": dates, "sales": np.arange(100, dtype=float)}
     ).drop(index=[40, 41, 70]).reset_index(drop=True)
 
-    # skforecast reports the rows it drops (from `y_train` and `X_train`)
-    # because of the restored gaps.
-    with pytest.warns(MissingValuesWarning, match="NaNs detected in"):
+    # skforecast reports the rows it drops because of the restored gaps.
+    warn_msg = re.escape(
+        "Some rows of the training matrix have missing values. 45 of 79 rows "
+        "are dropped: 3 with a NaN target and 42 with NaN predictors"
+    )
+    with pytest.warns(MissingValuesWarning, match=warn_msg):
         result = assistant.forecast(
             data        = data,
             target      = "sales",
@@ -2600,7 +2603,8 @@ def test_forecast_does_not_check_series_lengths_when_forecaster_is_not_multiseri
     missing values it trains on.
     """
     err_msg = re.escape(
-        "MissingValuesWarning: NaNs detected in `X_train`."
+        "MissingValuesWarning: Some rows of the training matrix have missing "
+        "values. 95 of 95 rows are dropped per step, with NaN predictors"
     )
     with pytest.raises(ForecastExecutionError, match=err_msg):
         ForecastingAssistant().forecast(
@@ -2774,7 +2778,13 @@ def test_forecast_does_not_warn_again_when_data_equal_to_profile():
         result = assistant.forecast(data=df_h2o_with_nan, profile=profile, steps=3)
 
     messages = [str(warning.message) for warning in record]
-    assert any("NaNs detected in `y_train`" in message for message in messages)
+    assert any(
+        message.startswith(
+            "Some rows of the training matrix have missing values. 37 of 168 "
+            "rows are dropped: 1 with a NaN target and 36 with NaN predictors"
+        )
+        for message in messages
+    )
     assert not any("Interleaved NaN/inf detected" in message for message in messages)
     assert result.profile.data_profile.warnings == profile.data_profile.warnings
     assert result.profile.data_profile.n_total_observations == 204
