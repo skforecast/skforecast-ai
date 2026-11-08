@@ -159,13 +159,20 @@ def test_validate_training_rows_passes_when_plan_is_not_concerned(data, profile,
     assert validate_training_rows(data, profile, plan) is None
 
 
-@pytest.mark.parametrize("test_size", [None, 12], ids=["prediction", "evaluation"])
-def test_validate_training_rows_matches_skforecast(monkeypatch, test_size):
+@pytest.mark.parametrize(
+    "test_size, dropped",
+    [
+        (None, "84 of 84 rows are dropped: 3 with a NaN target and 81 with NaN"),
+        (12, "72 of 72 rows are dropped: 3 with a NaN target and 69 with NaN"),
+    ],
+    ids=["prediction", "evaluation"],
+)
+def test_validate_training_rows_matches_skforecast(monkeypatch, test_size, dropped):
     """
     Test that the script of the forecast fails inside skforecast with "All
     samples have been removed due to NaNs" where the check raises, in
-    prediction mode and with `test_size`; skforecast warns first about the
-    rows it drops.
+    prediction mode and with `test_size`; skforecast warns first that it
+    drops every training row.
     """
     profile = _profile_h2o_no_forecast_row
     plan = plan_h2o_no_forecast_row_ridge
@@ -177,7 +184,10 @@ def test_validate_training_rows_matches_skforecast(monkeypatch, test_size):
     monkeypatch.setattr(
         assistant_module, "validate_training_rows", lambda **kwargs: None
     )
-    with pytest.warns(MissingValuesWarning, match="NaNs detected"):
+    warn_msg = re.escape(
+        f"Some rows of the training matrix have missing values. {dropped}"
+    )
+    with pytest.warns(MissingValuesWarning, match=warn_msg):
         with pytest.raises(
             ForecastExecutionError, match="All samples have been removed"
         ):

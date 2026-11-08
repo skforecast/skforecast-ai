@@ -695,10 +695,11 @@ def test_backtest_InvalidInputError_when_lag_reads_missing_timestamp():
         assistant.backtest(
             data=data_h2o_gaps, cv=cv, profile=profile, plan=plan, show_progress=False
         )
-    with (
-        pytest.warns(MissingValuesWarning, match="NaNs detected in `y_train`"),
-        pytest.warns(MissingValuesWarning, match="NaNs detected in `X_train`"),
-    ):
+    warn_msg = re.escape(
+        "Some rows of the training matrix have missing values. 69 of 84 rows "
+        "are dropped: 1 with a NaN target and 68 with NaN predictors"
+    )
+    with pytest.warns(MissingValuesWarning, match=warn_msg):
         result = assistant.forecast(data=data_h2o_gaps, profile=profile, plan=plan)
 
     assert exc_info.value.code == "invalid_argument"
