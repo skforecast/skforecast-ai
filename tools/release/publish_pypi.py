@@ -152,6 +152,14 @@ def cmd_version(args: argparse.Namespace) -> None:
     lowest = _lowest_python(project["requires-python"], args.main_python)
     pythons = sorted({lowest, args.main_python}, key=Version)
     _output(version=version, pythons=json.dumps(pythons))
+    summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a", encoding="utf-8") as fh:
+            fh.write(
+                f"skforecast-ai and skforecast-ai-mcp **{version}** to "
+                f"**{args.target}**, smoke tests on Python "
+                f"{' and '.join(pythons)}\n"
+            )
 
 
 def cmd_release(args: argparse.Namespace) -> None:
@@ -382,7 +390,8 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("version")
     p.add_argument("--main-python", required=True)
-    p.add_argument("--rehearsal", help="N of the .devN version of a rehearsal")
+    p.add_argument("--target", default="the index", help="for the summary")
+    p.add_argument("--rehearsal",help="N of the .devN version of a rehearsal")
     p.set_defaults(func=cmd_version)
 
     p = sub.add_parser("release")

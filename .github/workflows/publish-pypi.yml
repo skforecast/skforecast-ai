@@ -1,4 +1,12 @@
-name: Publish to PyPI
+name: Publish to PyPI or TestPyPI
+
+# The version of a rehearsal (X.Y.Z.devN) is only known once the build
+# reads it, so the name of its run gives the tag or the branch; the build
+# writes the version to the summary of the run.
+run-name: >-
+  ${{ github.event_name == 'release'
+  && format('Publish {0} to PyPI', github.event.release.tag_name)
+  || format('Rehearse {0} on TestPyPI', github.ref_name) }}
 
 # Publishes skforecast-ai and its launcher skforecast-ai-mcp with Trusted
 # Publishing (OIDC): no token is stored anywhere.
@@ -54,7 +62,7 @@ env:
 
 jobs:
   build:
-    name: Build and check the distributions
+    name: Build and check for ${{ github.event_name == 'release' && 'PyPI' || 'TestPyPI' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     outputs:
@@ -86,7 +94,7 @@ jobs:
             rehearsal=(--rehearsal "$(date -u +%Y%m%d%H%M%S)")
           fi
           python tools/release/publish_pypi.py version \
-            --main-python "$PYTHON_VERSION" "${rehearsal[@]}"
+            --main-python "$PYTHON_VERSION" --target "$TARGET" "${rehearsal[@]}"
 
       - name: Check the release against the version and the branch
         if: github.event_name == 'release'
@@ -127,7 +135,7 @@ jobs:
   # launcher takes skforecast-ai from the wheel just built, since its
   # version is not on any index yet.
   smoke:
-    name: Install the wheels (Python ${{ matrix.python }})
+    name: Install the wheels for ${{ github.event_name == 'release' && 'PyPI' || 'TestPyPI' }} (Python ${{ matrix.python }})
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -164,7 +172,7 @@ jobs:
           venv/bin/skforecast-ai-mcp --help > /dev/null
 
   publish-skforecast-ai:
-    name: Publish skforecast-ai
+    name: Publish skforecast-ai to ${{ github.event_name == 'release' && 'PyPI' || 'TestPyPI' }}
     needs: [build, smoke]
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -188,7 +196,7 @@ jobs:
 
   # After skforecast-ai: the launcher pins its exact version.
   publish-skforecast-ai-mcp:
-    name: Publish skforecast-ai-mcp
+    name: Publish skforecast-ai-mcp to ${{ github.event_name == 'release' && 'PyPI' || 'TestPyPI' }}
     needs: [build, publish-skforecast-ai]
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -213,7 +221,7 @@ jobs:
   # The index serves the files built in this run, byte for byte. It waits
   # until the index lists them, which takes a while for a new version.
   uploaded:
-    name: Compare the files on the index
+    name: Compare the files on ${{ github.event_name == 'release' && 'PyPI' || 'TestPyPI' }}
     needs: [build, publish-skforecast-ai-mcp]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -243,7 +251,7 @@ jobs:
             --index "$INDEX" --dist dist --wait 600
 
   verify:
-    name: Install from the index (Python ${{ matrix.python }})
+    name: Install from ${{ github.event_name == 'release' && 'PyPI' || 'TestPyPI' }} (Python ${{ matrix.python }})
     needs: [build, uploaded]
     runs-on: ubuntu-latest
     timeout-minutes: 15
