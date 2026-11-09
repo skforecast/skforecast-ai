@@ -330,8 +330,8 @@ def test_create_server_instructions_carry_the_rules_that_fail_most(tmp_path):
         "only with their permission write a corrected copy",
         "Foundation models other than the default",
         "Below 1 it beats the one-step naive forecast (repeat the previous "
-        "value) on the training data, which is not a seasonal naive forecast "
-        "nor the baseline of `compare`",
+        "value) over the observations known when each prediction is made, "
+        "which is not a seasonal naive forecast nor the baseline of `compare`",
         "Never copy, move or rewrite it into that directory yourself",
         "the messages of errors and warnings can name columns and series and "
         "quote up to 5 values, a traceback of `get_failure` can quote values, "

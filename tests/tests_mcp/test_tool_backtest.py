@@ -80,8 +80,8 @@ def test_tool_backtest_output_matches_python_api(tmp_path):
     ]
     assert result["notices"][0]["message"].startswith(
         "`mean_absolute_scaled_error` divides the error by that of the "
-        "one-step naive forecast (repeat the previous value) on the training "
-        "data"
+        "one-step naive forecast (repeat the previous value) over the "
+        "observations known when each prediction is made"
     )
     assert result["notices"][1]["message"].endswith(RMSE_UNIT)
     assert MSE_UNIT not in result["notices"][1]["message"]

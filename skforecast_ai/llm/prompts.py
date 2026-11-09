@@ -86,7 +86,7 @@ relationship.
 
 9. Interpret a supplied metric only against its documented baseline, using one \
 phrasing per answer. MASE and RMSSE below 1 beat the one-step naive forecast \
-(last training value); above 1 they do not. Call it that, never "the \
+(repeat the previous value); above 1 they do not. Call it that, never "the \
 baseline", which in a comparison is a leaderboard row. MAPE is a fraction: \
 quote it as given, never as a percentage; it has no meaning when the target \
 takes values at or around zero. sMAPE is already a percentage, from 0 to \

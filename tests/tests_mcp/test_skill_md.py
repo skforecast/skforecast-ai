@@ -222,7 +222,8 @@ def test_skill_md_covers_what_agents_get_wrong(phrase):
     [
         "the directory the server may read, which its instructions name",
         "divide the error by that of the one-step naive forecast (repeat the "
-        "previous value) on the training data",
+        "previous value) over the observations known when each prediction is "
+        "made",
         "never report a value below 1 as beating either",
         "Never copy or move a file of the user into that directory yourself",
         "Do not copy or move it yourself: tell the user, who can copy it there "

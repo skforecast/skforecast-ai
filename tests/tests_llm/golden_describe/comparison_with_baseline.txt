@@ -20,7 +20,7 @@ A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 100 ob
 - Candidates evaluated: 3
 - Ranking metric: MAE
 - Winner: candidate_01
-- Baseline: Baseline (seasonal naive) (ForecasterEquivalentDate, repeats past values). A candidate beats this naive reference only when it ranks above it (strictly lower MAE; the baseline wins ties). This row is not the reference of MASE or RMSSE: those scale every row, this one included, against the one-step naive forecast on the training data, so the baseline row can also score below 1.
+- Baseline: Baseline (seasonal naive) (ForecasterEquivalentDate, repeats past values). A candidate beats this naive reference only when it ranks above it (strictly lower MAE; the baseline wins ties). This row is not the reference of MASE or RMSSE: those scale every row, this one included, against the one-step naive forecast over the observations known when each prediction is made, so the baseline row can also score below 1.
 The ranking is a deterministic ascending sort of the MAE column (lower is better).
 </comparison_overview>
 <leaderboard>
