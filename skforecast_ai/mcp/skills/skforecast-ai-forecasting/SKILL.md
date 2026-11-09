@@ -130,9 +130,10 @@ From most to least reliable:
 
 `mean_absolute_scaled_error` and `root_mean_squared_scaled_error` divide
 the error by that of the one-step naive forecast (repeat the previous
-value) on the training data, in every result and every row of a
-leaderboard (a `MetricReferenceNotice` of a backtest or a forecast says
-so). That reference is not a seasonal naive forecast nor the baseline of
+value) over the observations known when each prediction is made (in a
+backtest, a longer stretch for every fold), in every result and every
+row of a leaderboard (a `MetricReferenceNotice` of a backtest or a
+forecast says so). That reference is not a seasonal naive forecast nor the baseline of
 `compare`: never report a value below 1 as beating either, nor turn it
 into a percentage against them.
 

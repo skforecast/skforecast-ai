@@ -1408,8 +1408,9 @@ def render_comparison_overview_section(
             f"only when it ranks above it (strictly lower "
             f"{result.ranking_metric}; the baseline wins ties). This row is "
             f"not the reference of MASE or RMSSE: those scale every row, this "
-            f"one included, against the one-step naive forecast on the "
-            f"training data, so the baseline row can also score below 1."
+            f"one included, against the one-step naive forecast over the "
+            f"observations known when each prediction is made, so the "
+            f"baseline row can also score below 1."
         )
     if result.strategy_plan_name is not None:
         parts.append(

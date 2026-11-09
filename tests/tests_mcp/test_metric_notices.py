@@ -19,8 +19,9 @@ def test_metric_notices_reference_of_mase(columns):
     """
     Test that the metrics of a backtest or a forecast, one series or several
     (`levels`), with MASE get one notice saying that it is scaled by the
-    one-step naive forecast on the training data, not by a seasonal naive
-    forecast nor by the baseline of `compare`.
+    one-step naive forecast over the observations known when each prediction
+    is made, not by a seasonal naive forecast nor by the baseline of
+    `compare`.
     """
     metrics = pd.DataFrame([[0.5] * len(columns)], columns=columns)
 
@@ -32,9 +33,9 @@ def test_metric_notices_reference_of_mase(columns):
             category = "MetricReferenceNotice",
             message  = (
                 "`mean_absolute_scaled_error` divides the error by that of "
-                "the one-step naive forecast (repeat the previous value) on "
-                "the training data: below 1 the error is smaller than that "
-                "reference. The reference is not a seasonal naive forecast "
+                "the one-step naive forecast (repeat the previous value) over "
+                "the observations known when each prediction is made: below 1 "
+                "the error is smaller than that reference. The reference is not a seasonal naive forecast "
                 "nor the baseline of `compare`, so do not report a value "
                 "below 1 as beating either."
             ),

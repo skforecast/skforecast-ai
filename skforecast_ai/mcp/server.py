@@ -252,8 +252,8 @@ Rules (the skforecast-ai-forecasting skill has the rest):
 error measure). Without a baseline (several series, or a target with gaps), \
 judge each series by `mean_absolute_scaled_error` in the CSV of metrics and \
 name the worst one: the summary only has the average. Below 1 it beats the \
-one-step naive forecast (repeat the previous value) on the training data, \
-which is not a seasonal naive forecast nor the baseline of `compare`. Never \
+one-step naive forecast (repeat the previous value) over the observations \
+known when each prediction is made, which is not a seasonal naive forecast nor the baseline of `compare`. Never \
 invent a number, nor derive one: no percentage, ratio or difference that a \
 response does not give.
 2. Cost: read `cost` of `create_cv` before running. Before a run above 50 \
@@ -1038,7 +1038,8 @@ def _metric_notices(
             message  = (
                 f"{shown} divide{'s' if len(names) == 1 else ''} the error "
                 f"by that of the one-step naive forecast (repeat the previous "
-                f"value) on the training data: below 1 the error is smaller "
+                f"value) over the observations known when each prediction "
+                f"is made: below 1 the error is smaller "
                 f"than that reference. The reference is not a seasonal naive "
                 f"forecast nor the baseline of `compare`, so do not report a "
                 f"value below 1 as beating either."
