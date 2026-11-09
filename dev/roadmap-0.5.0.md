@@ -2084,6 +2084,26 @@ Hecho en [#126](https://github.com/skforecast/skforecast-ai/pull/126) (D34).
     como SKILL.md.
   - Descartado para la 0.5.0: cargar las referencias a demanda con una
     herramienta del agente (ver "A la 0.6.0").
+- **D41. La referencia del MASE es la de skforecast 0.27** (2026-11-09).
+  - skforecast#1471 (dentro de #1473) escala el MASE y el RMSSE de cada
+    predicción del backtesting con el naive de un paso sobre las
+    observaciones anteriores a su origen. Antes la escala dependía de los
+    lags: con varias series, donde el MASE es nuestra métrica por defecto,
+    `compare` ordenaba mal candidatos con lags distintos (items_sales:
+    `lgbm_l36`, segundo por MAE, quedaba cuarto por MASE).
+  - El prompt de rol, el contexto de una comparación con baseline, la
+    instrucción y la `MetricReferenceNotice` del servidor MCP, su SKILL.md y
+    `docs/api/mcp.md` decían "on the training data", y el prompt "(last
+    training value)", que ya era falso: el naive de un paso predice cada
+    punto con el anterior. Ahora dicen "over the observations known when
+    each prediction is made", que vale para el backtesting (un tramo por
+    fold) y para `forecast` con `test_size` (el entrenamiento, que su
+    script pasa como `y_train`). El prompt de rol se queda en "(repeat the
+    previous value)": el detalle no cabía en su techo de 1.250 tokens y ya
+    lo dan el contexto y el servidor.
+  - Las salidas de `agentic-forecasting` y `agentic-forecasting-step-by-step`
+    guardan respuestas reales del LLM con "(last training value)". Se
+    corrigen cuando se vuelvan a ejecutar, no a mano.
 
 ## Decisiones abiertas
 
@@ -2138,6 +2158,7 @@ arranque de las sesiones en la nube instala skforecast desde su rama
 | Sin issue ([#1469](https://github.com/skforecast/skforecast/pull/1469)) | `ForecasterRecursive`, `ForecasterDirect` y `ForecasterDirectMultiVariate` copian a un array C-contiguo la matriz de entrenamiento de solo lags (o solo window features) cuando el estimador es `Ridge`, `LinearRegression`, `Lars` o `LassoLars` de scikit-learn; el `fit` es entre un 6% y un 41% más rápido. Predicciones idénticas bit a bit; los residuos in-sample pueden diferir en menos de 2e-13 | Nada que cambiar, y ganamos velocidad: el motor recomienda `Ridge` (series cortas, `forecaster_selection.py`) y el script lo escribe sin `Pipeline` (el escalado va en `transformer_y`), así que los planes de Ridge con solo lags y sin exógenas reciben la copia, sobre todo en backtesting con `refit` y en `compare`. Suite en verde contra la cabeza de `0.27.x` (`aac27b1`): 7.111, sin tolerancias tocadas | Resuelto en `0.27.x` (2026-11-08) |
 | Sin issue ([#1470](https://github.com/skforecast/skforecast/pull/1470)) | Vuelve a ejecutar las guías de búsqueda de hiperparámetros, valores que faltan y series de distinta longitud con los cambios de la versión (`n_evaluated`, avisos agrupados, el aviso único de #1466) | Nada: solo notebooks de la documentación de skforecast | Resuelto en `0.27.x` (2026-11-08) |
 | Sin issue ([#1472](https://github.com/skforecast/skforecast/pull/1472)) | La ruta rápida de predicción con `LGBMRegressor` (#1464) calcula los hilos desde `n_jobs` (o `num_threads`), como `LGBMRegressor.predict`, en vez de leer `booster_.params`: con lightgbm < 4.7 un `deepcopy` del forecaster ajustado dejaba `params` vacío y `predict` fallaba con `KeyError: 'num_threads'` (backtesting con `initial_train_size=None`); con cualquier versión, un modelo cargado en otra máquina predecía con los hilos de la máquina del ajuste. El fallo nunca llegó a una versión publicada | Nada que cambiar: el entorno tiene lightgbm 4.7.0 y nuestros backtests pasan `initial_train_size`. Protege a los usuarios de la 0.5.0 con lightgbm < 4.7 (pedimos `lightgbm>=4.0,<5.0`) frente a un fallo que habría aparecido con la 0.27.0. Suite en verde contra la cabeza de `0.27.x` (`ecbff71`): 7.111 | Resuelto en `0.27.x` (2026-11-09) |
+| Sin issue ([#1473](https://github.com/skforecast/skforecast/pull/1473), con [#1471](https://github.com/skforecast/skforecast/pull/1471)) | El MASE y el RMSSE del backtesting y las búsquedas escalan cada error con el naive de un paso sobre las observaciones anteriores a su origen (media de errores escalados), igual para todos los forecasters; los puntos sin escala (historia constante) salen de esas métricas con un `RuntimeWarning`. Las búsquedas con `OneStepAheadFold` y `differentiation` evalúan predicciones de un paso. `plot_prediction_intervals` toma `y_true` de las predicciones. Cambian los skills `metric-selection` y `prediction-intervals` y `llms-base.txt` | Arregla un error de nuestros resultados: con varias series, `compare` ordenaba por MASE candidatos con lags distintos según sus lags (D41). El MASE de `forecast` con `test_size` no cambia (un solo origen). No usamos `OneStepAheadFold`, búsquedas ni `plot_prediction_intervals`. Suite en verde contra `48506bb` y contra la cabeza fusionada (`5b97ef9`): 7.111; con los activos sincronizados desde la rama del PR en un worktree aparte, los 629 tests de LLM y skills pasan (la peor selección sigue cabiendo en 32.768). El texto de la referencia del MASE, en la rama `fix/mase-reference-text`. Activos pendientes de sincronizar | Resuelto en `0.27.x` (2026-11-09) |
 
 Detalle de cada uno:
 
