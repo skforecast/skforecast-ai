@@ -5,11 +5,16 @@ name: Publish to PyPI
 #
 # - A published GitHub release (tag vX.Y.Z) goes to PyPI.
 # - A tag test-publish-* or a manual run goes to TestPyPI, as a rehearsal.
+#   It publishes X.Y.Z.devN, N being the time of the build, so it never
+#   takes the names of the release and every rehearsal uploads new files.
 #   A manual run needs this file on the default branch; the tag works from
 #   any branch.
 #
 # Each index trusts this workflow for both projects, with the environment
-# `pypi` or `testpypi` (see packages/README.md).
+# `pypi` or `testpypi` (see packages/README.md). The checks of
+# tools/release/publish_pypi.py run before the approval of the deployment.
+# The actions are pinned by commit, since the publishing jobs hold an OIDC
+# token.
 #
 # A release, step by step:
 #
@@ -44,6 +49,8 @@ concurrency:
 
 env:
   TARGET: ${{ github.event_name == 'release' && 'pypi' || 'testpypi' }}
+  INDEX: ${{ github.event_name == 'release' && 'https://pypi.org' || 'https://test.pypi.org' }}
+  PYTHON_VERSION: '3.13'
 
 jobs:
   build:
@@ -52,52 +59,97 @@ jobs:
     timeout-minutes: 20
     outputs:
       version: ${{ steps.version.outputs.version }}
+      pythons: ${{ steps.version.outputs.pythons }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+          # The release branch, to check that the commit is on it.
+          fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
-          python-version: '3.13'
+          python-version: ${{ env.PYTHON_VERSION }}
 
+      - name: Install the build tools
+        run: python -m pip install --upgrade pip build twine packaging
+
+      # Also gives the Python versions of the smoke tests: the lowest that
+      # requires-python accepts and PYTHON_VERSION.
       - name: Read the version
         id: version
         run: |
-          version=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
-          launcher=$(python -c "import tomllib; print(tomllib.load(open('packages/skforecast-ai-mcp/pyproject.toml', 'rb'))['project']['version'])")
-          if [ "$version" != "$launcher" ]; then
-            echo "::error::skforecast-ai is $version and skforecast-ai-mcp is $launcher"
-            exit 1
+          rehearsal=()
+          if [ "$TARGET" != "pypi" ]; then
+            rehearsal=(--rehearsal "$(date -u +%Y%m%d%H%M%S)")
           fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+          python tools/release/publish_pypi.py version \
+            --main-python "$PYTHON_VERSION" "${rehearsal[@]}"
 
-      - name: Check that the tag of the release is the version
+      - name: Check the release against the version and the branch
         if: github.event_name == 'release'
         env:
-          TAG: ${{ github.event.release.tag_name }}
           VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ github.event.release.tag_name }}
+          PRERELEASE: ${{ github.event.release.prerelease }}
         run: |
-          if [ "$TAG" != "v$VERSION" ]; then
-            echo "::error::the tag is $TAG and pyproject.toml says $VERSION"
-            exit 1
-          fi
+          python tools/release/publish_pypi.py release --version "$VERSION" \
+            --tag "$TAG" --prerelease "$PRERELEASE" --sha "$GITHUB_SHA"
 
       - name: Build skforecast-ai and skforecast-ai-mcp
         run: |
-          python -m pip install --upgrade pip build twine
           python -m build --outdir dist/skforecast-ai .
           python -m build --outdir dist/skforecast-ai-mcp packages/skforecast-ai-mcp
           python -m twine check --strict dist/skforecast-ai/* dist/skforecast-ai-mcp/*
 
-      # The wheels that will be uploaded, installed outside the repository:
-      # the launcher takes skforecast-ai from the wheel just built, since
-      # its version is not on any index yet.
-      - name: Install the wheels and run them
+      - name: Check the contents of the distributions
         env:
           VERSION: ${{ steps.version.outputs.version }}
+        run: python tools/release/publish_pypi.py contents --version "$VERSION" --dist dist
+
+      # Here and not in the publishing jobs: a version already published
+      # fails before anyone is asked to approve the deployment.
+      - name: Check that the index does not have the version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: python tools/release/publish_pypi.py absent --version "$VERSION" --index "$INDEX"
+
+      - name: Upload the distributions
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  # The wheels that will be uploaded, installed outside the repository: the
+  # launcher takes skforecast-ai from the wheel just built, since its
+  # version is not on any index yet.
+  smoke:
+    name: Install the wheels (Python ${{ matrix.python }})
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ${{ fromJSON(needs.build.outputs.pythons) }}
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Download the distributions
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: dist
+          path: dist/
+
+      - name: Install the wheels and run them
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
         run: |
           python -m venv "$RUNNER_TEMP/venv"
           "$RUNNER_TEMP/venv/bin/python" -m pip install \
@@ -105,22 +157,15 @@ jobs:
           cd "$RUNNER_TEMP"
           installed=$(venv/bin/python -c "import skforecast_ai; print(skforecast_ai.__version__)")
           if [ "$installed" != "$VERSION" ]; then
-            echo "::error::the wheel says $installed and pyproject.toml says $VERSION"
+            echo "::error::the wheel says $installed and the build says $VERSION"
             exit 1
           fi
           venv/bin/skforecast-ai --help > /dev/null
           venv/bin/skforecast-ai-mcp --help > /dev/null
 
-      - name: Upload the distributions
-        uses: actions/upload-artifact@v7
-        with:
-          name: dist
-          path: dist/
-          if-no-files-found: error
-
   publish-skforecast-ai:
     name: Publish skforecast-ai
-    needs: build
+    needs: [build, smoke]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment:
@@ -130,18 +175,16 @@ jobs:
       id-token: write  # the OIDC token that the index exchanges for an upload token
     steps:
       - name: Download the distributions
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
         with:
           name: dist
           path: dist/
 
       - name: Publish
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086  # v1.14.3
         with:
           packages-dir: dist/skforecast-ai/
           repository-url: ${{ github.event_name == 'release' && 'https://upload.pypi.org/legacy/' || 'https://test.pypi.org/legacy/' }}
-          # A rehearsal can be repeated with the same version; a release cannot.
-          skip-existing: ${{ github.event_name != 'release' }}
 
   # After skforecast-ai: the launcher pins its exact version.
   publish-skforecast-ai-mcp:
@@ -156,54 +199,89 @@ jobs:
       id-token: write
     steps:
       - name: Download the distributions
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
         with:
           name: dist
           path: dist/
 
       - name: Publish
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086  # v1.14.3
         with:
           packages-dir: dist/skforecast-ai-mcp/
           repository-url: ${{ github.event_name == 'release' && 'https://upload.pypi.org/legacy/' || 'https://test.pypi.org/legacy/' }}
-          skip-existing: ${{ github.event_name != 'release' }}
 
-  verify:
-    name: Install from the index
+  # The index serves the files built in this run, byte for byte. It waits
+  # until the index lists them, which takes a while for a new version.
+  uploaded:
+    name: Compare the files on the index
     needs: [build, publish-skforecast-ai-mcp]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Set up Python
-        uses: actions/setup-python@v7
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
-          python-version: '3.13'
+          persist-credentials: false
 
-      # The index takes a while to list a new version, hence the retries.
-      # TestPyPI does not hold the dependencies, so they come from PyPI.
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Download the distributions
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: dist
+          path: dist/
+
+      - name: Compare the SHA256 of the files
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          python -m pip install packaging
+          python tools/release/publish_pypi.py uploaded --version "$VERSION" \
+            --index "$INDEX" --dist dist --wait 600
+
+  verify:
+    name: Install from the index (Python ${{ matrix.python }})
+    needs: [build, uploaded]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ${{ fromJSON(needs.build.outputs.pythons) }}
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: ${{ matrix.python }}
+
+      # The two packages come from the index, without their dependencies,
+      # and the dependencies only from PyPI: anyone can upload a project to
+      # TestPyPI under the name of a dependency. The simple index can list
+      # a new version later than the JSON API, hence the retries.
       - name: Install skforecast-ai-mcp and run it
         env:
           VERSION: ${{ needs.build.outputs.version }}
         run: |
-          index_args=()
-          if [ "$TARGET" != "pypi" ]; then
-            index_args=(
-              --index-url https://test.pypi.org/simple/
-              --extra-index-url https://pypi.org/simple/
-            )
-          fi
+          cd "$RUNNER_TEMP"
           python -m venv venv
           for attempt in 1 2 3 4 5 6 7 8 9 10; do
-            if venv/bin/python -m pip install --no-cache-dir "${index_args[@]}" \
-                "skforecast-ai-mcp==$VERSION"; then
+            if venv/bin/python -m pip download --no-cache-dir --no-deps \
+                --only-binary :all: --index-url "$INDEX/simple/" --dest from-index \
+                "skforecast-ai==$VERSION" "skforecast-ai-mcp==$VERSION"; then
               break
             fi
             if [ "$attempt" = "10" ]; then
-              echo "::error::skforecast-ai-mcp $VERSION cannot be installed from $TARGET"
+              echo "::error::$VERSION cannot be downloaded from $TARGET"
               exit 1
             fi
             sleep 30
           done
+          venv/bin/python -m pip install --no-cache-dir \
+            --index-url https://pypi.org/simple/ --find-links from-index \
+            "skforecast-ai-mcp==$VERSION"
           installed=$(venv/bin/python -c "import skforecast_ai; print(skforecast_ai.__version__)")
           echo "skforecast-ai $installed installed from $TARGET"
           [ "$installed" = "$VERSION" ]

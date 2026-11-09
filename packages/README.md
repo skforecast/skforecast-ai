@@ -43,22 +43,34 @@ updates them.
 
 ## The publishing workflow
 
-It builds both packages, runs `twine check --strict`, installs the two
-wheels in a clean environment to run them, uploads `skforecast-ai` and
-then the launcher, which pins its exact version, and installs the launcher
-back from the index. It does not run the test suite: the tests are the
-ones of step 2.
+It builds both packages, runs `twine check --strict`, checks the files of
+each distribution, installs the two wheels in a clean environment to run
+them, uploads `skforecast-ai` and then the launcher, which pins its exact
+version, compares the SHA256 of the files on the index with those built,
+and installs the launcher back from the index (the two packages without
+dependencies, their dependencies only from PyPI). Both installations run
+on Python 3.13 and on the lowest version that `requires-python` accepts.
+It does not run the test suite: the tests are the ones of step 2.
+
+Before the approval of a deployment, `tools/release/publish_pypi.py`
+fails the run when the version is not canonical (`0.5.0rc1`, not
+`0.5.0-rc1`), when the index already has it and, for a release, when the
+tag is not `v` plus the version, when the **pre-release** mark of the
+GitHub release does not match the version, or when its commit is not on
+the release branch `X.Y.x` of the version. The actions are pinned by
+commit, with the version in a comment, since the publishing jobs hold an
+OIDC token.
 
 | Trigger | Index | GitHub environment |
 |:--------|:------|:-------------------|
 | A published GitHub release, tag `vX.Y.Z` | PyPI | `pypi` |
 | A tag `test-publish-*`, or a manual run | TestPyPI | `testpypi` |
 
-A draft of a release starts nothing; a pre-release does. The build fails,
-before any upload, when the tag is not `v` plus the version of
-`pyproject.toml`: delete the release and the tag, fix it and create them
-again. When an upload fails, **Re-run failed jobs** in the same run
-repeats it without a new release.
+A draft of a release starts nothing; a pre-release does. When a check of
+the build fails, nothing is uploaded: delete the release and the tag, fix
+it and create them again. When an upload fails, **Re-run failed jobs** in
+the same run repeats it without a new release; **Re-run all jobs** builds
+again and stops at the check of the index once one package is there.
 
 Setup, done once per index (<https://pypi.org> and <https://test.pypi.org>
 are separate accounts): each of the two projects has, in **Settings**,
@@ -83,9 +95,11 @@ git push origin --delete test-publish-X.Y.Z-1
 git tag -d test-publish-X.Y.Z-1
 ```
 
-An index never takes the same file twice. A rehearsal skips the files
-that TestPyPI already has, so a second one with the same version checks
-the build and the login but uploads nothing new.
+A rehearsal publishes `X.Y.Z.devN`, `N` being the UTC time of the build
+(`0.5.0.dev20261109153000`): an index never takes the same file name
+twice, even after it is deleted, so rehearsing `X.Y.Z` itself would take
+the names of the release on TestPyPI, and a repeated rehearsal would have
+nothing new to upload. Each one uploads and checks new files.
 
 ## The entry of the MCP registry (step 4)
 
