@@ -8,7 +8,12 @@ GitHub shows as an error annotation:
   them as `X.Y.Z.devN` so that TestPyPI never holds the names of a release.
   It also gives the Python versions of the smoke tests.
 - `release`: the GitHub release matches the version (tag, pre-release flag)
-  and its commit is on the release branch `X.Y.x`.
+  and its commit is on the release branch `X.Y.x`. It only reads the files
+  and git, so the release steps run it locally before creating the release
+  (`packages/README.md`), with the same code as the workflow:
+
+      python tools/release/publish_pypi.py release --tag vX.Y.Z \
+          --prerelease false --sha <commit>
 - `contents`: the files that each distribution must and must not hold.
 - `absent`: the version is not on the index yet, checked before the
   approval of the deployment.
@@ -89,8 +94,12 @@ def _lowest_python(requires_python: str, main: str) -> str:
     raise CheckError(f"requires-python {requires_python!r} excludes Python {main}")
 
 
-def cmd_version(args: argparse.Namespace) -> None:
-    """Check the versions and, for a rehearsal, turn them into `.devN`."""
+def _read_version() -> tuple[str, dict, dict]:
+    """Read and check the version of both projects.
+
+    Returns the version and the `[project]` tables of `skforecast-ai` and
+    `skforecast-ai-mcp`.
+    """
     project = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))["project"]
     launcher = tomllib.loads(LAUNCHER_PYPROJECT.read_text(encoding="utf-8"))[
         "project"
@@ -129,7 +138,13 @@ def cmd_version(args: argparse.Namespace) -> None:
             f"requires-python differs: {project['requires-python']!r} and "
             f"{launcher['requires-python']!r}"
         )
+    return version, project, launcher
 
+
+def cmd_version(args: argparse.Namespace) -> None:
+    """Check the versions and, for a rehearsal, turn them into `.devN`."""
+    version, project, _ = _read_version()
+    pin = f"skforecast-ai[mcp]=={version}"
     if args.rehearsal:
         # The canonical form writes the dev segment last, as `.devN`.
         rehearsal = f"{version.split('.dev')[0]}.dev{args.rehearsal}"
@@ -162,11 +177,43 @@ def cmd_version(args: argparse.Namespace) -> None:
             )
 
 
+def _git(*args: str) -> subprocess.CompletedProcess:
+    """Run git in the repository."""
+    return subprocess.run(
+        ["git", *args], cwd=ROOT, capture_output=True, text=True
+    )
+
+
 def cmd_release(args: argparse.Namespace) -> None:
-    """Check the GitHub release against the version and the branch."""
-    version = Version(args.version)
-    if args.tag != f"v{args.version}":
-        raise CheckError(f"the tag is {args.tag} and the version is {args.version}")
+    """Check a GitHub release against the files of its commit.
+
+    The workflow runs it once the release is published, and the release
+    steps run it locally before creating the release, in a checkout of the
+    same commit. It reads the version from the files, never from the build,
+    and git for the branch: run `git fetch origin X.Y.x` first.
+    """
+    head = _git("rev-parse", "HEAD").stdout.strip()
+    sha = _git("rev-parse", "--verify", "--quiet", f"{args.sha}^{{commit}}")
+    if sha.returncode != 0:
+        raise CheckError(f"{args.sha} is not a commit of this repository")
+    if sha.stdout.strip() != head:
+        raise CheckError(
+            f"the checkout is {head}, not {args.sha}: the version is read from "
+            f"the files, so check out the commit of the release first"
+        )
+    version_files = [
+        str(path.relative_to(ROOT)) for path in (PYPROJECT, INIT, LAUNCHER_PYPROJECT)
+    ]
+    changed = _git("diff", "--name-only", "HEAD", "--", *version_files).stdout.split()
+    if changed:
+        raise CheckError(f"uncommitted changes in {', '.join(changed)}")
+
+    text, _, _ = _read_version()
+    version = Version(text)
+    if version.is_devrelease:
+        raise CheckError(f"{text} is a development version, not a release")
+    if args.tag != f"v{text}":
+        raise CheckError(f"the tag is {args.tag} and the version is {text}")
 
     prerelease = args.prerelease == "true"
     if prerelease != version.is_prerelease:
@@ -174,20 +221,18 @@ def cmd_release(args: argparse.Namespace) -> None:
             reason = "is a pre-release, so the GitHub release must be one too"
         else:
             reason = "is not a pre-release, so the GitHub release cannot be one"
-        raise CheckError(f"{args.version} {reason}")
+        raise CheckError(f"{text} {reason}")
 
     branch = f"{version.major}.{version.minor}.x"
-    result = subprocess.run(
-        ["git", "merge-base", "--is-ancestor", args.sha, f"origin/{branch}"],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-    )
+    result = _git("merge-base", "--is-ancestor", head, f"origin/{branch}")
     if result.returncode == 1:
         raise CheckError(f"the commit {args.sha} is not on the branch {branch}")
     if result.returncode != 0:
-        raise CheckError(f"cannot check the branch {branch}: {result.stderr.strip()}")
-    print(f"{args.tag}: pre-release {prerelease}, commit on {branch}")
+        raise CheckError(
+            f"cannot check the branch {branch} (git fetch origin {branch}?): "
+            f"{result.stderr.strip()}"
+        )
+    print(f"{args.tag}: version {text}, pre-release {prerelease}, commit on {branch}")
 
 
 def _tracked(prefix: str) -> set[str]:
@@ -395,7 +440,6 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(func=cmd_version)
 
     p = sub.add_parser("release")
-    p.add_argument("--version", required=True)
     p.add_argument("--tag", required=True)
     p.add_argument("--prerelease", required=True, choices=["true", "false"])
     p.add_argument("--sha", required=True)

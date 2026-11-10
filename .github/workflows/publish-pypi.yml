@@ -30,15 +30,21 @@ run-name: >-
 # 2. Open the pull request X.Y.x to main and wait for the tests and the
 #    coverage to pass. Do not merge it yet: the plugin is served from main
 #    and pins a version of skforecast-ai-mcp that is not on PyPI.
-# 3. Create the GitHub release vX.Y.Z on X.Y.x and publish it. This
+# 3. In a checkout of the head of that pull request, run the checks that
+#    the build below makes of a release (versions, tag, pre-release mark,
+#    branch): tools/release/publish_pypi.py release. This workflow only
+#    runs them once the release is published, and by then the release has
+#    notified its watchers and Zenodo has archived it.
+# 4. Create the GitHub release vX.Y.Z on that commit and publish it. This
 #    workflow starts by itself; approve the two deployments, first
 #    skforecast-ai and then skforecast-ai-mcp.
-# 4. Publish the entry of the MCP registry with mcp-publisher.
-# 5. Merge the pull request into main.
-# 6. Select Publish for the new version in the plugin directory of
+# 5. Publish the entry of the MCP registry with mcp-publisher.
+# 6. Merge the pull request into main.
+# 7. Select Publish for the new version in the plugin directory of
 #    Anthropic.
 #
-# Steps 4 and 6 are detailed in packages/README.md.
+# Steps 3, 4, 5 and 7, and what to re-run when an upload fails, are
+# detailed in packages/README.md.
 
 on:
   release:
@@ -96,14 +102,15 @@ jobs:
           python tools/release/publish_pypi.py version \
             --main-python "$PYTHON_VERSION" --target "$TARGET" "${rehearsal[@]}"
 
+      # The same command as step 3 of the release, run locally before the
+      # release was created; here it guards against a release made without it.
       - name: Check the release against the version and the branch
         if: github.event_name == 'release'
         env:
-          VERSION: ${{ steps.version.outputs.version }}
           TAG: ${{ github.event.release.tag_name }}
           PRERELEASE: ${{ github.event.release.prerelease }}
         run: |
-          python tools/release/publish_pypi.py release --version "$VERSION" \
+          python tools/release/publish_pypi.py release \
             --tag "$TAG" --prerelease "$PRERELEASE" --sha "$GITHUB_SHA"
 
       - name: Build skforecast-ai and skforecast-ai-mcp
