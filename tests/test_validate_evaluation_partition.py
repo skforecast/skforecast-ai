@@ -17,6 +17,7 @@ from tests.fixtures_last_window import (
     long_ending_early,
     plan_long_foundation_eval,
     plan_long_multiseries_eval,
+    plan_single_direct,
     plan_single_lgbm_eval,
     plan_single_ridge,
     plan_single_ridge_eval,
@@ -33,6 +34,8 @@ from tests.fixtures_last_window import (
 )
 from skforecast_ai import ForecastingAssistant
 
+from tests.fixtures_assistant import df_no_sundays_long
+
 _END_MESSAGE = (
     "ForecasterRecursiveMultiSeries does not predict a series that ends before "
     "the others, and when no series has a value there it starts the forecast "
@@ -40,14 +43,14 @@ _END_MESSAGE = (
     "`test_size`, or fill in those values."
 )
 _TEST_MESSAGE = (
-    "skforecast cannot compute the metrics on them, whatever the estimator. "
-    "Impute the target, or evaluate on dates without missing values."
+    "The metrics of the evaluation cannot be computed on them, whatever the "
+    "estimator. Impute the target, or evaluate on dates without missing values."
 )
 _READS_RIDGE = (
-    "ForecasterRecursive with Ridge cannot use them, so its predictions would "
-    "be missing. "
+    "ForecasterRecursive with Ridge cannot use them, so the forecast cannot run: "
+    "its predictions would be missing. "
     "Either they are filled in, or the plan uses an estimator that "
-    "accepts missing values (for example 'LGBMRegressor')."
+    "accepts missing values (such as 'RandomForestRegressor')."
 )
 _READS_LGBM = (
     "LGBMRegressor treats them as missing values; check that they are meant "
@@ -73,7 +76,8 @@ def test_validate_evaluation_partition_InvalidInputError_when_ridge_reads_missin
     read by the lags, not the one that asks to drop final rows.
     """
     err_msg = re.escape(
-        f"The forecaster reads missing values of the target to predict ('y': 1 "
+        "The last window of the target, the values the forecast starts from (the "
+        f"last ones before the dates it predicts), has missing values ('y': 1 "
         f"value(s), such as '{date}'). {_READS_RIDGE}"
     )
     with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
@@ -93,7 +97,8 @@ def test_validate_evaluation_partition_UserWarning_when_lightgbm_reads_missing()
     tolerates missing values (LGBMRegressor).
     """
     warn_msg = re.escape(
-        "The forecaster reads missing values of the target to predict ('y': 1 "
+        "The last window of the target, the values the forecast starts from (the "
+        "last ones before the dates it predicts), has missing values ('y': 1 "
         f"value(s), such as '2023-02-26'). {_READS_LGBM}"
     )
     with pytest.warns(UserWarning, match=warn_msg):
@@ -124,6 +129,53 @@ def test_validate_evaluation_partition_no_error_when_no_missing_value_is_read(
     )
 
     assert result is None
+
+
+@pytest.mark.parametrize(
+    "plan, end_train, n_train, needed, reason, max_steps",
+    [
+        (
+            plan_single_ridge, "2023-01-04", 4, 6,
+            "more than its window size, 5", 54,
+        ),
+        (
+            plan_single_direct, "2023-01-07", 7, 8,
+            "its window size, 5, plus the 3 steps it is trained to predict", 27,
+        ),
+    ],
+    ids=["recursive", "direct"],
+)
+def test_validate_evaluation_partition_InvalidInputError_when_training_partition_shorter_than_window(
+    plan, end_train, n_train, needed, reason, max_steps
+):
+    """
+    Test that a training partition too short to fit the forecaster (more
+    observations than the window; for a direct forecaster, the window plus
+    `steps`) is `insufficient_data` on `test_size`, with the longest horizon
+    that fits in the 60 observations, instead of failing inside the script
+    (V30).
+    """
+    err_msg = re.escape(
+        f"The training partition of the evaluation, up to {end_train}, has "
+        f"{n_train} observations, and {plan.forecaster} needs at least "
+        f"{needed} ({reason}), so skforecast would fail. Evaluate a shorter "
+        f"horizon (fewer `steps`, with `test_size` equal to them), fewer lags "
+        f"or smaller window features."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        validate_evaluation_partition(
+            data    = data_single,
+            profile = profile_single,
+            plan    = in_evaluation(plan, end_train),
+        )
+
+    assert exc_info.value.code == "insufficient_data"
+    assert exc_info.value.field == "test_size"
+    assert exc_info.value.hint == (
+        f"Keeping the rest of the plan, at most {max_steps} `steps` fit: make a "
+        f"plan with that horizon and pass the same number as `test_size`. "
+        f"Otherwise use more data, fewer lags or smaller window features."
+    )
 
 
 def test_validate_evaluation_partition_no_check_when_plan_without_end_train():
@@ -169,7 +221,8 @@ def test_validate_evaluation_partition_InvalidInputError_when_dates_have_time_zo
     data = with_missing(data, [4])
 
     err_msg = re.escape(
-        "The forecaster reads missing values of the target to predict ('y': 1 "
+        "The last window of the target, the values the forecast starts from (the "
+        "last ones before the dates it predicts), has missing values ('y': 1 "
         f"value(s), such as '2023-02-26'). {_READS_RIDGE}"
     )
     with pytest.raises(InvalidInputError, match=err_msg):
@@ -189,7 +242,8 @@ def test_validate_evaluation_partition_InvalidInputError_when_last_training_date
     data = data_single[data_single["date"] != "2023-02-26"]
 
     err_msg = re.escape(
-        "The forecaster reads missing values of the target to predict ('y': 1 "
+        "The last window of the target, the values the forecast starts from (the "
+        "last ones before the dates it predicts), has missing values ('y': 1 "
         f"value(s), such as '2023-02-26'). {_READS_RIDGE}"
     )
     with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
@@ -201,7 +255,8 @@ def test_validate_evaluation_partition_InvalidInputError_when_last_training_date
     assert exc_info.value.field == "data"
 
     warn_msg = re.escape(
-        "The forecaster reads missing values of the target to predict ('y': 1 "
+        "The last window of the target, the values the forecast starts from (the "
+        "last ones before the dates it predicts), has missing values ('y': 1 "
         f"value(s), such as '2023-02-26'). {_READS_LGBM}"
     )
     with pytest.warns(UserWarning, match=warn_msg):
@@ -348,6 +403,55 @@ def test_validate_evaluation_partition_InvalidInputError_when_test_split_missing
     assert exc_info.value.code == "invalid_argument"
 
 
+def test_validate_evaluation_partition_DataContentError_names_closed_days():
+    """
+    Test that missing values of the test split of several series that all
+    fall on days of the week without any value in their series (two shops
+    closed on Sundays) are named with those days, with the advice of filling
+    them with 0 if the business is closed, after asking the user; a shop
+    that also misses a Monday gets the message of missing values.
+    """
+    assistant = ForecastingAssistant()
+    kwargs = {"target": "sales", "date_column": "date", "series_id_column": "shop"}
+    profile = assistant.profile(df_no_sundays_long, **kwargs)
+    plan = in_evaluation(
+        assistant.plan(
+            profile,
+            steps      = 14,
+            forecaster = "ForecasterRecursiveMultiSeries",
+            estimator  = "Ridge",
+            lags       = [1, 7],
+        ),
+        "2023-12-16",
+    )
+    with_monday = df_no_sundays_long.drop(index=[300 + 312])
+    profile_monday = assistant.profile(with_monday, **kwargs)
+
+    err_msg = re.escape(
+        "The target has missing values in the test split ('north': 2 value(s), "
+        "such as '2023-12-17', '2023-12-24'; 'south': 2 value(s), such as "
+        "'2023-12-17', '2023-12-24'), all of them on Sundays, when those "
+        "series never have a value. The metrics of the evaluation cannot be "
+        "computed on them, whatever the estimator. If the business is closed on "
+        "Sundays, "
+        "fill them with 0 in the data, after asking the user; otherwise, "
+        "impute the target, or evaluate on dates without missing values."
+    )
+    with pytest.raises(DataContentError, match=f"^{err_msg}$"):
+        validate_evaluation_partition(
+            data=df_no_sundays_long, profile=profile.data_profile, plan=plan
+        )
+    err_msg = re.escape(
+        "The target has missing values in the test split ('north': 2 value(s), "
+        "such as '2023-12-17', '2023-12-24'; 'south': 3 value(s), such as "
+        f"'2023-12-17', '2023-12-18', '2023-12-24'). {_TEST_MESSAGE}"
+    )
+    with pytest.raises(DataContentError, match=f"^{err_msg}$"):
+        validate_evaluation_partition(
+            data=with_monday, profile=profile_monday.data_profile, plan=plan
+        )
+
+
 def test_validate_evaluation_partition_InvalidInputError_lists_dates_of_test_split():
     """
     Test that a long series without rows on several test dates reports all of
@@ -428,12 +532,13 @@ def test_validate_evaluation_partition_InvalidInputError_when_multiseries_reads_
     read in the training partition raise as in prediction mode.
     """
     err_msg = re.escape(
-        "The forecaster reads missing values of the target to predict "
+        "The last window of the target, the values the forecast starts from (the "
+        "last ones before the dates it predicts), has missing values "
         "('item_1': 1 value(s), such as '2012-04-21'). "
-        "ForecasterRecursiveMultiSeries with Ridge cannot use them, so its "
-        "predictions would be missing. "
+        "ForecasterRecursiveMultiSeries with Ridge cannot use them, so the "
+        "forecast cannot run: its predictions would be missing. "
         "Either they are filled in, or the plan uses an estimator that "
-        "accepts missing values (for example 'LGBMRegressor')."
+        "accepts missing values (such as 'LGBMRegressor')."
     )
     with pytest.raises(InvalidInputError, match=err_msg):
         validate_evaluation_partition(
@@ -632,11 +737,13 @@ def test_validate_evaluation_partition_DataContentError_when_lag_reads_missing()
     the field of an InvalidInputError.
     """
     err_msg = re.escape(
-        "The forecaster reads missing values of the target to predict ('y': 1 "
+        "The last window of the target, the values the forecast starts from (the "
+        "last ones before the dates it predicts), has missing values ('y': 1 "
         "value(s), such as '2023-02-26'). ForecasterRecursive with Ridge "
-        "cannot use them, so its predictions would be missing. Either they "
+        "cannot use them, so the forecast cannot run: "
+        "its predictions would be missing. Either they "
         "are filled in, or the plan uses an estimator that accepts missing "
-        "values (for example 'LGBMRegressor')."
+        "values (such as 'RandomForestRegressor')."
     )
     with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
         validate_evaluation_partition(

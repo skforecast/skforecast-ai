@@ -18,7 +18,7 @@ A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 204 ob
 </profile_decision>
 <forecast_plan>
 - Forecaster: ForecasterStats
-- Steps: 12
+- Steps: 12 (forecast horizon, given by the user)
 - Estimator: Arima
 - Primary metric: mean_absolute_error
 - Chosen by the user instead of the rules: forecaster
@@ -33,21 +33,24 @@ A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 204 ob
 - fold_stride: 12
 - skip_folds: None
 - allow_incomplete_fold: True
-- differentiation: None
 - n_folds: 6
 - n_fits: 6
+- last_fold_steps: 2
 </backtesting_strategy>
 <deterministic_summary>
-Initial training up to 2003-04-01, fixed window, refit every fold (6 trainings), 12-step horizon, 6 folds. ForecasterStats is refitted in every fold whatever `refit` says: skforecast requires it for ARIMA models. Results: mean_absolute_error: 0.0612, mean_squared_error: 0.0061, mean_absolute_scaled_error: 0.8514.
+Initial training up to 2003-04-01, fixed window, refit every fold (6 trainings), 12-step horizon, 6 folds (the last one has only 2 steps). ForecasterStats is refitted in every fold whatever `refit` says: skforecast requires it for ARIMA models. Results: mean_absolute_error: 0.0612, root_mean_squared_error: 0.0781, mean_absolute_scaled_error: 0.8514. They are measured on 62 predictions with an observed value (n_evaluated).
 </deterministic_summary>
 <evaluation_metrics>
- mean_absolute_error  mean_squared_error  mean_absolute_scaled_error
-              0.0612              0.0061                      0.8514
+ mean_absolute_error  root_mean_squared_error  mean_absolute_scaled_error  n_evaluated
+              0.0612                   0.0781                      0.8514           62
+`n_evaluated` is not a metric: it is the number of predictions with an observed value each row is measured on.
 </evaluation_metrics>
 <predictions>
-Shape: 62 rows x 2 columns
-Columns: ['fold', 'pred']
+Shape: 62 rows x 4 columns
+Columns: ['fold', 'step', 'y_true', 'pred']
 Folds: 6
+Steps of the horizon: 1 to 12
+The predictions also have a `y_true` column with the observed value of each prediction; it is not shown: its values are those of the dataset.
   pred: min=0.6, max=0.905, mean=0.7525000000000001, std=0.09020809276334357
 Index range: 2003-05-01 00:00:00 to 2008-06-01 00:00:00
 </predictions>

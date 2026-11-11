@@ -258,6 +258,27 @@ def no_expensive_run_before_turn(turn: int, max_fits: int) -> CheckFunction:
     return check
 
 
+def no_confirm_cost_before_turn(turn: int) -> CheckFunction:
+    """
+    No backtest or comparison passed `confirm_cost` before the given turn
+    (0-based) of the user: the agent may not confirm a cost for the user,
+    even if the server refuses the figure.
+    """
+
+    def check(session: Any) -> CheckResult:
+        passed = [
+            call.tool for call in session.calls
+            if call.server and call.turn < turn
+            and call.tool in ("backtest", "compare")
+            and call.input.get("confirm_cost") not in (None, False)
+        ]
+        if passed:
+            return False, f"{passed} passed confirm_cost before the user answered"
+        return True, "no confirm_cost before the user answered"
+
+    return check
+
+
 def error_or_no_call(code: str, tool: str) -> CheckFunction:
     """
     Either the server answered with the error code, or the agent knew the
@@ -692,12 +713,16 @@ SCENARIOS: list[Scenario] = [
             "OK, go with the cheaper option you suggest.",
         ],
         files        = {"data/bike_two_years.csv": "bike_two_years"},
-        expect_tools = ["profile", "plan", "create_cv", "backtest"],
+        expect_tools = ["profile", "plan", "create_cv", "backtest|compare"],
         expect_order = WORKFLOW_ORDER,
         checks       = [
             (
                 "no run above 50 fits before the user answered",
                 no_expensive_run_before_turn(1, 50),
+            ),
+            (
+                "no confirm_cost before the user answered",
+                no_confirm_cost_before_turn(1),
             ),
             (
                 "the first answer talks about the cost",
@@ -857,7 +882,9 @@ SCENARIOS: list[Scenario] = [
             "anything else, leave the data as it is. Do not modify my file.",
         ],
         files        = {"data/h2o_dirty.csv": "h2o_dirty"},
-        extra_tools  = ["Write"],
+        # Agents write the corrected copy with a short script as often as
+        # with `Write` (0.5.0, claude-sonnet-5-5): a user would approve it.
+        extra_tools  = ["Write", "Bash(python3:*)", "Bash(awk:*)", "Bash(cd:*)"],
         critical     = True,
         writes_agreed_from = 1,
         allowed_errors = ["invalid_argument", "data_unreadable"],
@@ -888,7 +915,9 @@ SCENARIOS: list[Scenario] = [
             "file.",
         ],
         files        = {"data/h2o_dirty.csv": "h2o_dirty"},
-        extra_tools  = ["Write"],
+        # Agents write the corrected copy with a short script as often as
+        # with `Write` (0.5.0, claude-sonnet-5-5): a user would approve it.
+        extra_tools  = ["Write", "Bash(python3:*)", "Bash(awk:*)", "Bash(cd:*)"],
         writes_agreed_from = 1,
         allowed_errors = ["invalid_argument", "data_unreadable"],
         checks       = [
@@ -908,22 +937,100 @@ SCENARIOS: list[Scenario] = [
     ),
     Scenario(
         name           = "dayfirst_dates",
-        summary        = "dates written day first",
+        summary        = "monthly dates written day first, ambiguous in both orders",
         expected       = (
-            "Notices the notice or the error about the format of the dates "
-            "and tells the user; does not modify the file and does not "
-            "forecast a series whose dates were read wrong."
+            "profile reads the dates day first, the only order with a "
+            "regular frequency, and warns that they also parse month first. "
+            "The agent forecasts 12 months and tells the user which order "
+            "was used (01/02/2018 is 1 February) and that the file can be "
+            "profiled again with `dayfirst` false if it is written month "
+            "first. Does not modify the file and does not ask before "
+            "forecasting: the reading is valid on its own."
         ),
         turns          = [
-            "Forecast the next 14 days of sales in data/daily_sales.csv."
+            "Forecast the next 12 months of sales in data/monthly_sales.csv."
         ],
-        files          = {"data/daily_sales.csv": "dayfirst"},
-        allowed_errors = ["invalid_argument", "data_unreadable"],
+        files          = {"data/monthly_sales.csv": "dayfirst"},
+        expect_tools   = ["profile", "plan", "forecast"],
+        allowed_errors = ["invalid_argument"],
         checks         = [
+            ("forecast of 12 steps", arg_in_plan("steps", lambda value: value == 12, "12")),
             (
-                "the answer talks about the dates",
-                answer_matches(r"day.first|date format|dd/mm|format of the date"
-                               r"|ambiguous|parsed|dates"),
+                "the answer names the order of the dates",
+                answer_matches(r"day.first|dayfirst|dd/mm|month.first|1 February"
+                               r"|first of (the|each) month"),
+            ),
+            ("the data file was not modified", no_new_files_before_turn(1)),
+        ],
+    ),
+    Scenario(
+        name         = "excel_spanish",
+        summary      = "CSV saved by the Excel of Spain (`;`, `1.234,56`, day first, cp1252)",
+        expected     = (
+            "profile reads the file as it is (separator, decimal mark, "
+            "thousands, dates day first, encoding) with the column the user "
+            "named, and the forecast runs. Does not rewrite or convert the "
+            "file. Reports in Spanish, with the frequency and the horizon "
+            "the user asked for."
+        ),
+        turns        = [
+            "Tengo las ventas diarias en data/ventas.csv, exportado de "
+            "Excel. Predice la columna Ventas (€) para los próximos 30 "
+            "días."
+        ],
+        files        = {"data/ventas.csv": "excel_spanish"},
+        expect_tools = ["profile", "plan", "forecast"],
+        allowed_errors = ["invalid_argument"],
+        checks       = [
+            ("profile used the named column", arg_equals("profile", "target", "Ventas (€)")),
+            ("forecast of 30 steps", arg_in_plan("steps", lambda value: value == 30, "30")),
+        ],
+    ),
+    Scenario(
+        name         = "numeric_ids",
+        summary      = "long data whose series ids are numbers (stores 101 to 103)",
+        expected     = (
+            "`series_id_column` in profile; the forecast of every store runs "
+            "and the answer names the stores by their ids."
+        ),
+        turns        = [
+            "data/stores.csv has the daily sales of three stores (column "
+            "store). Forecast the next 14 days of each store."
+        ],
+        files        = {"data/stores.csv": "items_numeric_ids"},
+        expect_tools = ["profile", "plan", "forecast"],
+        allowed_errors = ["invalid_argument"],
+        checks       = [
+            (
+                "profile used series_id_column",
+                arg_equals("profile", "series_id_column", "store"),
+            ),
+            ("the answer names the stores", answer_matches(r"101.*102|102.*103")),
+        ],
+    ),
+    Scenario(
+        name         = "interval_few_residuals",
+        summary      = "backtest with 80 % intervals of 60 months: few residuals",
+        expected     = (
+            "create_cv warns that the first training window leaves few rows, "
+            "so the bootstrapped intervals are estimated from few residuals "
+            "(they can have equal bounds). The agent tells the user, and "
+            "does not present the measured coverage as reliable."
+        ),
+        turns        = [
+            "How accurate would a 12 month forecast of x in "
+            "data/h2o_short.csv have been, with 80 % prediction intervals? "
+            "Backtest it."
+        ],
+        files        = {"data/h2o_short.csv": "h2o_short"},
+        expect_tools = ["profile", "plan", "create_cv", "backtest"],
+        expect_order = WORKFLOW_ORDER,
+        checks       = [
+            (
+                "the answer says the intervals rest on few residuals",
+                answer_matches(r"residual|few (rows|observations|data)|equal bounds"
+                               r"|not reliable|unreliable|too short|too little"
+                               r"|rows to estimate|too narrow|small sample"),
             ),
         ],
     ),

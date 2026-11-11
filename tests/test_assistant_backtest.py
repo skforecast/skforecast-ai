@@ -1,5 +1,6 @@
 # Unit test backtest ForecastingAssistant
 
+import pickle
 import re
 import warnings
 
@@ -14,9 +15,11 @@ from skforecast.exceptions import (
 )
 from skforecast.model_selection import TimeSeriesFold
 
-from skforecast_ai import BacktestResult, ForecastingAssistant
+from skforecast_ai import BacktestResult, FoldsLeftOutWarning, ForecastingAssistant
 from skforecast_ai.exceptions import (
+    CostNotConfirmedError,
     DataContentError,
+    IntervalCoverageWarning,
     InvalidInputError,
     InvalidInputTypeError,
 )
@@ -71,25 +74,29 @@ def test_backtest_ValueError_when_cv_steps_differs_from_plan_steps():
 # =============================================================================
 # Tests: basic output
 # =============================================================================
-def test_backtest_LongTrainingWarning_when_estimator_fits_exceed_threshold():
+def test_backtest_CostNotConfirmedError_when_estimator_fits_exceed_threshold():
     """
-    Test that backtest() warns before running when the strategy fits the
-    estimator more than 50 times (the skforecast threshold, silenced in the
-    generated scripts): a ForecasterDirect refitted in each of 6 folds fits
-    10 estimators per training. The backtest still runs.
+    Test that backtest() raises CostNotConfirmedError before running when
+    the strategy fits the estimator more than 50 times and `confirm_cost`
+    is not given: a ForecasterDirect refitted in each of 6 folds fits 10
+    estimators per training. The error states the cost, the changes that
+    lower it, the figure that confirms it and how to run it.
     """
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
     plan = assistant.plan(profile, steps=10, forecaster="ForecasterDirect")
     cv = TimeSeriesFold(steps=10, initial_train_size=40, refit=True, verbose=False)
 
-    warn_msg = re.escape(
-        "ForecasterDirect will be fit 60 times (6 trainings x 10 estimators). "
-        "This can take substantial amounts of time. If not feasible, use a "
-        "cross-validation strategy with `refit=False` (train once) or an "
-        "integer `refit` (retrain every n folds)."
+    err_msg = re.escape(
+        "This backtest is above the threshold of an expensive run (50 estimator "
+        "fits or 2000 inference windows), so it needs a confirmation and nothing "
+        "ran. ForecasterDirect will be fit 60 times (6 trainings x 10 "
+        "estimators). It can take substantial amounts of time. If not feasible, "
+        "use an integer `refit` (retrain every n folds), fewer folds (a later "
+        "`initial_train_size`, a larger `fold_stride` or `skip_folds`) or "
+        "`refit=False` (train once)."
     )
-    with pytest.warns(LongTrainingWarning, match=warn_msg):
-        result = assistant.backtest(
+    with pytest.raises(CostNotConfirmedError, match=f"^{err_msg}$") as exc_info:
+        assistant.backtest(
             data          = df_single,
             cv            = cv,
             profile       = profile,
@@ -97,8 +104,141 @@ def test_backtest_LongTrainingWarning_when_estimator_fits_exceed_threshold():
             show_progress = False,
         )
 
+    error = exc_info.value
+    assert error.code == "invalid_argument"
+    assert error.field == "confirm_cost"
+    assert error.hint == "Pass `confirm_cost=True` to run it as it is."
+    assert error.figure == 60
+    assert error.cost == {
+        "n_folds": 6, "n_fits": 6, "estimator_fits": 60, "inference_windows": 0
+    }
+    assert error.description == (
+        "ForecasterDirect will be fit 60 times (6 trainings x 10 estimators)."
+    )
+    assert error.comparison_cost is None
+
+
+@pytest.mark.parametrize("confirm_cost", [True, 60], ids=["true", "figure"])
+def test_backtest_runs_without_warning_when_confirm_cost_confirms_the_cost(
+    confirm_cost,
+):
+    """
+    Test that backtest() above the threshold runs, without a
+    LongTrainingWarning, when `confirm_cost` is True or the figure of its
+    cost (60 estimator fits), and that the explanation states that cost.
+    """
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10, forecaster="ForecasterDirect")
+    cv = TimeSeriesFold(steps=10, initial_train_size=40, refit=True, verbose=False)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", category=LongTrainingWarning)
+        result = assistant.backtest(
+            data          = df_single,
+            cv            = cv,
+            profile       = profile,
+            plan          = plan,
+            show_progress = False,
+            confirm_cost  = confirm_cost,
+        )
+
     assert result.cv_config["n_fits"] == 6
     assert "(60 fits in all)" in result.explanation
+
+
+def test_backtest_CostNotConfirmedError_when_confirm_cost_is_another_figure():
+    """
+    Test that backtest() above the threshold raises CostNotConfirmedError
+    when `confirm_cost` is a figure other than that of its cost: 59, given
+    for another strategy, does not confirm 60 estimator fits.
+    """
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10, forecaster="ForecasterDirect")
+    cv = TimeSeriesFold(steps=10, initial_train_size=40, refit=True, verbose=False)
+
+    err_msg = re.escape(
+        "`confirm_cost=59` does not confirm it: the figure of this cost is 60, "
+        "so the strategy or the plan changed since that number was given."
+    )
+    with pytest.raises(CostNotConfirmedError, match=f"{err_msg}$") as exc_info:
+        assistant.backtest(
+            data          = df_single,
+            cv            = cv,
+            profile       = profile,
+            plan          = plan,
+            show_progress = False,
+            confirm_cost  = 59,
+        )
+
+    assert exc_info.value.figure == 60
+
+
+@pytest.mark.parametrize("confirm_cost", [False, 7], ids=["false", "figure"])
+def test_backtest_ignores_confirm_cost_below_threshold(confirm_cost):
+    """
+    Test that backtest() at or below the threshold runs whatever
+    `confirm_cost` says, also a figure that is not its cost: a
+    ForecasterRecursive refitted in each of 6 folds fits 6 estimators.
+    """
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=10)
+    cv = TimeSeriesFold(steps=10, initial_train_size=40, refit=True, verbose=False)
+
+    result = assistant.backtest(
+        data          = df_single,
+        cv            = cv,
+        profile       = profile,
+        plan          = plan,
+        show_progress = False,
+        confirm_cost  = confirm_cost,
+    )
+
+    assert result.cv_config["n_fits"] == 6
+
+
+@pytest.mark.parametrize(
+    "confirm_cost, error, err_msg",
+    [
+        (
+            "60",
+            InvalidInputTypeError,
+            "`confirm_cost` must be True, False or the integer figure of the "
+            "cost, got str.",
+        ),
+        (
+            60.0,
+            InvalidInputTypeError,
+            "`confirm_cost` must be True, False or the integer figure of the "
+            "cost, got float.",
+        ),
+        (
+            -1,
+            InvalidInputError,
+            "`confirm_cost` must be True, False or the integer figure of the "
+            "cost (0 or more), got -1.",
+        ),
+    ],
+    ids=["text", "float", "negative"],
+)
+def test_backtest_InvalidInputError_when_confirm_cost_is_not_valid(
+    confirm_cost, error, err_msg
+):
+    """
+    Test that backtest() rejects a `confirm_cost` that is neither a bool nor
+    an integer of at least 0 before anything else, also below the
+    threshold.
+    """
+    with pytest.raises(error, match=re.escape(err_msg)) as exc_info:
+        assistant.backtest(
+            data          = df_single,
+            cv            = TimeSeriesFold(steps=10, initial_train_size=40),
+            target        = "sales",
+            date_column   = "date",
+            show_progress = False,
+            confirm_cost  = confirm_cost,
+        )
+
+    assert exc_info.value.field == "confirm_cost"
 
 
 def test_backtest_output_when_single_series():
@@ -248,21 +388,23 @@ def test_backtest_output_when_interval_passed_with_plan():
     """
     Test that an `interval` passed alongside a pre-built plan without
     intervals is applied to the backtest: the executed plan carries it and
-    the predictions include the bounds.
+    the predictions include the bounds. The interval covers far less than
+    80 % of this data, which warns.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
     plan = assistant.plan(profile, steps=5)
     cv = TimeSeriesFold(steps=5, initial_train_size=60, refit=False)
 
-    result = assistant.backtest(
-        data=df_single,
-        cv=cv,
-        interval=[0.1, 0.9],
-        profile=profile,
-        plan=plan,
-        show_progress=False,
-    )
+    with pytest.warns(IntervalCoverageWarning, match="nominal coverage of 80 %"):
+        result = assistant.backtest(
+            data=df_single,
+            cv=cv,
+            interval=[0.1, 0.9],
+            profile=profile,
+            plan=plan,
+            show_progress=False,
+        )
 
     assert result.plan.interval == [0.1, 0.9]
     assert {"lower_bound", "upper_bound"} <= set(result.predictions.columns)
@@ -292,7 +434,8 @@ def test_backtest_ValueError_when_estimator_differs_from_plan():
 def test_backtest_output_when_baseline_plan():
     """
     Test that backtest() runs a ForecasterEquivalentDate plan and reports
-    the error of the seasonal naive baseline on a linear series (7 per step).
+    the error of the seasonal naive baseline on a linear series (7 per step),
+    measured on the 30 predictions of the 6 folds (`n_evaluated`).
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
@@ -309,8 +452,9 @@ def test_backtest_output_when_baseline_plan():
     expected_metrics = pd.DataFrame(
         {
             "mean_absolute_error": [7.0],
-            "mean_squared_error": [49.0],
+            "root_mean_squared_error": [7.0],
             "mean_absolute_scaled_error": [7.0],
+            "n_evaluated": [30],
         }
     )
     assert isinstance(result, BacktestResult)
@@ -411,15 +555,53 @@ def test_backtest_InvalidInputError_when_foundation_backend_not_installed(
     )
 
 
-def test_backtest_LongTrainingWarning_when_foundation_inference_windows_exceed_threshold(
+def test_backtest_CostNotConfirmedError_when_foundation_inference_windows_exceed_threshold(
     monkeypatch,
 ):
     """
     Test that backtest() of a ForecasterFoundation plan, which fits no
-    estimator, warns before running when its inference windows (series
-    times folds) exceed the threshold (lowered to 3 here, 2000 by default),
-    and states them in `cv_config`. The warning comes before the check of
-    the backend, which then fails here because it is not installed.
+    estimator, raises CostNotConfirmedError before running when its
+    inference windows (series times folds) exceed the threshold (lowered to
+    3 here, 2000 by default): the figure that confirms it is the number of
+    windows. The backend is reported installed, so nothing is downloaded.
+    """
+    monkeypatch.setattr("skforecast_ai._utils.LONG_INFERENCE_WINDOWS", 3)
+    monkeypatch.setattr(
+        "skforecast_ai._foundation.foundation_backend_installed", lambda info: True
+    )
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, forecaster="ForecasterFoundation")
+    cv = TimeSeriesFold(steps=5, initial_train_size=70, verbose=False)
+
+    err_msg = re.escape(
+        "This backtest is above the threshold of an expensive run (50 estimator "
+        "fits or 3 inference windows), so it needs a confirmation and nothing "
+        "ran. ForecasterFoundation will forecast up to 6 inference windows (1 "
+        "series x 6 folds). It can take substantial amounts of time. If not "
+        "feasible, use fewer folds (a later `initial_train_size`, a larger "
+        "`fold_stride` or `skip_folds`) or fewer series."
+    )
+    with pytest.raises(CostNotConfirmedError, match=f"^{err_msg}$") as exc_info:
+        assistant.backtest(
+            data          = df_no_exog,
+            cv            = cv,
+            profile       = profile,
+            plan          = plan,
+            show_progress = False,
+        )
+
+    assert exc_info.value.figure == 6
+    assert exc_info.value.cost == {
+        "n_folds": 6, "n_fits": 0, "estimator_fits": 0, "inference_windows": 6
+    }
+
+
+def test_backtest_missing_dependency_before_the_cost_is_checked(monkeypatch):
+    """
+    Test that backtest() of a ForecasterFoundation plan above the threshold
+    of inference windows (lowered to 3) whose backend is not installed
+    raises `missing_dependency`, not CostNotConfirmedError: a run that would
+    fail does not ask first for a confirmation of its cost.
     """
     monkeypatch.setattr("skforecast_ai._utils.LONG_INFERENCE_WINDOWS", 3)
     monkeypatch.setattr(
@@ -429,21 +611,18 @@ def test_backtest_LongTrainingWarning_when_foundation_inference_windows_exceed_t
     plan = assistant.plan(profile, steps=5, forecaster="ForecasterFoundation")
     cv = TimeSeriesFold(steps=5, initial_train_size=70, verbose=False)
 
-    warn_msg = re.escape(
-        "ForecasterFoundation will forecast up to 6 inference windows (1 series x 6 "
-        "folds), more than 3. This can take minutes on a CPU."
-    )
-    with pytest.warns(LongTrainingWarning, match=warn_msg):
-        with pytest.raises(
-            InvalidInputError, match=re.escape("chronos-forecasting")
-        ):
-            assistant.backtest(
-                data          = df_no_exog,
-                cv            = cv,
-                profile       = profile,
-                plan          = plan,
-                show_progress = False,
-            )
+    with pytest.raises(
+        InvalidInputError, match=re.escape("chronos-forecasting")
+    ) as exc_info:
+        assistant.backtest(
+            data          = df_no_exog,
+            cv            = cv,
+            profile       = profile,
+            plan          = plan,
+            show_progress = False,
+        )
+
+    assert exc_info.value.code == "missing_dependency"
 
 
 @pytest.mark.parametrize(
@@ -498,26 +677,29 @@ def test_backtest_InvalidInputError_when_lag_reads_missing_timestamp():
     """
     profile = assistant.profile(data=data_h2o_gaps, target="x")
     plan = assistant.plan(profile, steps=12)
-    warn_msg = re.escape("`backtest()` of this plan raises")
+    warn_msg = re.escape("`backtest()` checks every test fold")
     with pytest.warns(UserWarning, match=warn_msg):
         cv = assistant.create_cv(profile, plan, initial_train_size=84, refit=False)
 
     err_msg = re.escape(
-        "The forecaster reads missing values of the target to predict 1 of "
-        "the 3 test folds ('x': 1 value(s), such as '2004-10-01'). "
+        "To predict 1 of the 3 test folds, the forecaster reads "
+        "values of the target before the start of those folds, the ones "
+        "their predictions start from, and some are missing "
+        "('x': 1 value(s), such as '2004-10-01'). "
         "ForecasterRecursive with Ridge cannot use them, so its predictions "
         "would be missing. "
         "Either they are filled in, or the plan uses an estimator that "
-        "accepts missing values (for example 'LGBMRegressor')."
+        "accepts missing values (such as 'RandomForestRegressor')."
     )
     with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
         assistant.backtest(
             data=data_h2o_gaps, cv=cv, profile=profile, plan=plan, show_progress=False
         )
-    with (
-        pytest.warns(MissingValuesWarning, match="NaNs detected in `y_train`"),
-        pytest.warns(MissingValuesWarning, match="NaNs detected in `X_train`"),
-    ):
+    warn_msg = re.escape(
+        "Some rows of the training matrix have missing values. 69 of 84 rows "
+        "are dropped: 1 with a NaN target and 68 with NaN predictors"
+    )
+    with pytest.warns(MissingValuesWarning, match=warn_msg):
         result = assistant.forecast(data=data_h2o_gaps, profile=profile, plan=plan)
 
     assert exc_info.value.code == "invalid_argument"
@@ -575,7 +757,10 @@ def test_backtest_output_when_long_series_start_on_different_dates_and_date_spli
     Test that a date `initial_train_size` on long data whose series start on
     different dates is placed from the earliest first date, as skforecast
     splits them: '2020-01-13' leaves 13 observations, more than the 5 of
-    the window of the plan, so the backtest runs without a warning.
+    the window of the plan, so the backtest runs. With refit, the series
+    'b', with 3 observations in the first training window, is forecast from
+    the second fold on, which a warning says: its metrics use 22 of its 23
+    folds.
     """
     dates = pd.date_range("2020-01-01", periods=80, freq="D")
     values = np.arange(80, dtype=float) % 7
@@ -595,17 +780,25 @@ def test_backtest_output_when_long_series_start_on_different_dates_and_date_spli
         lags            = 5,
         window_features = [{"stats": ["mean"], "window_size": 2}],
     )
-    cv = assistant.create_cv(profile, plan, initial_train_size="2020-01-13")
-
-    result = assistant.backtest(
-        data          = data,
-        cv            = cv,
-        profile       = profile,
-        plan          = plan,
-        show_progress = False,
+    cv = assistant.create_cv(
+        profile, plan, initial_train_size="2020-01-13", refit=True
     )
 
+    warn_msg = re.escape("('b': in 22 of its 23 folds with values)")
+    with pytest.warns(FoldsLeftOutWarning, match=warn_msg):
+        result = assistant.backtest(
+            data          = data,
+            cv            = cv,
+            profile       = profile,
+            plan          = plan,
+            show_progress = False,
+        )
+
     assert result.predictions.index.min() == pd.Timestamp("2020-01-14")
+    first_dates = result.predictions.reset_index().groupby("level")["index"].min()
+    assert first_dates.to_dict() == {
+        "a": pd.Timestamp("2020-01-14"), "b": pd.Timestamp("2020-01-17")
+    }
 
 
 def test_backtest_output_when_dates_have_a_time_zone():
@@ -776,6 +969,31 @@ def test_backtest_InvalidInputError_when_direct_forecaster_with_gap():
     assert exc_info.value.field == "cv"
 
 
+def test_backtest_InvalidInputError_when_forecaster_stats_with_skip_folds():
+    """
+    Test that backtest() rejects, before running, a ForecasterStats plan with
+    a cv that skips folds, with `cv` as field: skforecast refits it in every
+    fold and rejects any `skip_folds`.
+    """
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, forecaster="ForecasterStats")
+    cv = TimeSeriesFold(steps=5, initial_train_size=70, skip_folds=2, verbose=False)
+
+    err_msg = re.escape(
+        "`skip_folds=2` is not allowed for ForecasterStats: skforecast refits "
+        "it in every fold and rejects any `skip_folds`, an empty list "
+        "included. Use a strategy without `skip_folds`, or another forecaster."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.backtest(
+            data=df_no_exog, target="sales", date_column="date", cv=cv,
+            profile=profile, plan=plan, show_progress=False,
+        )
+
+    assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "cv"
+
+
 @pytest.mark.parametrize(
     "forecaster, gap",
     [("ForecasterRecursive", 2), ("ForecasterDirect", 0)],
@@ -831,14 +1049,9 @@ def test_backtest_InvalidInputError_when_long_series_has_no_values():
     assert exc_info.value.hint == "Remove the series without values from the data."
 
 
-@pytest.mark.parametrize("n_values", [1, 21, 60], ids=lambda n: f"values: {n}")
-def test_backtest_runs_when_long_series_starts_late(n_values):
-    """
-    Test that backtest() runs when a long-format series only has its last
-    values (short, even one, but not empty): skforecast leaves it out of the
-    first folds, so only series without any value are rejected.
-    """
-    data = _ITEMS_LONG[
+def _items_starting_late(n_values: int) -> pd.DataFrame:
+    """Return the long items_sales data with only the last `n_values` of item_2."""
+    return _ITEMS_LONG[
         ~(
             (_ITEMS_LONG["series"] == "item_2")
             & (_ITEMS_LONG["date"] <= pd.Timestamp("2012-04-29") - pd.Timedelta(
@@ -847,13 +1060,158 @@ def test_backtest_runs_when_long_series_starts_late(n_values):
         )
     ]
 
-    result = assistant.backtest(
-        data=data, target="value", date_column="date",
-        series_id_column="series", cv=_long_cv(), show_progress=False,
-    )
+
+@pytest.mark.parametrize(
+    "n_values, refit",
+    [(100, False), (60, True)],
+    ids=["first_window_holds_40", "refit"],
+)
+def test_backtest_runs_when_long_series_starts_late(n_values, refit):
+    """
+    Test that backtest() runs when a long-format series starts late but some
+    fold forecasts it: with 100 values, the first training window (80 days)
+    holds 40 of them, more than the window of the plan (21); with 60 and
+    refit, the later folds train on more than 21 of them. Every series is
+    in the predictions.
+    """
+    cv = _long_cv()
+    cv.set_params({"refit": refit})
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = assistant.backtest(
+            data=_items_starting_late(n_values), target="value",
+            date_column="date", series_id_column="series", cv=cv,
+            show_progress=False,
+        )
+
+    # With refit, the first fold leaves item_2 out, which a warning says
+    # (see the test of that warning).
+    left_out = [w for w in caught if issubclass(w.category, FoldsLeftOutWarning)]
+    assert len(left_out) == int(refit)
 
     assert isinstance(result, BacktestResult)
     assert result.plan.forecaster == "ForecasterRecursiveMultiSeries"
+    assert sorted(result.predictions["level"].unique()) == [
+        "item_1", "item_2", "item_3"
+    ]
+
+
+def test_backtest_FoldsLeftOutWarning_when_long_series_is_left_out_of_some_folds():
+    """
+    Test that backtest() warns (FoldsLeftOutWarning), and says in its
+    explanation, when a series
+    is not forecast in some test fold where it has values: item_2 has its
+    last 60 values and, with refit, the first fold trains on 20 of them, no
+    more than the window of the plan (21). Its metrics, and the average
+    across series, use 7 of its 8 folds; skforecast said nothing.
+    """
+    cv = _long_cv()
+    cv.set_params({"refit": True})
+
+    warn_msg = (
+        "Some series were not forecast in every test fold where they have "
+        "values to evaluate ('item_2': in 7 of its 8 folds with values), so "
+        "their metrics, and the average across series, leave the other folds "
+        "out. ForecasterRecursiveMultiSeries leaves a series out of a fold when "
+        "the training window of the fold has too few of its observations, or "
+        "when it cannot predict it from the values before the fold."
+    )
+    with pytest.warns(FoldsLeftOutWarning, match=f"^{re.escape(warn_msg)}$"):
+        result = assistant.backtest(
+            data=_items_starting_late(60), target="value", date_column="date",
+            series_id_column="series", cv=cv, show_progress=False,
+        )
+
+    assert result.explanation.endswith(f" {warn_msg}")
+
+
+@pytest.mark.parametrize("n_values", [1, 21, 60], ids=lambda n: f"values: {n}")
+def test_backtest_InvalidInputError_when_long_series_is_never_forecast(n_values):
+    """
+    Test that backtest() rejects, before running, a long-format series that
+    no fold forecasts: with 1 or 21 values, no more than the window of the
+    plan (21); with 60, only 20 in the first training window (80 days) and
+    no refit. skforecast left it out of the predictions and of the average
+    across series without a warning.
+    """
+    with pytest.raises(InvalidInputError) as exc_info:
+        assistant.backtest(
+            data=_items_starting_late(n_values), target="value",
+            date_column="date", series_id_column="series", cv=_long_cv(),
+            show_progress=False,
+        )
+
+    assert exc_info.value.code == "insufficient_data"
+    assert exc_info.value.field == "data"
+    assert str(exc_info.value).startswith(
+        f"Some series cannot be forecast in any fold of the backtest ('item_2': "
+        f"{n_values} observations, from their first to their last value). "
+        f"ForecasterRecursiveMultiSeries forecasts a series in a fold only when "
+        f"the training window of the fold has more than the 21 observations"
+    )
+
+
+@pytest.mark.parametrize("with_profile", [True, False], ids=["profile", "no_profile"])
+def test_backtest_output_when_long_format_multiindex(with_profile):
+    """
+    Test that backtest() runs long-format data indexed by a (series, date)
+    MultiIndex as the same data with the levels as columns, which is how the
+    script reads the frame saved with `to_csv()`: same script, predictions
+    and metrics. Before, the executed script did not find the date column
+    (KeyError: 'date').
+    """
+    expected = assistant.backtest(
+        data             = _ITEMS_LONG,
+        target           = "value",
+        date_column      = "date",
+        series_id_column = "series",
+        cv               = _long_cv(),
+        estimator        = "Ridge",
+        show_progress    = False,
+    )
+    data = _ITEMS_LONG.set_index(["series", "date"])
+    if with_profile:
+        profile = assistant.profile(data=data, target="value")
+        plan = assistant.plan(profile, steps=5, estimator="Ridge")
+        kwargs = {"profile": profile, "plan": plan}
+    else:
+        kwargs = {"target": "value", "estimator": "Ridge"}
+
+    result = assistant.backtest(
+        data=data, cv=_long_cv(), show_progress=False, **kwargs
+    )
+
+    assert result.code == expected.code
+    pd.testing.assert_frame_equal(result.predictions, expected.predictions)
+    pd.testing.assert_frame_equal(result.metrics, expected.metrics)
+
+
+@pytest.mark.parametrize("with_profile", [True, False], ids=["profile", "no_profile"])
+def test_backtest_InvalidInputError_when_multiindex_level_unnamed(with_profile):
+    """
+    Test that backtest() rejects long-format data indexed by a MultiIndex
+    with a level without a name, also with a profile of the same data with
+    named levels: the script reads the levels by name from the frame saved
+    with `to_csv()`, which writes an empty header for them.
+    """
+    data = _ITEMS_LONG.set_index(["series", "date"])
+    kwargs = {"target": "value", "estimator": "Ridge"}
+    if with_profile:
+        kwargs = {"profile": assistant.profile(data=data, target="value")}
+    err_msg = re.escape(
+        "`data` is indexed by a MultiIndex with levels without a name "
+        "(names ['series', None])."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.backtest(
+            data          = data.rename_axis(["series", None]),
+            cv            = _long_cv(),
+            show_progress = False,
+            **kwargs,
+        )
+
+    assert exc_info.value.field == "data"
 
 
 def test_backtest_InvalidInputError_when_received_plan_clashes_with_exog_names():
@@ -884,30 +1242,91 @@ def test_backtest_InvalidInputError_when_received_plan_clashes_with_exog_names()
     assert exc_info.value.field == "data"
 
 
+def test_backtest_output_when_target_missing_in_test_folds():
+    """
+    Test that backtest() of a single series runs when a test fold holds a
+    missing timestamp that no lag reads: skforecast (0.27) leaves that date
+    out of the metrics, the predictions keep it with `y_true` missing, and
+    the explanation counts it after the points evaluated.
+    """
+    dates = pd.date_range("2023-01-01", periods=100, freq="D")
+    data = pd.DataFrame(
+        {"date": dates, "sales": np.arange(100, dtype=float)}
+    ).drop(index=[85]).reset_index(drop=True)
+    cv = TimeSeriesFold(steps=5, initial_train_size=70, verbose=False)
+
+    result = ForecastingAssistant().backtest(
+        data=data, cv=cv, target="sales", date_column="date",
+        forecaster="ForecasterDirect", estimator="Ridge", lags=[1, 2, 3],
+        show_progress=False,
+    )
+
+    assert list(result.metrics["n_evaluated"]) == [29]
+    assert len(result.predictions) == 30
+    assert pd.isna(result.predictions.loc["2023-03-27", "y_true"])
+    assert result.explanation.endswith(
+        "They are measured on 29 predictions with an observed value "
+        "(n_evaluated). The metrics leave out 1 test date without an observed "
+        "value of the target."
+    )
+
+
+@pytest.mark.parametrize("refit", [False, True], ids=["no refit", "refit"])
+def test_backtest_DataContentError_when_forecaster_stats_and_target_missing_in_test_folds(
+    refit
+):
+    """
+    Test that backtest() of ForecasterStats rejects a missing value inside a
+    test fold before running, naming the fold: skforecast leaves the date
+    out of the metrics, but the model cannot train on it nor update itself
+    with it, so the script failed with "`y` has missing values".
+    """
+    y = 10 + np.sin(np.arange(200) * 2 * np.pi / 7) * 3
+    y[170] = np.nan
+    data = pd.DataFrame(
+        {"date": pd.date_range("2020-01-01", periods=200, freq="D"), "y": y}
+    )
+    cv = TimeSeriesFold(
+        steps=10, initial_train_size=150, refit=refit, verbose=False
+    )
+
+    err_msg = re.escape(
+        "The target has 1 missing value(s) in test fold 3 of 5 (2020-06-19 "
+        "00:00:00), counting the missing timestamps that asfreq() restores. "
+        "ForecasterStats cannot train on them nor update its model with them."
+    )
+    # The profile warns about the missing value in the autocorrelation.
+    with pytest.warns(MissingValuesWarning):
+        with pytest.raises(DataContentError, match=err_msg):
+            ForecastingAssistant().backtest(
+                data=data, cv=cv, target="y", date_column="date",
+                forecaster="ForecasterStats", show_progress=False,
+            )
+
+
 @pytest.mark.parametrize("tz", ["UTC", "Europe/Madrid"])
 def test_backtest_DataContentError_when_time_zone_data_and_cv_date_without_zone(
     tz
 ):
     """
-    Test that backtest() of tz-aware data with a missing value in a test fold
-    and an `initial_train_size` date without time zone reports the missing
-    value before any script runs: the date is read in the time zone of the
-    data, so the check of the evaluated target finds the test folds.
+    Test that backtest() of tz-aware data without any value in the test
+    folds and an `initial_train_size` date without time zone reports them
+    before any script runs: the date is read in the time zone of the data,
+    so the check of the evaluated target finds the test folds.
     """
     data = df_h2o.copy()
     data.index = data.index.tz_localize(tz)
-    data.iloc[-5, 0] = np.nan
-    cv = TimeSeriesFold(steps=12, initial_train_size="2004-01-01", verbose=False)
+    data.iloc[-50:, 0] = np.nan
+    cv = TimeSeriesFold(steps=12, initial_train_size="2004-04-01", verbose=False)
 
     err_msg = re.escape(
-        "The target has 1 missing value(s) in the test folds (2008-02-01"
+        "The target has no value on the 50 dates of the test folds (2004-05-01"
     )
-    with pytest.warns(MissingValuesWarning):
-        with pytest.raises(DataContentError, match=err_msg):
-            assistant.backtest(
-                data=data, cv=cv, target="x", estimator="Ridge",
-                show_progress=False,
-            )
+    with pytest.raises(DataContentError, match=err_msg):
+        assistant.backtest(
+            data=data, cv=cv, target="x", estimator="Ridge",
+            show_progress=False,
+        )
 
 
 # =============================================================================
@@ -917,7 +1336,8 @@ def test_backtest_output_when_cv_result_without_plan_keeps_its_plan():
     """
     Test that backtest() with the CVResult of create_cv() and no `plan`,
     `forecaster`, `estimator`, `estimator_kwargs` or `interval` runs the
-    plan of the CVResult: its estimator and interval are kept.
+    plan of the CVResult: its estimator and interval are kept. The interval
+    covers far less than 80 % of this data, which warns.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
@@ -927,19 +1347,20 @@ def test_backtest_output_when_cv_result_without_plan_keeps_its_plan():
     with pytest.warns(UserWarning, match=INTERVAL_WARNING):
         cv_result = assistant.create_cv(profile, plan, initial_train_size=60)
 
-    result = assistant.backtest(
-        data=df_single,
-        target="sales",
-        date_column="date",
-        cv=cv_result,
-        show_progress=False,
-    )
+    with pytest.warns(IntervalCoverageWarning, match="nominal coverage of 80 %"):
+        result = assistant.backtest(
+            data=df_single,
+            target="sales",
+            date_column="date",
+            cv=cv_result,
+            show_progress=False,
+        )
 
     assert result.plan == cv_result.plan
     assert result.plan.estimator == "LGBMRegressor"
     assert result.plan.interval == [0.1, 0.9]
     assert list(result.predictions.columns) == [
-        "fold", "pred", "lower_bound", "upper_bound"
+        "fold", "step", "y_true", "pred", "lower_bound", "upper_bound"
     ]
     assert result.cv_config == cv_result.cv_config
 
@@ -968,7 +1389,7 @@ def test_backtest_output_when_cv_result_and_estimator_passed_builds_new_plan():
 
     assert result.plan.estimator == "Ridge"
     assert result.plan.interval is None
-    assert list(result.predictions.columns) == ["fold", "pred"]
+    assert list(result.predictions.columns) == ["fold", "step", "y_true", "pred"]
 
 
 def test_backtest_output_when_bare_time_series_fold_builds_default_plan():
@@ -1158,7 +1579,7 @@ def test_backtest_output_when_data_have_more_rows_than_profile():
         "series_lengths, span_index_length, n_total_observations, "
         "target_stats): the profile was computed again from these data."
     ]
-    assert result.predictions.shape == (104, 2)
+    assert result.predictions.shape == (104, 4)
     assert result.predictions.index[-1] == pd.Timestamp("2008-06-01")
 
 
@@ -1237,7 +1658,7 @@ def test_backtest_output_when_lags_window_features_and_metric_given():
     assert result.plan.forecaster_kwargs["window_features"] == window_features
     assert result.plan.metrics_to_compute == ["mean_squared_error"]
     assert result.plan.overridden_fields == ["lags", "window_features", "metric"]
-    assert list(result.metrics.columns) == ["mean_squared_error"]
+    assert list(result.metrics.columns) == ["mean_squared_error", "n_evaluated"]
 
 
 def test_backtest_ValueError_when_metric_differs_from_plan():
@@ -1282,48 +1703,84 @@ def test_backtest_ValueError_when_use_exog_differs_from_plan():
         )
 
 
-def test_backtest_ValueError_when_cv_differentiation_differs_from_plan():
+# The `FutureWarning` of skforecast 0.27 for `TimeSeriesFold(differentiation=...)`.
+DEPRECATED_DIFFERENTIATION = re.escape("`differentiation` is deprecated")
+
+
+def test_backtest_output_when_cv_without_differentiation_and_plan_with_it():
     """
-    Test that a strategy whose differentiation order is not the one of the
-    plan (also None against an order) is rejected before running, where
-    skforecast rejected it inside the script.
+    Test that a strategy without a differentiation order backtests a plan
+    with one, where it was rejected before: skforecast 0.27 takes the order
+    from the window of the forecaster. A strategy built with another order
+    (deprecated by skforecast, with a `FutureWarning`) gives the same
+    script and metrics, because its order is not read.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
     plan = assistant.plan(profile, steps=5, differentiation=1)
     inputs = {
         "data": df_single, "target": "sales", "date_column": "date",
+        "profile": profile, "plan": plan, "show_progress": False,
+    }
+    with pytest.warns(FutureWarning, match=DEPRECATED_DIFFERENTIATION):
+        cv_with_order = TimeSeriesFold(
+            steps=5, initial_train_size=60, differentiation=2
+        )
+
+    result = assistant.backtest(
+        **inputs, cv=TimeSeriesFold(steps=5, initial_train_size=60)
+    )
+    result_with_order = assistant.backtest(**inputs, cv=cv_with_order)
+
+    assert result.plan.forecaster_kwargs["differentiation"] == 1
+    assert "differentiation" not in result.cv_config
+    assert result_with_order.code == result.code
+    pd.testing.assert_frame_equal(result_with_order.metrics, result.metrics)
+    pd.testing.assert_frame_equal(
+        result_with_order.predictions, result.predictions
+    )
+
+
+def test_backtest_output_when_cv_result_saved_with_differentiation():
+    """
+    Test that a `CVResult` saved before skforecast 0.27, whose splitter and
+    `cv_config` carry the differentiation order of its plan, is accepted and
+    its order ignored: the backtest runs without a `FutureWarning` (an
+    error in this suite), with the script and metrics of the strategy
+    created now, and its `cv_config` without the order.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(profile, steps=5, differentiation=1)
+    cv_result = assistant.create_cv(profile, plan, initial_train_size=60)
+    # pickle restores the attributes without running `__init__`, so the
+    # deprecated order comes back without a warning, as from 0.4.x.
+    saved = pickle.loads(pickle.dumps(cv_result))
+    saved.cv.differentiation = 1
+    saved.cv_config["differentiation"] = 1
+    inputs = {
+        "data": df_single, "target": "sales", "date_column": "date",
         "profile": profile, "show_progress": False,
     }
 
-    for cv_differentiation in (2, None):
-        err_msg = re.escape(
-            f"The cross-validation strategy has `differentiation="
-            f"{cv_differentiation}` and the plan `differentiation=1`: they "
-            f"must match."
-        )
-        cv = TimeSeriesFold(
-            steps=5, initial_train_size=60, differentiation=cv_differentiation
-        )
-        with pytest.raises(InvalidInputError, match=err_msg) as info:
-            assistant.backtest(**inputs, plan=plan, cv=cv)
-        assert info.value.field == "cv"
-    result = assistant.backtest(
-        **inputs, plan=plan,
-        cv=TimeSeriesFold(steps=5, initial_train_size=60, differentiation=1),
-    )
+    expected = assistant.backtest(**inputs, cv=cv_result)
+    result = assistant.backtest(**inputs, cv=saved)
 
     assert result.plan.forecaster_kwargs["differentiation"] == 1
+    assert result.code == expected.code
+    assert "differentiation" not in result.cv_config
+    pd.testing.assert_frame_equal(result.metrics, expected.metrics)
 
 
 def test_backtest_output_when_stats_ignores_cv_differentiation():
     """
-    Test that ForecasterStats, which skforecast backtests without checking
-    the differentiation order of the strategy, still runs with a strategy
-    that has one, as it did.
+    Test that ForecasterStats still runs with a strategy built with a
+    differentiation order (deprecated by skforecast 0.27, with a
+    `FutureWarning`), which it never read.
     """
     assistant = ForecastingAssistant()
-    cv = TimeSeriesFold(steps=12, initial_train_size=150, differentiation=1)
+    with pytest.warns(FutureWarning, match=DEPRECATED_DIFFERENTIATION):
+        cv = TimeSeriesFold(steps=12, initial_train_size=150, differentiation=1)
 
     result = assistant.backtest(
         df_h2o, target="x", cv=cv, forecaster="ForecasterStats",
@@ -1374,41 +1831,38 @@ def test_backtest_output_when_plan_of_exog_columns_given_without_its_profile():
     assert result.profile.data_profile.unused_columns == ["weekday"]
 
 
-def test_backtest_LongTrainingWarning_counts_every_series_and_the_incomplete_fold(
+def test_backtest_CostNotConfirmedError_counts_every_series_and_the_incomplete_fold(
     monkeypatch,
 ):
     """
     Test that the inference windows of a ForecasterFoundation backtest count
     every series and the last fold when it is incomplete: 2 series over 7
     folds (30 test observations in steps of 5 from 68, the last one of 2)
-    are 14 windows, stated in the warning and in `cv_config`. The backend
-    is not installed here, so the backtest then fails.
+    are 14 windows, stated in the error and in `cv_config`.
     """
     monkeypatch.setattr("skforecast_ai._utils.LONG_INFERENCE_WINDOWS", 13)
     monkeypatch.setattr(
-        "skforecast_ai._foundation.foundation_backend_installed", lambda info: False
+        "skforecast_ai._foundation.foundation_backend_installed", lambda info: True
     )
     targets = ["series_a", "series_b"]
     profile = assistant.profile(data=df_multi_wide, target=targets, date_column="date")
     plan = assistant.plan(profile, steps=5, forecaster="ForecasterFoundation")
     cv = TimeSeriesFold(steps=5, initial_train_size=68, verbose=False)
 
-    warn_msg = re.escape(
+    err_msg = re.escape(
         "ForecasterFoundation will forecast up to 14 inference windows (2 series "
-        "x 7 folds), more than 13."
+        "x 7 folds)."
     )
-    with pytest.warns(LongTrainingWarning, match=warn_msg):
-        with pytest.raises(
-            InvalidInputError, match=re.escape("chronos-forecasting")
-        ):
-            assistant.backtest(
-                data          = df_multi_wide,
-                cv            = cv,
-                profile       = profile,
-                plan          = plan,
-                show_progress = False,
-            )
+    with pytest.raises(CostNotConfirmedError, match=err_msg) as exc_info:
+        assistant.backtest(
+            data          = df_multi_wide,
+            cv            = cv,
+            profile       = profile,
+            plan          = plan,
+            show_progress = False,
+        )
 
+    assert exc_info.value.figure == 14
     assert assistant.create_cv(
         profile, plan, initial_train_size=68
     ).cv_config["inference_windows"] == 14
@@ -1678,3 +2132,51 @@ def test_backtest_output_when_csv_has_semicolon_and_decimal_comma(tmp_path):
     assert result.profile.data_profile.csv_decimal == ","
     pd.testing.assert_frame_equal(result.metrics, expected.metrics)
     pd.testing.assert_frame_equal(result.predictions, expected.predictions)
+
+
+def test_backtest_output_when_stats_interval_80_is_narrower_than_95():
+    """
+    Test that the interval [0.1, 0.9] of ForecasterStats is the 80 % one in
+    a backtest, narrower than the 95 % one, by the mean width that
+    skforecast measures (`interval_width`). Before skforecast 0.27,
+    `predict_interval` ignored `interval` and always returned the 95 %
+    interval (skforecast #1416). The intervals of the ARIMA model are
+    Gaussian, so the ratio of the widths is z(0.9) / z(0.975). Both cover
+    clearly less than their nominal level on these folds (63 % and 83.3 %
+    of the 54 predictions), which warns.
+    """
+    assistant = ForecastingAssistant()
+    cv = TimeSeriesFold(steps=12, initial_train_size=150)
+
+    with pytest.warns(IntervalCoverageWarning, match="only 63 % of the 54"):
+        result_80 = assistant.backtest(
+            data          = df_h2o,
+            target        = "x",
+            cv            = cv,
+            forecaster    = "ForecasterStats",
+            interval      = [0.1, 0.9],
+            show_progress = False,
+        )
+    with pytest.warns(IntervalCoverageWarning, match="only 83.3 % of the 54"):
+        result_95 = assistant.backtest(
+            data          = df_h2o,
+            target        = "x",
+            cv            = cv,
+            forecaster    = "ForecasterStats",
+            interval      = [0.025, 0.975],
+            show_progress = False,
+        )
+    width_80 = result_80.metrics.loc[0, "interval_width"]
+    width_95 = result_95.metrics.loc[0, "interval_width"]
+
+    assert width_80 < width_95
+    np.testing.assert_allclose(width_80, width_95 * 1.2815516 / 1.9599640, rtol=1e-4)
+    # The width comes from the ARIMA fit, which differs between platforms
+    # (a relative 4.7e-5 on macOS arm, 2.1e-4 on Linux in CI).
+    # Since skforecast 0.27, `freeze_params=True` keeps the model selected in
+    # the first fit, so the folds after the first one give another width.
+    np.testing.assert_allclose(
+        result_80.metrics[["coverage", "interval_width"]].to_numpy(),
+        [[0.6296296296296297, 0.14169101871061165]],
+        rtol=5e-4,
+    )

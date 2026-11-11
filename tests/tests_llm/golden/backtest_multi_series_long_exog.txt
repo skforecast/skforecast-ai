@@ -25,7 +25,7 @@ The dataset contains 3 series, so a multi-series forecaster (ForecasterRecursive
 </profile_decision>
 <forecast_plan>
 - Forecaster: ForecasterRecursiveMultiSeries
-- Steps: 7
+- Steps: 7 (forecast horizon, given by the user)
 - Estimator: LGBMRegressor
 - Lags: [1, 2, 3, 7]
 - Window features: [{'stats': ['mean', 'std'], 'window_size': 3}, {'stats': ['mean'], 'window_size': 7}, {'stats': ['mean'], 'window_size': 21}]
@@ -45,37 +45,38 @@ Note: A validated Python script implementing this plan is generated separately. 
 - fold_stride: 7
 - skip_folds: None
 - allow_incomplete_fold: True
-- differentiation: None
 - n_folds: 2
 - n_fits: 1
 </backtesting_strategy>
 <deterministic_summary>
-Using 84% of data (76 observations) for initial training, trained once (no refit), 7-step horizon, 2 folds. Results (average across series): mean_absolute_error: 1.3467, mean_squared_error: 2.7633, mean_absolute_scaled_error: 0.6800.
+Using 84% of data (76 observations) for initial training, trained once (no refit), 7-step horizon, 2 folds. Results (average across series): mean_absolute_error: 1.3467, root_mean_squared_error: 1.6592, mean_absolute_scaled_error: 0.6800. They are measured on 36 predictions with an observed value across the series (n_evaluated).
 </deterministic_summary>
 <evaluation_metrics>
-          levels  mean_absolute_error  mean_squared_error  mean_absolute_scaled_error
-         store_a               1.2100              2.3100                       0.620
-         store_b               1.3500              2.8600                       0.680
-         store_c               1.4800              3.1200                       0.740
-         average               1.3467              2.7633                       0.680
-weighted_average               1.3244              2.7039                       0.670
-         pooling               1.3244              2.7039                       0.665
+          levels  mean_absolute_error  root_mean_squared_error  mean_absolute_scaled_error  n_evaluated
+         store_a               1.2100                   1.5199                       0.620           14
+         store_b               1.3500                   1.6912                       0.680           14
+         store_c               1.4800                   1.7664                       0.740            8
+         average               1.3467                   1.6592                       0.680           36
+weighted_average               1.3244                   1.6413                       0.670           36
+         pooling               1.3244                   1.6444                       0.665           36
+`n_evaluated` is not a metric: it is the number of predictions with an observed value each row is measured on (summed in the aggregated rows).
 </evaluation_metrics>
 <predictions>
 Total rows: 36. Only the first 5 and last 5 rows are shown; the 26 interior rows were not provided. Do not describe trends, growth, or progression across the horizon from these rows, and do not compare an early row against a late row as if they were adjacent. Use the per-column summary below for any statement about the full set of rows.
+The predictions also have a `y_true` column with the observed value of each prediction; it is not shown: its values are those of the dataset, sent only with `send_data_to_llm=True`.
 
-              level  fold   pred
-2023-03-18  store_a     0  100.0
-2023-03-18  store_b     0  100.5
-2023-03-18  store_c     0  101.0
-2023-03-19  store_a     0  101.5
-2023-03-19  store_b     0  102.0
+              level  fold  step   pred
+2023-03-18  store_a     0     1  100.0
+2023-03-18  store_b     0     1  100.5
+2023-03-18  store_c     0     1  101.0
+2023-03-19  store_a     0     2  101.5
+2023-03-19  store_b     0     2  102.0
 ... (26 rows omitted) ...
-2023-03-29  store_b  1  115.5
-2023-03-30  store_a  1  116.0
-2023-03-30  store_b  1  116.5
-2023-03-31  store_a  1  117.0
-2023-03-31  store_b  1  117.5
+2023-03-29  store_b  1  5  115.5
+2023-03-30  store_a  1  6  116.0
+2023-03-30  store_b  1  6  116.5
+2023-03-31  store_a  1  7  117.0
+2023-03-31  store_b  1  7  117.5
 
 Per-column summary (all rows):
   pred: min=100.0, max=117.5, mean=108.75

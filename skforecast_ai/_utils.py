@@ -10,10 +10,11 @@ import copy
 import numbers
 import re
 import warnings
-from collections.abc import Iterator
+from collections.abc import Callable, Hashable, Iterable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
+from typing import Literal, NamedTuple
 import numpy as np
 import pandas as pd
 from pydantic import BaseModel
@@ -22,6 +23,7 @@ from skforecast.model_selection import TimeSeriesFold
 
 from ._constants import (
     AUTOREG_FORECASTERS,
+    CATEGORICAL_FORECASTERS,
     DIRECT_FORECASTERS,
     LONG_INFERENCE_WINDOWS,
     LONG_TRAINING_FITS,
@@ -40,26 +42,65 @@ from ._validation import (
     validate_calendar_override,
     validate_interval,
 )
-from ._dates import is_text, parse_text_dates, row_dates, training_end
+from ._dates import (
+    is_text,
+    parse_text_dates,
+    row_dates,
+    training_end,
+)
+from .recommendation.backtesting import (
+    count_cv_fits,
+    count_cv_folds,
+    count_estimator_fits,
+    count_inference_windows,
+)
+from .recommendation.missing_values import closed_days_remedy
 from .profiling.data_profile import (
+    COMPACT_DATE_FORMAT,
+    _caller_stacklevel,
+    _compact_dates,
+    _normalize_multiindex,
     _read_date_column,
     _try_parse_first_date_column,
+    _validate_target_format,
+    check_csv_fields,
     csv_read_kwargs,
+    closed_weekdays,
     date_issue_hint,
     decimal_after_sample,
+    frame_date_column,
+    frame_date_format,
     read_csv_with_dialect,
+    series_ids_as_text,
+    thousands_after_sample,
+    weekday_names,
+    without_series_ids,
 )
 from .profiling.csv_dialect import (
+    CP1252,
     CSV_SEPARATORS,
     CsvDialectError,
     DEFAULT_CSV_DECIMAL,
+    DEFAULT_CSV_ENCODING,
     DEFAULT_CSV_SEP,
     check_csv_dialect,
+    cp1252_note,
     detect_csv_dialect,
     read_url_sample,
+    sample_date_column,
+    undefined_byte_error,
 )
-from .schemas import CVResult, DataProfile, ForecastingProfile, ForecastPlan
+from .schemas import (
+    ComparisonCost,
+    CVResult,
+    DataProfile,
+    ForecastingProfile,
+    ForecastPlan,
+    FutureExogFile,
+    OVERRIDE_NAMES,
+)
 from .exceptions import (
+    CostNotConfirmedError,
     DataContentError,
     DataNotFoundError,
     InvalidInputError,
@@ -277,7 +318,10 @@ def _validate_task_input(data_profile: DataProfile, task_type: str) -> None:
             field = "date_column",
         )
 
-    if task_type == "multivariate":
+    # Wide series share the rows of the frame: their lengths, from the first
+    # to the last value, differ by the missing values at the ends of a
+    # column, which the forecaster reads as missing values.
+    if task_type == "multivariate" and data_profile.data_format != "wide":
         lengths = {info.length for info in series_lengths.values()}
         if len(lengths) > 1:
             detail = {
@@ -543,6 +587,183 @@ def discarded_plan_edits(
     return fields
 
 
+# Decisions about the data rather than about the forecaster: one the rules
+# made is named by `dropped_plan_decisions` when the refined forecaster
+# cannot take it. Lags, window features and the estimator belong to the
+# forecaster being replaced, and are named only when the user chose them.
+_DATA_DECISIONS = (
+    "use_exog",
+    "differentiation",
+    "calendar_features",
+    "target_transformer",
+    "dropna_from_series",
+)
+
+
+def _is_neutral(value: object) -> bool:
+    """
+    Whether the value of a decision, as `plan_override_value` returns it,
+    leaves the plan as if the decision did not exist: no differencing, no
+    calendar features, no transformer, no exogenous variables, no dropped
+    rows, no keyword arguments.
+    """
+    return value is None or value is False or value == "none" or value in ([], {})
+
+
+def dropped_plan_decisions(
+    plan: ForecastPlan,
+    refined: ForecastPlan,
+    explicit_keys: set[str],
+    discarded: list[str],
+    data_profile: DataProfile,
+) -> str | None:
+    """
+    Text of the warning that names the decisions of a plan that
+    `refine_plan()` leaves out of the refined plan, and why.
+
+    A decision is named when the plan holds a value with an effect (not
+    None, `False`, `'none'` or an empty list or dict) that the refined plan
+    does not hold, and either the user chose it (`plan.overridden_fields`),
+    the LLM refined it (`lags` and `window_features` in
+    `plan.llm_refined_fields`, which count as chosen by the user) or the
+    rules made a decision about the data (`use_exog`, `differentiation`,
+    `calendar_features`, `target_transformer`, `dropna_from_series`) that
+    the refined forecaster cannot take. A value that the rules decide again
+    for the refined forecaster is not named, nor a key overridden in the
+    call, nor one already named as an edit by hand in `discarded`.
+
+    `transformer_exog` and `categorical_features`, which the rules set in
+    `forecaster_kwargs` and `plan()` does not take, are named the same way
+    when they had an effect (the plan read numeric or categorical exogenous
+    columns) and the refined forecaster does not use them: one that is not
+    autoregressive, or for `categorical_features` one that does not take
+    categorical features either, nor reads those columns itself (a
+    foundation model with categorical covariates does).
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan received by `refine_plan()`.
+    refined : ForecastPlan
+        Plan returned by `refine_plan()`.
+    explicit_keys : set of str
+        Keys overridden in the call.
+    discarded : list of str
+        Fields of `plan` named as edited by hand (`discarded_plan_edits`).
+    data_profile : DataProfile
+        Profile of the data both plans are built from, which says which
+        exogenous columns are categorical.
+
+    Returns
+    -------
+    message : str, None
+        Text of the warning, or None when nothing is left out.
+    """
+
+    edited = {
+        _FIELD_OVERRIDES.get(field)
+        or _FORECASTER_KWARG_OVERRIDES.get(field[len("forecaster_kwargs['"):-2])
+        for field in discarded
+    }
+    not_taken: list[str] = []
+    kwargs_text = None
+    for name in OVERRIDE_NAMES:
+        if name in ("forecaster", "metric") or name in explicit_keys or name in edited:
+            continue
+        value = plan_override_value(plan, name)
+        if _is_neutral(value) or value == plan_override_value(refined, name):
+            continue
+        chosen = name in plan.overridden_fields
+        # Lags and window features the LLM refined at the request of the
+        # user are the choice of the user, not of the rules.
+        refined_by_llm = not chosen and name in plan.llm_refined_fields
+        if not chosen and not refined_by_llm:
+            # A decision of the rules is decided again when the refined
+            # forecaster takes it; it is left out only when it cannot.
+            takes = (
+                refined.task_type != "baseline"
+                if name == "use_exog"
+                else refined.forecaster in AUTOREG_FORECASTERS
+            )
+            if name not in _DATA_DECISIONS or takes:
+                continue
+        chosen_by = (
+            "(refined by the LLM)" if refined_by_llm
+            else f"(chosen by the {'user' if chosen else 'rules'})"
+        )
+        if name == "estimator_kwargs" and refined.estimator is not None:
+            kwargs_text = (
+                f"refine_plan() left out the estimator_kwargs of the plan, "
+                f"{value!r} {chosen_by}, written for {plan.estimator}: "
+                f"{refined.estimator} starts from its defaults; pass "
+                f"`estimator_kwargs` to set its own."
+            )
+        else:
+            not_taken.append(f"{name}={value!r} {chosen_by}")
+    if "use_exog" not in explicit_keys:
+        not_taken += _dropped_exog_settings(plan, refined, discarded, data_profile)
+
+    texts = []
+    if not_taken:
+        texts.append(
+            f"refine_plan() left out the values of the plan that "
+            f"{refined.forecaster} does not take: {', '.join(not_taken)}."
+        )
+    if kwargs_text is not None:
+        texts.append(kwargs_text)
+
+    return " ".join(texts) or None
+
+
+def _dropped_exog_settings(
+    plan: ForecastPlan,
+    refined: ForecastPlan,
+    discarded: list[str],
+    data_profile: DataProfile,
+) -> list[str]:
+    """
+    The `transformer_exog` and `categorical_features` of a plan that had an
+    effect and that the refined forecaster does not use, as
+    `dropped_plan_decisions` names them (see there).
+    """
+    from ._future_exog import used_exog_columns
+
+    if not plan.use_exog:
+        return []
+    used = used_exog_columns(plan, data_profile)
+    categorical = [
+        column for column in used if column in data_profile.categorical_exog
+    ]
+    used_by_refined = used_exog_columns(refined, data_profile)
+    takes = {
+        # Scales the numeric columns; an autoregressive forecaster that does
+        # not hold it had it decided again by the rules for its estimator.
+        "transformer_exog": (
+            len(used) > len(categorical),
+            refined.forecaster in AUTOREG_FORECASTERS,
+        ),
+        "categorical_features": (
+            bool(categorical),
+            refined.forecaster in CATEGORICAL_FORECASTERS
+            or set(categorical) <= set(used_by_refined),
+        ),
+    }
+    named = []
+    for key, (had_effect, used_by_new) in takes.items():
+        value = plan.forecaster_kwargs.get(key)
+        if (
+            _is_neutral(value)
+            or not had_effect
+            or used_by_new
+            or value == refined.forecaster_kwargs.get(key)
+            or f"forecaster_kwargs['{key}']" in discarded
+        ):
+            continue
+        named.append(f"{key}={value!r} (chosen by the rules)")
+
+    return named
+
+
 def resolve_interval_method(task_type: str, interval: list[float] | None) -> str | None:
     """
     Select the prediction interval method for a task type.
@@ -709,7 +930,7 @@ def _apply_interval_to_plan(plan: ForecastPlan, interval: list[float]) -> Foreca
 
 def _validate_forecast_mode(
     evaluate: bool,
-    exog: pd.DataFrame | None,
+    exog: pd.DataFrame | str | Path | None,
     has_exog: bool,
     steps: int,
     require_exog: bool = True,
@@ -729,8 +950,10 @@ def _validate_forecast_mode(
     evaluate : bool
         Whether the workflow runs in evaluation mode (train/test split).
         When False, the workflow forecasts the future (prediction mode).
-    exog : pandas DataFrame, None
-        Future exogenous variables supplied for prediction mode.
+    exog : pandas DataFrame, str, Path, None
+        Future exogenous variables supplied for prediction mode, or the
+        path of a CSV file with them, whose rows are counted once it is
+        read (see `check_exog_covers_horizon`).
     has_exog : bool
         Whether the profiled data contains exogenous variables.
     steps : int
@@ -795,7 +1018,28 @@ def _validate_forecast_mode(
             "variables (`plan.use_exog` is False). Remove `exog`.",
             field = "exog",
         )
-    if exog is not None and len(exog) < steps:
+    # The rows of a file are counted once it is read.
+    if exog is not None and not isinstance(exog, (str, Path)):
+        check_exog_covers_horizon(exog, steps)
+
+
+def check_exog_covers_horizon(exog: pd.DataFrame, steps: int) -> None:
+    """
+    Check that the future exogenous variables have a row for each of the
+    `steps` of the horizon.
+
+    Parameters
+    ----------
+    exog : pandas DataFrame
+        Future exogenous variables.
+    steps : int
+        Forecast horizon.
+
+    Returns
+    -------
+    None
+    """
+    if len(exog) < steps:
         raise InvalidInputError(
             f"`exog` must cover the forecast horizon: {steps} rows are "
             f"required but only {len(exog)} were provided.",
@@ -804,31 +1048,87 @@ def _validate_forecast_mode(
 
 
 # How the last CSV file read in this context is written: the path recorded
-# for it, its separator and its decimal mark. The workflows read the file
-# first and record its path in the profile later (`_with_data_path`), which
-# takes the dialect from here instead of reading the file again.
-_READ_CSV_DIALECT: ContextVar[tuple[str, str, str] | None] = ContextVar(
-    "_READ_CSV_DIALECT", default=None
-)
+# for it, its separator, its decimal mark, its thousands separator, the
+# format of its dates, the notes on how it was read and its encoding. The
+# workflows read the file first and record its path in the profile later
+# (`_with_data_path`), which takes the dialect from here instead of reading
+# the file again.
+_READ_CSV_DIALECT: ContextVar[
+    tuple[str, str, str, str | None, str | None, tuple[str, ...], str] | None
+] = ContextVar("_READ_CSV_DIALECT", default=None)
 
 
-def _dialect_read(data_path: str) -> tuple[str | None, str | None]:
+class DialectRead(NamedTuple):
     """
-    Return the separator and the decimal mark the file recorded as
-    `data_path` was read with, or None for both when the last CSV read in
-    this context is another one (or none, for data passed in memory).
+    How a CSV file was read: its separator, its decimal mark, its thousands
+    separator, the format of its dates (`DataProfile.date_format`), the
+    notes on how it was read (an encoding that cannot be checked, an order
+    of the day and the month told from their regularity), which belong in
+    `DataProfile.warnings`, and its encoding (`DataProfile.csv_encoding`).
+    """
+
+    sep: str | None
+    decimal: str | None
+    thousands: str | None
+    date_format: str | None
+    notes: tuple[str, ...] = ()
+    encoding: str | None = None
+
+
+def _dialect_read(data_path: str) -> DialectRead:
+    """
+    Return how the file recorded as `data_path` was read (see
+    `DialectRead`), or None in every field (no notes) when the last CSV
+    read in this context is another one (or none, for data passed in
+    memory). The separator is never None for a file read.
     """
     read = _READ_CSV_DIALECT.get()
     if read is None or read[0] != data_path or data_path == PLACEHOLDER_DATA_PATH:
-        return None, None
-    return read[1], read[2]
+        return DialectRead(None, None, None, None)
+    return DialectRead(*read[1:])
+
+
+def encoding_notes(encoding: str, field: str = "data") -> list[str]:
+    """
+    Return the note on a CSV file read as cp1252, an encoding that cannot
+    be checked (see `cp1252_note`), or none for UTF-8.
+    """
+    return [cp1252_note(field)] if encoding == CP1252 else []
+
+
+def with_read_notes(
+    data_profile: DataProfile,
+    notes: tuple[str, ...] | list[str],
+) -> DataProfile:
+    """
+    Return the data profile with the notes on how its file was read (its
+    encoding, its dates) first among its warnings, as `create_data_profile`
+    puts them, unless it has them already.
+    """
+    missing = [note for note in notes if note not in data_profile.warnings]
+    if not missing:
+        return data_profile
+    return data_profile.model_copy(
+        update={"warnings": [*missing, *data_profile.warnings]}
+    )
+
+
+# The date format of the saved profile that a refresh profiles data passed in
+# memory with again (`ForecastingAssistant._refresh_profile`): it decides the
+# order of their text dates when they read both ways, as it does for a file.
+KNOWN_DATE_FORMAT: ContextVar[str | None] = ContextVar(
+    "KNOWN_DATE_FORMAT", default=None
+)
 
 
 def _read_csv_url(
     url: str,
     sep: str | None = None,
     decimal: str | None = None,
-) -> tuple[pd.DataFrame, str, str]:
+    thousands: str | None = None,
+    series_id_column: str | None = None,
+    date_column: str | None = None,
+) -> tuple[pd.DataFrame, str, str, str | None, str]:
     """
     Read the CSV file of a URL and return how it is written.
 
@@ -837,7 +1137,9 @@ def _read_csv_url(
     rows with `','` (rows with different numbers of decimal commas), is the
     start of the file downloaded again to tell its dialect (see
     `detect_csv_dialect`), and the file read with it, as the generated
-    script reads it.
+    script reads it. So it is when the file is not UTF-8: it is then read
+    as cp1252 (see `sample_encoding`), unless its start says it is in
+    another encoding.
 
     Parameters
     ----------
@@ -847,6 +1149,15 @@ def _read_csv_url(
         Separator of the fields. If None, it is detected.
     decimal : str, default None
         Decimal mark. If None, it is detected.
+    thousands : str, default None
+        Thousands separator. If None, it is detected, except when `decimal`
+        is `'.'`.
+    series_id_column : str, default None
+        Column of the series ids of long-format data, read as text (see
+        `read_csv_with_dialect`).
+    date_column : str, default None
+        Column of the dates, read as text with a thousands separator (see
+        `read_csv_with_dialect`).
 
     Returns
     -------
@@ -856,13 +1167,52 @@ def _read_csv_url(
         Separator the file was read with.
     decimal : str
         Decimal mark the file was read with.
+    thousands : str, None
+        Thousands separator the file was read with, or None for none.
+    encoding : str
+        Encoding the file was read with: `'utf-8'` or `'cp1252'`.
     """
     decimal_given = decimal is not None
-    if sep is None or decimal is None:
+    unchecked = False
+    dates = date_column
+    encoding = DEFAULT_CSV_ENCODING
+    # Whether the start of the file was read and is not in UTF-16 (see
+    # `sample_encoding`), so that the file may be read as cp1252.
+    checked = False
+
+    def read_as(sep: str, decimal: str, thousands: str | None) -> pd.DataFrame:
+        try:
+            return pd.read_csv(
+                       url,
+                       **csv_read_kwargs(
+                           sep, decimal, thousands, series_id_column, dates, encoding
+                       ),
+                   )
+        except UnicodeDecodeError as exc:
+            if encoding != CP1252:
+                raise
+            byte = exc.object[exc.start:exc.start + 1]
+            raise undefined_byte_error(url, "data", byte) from exc
+
+    def read(sep: str, decimal: str, thousands: str | None = None) -> pd.DataFrame:
+        nonlocal encoding, checked
+        try:
+            return read_as(sep, decimal, thousands)
+        except UnicodeDecodeError:
+            if not checked:
+                # Raises for a file in UTF-16 or with a null byte.
+                checked = read_url_sample(url) is not None
+            if encoding != DEFAULT_CSV_ENCODING or not checked:
+                raise
+        # Bytes that are not UTF-8, at the start or after it.
+        encoding = CP1252
+        return read_as(sep, decimal, thousands)
+
+    if sep is None or decimal is None or thousands is not None:
         data, unread = None, None
-        if sep is None and decimal is None:
+        if sep is None and decimal is None and thousands is None:
             try:
-                data = pd.read_csv(url)
+                data = read(DEFAULT_CSV_SEP, DEFAULT_CSV_DECIMAL)
             except pd.errors.ParserError as exc:
                 # Raised again below unless the file has another dialect.
                 unread = exc
@@ -872,36 +1222,68 @@ def _read_csv_url(
                     other in header for other in CSV_SEPARATORS
                     if other != DEFAULT_CSV_SEP
                 ):
-                    return data, DEFAULT_CSV_SEP, DEFAULT_CSV_DECIMAL
+                    return (
+                        data, DEFAULT_CSV_SEP, DEFAULT_CSV_DECIMAL, None, encoding
+                    )
         sample = read_url_sample(url)
         if sample is None:
+            # Checked once pandas reads the file (see `read_csv_with_dialect`).
+            unchecked = True
             sep = DEFAULT_CSV_SEP if sep is None else sep
             decimal = DEFAULT_CSV_DECIMAL if decimal is None else decimal
+            decimal = "," if thousands is not None else decimal
         else:
-            sep, decimal = detect_csv_dialect(
-                               sample  = sample,
-                               source  = url,
-                               sep     = sep,
-                               decimal = decimal,
-                           )
-        check_csv_dialect(sep, decimal)
-        if not csv_read_kwargs(sep, decimal):
+            checked = True
+            if sample.encoding != encoding == DEFAULT_CSV_ENCODING:
+                # Not UTF-8 at the start: read below as cp1252.
+                encoding, data = sample.encoding, None
+            sep, decimal, thousands = detect_csv_dialect(
+                                          sample           = sample.text,
+                                          source           = url,
+                                          sep              = sep,
+                                          decimal          = decimal,
+                                          thousands        = thousands,
+                                          series_id_column = series_id_column,
+                                          date_column      = date_column,
+                                      )
+            check_csv_dialect(sep, decimal, thousands)
+            dates = sample_date_column(sample.text, sep, series_id_column, date_column)
+        # Without `series_id_column`: the question is whether the dialect is
+        # the default one, which the `dtype` of the ids would hide.
+        if not csv_read_kwargs(sep, decimal, thousands):
             if unread is not None:
                 raise unread
             if data is not None:
-                return data, sep, decimal
+                return data, sep, decimal, thousands, encoding
 
-    data = pd.read_csv(url, **csv_read_kwargs(sep, decimal))
+    data = read(sep, decimal, thousands)
+    if unchecked:
+        check_csv_dialect(sep, decimal, thousands)
     if (
         not decimal_given
         and sep != DEFAULT_CSV_SEP
         and decimal == DEFAULT_CSV_DECIMAL
-        and decimal_after_sample(data, url, "data", sep) != decimal
+        and decimal_after_sample(
+                without_series_ids(data, series_id_column, dates), url, "data", sep
+            ) != decimal
     ):
         decimal = ","
-        data = pd.read_csv(url, **csv_read_kwargs(sep, decimal))
+        data = read(sep, decimal)
+    if thousands is None and decimal == "," and dates is None:
+        # Without the start of the file (`sep` and `decimal` given), the
+        # dates are found in the file read.
+        dates = frame_date_column(data, series_id_column)
+    if (
+        thousands is None
+        and decimal == ","
+        and thousands_after_sample(
+                without_series_ids(data, series_id_column, dates), url, "data"
+            ) is not None
+    ):
+        thousands = "."
+        data = read(sep, decimal, thousands)
 
-    return data, sep, decimal
+    return data, sep, decimal, thousands, encoding
 
 
 def _resolve_data_and_target(
@@ -910,6 +1292,10 @@ def _resolve_data_and_target(
     date_column: str | None = None,
     sep: str | None = None,
     decimal: str | None = None,
+    thousands: str | None = None,
+    series_id_column: str | None = None,
+    dayfirst: bool | None = None,
+    date_format: str | None = None,
 ) -> tuple[pd.DataFrame, str | list[str]]:
     """
     Coerce the input to a DataFrame and resolve the target column name.
@@ -920,10 +1306,17 @@ def _resolve_data_and_target(
     paths and URLs are loaded with `pandas.read_csv` (without `parse_dates`,
     deprecated in pandas 2.2+); date columns are detected and parsed by
     `_try_parse_first_date_column` instead, leaving every column intact so
-    callers can reference a `date_column` by name. The separator and the
-    decimal mark of the file are detected unless given (see
-    `read_csv_with_dialect`), and kept for `_with_data_path` to record them
-    in the profile.
+    callers can reference a `date_column` by name. The separator, the
+    decimal mark and the thousands separator of the file are detected
+    unless given (see `read_csv_with_dialect`), and kept for
+    `_with_data_path` to record them in the profile. The series ids of
+    long-format data are text, as the generated script reads them: the
+    column of a CSV file is read as text and the ids of a DataFrame are
+    turned into text (see `series_ids_as_text`). The dates of a CSV file
+    are read in the order of their day and month (see `_day_month_order`),
+    and the format the script reads them with is kept with the dialect, as
+    are its encoding, UTF-8 or cp1252 (see `sample_encoding`), and the
+    notes on how the file was read (see `DialectRead`).
 
     Parameters
     ----------
@@ -944,6 +1337,21 @@ def _resolve_data_and_target(
     decimal : str, default None
         Decimal mark of a CSV file: `'.'` or `','`. If None, it is
         detected. Ignored for data passed in memory.
+    thousands : str, default None
+        Thousands separator of a CSV file: `'.'`, with `','` as decimal
+        mark. If None, it is detected. Ignored for data passed in memory.
+    series_id_column : str, default None
+        Column of the series ids of long-format data, whose ids become
+        text.
+    dayfirst : bool, default None
+        Order of the day and the month of the dates of a CSV file that read
+        in both: True for day first, False for month first. If None, it is
+        told from the dates (see `_day_month_order`). Ignored for data
+        passed in memory, whose text dates `create_data_profile` reads.
+    date_format : str, default None
+        Format of the dates recorded by a profile of the data, which decides
+        the order of dates of a CSV file that read in both. Ignored for data
+        passed in memory.
 
     Returns
     -------
@@ -961,7 +1369,8 @@ def _resolve_data_and_target(
         match the Series name, when `data` is not a Series and `target` is
         None, when the dates of a CSV have empty cells, mixed time zones or
         more than one format (see `date_column`), or when a CSV file cannot
-        be read as one or its separator or decimal mark cannot be told.
+        be read as one or its separator, decimal mark or thousands separator
+        cannot be told.
     FileNotFoundError
         When `data` is a path or URL that cannot be read.
     """
@@ -998,12 +1407,19 @@ def _resolve_data_and_target(
             field = "target",
         )
 
-    check_csv_dialect(sep, decimal)
+    check_csv_dialect(sep, decimal, thousands)
     if isinstance(data, (str, Path)):
         data_str = str(data)
         if data_str.startswith(("http://", "https://")):
             try:
-                df, sep, decimal = _read_csv_url(data_str, sep, decimal)
+                df, sep, decimal, thousands, encoding = _read_csv_url(
+                                                  url              = data_str,
+                                                  sep              = sep,
+                                                  decimal          = decimal,
+                                                  thousands        = thousands,
+                                                  series_id_column = series_id_column,
+                                                  date_column      = date_column,
+                                              )
             except InvalidInputError:
                 # The dialect of the file cannot be told.
                 raise
@@ -1015,19 +1431,55 @@ def _resolve_data_and_target(
                     code  = None if isinstance(e, OSError) else "data_unreadable",
                     field = "data",
                 ) from e
-            _READ_CSV_DIALECT.set((recorded_data_path(data), sep, decimal))
-            return _try_parse_first_date_column(df, date_column), target
+            check_csv_fields(df, data_str)
+            notes = encoding_notes(encoding)
+            df, read_format = _try_parse_first_date_column(
+                                  data             = df,
+                                  date_column      = date_column,
+                                  series_id_column = series_id_column,
+                                  dayfirst         = dayfirst,
+                                  date_format      = date_format,
+                                  notes            = notes,
+                              )
+            _READ_CSV_DIALECT.set(
+                (
+                    recorded_data_path(data), sep, decimal, thousands,
+                    read_format, tuple(notes), encoding,
+                )
+            )
+            return df, target
         path = Path(data_str)
         if not path.is_file():
             raise DataNotFoundError(
                 f"CSV file not found: '{path}'. Please provide a valid file path.",
                 field = "data",
             )
-        df, sep, decimal = read_csv_with_dialect(path, sep=sep, decimal=decimal)
-        _READ_CSV_DIALECT.set((recorded_data_path(data), sep, decimal))
-        return _try_parse_first_date_column(df, date_column), target
+        df, sep, decimal, thousands, encoding = read_csv_with_dialect(
+                                          path             = path,
+                                          sep              = sep,
+                                          decimal          = decimal,
+                                          thousands        = thousands,
+                                          series_id_column = series_id_column,
+                                          date_column      = date_column,
+                                      )
+        notes = encoding_notes(encoding)
+        df, read_format = _try_parse_first_date_column(
+                              data             = df,
+                              date_column      = date_column,
+                              series_id_column = series_id_column,
+                              dayfirst         = dayfirst,
+                              date_format      = date_format,
+                              notes            = notes,
+                          )
+        _READ_CSV_DIALECT.set(
+            (
+                recorded_data_path(data), sep, decimal, thousands, read_format,
+                tuple(notes), encoding,
+            )
+        )
+        return df, target
 
-    return data, target
+    return series_ids_as_text(data, series_id_column), target
 
 
 def _match_profile_column(
@@ -1066,15 +1518,17 @@ def _match_profile_column(
 
 
 def load_exog(
-    path: str | Path | None,
+    path: str | Path,
     date_column: str | None = None,
     series_id_column: str | None = None,
-) -> pd.DataFrame | None:
+    date_format: str | None = None,
+    index_type: str = "datetime",
+) -> tuple[pd.DataFrame, FutureExogFile]:
     """
     Load the future exogenous variables from a CSV file.
 
-    The separator and the decimal mark of the file are detected as for the
-    data (see `read_csv_with_dialect`).
+    The separator, the decimal mark and the thousands separator of the file
+    are detected as for the data (see `read_csv_with_dialect`).
     The dates are read as the CSV loader of the data reads them, so empty
     date cells or UTC offsets that change raise an error that says so. They
     are the `date_column` when given. Otherwise they are the first column
@@ -1087,29 +1541,64 @@ def load_exog(
     index before, except for long-format data (`series_id_column`), whose
     first column may hold the series ids. Dates in mixed formats, which the
     generated script cannot read, raise. A header one field short
-    (`to_csv(index_label=False)`, R's `write.csv`) is read as before, unless
-    its last column is then empty, which comes from a separator at the end
-    of every row and raises; rows made only of separators (a spreadsheet
-    saved as CSV) are dropped,
+    (`to_csv(index_label=False)`, R's `write.csv`) is read as before when
+    every row has one field more than the header and its last column is
+    not then empty; other rows longer than the header (a separator at the
+    end of every row, a field too many in the first row) and a column
+    without name and values raise (see `check_csv_fields`); rows made only
+    of separators (a spreadsheet saved as CSV) are dropped,
     as they hold no date and no value. The dates become the index, sorted.
+    The format of the dates is the file's own, told as for the data (see
+    `_day_month_order`): dates in ISO 8601 (`to_csv()` of a frame with
+    dates) need none, and day-first dates are read day first. Dates whose
+    day and month read in both orders (the seven days of a short horizon)
+    are read in the order of `date_format`, the format of the dates of the
+    data, when it writes them so; otherwise in the only order in which they
+    have a regular frequency, with a warning that says so, and when both
+    orders have one, or neither, they raise. The encoding of the file is
+    told as for the data (see `sample_encoding`): a file that is not UTF-8
+    is read as cp1252, with a warning, as that cannot be checked.
+
+    Future values of data without dates (`index_type` `'range'`) have no
+    dates to read: their rows are the steps of the horizon, in order. A
+    first column without a name (the index that `to_csv()` writes, or a
+    header one field short) holds their positions and becomes the index,
+    which must follow the data (see `validate_future_exog`); a file without
+    it is numbered by position when it is read with the data (see
+    `read_future_exog`).
+
+    The path of the file and how it is written (its separator, decimal
+    mark, thousands separator, encoding and format of the dates) are
+    returned with the frame, as a `FutureExogFile`: the generated script
+    reads that same file with them, as it reads the data with the dialect
+    of the profile.
 
     Parameters
     ----------
-    path : str, Path, None
-        Path to the CSV file. If None, returns None.
+    path : str, Path
+        Path to the CSV file.
     date_column : str, default None
         Name of the column holding the dates.
     series_id_column : str, default None
-        Name of the series id column of long-format data.
+        Name of the series id column of long-format data, read as text
+        (`'001'`), as the series ids of the data.
+    date_format : str, default None
+        Format of the dates of the data (`DataProfile.date_format`), which
+        decides the order of the day and the month of dates of the file
+        that read in both.
+    index_type : str, default 'datetime'
+        Index of the data (`DataProfile.index_type`): `'range'` for data
+        without dates, whose future values are read without dates.
 
     Returns
     -------
-    exog : pandas DataFrame, None
-        Future exogenous variables indexed by their dates, or None when
-        `path` is None.
+    exog : pandas DataFrame
+        Future exogenous variables indexed by their dates, or, without
+        dates, by the positions of the file or by row.
+    exog_file : FutureExogFile
+        File the generated script reads the future exogenous variables
+        from, and how it is written.
     """
-    if path is None:
-        return None
     path = Path(path)
     if not path.is_file():
         raise DataNotFoundError(
@@ -1117,19 +1606,15 @@ def load_exog(
             field = "exog",
         )
 
-    exog, sep, decimal = read_csv_with_dialect(path, field="exog")
-    # Rows one field longer than the header shift every column; when the
-    # last column is then empty, the extra field is a separator at the end
-    # of each row, not the index of `to_csv(index_label=False)`.
-    shifted = not isinstance(exog.index, pd.RangeIndex) and (
-        len(exog.columns) and exog.iloc[:, -1].isna().all()
-    )
-    if isinstance(exog.index, pd.MultiIndex) or shifted:
-        raise DataContentError(
-            f"The rows of the exog CSV '{path}' have more fields than its header "
-            f"(often separators at the end of the rows).",
-            field = "exog",
-        )
+    # Rows longer than the header raise, except a header one field short
+    # (see `check_csv_fields`).
+    exog, sep, decimal, thousands, encoding = read_csv_with_dialect(
+                                        path             = path,
+                                        field            = "exog",
+                                        index_first      = True,
+                                        series_id_column = series_id_column,
+                                        date_column      = date_column,
+                                    )
     if not isinstance(exog.index, pd.RangeIndex):
         # A header one field short: pandas reads the first field as the
         # index, as `index_col=0` read it before; with `date_column`, the
@@ -1139,10 +1624,32 @@ def load_exog(
         else:
             exog = exog.reset_index(drop=True)
     # Rows made only of separators (a spreadsheet saved as CSV) hold no date
-    # and no value; the generated code dropped them with asfreq.
-    filled = exog.notna().any(axis=1).to_numpy()
+    # and no value; the generated code dropped them with asfreq. The
+    # positions of data without dates are the index the script reads, which
+    # its `dropna(how='all')` does not look at: a row with a position and no
+    # value is dropped too.
+    values = exog
+    if index_type == "range" and len(exog.columns) and exog.columns[0] == "Unnamed: 0":
+        values = exog[exog.columns[1:]]
+    filled = values.notna().any(axis=1).to_numpy()
     exog = exog[filled].reset_index(drop=True)
+    if index_type == "range":
+        return _exog_without_dates(
+                   exog      = exog,
+                   path      = path,
+                   exog_file = FutureExogFile(
+                                   path       = str(path),
+                                   sep        = sep,
+                                   decimal    = decimal,
+                                   thousands  = thousands,
+                                   encoding   = encoding,
+                                   blank_rows = not filled.all(),
+                               ),
+               )
     text = {column: exog[column].copy() for column in exog.columns}
+    # The format of the dates of the file, and the notes on how it was read
+    # (its encoding, its dates), given as warnings.
+    exog_format, notes = None, encoding_notes(encoding, "exog")
     if date_column is not None:
         if date_column not in exog.columns:
             raise DataContentError(
@@ -1153,10 +1660,22 @@ def load_exog(
         values = exog[date_column]
         parsed, issue = None, None
         if is_text(values):
-            parsed, issue = _read_date_column(date_column, values, named=True)
+            parsed, issue, exog_format = _read_date_column(
+                                             name        = date_column,
+                                             values      = values,
+                                             named       = True,
+                                             date_format = date_format,
+                                             source      = "exog",
+                                             notes       = notes,
+                                         )
+        else:
+            parsed = _compact_dates(values)
+            if parsed is not None:
+                exog_format = COMPACT_DATE_FORMAT
         if issue is not None:
             raise DataContentError(
                 f"Exog CSV '{path}': {''.join(issue)}",
+                code  = getattr(issue, "code", None),
                 field = "exog",
                 hint  = date_issue_hint(issue),
             )
@@ -1180,24 +1699,33 @@ def load_exog(
                     path,
                     index_col   = 0,
                     parse_dates = True,
-                    **csv_read_kwargs(sep, decimal),
+                    **csv_read_kwargs(sep, decimal, thousands, encoding=encoding),
                 ).index
             if isinstance(index, pd.DatetimeIndex) and len(index) == len(filled):
                 exog[first] = index[filled]
                 found = first
+                if _compact_dates(text[first]) is not None:
+                    exog_format = COMPACT_DATE_FORMAT
         if found is None:
             try:
-                exog = _try_parse_first_date_column(exog)
+                exog, exog_format = _try_parse_first_date_column(
+                                        data             = exog,
+                                        series_id_column = series_id_column,
+                                        date_format      = date_format,
+                                        source           = "exog",
+                                        notes            = notes,
+                                    )
             except InvalidInputError as exc:
                 raise DataContentError(
                     f"Exog CSV '{path}': {exc}",
+                    code  = exc.code,
                     field = "exog",
                     hint  = exc.hint,
                 ) from exc
             found = next(
                 (
                     column for column in exog.columns
-                    if is_text(text[column])
+                    if not pd.api.types.is_datetime64_any_dtype(text[column])
                     and pd.api.types.is_datetime64_any_dtype(exog[column])
                 ),
                 None,
@@ -1218,7 +1746,7 @@ def load_exog(
                 # The dates were read already: pandas only repeats that it
                 # parses each one on its own.
                 warnings.simplefilter("ignore", UserWarning)
-                parse_text_dates(text[found])
+                parse_text_dates(text[found], exog_format)
         except (ValueError, TypeError) as exc:
             raise DataContentError(
                 f"Exog CSV '{path}': the dates of column {found!r} cannot be "
@@ -1229,11 +1757,73 @@ def load_exog(
         # Nothing reads as dates: the first column, as `index_col=0` read it;
         # the checks of the future exogenous variables report it.
         found = exog.columns[0]
-    exog = exog.set_index(found)
+    for note in notes:
+        # Read through `forecast()` too: the warning points at the user.
+        warnings.warn(
+            f"Exog CSV '{path}': {note}", UserWarning, stacklevel=_caller_stacklevel()
+        )
+    exog = exog.set_index(found).sort_index()
     if str(found).startswith("Unnamed: "):
         exog.index.name = None
+    exog_file = FutureExogFile(
+                    path        = str(path),
+                    sep         = sep,
+                    decimal     = decimal,
+                    thousands   = thousands,
+                    encoding    = encoding,
+                    date_format = exog_format,
+                    date_column = str(found),
+                    blank_rows  = not filled.all(),
+                )
 
-    return exog.sort_index()
+    return exog, exog_file
+
+
+def _exog_without_dates(
+    exog: pd.DataFrame,
+    path: Path,
+    exog_file: FutureExogFile,
+) -> tuple[pd.DataFrame, FutureExogFile]:
+    """
+    Return the future values of data without dates read from a CSV file, as
+    `load_exog` reads them: a first column without a name holds the
+    positions of the rows, which must be consecutive, and becomes the
+    index, a RangeIndex from the first one, as the generated script reads it
+    (`index_col=0`); without it, the rows are the steps of the horizon in
+    order (`FutureExogFile.by_position`).
+    """
+    first = exog.columns[0] if len(exog.columns) else None
+    by_position = first != "Unnamed: 0"
+    if not by_position:
+        positions = exog[first]
+        # The script numbers the rows from the first position (a RangeIndex,
+        # which skforecast requires), so they must be consecutive.
+        if (
+            not pd.api.types.is_numeric_dtype(positions)
+            or positions.isna().any()
+            or (positions != positions.round()).any()
+            or (np.diff(positions.to_numpy()) != 1).any()
+        ):
+            raise DataContentError(
+                f"Exog CSV '{path}': its first column has no name, so it is "
+                f"read as the positions of the rows (the index that `to_csv()` "
+                f"writes), but it does not hold consecutive whole numbers. The "
+                f"data have no dates: the future values are one row per step "
+                f"of the horizon, in order, and a first column of values needs "
+                f"a name.",
+                field = "exog",
+            )
+    for note in encoding_notes(exog_file.encoding, "exog"):
+        warnings.warn(
+            f"Exog CSV '{path}': {note}", UserWarning, stacklevel=_caller_stacklevel()
+        )
+    if by_position:
+        return exog, exog_file.model_copy(update={"by_position": True})
+    start = int(exog[first].iloc[0]) if len(exog) else 0
+    exog = exog.drop(columns=first)
+    exog.index = pd.RangeIndex(start, start + len(exog))
+
+    return exog, exog_file
 
 
 def _is_row_label(name: object, values: pd.Series) -> bool:
@@ -1248,6 +1838,50 @@ def _is_row_label(name: object, values: pd.Series) -> bool:
         return False
 
     return bool((np.diff(values.to_numpy()) > 0).all())
+
+
+def _flatten_multiindex(
+    data: pd.DataFrame,
+    date_column: str | None,
+    series_id_column: str | None,
+) -> tuple[pd.DataFrame, str | None, str | None]:
+    """
+    Flatten long-format data indexed by a `(series_id, date)` MultiIndex.
+
+    The generated script reads the date and the series identifier as
+    columns of the frame saved with `to_csv()`: the levels are reset into
+    columns of the same name, as profiling does (`_normalize_multiindex`,
+    which rejects a MultiIndex that is not two levels named with text), and
+    the ids of the first level become text (`series_ids_as_text`). Data
+    without a MultiIndex keep their columns, with the series ids turned
+    into text too.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Input dataset.
+    date_column : str, None
+        Name of the date column. Filled from the second level when None.
+    series_id_column : str, None
+        Name of the series identifier column. Filled from the first level
+        when None.
+
+    Returns
+    -------
+    data : pandas DataFrame
+        DataFrame without a MultiIndex.
+    date_column : str, None
+        Resolved date column name.
+    series_id_column : str, None
+        Resolved series identifier column name.
+    """
+    data, date_column, series_id_column = _normalize_multiindex(
+        data, date_column, series_id_column
+    )
+    # The ids of a MultiIndex were a level, not a column turned into text.
+    data = series_ids_as_text(data, series_id_column)
+
+    return data, date_column, series_id_column
 
 
 def _resolve_inputs_with_profile(
@@ -1268,6 +1902,15 @@ def _resolve_inputs_with_profile(
     a mismatched dataset fails here with a readable message instead of
     inside the executed script.
 
+    Long-format data indexed by a `(series_id, date)` MultiIndex is
+    flattened as profiling flattens it (`_flatten_multiindex`): its
+    levels become columns of the same name, which is also how the
+    generated script reads the frame saved with `to_csv()`, and the series
+    ids of its first level become text (`series_ids_as_text`). A MultiIndex
+    that is not two levels named with text raises `InvalidInputError`.
+    Without a profile, a None `date_column` or `series_id_column` is taken
+    from the levels, as `profile()` does.
+
     Parameters
     ----------
     data : pandas Series, pandas DataFrame, str, Path
@@ -1284,7 +1927,7 @@ def _resolve_inputs_with_profile(
     Returns
     -------
     data : pandas DataFrame
-        Coerced DataFrame.
+        Coerced DataFrame, without a MultiIndex.
     target : str, list
         Resolved target column name(s).
     date_column : str, None
@@ -1294,7 +1937,17 @@ def _resolve_inputs_with_profile(
     """
 
     if profile is None:
-        data_df, target = _resolve_data_and_target(data, target, date_column)
+        data_df, target = _resolve_data_and_target(
+                              data             = data,
+                              target           = target,
+                              date_column      = date_column,
+                              series_id_column = series_id_column,
+                          )
+        # Before the levels fill `series_id_column` (see `profile()`).
+        _validate_target_format(data_df, target, series_id_column)
+        data_df, date_column, series_id_column = _flatten_multiindex(
+            data_df, date_column, series_id_column
+        )
         return data_df, target, date_column, series_id_column
 
     dp = profile.data_profile
@@ -1306,26 +1959,44 @@ def _resolve_inputs_with_profile(
         target = dp.target
     # The CSV loader checks the date column of the profile, which the script
     # reads, and reports it when its dates cannot be used.
-    # How a file is written belongs to the file, not to the data: the same
-    # data exported again with another separator still fit the profile, so
-    # the dialect of the file given is detected. Only when it cannot be
-    # told is the file read as a profile built from a file says, which is
-    # how `sep` and `decimal` of `profile()` reach the other methods.
+    # How a file is written belongs to the file, not to the data. The file
+    # the profile was built from is read as the profile says, which is how
+    # `sep`, `decimal` and `thousands` of `profile()` reach the other
+    # methods: detecting it again would undo a `decimal='.'` given against
+    # what the file seemed to say. Another file (the same data exported
+    # again with another separator) is detected, and read as the profile
+    # says only when its dialect cannot be told. So are the dates: their
+    # order of day and month is told from them, and the format of the
+    # profile decides it only when they read in both.
+    dialect = {
+        "sep": dp.csv_sep,
+        "decimal": dp.csv_decimal,
+        "thousands": dp.csv_thousands,
+    }
+    same_file = (
+        dp.data_path != PLACEHOLDER_DATA_PATH
+        and isinstance(data, (str, Path))
+        and recorded_data_path(data) == dp.data_path
+    )
     try:
         data_df, target = _resolve_data_and_target(
-                              data        = data,
-                              target      = target,
-                              date_column = dp.date_column,
+                              data             = data,
+                              target           = target,
+                              date_column      = dp.date_column,
+                              series_id_column = dp.series_id_column,
+                              date_format      = dp.date_format,
+                              **(dialect if same_file else {}),
                           )
     except CsvDialectError:
-        if dp.data_path == PLACEHOLDER_DATA_PATH:
+        if dp.data_path == PLACEHOLDER_DATA_PATH or same_file:
             raise
         data_df, target = _resolve_data_and_target(
-                              data        = data,
-                              target      = target,
-                              date_column = dp.date_column,
-                              sep         = dp.csv_sep,
-                              decimal     = dp.csv_decimal,
+                              data             = data,
+                              target           = target,
+                              date_column      = dp.date_column,
+                              series_id_column = dp.series_id_column,
+                              date_format      = dp.date_format,
+                              **dialect,
                           )
     if target != dp.target:
         raise InvalidInputError(
@@ -1340,14 +2011,13 @@ def _resolve_inputs_with_profile(
         "series_id_column", series_id_column, dp.series_id_column
     )
 
+    # The columns of the profile are already resolved, so the names the
+    # levels of a MultiIndex would give are not taken.
+    data_df, *_ = _flatten_multiindex(data_df, date_column, series_id_column)
+
     required = list(target) if isinstance(target, list) else [target]
     required += [col for col in (date_column, series_id_column) if col is not None]
-    # A MultiIndex input keeps the date and series identifier as index
-    # levels; the profiler flattens them into columns of the same name.
-    available = set(data_df.columns) | {
-        name for name in data_df.index.names if name is not None
-    }
-    missing = [col for col in required if col not in available]
+    missing = [col for col in required if col not in data_df.columns]
     if missing:
         raise InvalidInputError(
             f"`data` does not contain the column(s) {missing} recorded in "
@@ -1376,6 +2046,29 @@ def _data_path_of_run(data_path: str | None) -> Iterator[None]:
         yield
     finally:
         _RUN_DATA_PATH.reset(token)
+
+
+# Whether the plan of the `CVResult` that `compare()` receives is one the
+# caller chose. The CLI builds the default plan of the profile only to size
+# the strategy of `compare --candidates`, so that plan not being compared is
+# nothing to tell its user.
+_STRATEGY_PLAN_CHOSEN: ContextVar[bool] = ContextVar(
+    "_STRATEGY_PLAN_CHOSEN", default=True
+)
+
+
+@contextmanager
+def _strategy_plan_not_chosen() -> Iterator[None]:
+    """
+    Within the block, take the plan of the `CVResult` of `compare()` as one
+    built only to size the strategy: with explicit `candidates`, nothing
+    warns, nor says in the explanation, that it was not compared.
+    """
+    token = _STRATEGY_PLAN_CHOSEN.set(False)
+    try:
+        yield
+    finally:
+        _STRATEGY_PLAN_CHOSEN.reset(token)
 
 
 def recorded_data_path(data: object) -> str:
@@ -1422,10 +2115,14 @@ def _with_data_path(
     `'data.csv'`, so the script never loads the file a saved profile was
     built from instead of the data that ran (it fails loudly when the data
     is not saved there). The path is set with `model_copy`, without reading
-    the file again; it reaches the script through `repr()`. The separator
-    and the decimal mark the file was read with are recorded with it
-    (`','` and `'.'` for data passed in memory), so the script reads the
-    file as it was read.
+    the file again; it reaches the script through `repr()`. The separator,
+    the decimal mark and the thousands separator the file was read with are
+    recorded with it (`','`, `'.'` and none for data passed in memory), so
+    the script reads the file as it was read. So are its encoding
+    (`DataProfile.csv_encoding`, with its note in the warnings when it is
+    cp1252) and the format of its dates (`DataProfile.date_format`); for
+    data passed in memory, UTF-8 and the format of its own dates, on which
+    the script runs (see `frame_date_format`).
 
     Parameters
     ----------
@@ -1447,17 +2144,32 @@ def _with_data_path(
     if data_path == PLACEHOLDER_DATA_PATH and _RUN_DATA_PATH.get() is not None:
         data_path = _RUN_DATA_PATH.get()
     dp = profile.data_profile
-    sep, decimal = dp.csv_sep, dp.csv_decimal
+    sep, decimal, thousands = dp.csv_sep, dp.csv_decimal, dp.csv_thousands
+    date_format, encoding = dp.date_format, dp.csv_encoding
     if data_path == PLACEHOLDER_DATA_PATH:
-        sep, decimal = DEFAULT_CSV_SEP, DEFAULT_CSV_DECIMAL
+        sep, decimal, thousands = DEFAULT_CSV_SEP, DEFAULT_CSV_DECIMAL, None
+        encoding = DEFAULT_CSV_ENCODING
+        date_format = frame_date_format(data, dp.date_column, dp.date_format)
     else:
         # Also for the DataFrame of a comparison, whose path is the one of
-        # the file it was read from.
-        read_sep, read_decimal = _dialect_read(data_path)
-        if read_sep is not None:
-            sep, decimal = read_sep, read_decimal
-    update = {"data_path": data_path, "csv_sep": sep, "csv_decimal": decimal}
-    if all(getattr(dp, name) == value for name, value in update.items()):
+        # the file it was read from. The notes on how it was read go with
+        # them: the profile was built from the DataFrame read.
+        read = _dialect_read(data_path)
+        if read.sep is not None:
+            sep, decimal, thousands, date_format = read[:4]
+            encoding = read.encoding
+            dp = with_read_notes(dp, read.notes)
+    update = {
+        "data_path": data_path,
+        "csv_sep": sep,
+        "csv_decimal": decimal,
+        "csv_thousands": thousands,
+        "csv_encoding": encoding,
+        "date_format": date_format,
+    }
+    if dp is profile.data_profile and all(
+        getattr(dp, name) == value for name, value in update.items()
+    ):
         return profile
     return profile.model_copy(update={"data_profile": dp.model_copy(update=update)})
 
@@ -1729,6 +2441,41 @@ def _check_cv_matches_profile(cv: CVResult, data_profile: DataProfile) -> None:
         )
 
 
+def window_without_refit(
+    fixed_train_size: bool | None,
+    refit: object,
+    forecaster: str,
+) -> bool:
+    """
+    Whether a `fixed_train_size` is passed for a strategy that trains the
+    forecaster once, where it has no effect.
+
+    Parameters
+    ----------
+    fixed_train_size : bool, None
+        Value passed by the caller; None when not passed.
+    refit : bool, int, None
+        `refit` of the strategy; None counts as False, its default.
+    forecaster : str
+        Forecaster of the plan. `ForecasterStats`, which skforecast refits
+        in every fold, is never trained once.
+
+    Returns
+    -------
+    without_refit : bool
+        True when `fixed_train_size` is passed and the forecaster is
+        trained once.
+    """
+    if fixed_train_size is None or forecaster == "ForecasterStats":
+        return False
+    refits = refit is True or (
+        isinstance(refit, numbers.Integral)
+        and not isinstance(refit, bool)
+        and refit > 0
+    )
+    return not refits
+
+
 def _warn_window_without_refit(
     fixed_train_size: bool | None,
     refit: object,
@@ -1755,14 +2502,7 @@ def _warn_window_without_refit(
     -------
     None
     """
-    if fixed_train_size is None or forecaster == "ForecasterStats":
-        return
-    refits = refit is True or (
-        isinstance(refit, numbers.Integral)
-        and not isinstance(refit, bool)
-        and refit > 0
-    )
-    if not refits:
+    if window_without_refit(fixed_train_size, refit, forecaster):
         warnings.warn(
             f"`fixed_train_size={fixed_train_size!r}` has no effect: with "
             f"`refit={refit!r}` the forecaster is trained once, on a single "
@@ -1824,6 +2564,71 @@ def _check_direct_gap(plan: ForecastPlan, cv: TimeSeriesFold) -> None:
         raise InvalidInputError(
             f"{issue}. Use a strategy without gap, or a recursive forecaster.",
             field = "cv",
+        )
+
+
+def stats_skip_folds_issue(forecaster: str, skip_folds: object) -> str | None:
+    """
+    Say why a `ForecasterStats` plan cannot be backtested with a strategy
+    that skips folds, or return None when it can.
+
+    skforecast refits `ForecasterStats` in every fold and rejects any
+    `skip_folds` other than None for it, an empty list included.
+
+    Parameters
+    ----------
+    forecaster : str
+        Forecaster of the plan.
+    skip_folds : int, list, None
+        `skip_folds` of the strategy.
+
+    Returns
+    -------
+    issue : str, None
+        What fails, or None when the plan is not `ForecasterStats` or the
+        strategy runs every fold.
+    """
+    if forecaster != "ForecasterStats" or skip_folds is None:
+        return None
+
+    return (
+        f"`skip_folds={skip_folds!r}` is not allowed for ForecasterStats: "
+        f"skforecast refits it in every fold and rejects any `skip_folds`, "
+        f"an empty list included"
+    )
+
+
+# Ways to run fewer folds without `skip_folds`, named by the errors about
+# `ForecasterStats`.
+STATS_FEWER_FOLDS = (
+    "For fewer folds, use a later `initial_train_size` or a larger "
+    "`fold_stride`."
+)
+
+
+def _check_stats_skip_folds(plan: ForecastPlan, cv: TimeSeriesFold) -> None:
+    """
+    Raise when a `ForecasterStats` plan is backtested with a strategy that
+    skips folds (see `stats_skip_folds_issue`).
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan to backtest.
+    cv : TimeSeriesFold
+        Strategy of the backtest.
+
+    Returns
+    -------
+    None
+    """
+    issue = stats_skip_folds_issue(plan.forecaster, cv.skip_folds)
+    if issue is not None:
+        raise InvalidInputError(
+            f"{issue}. Use a strategy without `skip_folds`, or another "
+            f"forecaster.",
+            field = "cv",
+            hint  = STATS_FEWER_FOLDS,
         )
 
 
@@ -1905,7 +2710,7 @@ def _cv_in_time_zone(
         or not isinstance(initial_train_size, (str, pd.Timestamp))
     ):
         return cv
-    dates = row_dates(data, data_profile.date_column)
+    dates = row_dates(data, data_profile.date_column, data_profile.date_format)
     if getattr(dates, "tz", None) is None:
         return cv
     try:
@@ -1965,22 +2770,37 @@ def _check_evaluated_target(
     end_train: str | None = None,
     steps: int | None = None,
     level: str | None = None,
+    forecaster: str | None = None,
 ) -> None:
     """
-    Reject an evaluation whose test dates have missing target values.
+    Reject an evaluation that its missing target values on the test dates
+    make fail.
 
-    For a single series, skforecast computes the backtesting metrics on the
-    raw target of the test folds without dropping missing values, so one
-    missing value (or one missing timestamp, which `asfreq()` restores as a
-    missing value) in a test fold makes every metric fail with "Input
-    contains NaN", whatever the estimator. The generated evaluation script
-    fails the same way on the test split. This check names the dates up
-    front. Multi-series backtesting drops them per series and is not
-    checked. `end_train` and a date of the strategy without time zone are
-    read in the time zone of the dates; a date of the strategy that
-    skforecast cannot place on them (a date with a time zone on an index
-    without one, a text that is not a date) skips the check, and the
-    validation of the strategy reports it.
+    - Evaluation-mode forecast (`end_train`): the generated script computes
+      the metrics on the test split as it is, so one missing value (or one
+      missing timestamp, which `asfreq()` restores as a missing value) makes
+      every metric fail with "Input contains NaN", whatever the estimator.
+    - Backtest (`cv`): skforecast (0.27.0 or later) leaves the test dates
+      without a value out of the metrics of a single series, as it does per
+      series with several, so only test folds without any value are
+      rejected: no metric can be computed then. ForecasterStats is the
+      exception: it cannot train on a missing value nor update its model
+      with one (skforecast raises "`y` has missing values" inside the
+      script), so with it every missing value of the test folds is
+      rejected, naming the folds.
+
+    When the missing dates all fall on days of the week on which the target
+    never has a value (a shop closed on Sundays), the message names those
+    days and says that a business closed on them can fill them with 0,
+    after asking the user.
+
+    The dates are named up front. Multi-series data is not checked: its
+    backtest drops them per series, and the evaluation of several series has
+    its own check (`validate_evaluation_partition`). `end_train` and a date
+    of the strategy without time zone are read in the time zone of the
+    dates; a date of the strategy that skforecast cannot place on them (a
+    date with a time zone on an index without one, a text that is not a
+    date) skips the check, and the validation of the strategy reports it.
 
     Parameters
     ----------
@@ -1989,7 +2809,8 @@ def _check_evaluated_target(
     data_profile : DataProfile
         Profile of `data`.
     cv : TimeSeriesFold, default None
-        Cross-validation of a backtest. Its test folds are checked.
+        Cross-validation of a backtest. Its test folds are checked for at
+        least one value, or for every value with ForecasterStats.
     end_train : str, default None
         Last training date of an evaluation-mode forecast. The `steps`
         dates after it are checked. Ignored when `cv` is given.
@@ -1999,6 +2820,11 @@ def _check_evaluated_target(
         Series of wide-format data whose test dates are checked: the level
         that `ForecasterDirectMultiVariate` predicts, the series its
         metrics are computed on. None checks the target of a single series.
+    forecaster : str, default None
+        Forecaster of the plan evaluated. `'ForecasterStats'` checks every
+        date of the test folds, and its message of the test split does not
+        point to `backtest()`. None for a check shared by several plans
+        (`compare()`).
 
     Returns
     -------
@@ -2007,7 +2833,9 @@ def _check_evaluated_target(
     Raises
     ------
     ValueError
-        If a checked date has a missing target value.
+        If a date of the test split has a missing target value, if no date
+        of the test folds has a value, or, with ForecasterStats, if one of
+        them has a missing value.
     """
 
     if level is None and (
@@ -2021,7 +2849,7 @@ def _check_evaluated_target(
     # Rebuild the target as the generated script does: datetime index,
     # sorted, and on its regular grid when the frequency is known.
     if data_profile.date_column is not None and data_profile.date_column in data:
-        index = pd.to_datetime(data[data_profile.date_column])
+        index = row_dates(data, data_profile.date_column, data_profile.date_format)
     else:
         index = data.index
     if target not in data:
@@ -2029,9 +2857,11 @@ def _check_evaluated_target(
     y = pd.Series(data[target].to_numpy(), index=index).sort_index()
     if y.index.has_duplicates:
         return
+    with_value = y.index[y.notna().to_numpy()]
     if data_profile.frequency is not None and isinstance(y.index, pd.DatetimeIndex):
         y = y.asfreq(data_profile.frequency)
 
+    stats = forecaster == "ForecasterStats"
     if cv is not None:
         original_verbose = cv.verbose
         cv.verbose = False
@@ -2046,19 +2876,59 @@ def _check_evaluated_target(
             return
         finally:
             cv.verbose = original_verbose
-        positions = sorted({
-            position
+        bounds = [
+            (int(start), int(end))
             for start, end in zip(
                 folds["test_start_with_gap"], folds["test_end_with_gap"]
             )
-            for position in range(int(start), int(end))
+        ]
+        positions = sorted({
+            position for start, end in bounds for position in range(start, end)
         })
         evaluated = y.iloc[positions]
-        where = "in the test folds"
+        if not stats:
+            if len(evaluated) == 0 or evaluated.notna().any():
+                # skforecast leaves the dates without a value out of the
+                # metrics, and the explanation of the backtest counts them.
+                return
+            n_dates = len(evaluated)
+            raise DataContentError(
+                f"The target has no value on the {n_dates} "
+                f"{'date' if n_dates == 1 else 'dates'} of the test folds "
+                f"({_shown_dates(evaluated.index)}), counting the missing "
+                f"timestamps that asfreq() restores, so no metric can be "
+                f"computed. Choose an `initial_train_size` whose test folds "
+                f"reach dates with values, or impute the target.",
+                field = "data",
+            )
+        # The folds that hold a missing value, numbered from 1 in the order
+        # the backtest runs them.
+        absent = np.flatnonzero(y.isna().to_numpy())
+        with_missing = [
+            number for number, (start, end) in enumerate(bounds, start=1)
+            if ((absent >= start) & (absent < end)).any()
+        ]
+        where = f"in {_test_folds_phrase(with_missing, len(bounds))}"
+        cannot = (
+            "ForecasterStats cannot train on them nor update its model with "
+            "them"
+        )
+        backtest = ""
     elif end_train is not None and steps is not None:
         end = training_end(end_train, getattr(y.index, "tz", None))
         evaluated = y.loc[y.index > end].iloc[:steps]
         where = "in the test split"
+        cannot = (
+            "The metrics of the evaluation cannot be computed on them, "
+            "whatever the estimator"
+        )
+        # The script scores the test split as it is; a backtest leaves the
+        # dates without a value out of its metrics instead, except with
+        # ForecasterStats, which fails on them.
+        backtest = (
+            "`backtest()` leaves the dates without a value out of its metrics"
+            if level is None and not stats else ""
+        )
     else:
         return
 
@@ -2066,16 +2936,60 @@ def _check_evaluated_target(
     if len(missing) == 0:
         return
 
-    shown = ", ".join(str(date) for date in missing[:5])
-    if len(missing) > 5:
-        shown += f" and {len(missing) - 5} more"
+    shown = _shown_dates(missing)
+    closed = (
+        closed_weekdays(with_value, data_profile.frequency)
+        if isinstance(missing, pd.DatetimeIndex) else []
+    )
+    if closed and np.isin(missing.dayofweek, closed).all():
+        days = weekday_names(sorted(set(missing.dayofweek)))
+        backtest_clause = f"; {backtest}" if backtest else ""
+        raise DataContentError(
+            f"The target has {len(missing)} missing value(s) {where} "
+            f"({shown}), counting the missing timestamps that asfreq() "
+            f"restores: all of them on {days}, when the target never has a "
+            f"value. {cannot}. {closed_days_remedy(days)}; otherwise, impute "
+            f"the target, or evaluate on dates without missing "
+            f"values{backtest_clause}.",
+            field = "data",
+        )
+    backtest_sentence = f" {backtest}." if backtest else ""
     raise DataContentError(
         f"The target has {len(missing)} missing value(s) {where} ({shown}), "
-        f"counting the missing timestamps that asfreq() restores. skforecast "
-        f"cannot compute the metrics on them, whatever the estimator. Impute "
-        f"the target, or evaluate on dates without missing values.",
+        f"counting the missing timestamps that asfreq() restores. {cannot}. "
+        f"Impute the target, or evaluate on dates without missing "
+        f"values.{backtest_sentence}",
         field = "data",
     )
+
+
+def _shown_dates(dates: pd.Index) -> str:
+    """
+    Name dates of a message: the first 5, then how many more
+    (`'2023-03-12 00:00:00, ... and 25 more'`).
+    """
+    shown = ", ".join(str(date) for date in dates[:5])
+    if len(dates) > 5:
+        shown += f" and {len(dates) - 5} more"
+
+    return shown
+
+
+def _test_folds_phrase(numbers: list[int], n_folds: int) -> str:
+    """
+    Name test folds by their numbers, from 1: `'test fold 4 of 6'`,
+    `'test folds 2 and 4 of 6'`, up to 5 numbers and then `'and N more'`,
+    or `'all 6 test folds'`.
+    """
+    if len(numbers) == n_folds > 1:
+        return f"all {n_folds} test folds"
+    shown = [str(number) for number in numbers[:5]]
+    if len(numbers) > 5:
+        shown.append(f"{len(numbers) - 5} more")
+    if len(shown) == 1:
+        return f"test fold {shown[0]} of {n_folds}"
+
+    return f"test folds {', '.join(shown[:-1])} and {shown[-1]} of {n_folds}"
 
 
 def long_training_message(
@@ -2123,8 +3037,10 @@ def warn_long_training(
     Warn before a backtest that fits the estimator many times.
 
     skforecast emits `LongTrainingWarning` from the same threshold, but the
-    generated scripts pass `suppress_warnings=True`, so the assistant warns
-    itself, before anything runs.
+    generated scripts pass `suppress_warnings=True`. `backtest()` refuses
+    such a run until it is confirmed (`check_backtest_cost`); the
+    `create_cv` tool of the MCP server warns with this text when the
+    strategy is built, while it can still change.
 
     Parameters
     ----------
@@ -2222,6 +3138,9 @@ def warn_long_inference(
     each series in each fold. Above `LONG_INFERENCE_WINDOWS` windows the
     backtest can take a minute or more on a CPU with few cores (seconds on
     a GPU, and a larger model takes several times longer per window).
+    `backtest()` refuses such a run until it is confirmed
+    (`check_backtest_cost`); the `create_cv` tool of the MCP server warns
+    with this text when the strategy is built.
 
     Parameters
     ----------
@@ -2255,4 +3174,659 @@ def warn_long_inference(
         f"forecast fewer series.",
         LongTrainingWarning,
         stacklevel=3,
+    )
+
+
+class RefitFits(NamedTuple):
+    """
+    Estimator fits of the cheaper values of `refit` for a run, as
+    returned by `refit_fits()`.
+
+    Attributes
+    ----------
+    train_once : int
+        Estimator fits with `refit=False`.
+    refit : int, None
+        Smallest integer `refit` whose estimator fits are at or below
+        `LONG_TRAINING_FITS`, or None when no integer brings them there.
+    refit_fits : int, None
+        Estimator fits with that `refit`, or None.
+    """
+
+    train_once: int
+    refit: int | None
+    refit_fits: int | None
+
+
+def run_estimator_fits(
+    data_profile: DataProfile,
+    forecasters: Iterable[str],
+    steps: int,
+) -> Callable[[TimeSeriesFold], tuple[int, Hashable]]:
+    """
+    Function that counts the estimator fits of a run on a strategy, for
+    `refit_fits()`: those of a backtest (one forecaster) or of a comparison
+    of fixed candidates (the forecaster of each), counted as the core counts
+    them (`count_cv_fits`, `count_cv_folds`, `count_estimator_fits`).
+
+    Parameters
+    ----------
+    data_profile : DataProfile
+        Profile of the data the strategy runs on.
+    forecasters : iterable of str
+        Forecaster of each run whose fits add up to the total.
+    steps : int
+        Forecast horizon of each fold.
+
+    Returns
+    -------
+    count : Callable
+        Function of a `TimeSeriesFold` that returns the estimator fits and
+        the runs they add up, here always the same (None).
+    """
+
+    forecasters = list(forecasters)
+    span = {
+        "n_observations": data_profile.span_index_length,
+        "start_date": data_profile.span_start_date,
+        "frequency": data_profile.frequency,
+        "time_zone": data_profile.time_zone,
+    }
+
+    def count(cv: TimeSeriesFold) -> tuple[int, Hashable]:
+        n_fits = count_cv_fits(cv, **span)
+        n_folds = count_cv_folds(cv, **span)
+        fits = sum(
+            count_estimator_fits(
+                n_fits     = n_fits,
+                forecaster = forecaster,
+                steps      = steps,
+                n_folds    = n_folds,
+            )
+            for forecaster in forecasters
+        )
+        return fits, None
+
+    return count
+
+
+def refit_fits(
+    cv: TimeSeriesFold,
+    n_folds: int,
+    count: Callable[[TimeSeriesFold], tuple[int, Hashable]],
+) -> RefitFits:
+    """
+    Count the estimator fits of a run with `refit=False` and with the
+    smallest integer `refit` that brings them to the threshold of an
+    expensive run, so the cheaper strategies are named with their cost.
+
+    Each figure is `count` of the strategy with that value of `refit`, the
+    other parameters unchanged, so it is the cost the run would have. The
+    integers tried go from 2 (1 is `refit=True`) to the number of folds
+    minus 1, or 2 (a larger one trains once, as `refit=False` does).
+
+    The fits of each run fall as the integer grows, but their total does
+    not when the runs change: a `compare()` without candidates leaves out
+    the alternatives above its fit budget, and a larger integer lets one
+    back in, so the total jumps up (a single bisection then misses a
+    smaller integer before that jump). The runs only grow as the integer
+    grows, one at a time, so they change at most once per candidate:
+    `count` says which runs it counted, the integers where they change are
+    found by bisection (the same runs at both ends of a range means none
+    changes inside it), and within each range of the same runs, where the
+    total only falls, the smallest integer at or below the threshold is
+    found by bisection too, from the smallest range up. This takes a few
+    counts per candidate and the logarithm of the folds, where scanning
+    every integer would take one count per fold.
+
+    Parameters
+    ----------
+    cv : TimeSeriesFold
+        Strategy of the run, as given (not as executed for a forecaster).
+    n_folds : int
+        Number of folds of the strategy, see `count_cv_folds`.
+    count : Callable
+        Function of a `TimeSeriesFold` that returns the estimator fits of
+        the run on it and the runs they add up (any value that changes only
+        when they do, such as the names of the candidates of a comparison),
+        such as `run_estimator_fits()`.
+
+    Returns
+    -------
+    fits : RefitFits
+        Estimator fits with `refit=False`, and the smallest integer
+        `refit` at or below `LONG_TRAINING_FITS` with its fits, if any.
+    """
+
+    counted: dict[bool | int, tuple[int, Hashable]] = {}
+
+    def total(refit: bool | int) -> tuple[int, Hashable]:
+        if refit not in counted:
+            refitted = copy.deepcopy(cv)
+            refitted.set_params({"refit": refit})
+            counted[refit] = count(refitted)
+        return counted[refit]
+
+    def same_runs(low: int, high: int) -> list[tuple[int, int]]:
+        """Split `low` to `high` into ranges of integers with the same runs."""
+        if total(low)[1] == total(high)[1]:
+            return [(low, high)]
+        if high - low == 1:
+            return [(low, low), (high, high)]
+        middle = (low + high) // 2
+        return [*same_runs(low, middle), *same_runs(middle + 1, high)]
+
+    train_once, _ = total(False)
+    # With 2 folds, `refit=2` is the only integer that trains less than
+    # `refit=True`.
+    for low, high in same_runs(2, max(2, n_folds - 1)):
+        # Within a range the total only falls: if its largest integer is
+        # above the threshold, so is every other one.
+        if total(high)[0] > LONG_TRAINING_FITS:
+            continue
+        while low < high:
+            middle = (low + high) // 2
+            if total(middle)[0] <= LONG_TRAINING_FITS:
+                high = middle
+            else:
+                low = middle + 1
+        return RefitFits(train_once, low, total(low)[0])
+
+    return RefitFits(train_once, None, None)
+
+
+def _estimator_fits_text(n: int) -> str:
+    """`'1 estimator fit'`, `'36 estimator fits'`."""
+    return f"{n} estimator fit" if n == 1 else f"{n} estimator fits"
+
+
+def cost_remedies(
+    forecasters: Iterable[str],
+    n_fits: int,
+    steps: int,
+    skip_folds: bool = True,
+    false: str = "False",
+    fits: RefitFits | None = None,
+) -> list[str]:
+    """
+    Name the changes that lower the cost of a backtest or a comparison.
+
+    Only what lowers the cost of the forecasters given is named: `refit`
+    changes nothing for `ForecasterStats` (skforecast refits it in every
+    fold whatever it says) nor for `ForecasterFoundation` (never trained),
+    and nothing for the others either once they train once (`n_fits` 1);
+    fewer folds lower every cost but that of a forecaster trained once. A
+    shorter horizon is named only for a direct forecaster trained once,
+    since nothing else lowers its cost then, and not next to
+    `ForecasterStats` or `ForecasterFoundation`: for them it means more
+    folds of the default `fold_stride`, a higher cost. The order is fixed,
+    so the text is the same for the same input.
+
+    Parameters
+    ----------
+    forecasters : iterable of str
+        Names of the forecasters whose cost is above the threshold, or adds
+        up to a total above it.
+    n_fits : int
+        Number of folds in which a forecaster is trained under the
+        strategy, see `count_cv_fits`.
+    steps : int
+        Forecast horizon of each fold.
+    skip_folds : bool, default True
+        Whether `skip_folds` can be named among the ways to have fewer
+        folds: False when `ForecasterStats` runs on the strategy, which
+        rejects it. Never named when `forecasters` has `ForecasterStats`.
+    false : str, default 'False'
+        How the text writes `refit=False`: `'false'` for the JSON arguments
+        of the MCP server.
+    fits : RefitFits, default None
+        Estimator fits of the cheaper values of `refit` (see
+        `refit_fits()`), which the phrases of `refit` then state: the
+        integer named is the smallest at or below `LONG_TRAINING_FITS`.
+        None to name them without their cost.
+
+    Returns
+    -------
+    remedies : list of str
+        One phrase per change, such as `'an integer `refit` (retrain every n
+        folds)'`. Empty when nothing lowers the cost.
+    """
+
+    forecasters = set(forecasters)
+    untrained = {"ForecasterStats", "ForecasterFoundation", "ForecasterEquivalentDate"}
+    refits = bool(forecasters - untrained) and n_fits > 1
+    remedies = []
+    if refits:
+        # With the figures, the smallest integer at or below the threshold
+        # is the remedy (the notice that names it states the threshold).
+        if fits is not None and fits.refit is not None:
+            remedies.append(
+                f"`refit={fits.refit}` (retrain every {fits.refit} folds: "
+                f"{_estimator_fits_text(fits.refit_fits)})"
+            )
+        elif fits is not None:
+            remedies.append(
+                f"an integer `refit` (retrain every n folds: none fits "
+                f"{LONG_TRAINING_FITS} estimators or fewer)"
+            )
+        else:
+            remedies.append("an integer `refit` (retrain every n folds)")
+    if refits or forecasters & {"ForecasterStats", "ForecasterFoundation"}:
+        if skip_folds and "ForecasterStats" not in forecasters:
+            ways = (
+                "a later `initial_train_size`, a larger `fold_stride` or "
+                "`skip_folds`"
+            )
+        else:
+            ways = "a later `initial_train_size` or a larger `fold_stride`"
+        remedies.append(f"fewer folds ({ways})")
+    if refits:
+        once = (
+            f": {_estimator_fits_text(fits.train_once)}" if fits is not None else ""
+        )
+        remedies.append(f"`refit={false}` (train once{once})")
+    if (
+        n_fits <= 1
+        and steps > 1
+        and forecasters & DIRECT_FORECASTERS
+        and not forecasters & {"ForecasterStats", "ForecasterFoundation"}
+    ):
+        remedies.append(
+            "a shorter horizon (a direct forecaster fits one estimator per step)"
+        )
+    if "ForecasterFoundation" in forecasters:
+        remedies.append("fewer series")
+
+    return remedies
+
+
+def join_remedies(remedies: list[str]) -> str:
+    """
+    Join the phrases of `cost_remedies` as `'a, b or c'`.
+
+    Parameters
+    ----------
+    remedies : list of str
+        Phrases returned by `cost_remedies`.
+
+    Returns
+    -------
+    text : str
+        The phrases joined, the last one with "or".
+    """
+
+    if len(remedies) <= 1:
+        return "".join(remedies)
+
+    return f"{', '.join(remedies[:-1])} or {remedies[-1]}"
+
+
+def long_comparison_message(cost: ComparisonCost, steps: int) -> str:
+    """
+    Describe the cost of a comparison in estimator fits: the total and
+    what each candidate adds to it.
+
+    Parameters
+    ----------
+    cost : ComparisonCost
+        Cost of the comparison, see `count_comparison_cost`.
+    steps : int
+        Forecast horizon of each fold.
+
+    Returns
+    -------
+    message : str
+        Sentence with the total, each candidate with its fits and the
+        direct ones broken down into trainings and estimators.
+    """
+
+    # A direct forecaster fits one estimator per step, which is what makes
+    # it costly: its share says so.
+    shown = ", ".join(
+        f"'{name}': {candidate.estimator_fits}"
+        + (
+            f" ({candidate.n_fits} trainings x {steps} estimators)"
+            if candidate.forecaster in DIRECT_FORECASTERS else ""
+        )
+        for name, candidate in cost.candidates.items()
+    )
+
+    return f"The comparison will fit {cost.estimator_fits} estimators in all ({shown})"
+
+
+def comparison_remedies(
+    cost: ComparisonCost,
+    n_fits: int,
+    steps: int,
+    false: str = "False",
+    fits: RefitFits | None = None,
+) -> list[str]:
+    """
+    Name the changes of the strategy that lower the cost of a comparison
+    above the thresholds of an expensive run.
+
+    They are those of `cost_remedies` for the forecasters whose cost puts
+    the comparison above them: the candidates that fit estimators when the
+    fits are above `LONG_TRAINING_FITS`, and `ForecasterFoundation` when
+    the inference windows are above `LONG_INFERENCE_WINDOWS`.
+
+    Parameters
+    ----------
+    cost : ComparisonCost
+        Cost of the comparison, see `count_comparison_cost`.
+    n_fits : int
+        Number of folds in which a forecaster is trained under the shared
+        strategy, see `count_cv_fits`.
+    steps : int
+        Forecast horizon of each fold.
+    false : str, default 'False'
+        How the text writes `refit=False`, see `cost_remedies`.
+    fits : RefitFits, default None
+        Estimator fits of the whole comparison with the cheaper values of
+        `refit`, see `cost_remedies`.
+
+    Returns
+    -------
+    remedies : list of str
+        One phrase per change, see `cost_remedies`.
+    """
+
+    candidates = cost.candidates.values()
+    costly = set()
+    if cost.estimator_fits > LONG_TRAINING_FITS:
+        costly |= {c.forecaster for c in candidates if c.estimator_fits}
+    if cost.inference_windows > LONG_INFERENCE_WINDOWS:
+        costly.add("ForecasterFoundation")
+
+    return cost_remedies(
+        forecasters = costly,
+        n_fits      = n_fits,
+        steps       = steps,
+        skip_folds  = all(c.forecaster != "ForecasterStats" for c in candidates),
+        false       = false,
+        fits        = fits,
+    )
+
+
+def expensive_run_figure(estimator_fits: int, inference_windows: int) -> int | None:
+    """
+    Number that confirms a run above the thresholds of an expensive run.
+
+    Parameters
+    ----------
+    estimator_fits : int
+        Estimator fits of the run (all its candidates, for a comparison).
+    inference_windows : int
+        Inference windows of the run (all its candidates, for a
+        comparison).
+
+    Returns
+    -------
+    figure : int, None
+        `estimator_fits` when above `LONG_TRAINING_FITS`, else
+        `inference_windows` when above `LONG_INFERENCE_WINDOWS` (the cost
+        of a foundation model, which fits no estimator), else None: the
+        run needs no confirmation.
+    """
+
+    if estimator_fits > LONG_TRAINING_FITS:
+        return estimator_fits
+    if inference_windows > LONG_INFERENCE_WINDOWS:
+        return inference_windows
+
+    return None
+
+
+def changed_since(run: Literal["backtest", "comparison"]) -> str:
+    """
+    Name what changes the cost of a run, for the message of a confirmation
+    given for another cost.
+
+    Parameters
+    ----------
+    run : {'backtest', 'comparison'}
+        What runs.
+
+    Returns
+    -------
+    text : str
+        `'the strategy or the plan'` of a backtest, `'the strategy or the
+        candidates'` of a comparison.
+    """
+
+    return "the strategy or the candidates" if run == "comparison" else (
+        "the strategy or the plan"
+    )
+
+
+def check_cost_confirmed(
+    confirm_cost: bool | int,
+    run: Literal["backtest", "comparison"],
+    cost: dict[str, int],
+    description: str,
+    remedies: str,
+    comparison_cost: ComparisonCost | None = None,
+) -> None:
+    """
+    Stop a run above the thresholds of an expensive run that `confirm_cost`
+    does not confirm, before anything runs.
+
+    A warning arrives once the run has started and does not stop it, so a
+    run above the thresholds needs a confirmation: `True`, or the figure of
+    its cost (see `expensive_run_figure`), which no longer confirms it once
+    the strategy, the plan or the candidates change its cost. Below the
+    thresholds `confirm_cost` is not read.
+
+    Parameters
+    ----------
+    confirm_cost : bool, int
+        Confirmation passed by the caller, see `validate_confirm_cost`.
+    run : {'backtest', 'comparison'}
+        What runs, as the message names it.
+    cost : dict
+        `n_folds`, `n_fits`, `estimator_fits` and `inference_windows` of
+        the run.
+    description : str
+        Sentences stating the cost and what makes it, with a final period.
+    remedies : str
+        What lowers the cost, completing "If not feasible, " (such as
+        `'use `refit=False` (train once)'`). Empty when nothing does.
+    comparison_cost : ComparisonCost, default None
+        Cost of each candidate of a comparison.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    CostNotConfirmedError
+        If the run is above the thresholds and `confirm_cost` is neither
+        True nor the figure of its cost.
+    """
+
+    figure = expensive_run_figure(cost["estimator_fits"], cost["inference_windows"])
+    if figure is None or confirm_cost is True:
+        return
+    given = not isinstance(confirm_cost, bool)
+    if given and confirm_cost == figure:
+        return
+
+    message = (
+        f"This {run} is above the threshold of an expensive run "
+        f"({LONG_TRAINING_FITS} estimator fits or {LONG_INFERENCE_WINDOWS} "
+        f"inference windows), so it needs a confirmation and nothing ran. "
+        f"{description} It can take substantial amounts of time."
+    )
+    if remedies:
+        message += f" If not feasible, {remedies}."
+    if given:
+        message += (
+            f" `confirm_cost={confirm_cost}` does not confirm it: the figure of "
+            f"this cost is {figure}, so {changed_since(run)} changed since "
+            f"that number was given."
+        )
+    raise CostNotConfirmedError(
+        message,
+        figure          = figure,
+        cost            = cost,
+        description     = description,
+        comparison_cost = comparison_cost,
+        hint            = "Pass `confirm_cost=True` to run it as it is.",
+    )
+
+
+def check_backtest_cost(
+    confirm_cost: bool | int,
+    cv_config: dict,
+    forecaster: str,
+    steps: int,
+    n_series: int,
+) -> None:
+    """
+    Stop a backtest above the thresholds of an expensive run that
+    `confirm_cost` does not confirm, see `check_cost_confirmed`.
+
+    Parameters
+    ----------
+    confirm_cost : bool, int
+        Confirmation passed to `backtest()`.
+    cv_config : dict
+        Resolved strategy of the backtest, with `n_folds` and `n_fits` as
+        the forecaster runs it (see `resolve_cv_config`).
+    forecaster : str
+        Name of the skforecast forecaster class.
+    steps : int
+        Forecast horizon of each fold.
+    n_series : int
+        Number of series of the data.
+
+    Returns
+    -------
+    None
+    """
+
+    n_fits, n_folds = cv_config["n_fits"], cv_config["n_folds"]
+    cost = {
+        "n_folds": n_folds,
+        "n_fits": n_fits,
+        "estimator_fits": count_estimator_fits(
+                              n_fits     = n_fits,
+                              forecaster = forecaster,
+                              steps      = steps,
+                          ),
+        # A foundation model fits nothing: its cost is the inference of
+        # each series in each fold.
+        "inference_windows": count_inference_windows(
+                                 n_folds    = n_folds,
+                                 n_series   = n_series,
+                                 forecaster = forecaster,
+                             ),
+    }
+    if expensive_run_figure(cost["estimator_fits"], cost["inference_windows"]) is None:
+        return
+    if cost["estimator_fits"] > LONG_TRAINING_FITS:
+        description = long_training_message(
+            cost["estimator_fits"], n_fits, forecaster, steps
+        )
+    else:
+        description = long_inference_message(
+            cost["inference_windows"], n_series, n_folds
+        )
+    remedies = cost_remedies(forecasters=[forecaster], n_fits=n_fits, steps=steps)
+    check_cost_confirmed(
+        confirm_cost = confirm_cost,
+        run          = "backtest",
+        cost         = cost,
+        description  = f"{description}.",
+        remedies     = f"use {join_remedies(remedies)}" if remedies else "",
+    )
+
+
+def check_comparison_cost(
+    confirm_cost: bool | int,
+    cost: ComparisonCost,
+    n_fits: int,
+    steps: int,
+    n_series: int,
+    not_counted: list[str] | None = None,
+) -> None:
+    """
+    Stop a comparison above the thresholds of an expensive run that
+    `confirm_cost` does not confirm, see `check_cost_confirmed`.
+
+    The thresholds apply to the total of the comparison, not to each
+    candidate: candidates that are cheap one by one can add up to an
+    expensive run. The message states the total and what each candidate
+    adds to it.
+
+    Parameters
+    ----------
+    confirm_cost : bool, int
+        Confirmation passed to `compare()`.
+    cost : ComparisonCost
+        Cost of the comparison, see `count_comparison_cost`.
+    n_fits : int
+        Number of folds in which a forecaster is trained under the shared
+        strategy, see `count_cv_fits`.
+    steps : int
+        Forecast horizon of each fold.
+    n_series : int
+        Number of series of the data.
+    not_counted : list of str, default None
+        Names of the candidates whose plan cannot be built, which run
+        nothing and are not in `cost`.
+
+    Returns
+    -------
+    None
+    """
+
+    if expensive_run_figure(cost.estimator_fits, cost.inference_windows) is None:
+        return
+    parts = []
+    if cost.estimator_fits > LONG_TRAINING_FITS:
+        parts.append(long_comparison_message(cost, steps))
+    if cost.inference_windows > LONG_INFERENCE_WINDOWS:
+        parts.append(
+            long_inference_message(
+                inference_windows = cost.inference_windows,
+                n_series          = n_series,
+                n_folds           = cost.n_folds,
+                n_candidates      = sum(
+                                        candidate.inference_windows > 0
+                                        for candidate in cost.candidates.values()
+                                    ),
+            )
+        )
+    description = f"{' and '.join(parts)}."
+    if not_counted:
+        names = [f"'{name}'" for name in not_counted]
+        if len(names) == 1:
+            description += (
+                f" {names[0]} is not counted: its plan cannot be built, so it "
+                f"runs nothing."
+            )
+        else:
+            description += (
+                f" {', '.join(names[:-1])} and {names[-1]} are not counted: "
+                f"their plans cannot be built, so they run nothing."
+            )
+    remedies = comparison_remedies(cost, n_fits=n_fits, steps=steps)
+    check_cost_confirmed(
+        confirm_cost    = confirm_cost,
+        run             = "comparison",
+        cost            = {
+                              "n_folds": cost.n_folds,
+                              "n_fits": cost.n_fits,
+                              "estimator_fits": cost.estimator_fits,
+                              "inference_windows": cost.inference_windows,
+                          },
+        description     = description,
+        remedies        = (
+                              f"compare fewer candidates or use "
+                              f"{join_remedies(remedies)}"
+                              if remedies else "compare fewer candidates"
+                          ),
+        comparison_cost = cost,
     )

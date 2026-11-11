@@ -21,13 +21,13 @@ The dataset contains 2 series, so a multi-series forecaster (ForecasterRecursive
 </profile_decision>
 <forecast_plan>
 - Forecaster: ForecasterFoundation
-- Steps: 3
+- Steps: 3 (forecast horizon, given by the user)
 - Estimator: autogluon/chronos-2-small
-- Prediction interval: [0.1, 0.9] (80% coverage)
+- Prediction interval: [0.1, 0.9] (80% nominal coverage)
 - Interval method: native
 - Primary metric: mean_absolute_scaled_error
 - Chosen by the user instead of the rules: forecaster
-- Plan: ForecasterFoundation + autogluon/chronos-2-small. No lag or window features: the foundation model forecasts directly from the raw context window. Prediction intervals via native. MASE is scale-independent, enabling fair comparison across differently-scaled series. The model reads up to 8192 observations of each series as context, so the whole history is used (the longest series has 100).
+- Plan: ForecasterFoundation + autogluon/chronos-2-small. No lag or window features: the foundation model forecasts directly from the raw context window. Prediction intervals via native. MASE is scale-independent, enabling fair comparison across differently-scaled series. MAPE is not computed: it divides each error by the actual value, and the target takes values at or around zero in series 'store_a' (from 0 to 99). The model reads up to 8192 observations of each series as context, so the whole history is used (the longest series has 100).
 </forecast_plan>
 <backtesting_strategy>
 - steps: 5
@@ -40,14 +40,17 @@ The dataset contains 2 series, so a multi-series forecaster (ForecasterRecursive
 Backtested with 6 folds of 5 steps each, starting from an initial training window of 70 observations, without refitting.
 </deterministic_summary>
 <evaluation_metrics>
- series  MAE   MSE  MASE
-store_a  2.5  9.25   0.8
-store_b  3.5 16.50   1.2
+ levels  mean_absolute_error  root_mean_squared_error  mean_absolute_scaled_error  n_evaluated
+store_a                  2.5                   3.0414                         0.8           20
+store_b                  3.5                   4.0620                         1.2           20
+`n_evaluated` is not a metric: it is the number of predictions with an observed value each row is measured on.
 </evaluation_metrics>
 <predictions>
-Shape: 40 rows x 5 columns
-Columns: ['level', 'fold', 'q_0.1', 'q_0.5', 'q_0.9']
+Shape: 40 rows x 7 columns
+Columns: ['level', 'fold', 'step', 'y_true', 'q_0.1', 'q_0.5', 'q_0.9']
 Folds: 4
+Steps of the horizon: 1 to 5
+The predictions also have a `y_true` column with the observed value of each prediction; it is not shown: its values are those of the dataset.
   q_0.1: min=900.0, max=997.5, mean=948.75, std=29.226129861250303
   q_0.5: min=1000.0, max=1097.5, mean=1048.75, std=29.226129861250303
   q_0.9: min=1100.0, max=1197.5, mean=1148.75, std=29.226129861250303

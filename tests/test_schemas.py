@@ -11,7 +11,9 @@ from pydantic import ValidationError
 from skforecast_ai.schemas import (
     CV_OVERRIDE_NAMES,
     CandidateConfig,
+    CandidateCost,
     CompareProgress,
+    ComparisonCost,
     DataProfile,
     ForecastPlan,
     RefinePlanOverrides,
@@ -178,6 +180,17 @@ def test_forecast_plan_ValidationError_when_foundation_model_invalid(
             "Unknown metric 'f1_score'",
         ),
         (
+            {
+                "estimator": "Ridge",
+                "metrics_to_compute": ["mean_absolute_error", "mean_absolute_error"],
+            },
+            "`metrics_to_compute` repeats ['mean_absolute_error']",
+        ),
+        (
+            {"estimator": "Ridge", "metrics_to_compute": ["n_evaluated"]},
+            "'n_evaluated' is not a metric",
+        ),
+        (
             {"estimator": "Ridge", "interval": [5, 95]},
             "`interval` must be `[lower, upper]` with 0 < lower < upper < 1",
         ),
@@ -217,6 +230,8 @@ def test_forecast_plan_ValidationError_when_foundation_model_invalid(
         "estimator",
         "estimator_kwargs key",
         "metric",
+        "repeated metric",
+        "n_evaluated as metric",
         "interval",
         "forecaster",
         "forecaster_kwargs key",
@@ -805,7 +820,9 @@ def test_forecast_result_json_frames_are_records_with_index():
 
     assert dumped["predictions"][0]["pred"] == result.predictions["pred"].iloc[0]
     assert "index" in dumped["predictions"][0]
-    assert dumped["metrics"][0]["MAE"] == result.metrics["MAE"].iloc[0]
+    assert dumped["metrics"][0]["mean_absolute_error"] == (
+        result.metrics["mean_absolute_error"].iloc[0]
+    )
 
 
 def test_comparison_result_json_includes_best_name():
@@ -1311,3 +1328,297 @@ def test_data_profile_ValidationError_when_csv_dialect_not_valid(
             csv_decimal    = decimal,
         )
 
+
+def test_data_profile_output_when_json_has_no_closed_weekdays():
+    """
+    Test that a profile saved before `closed_weekdays` existed loads without
+    closed days, that the field defaults to an empty list, and that the
+    days survive a JSON round trip.
+    """
+    profile = DataProfile(
+        n_series        = 1,
+        series_lengths  = {"y": 100},
+        target          = "y",
+        index_type      = "datetime",
+        frequency       = "D",
+        has_gaps        = True,
+        closed_weekdays = [5, 6],
+    )
+    saved = profile.model_dump(mode="json")
+    del saved["closed_weekdays"]
+
+    old = DataProfile.model_validate_json(json.dumps(saved))
+    restored = DataProfile.model_validate_json(profile.model_dump_json())
+
+    assert old.closed_weekdays == []
+    assert restored.closed_weekdays == [5, 6]
+    assert restored == profile
+
+
+@pytest.mark.parametrize("weekday", [-1, 7], ids=["negative", "after_sunday"])
+def test_data_profile_ValidationError_when_closed_weekday_not_a_day(weekday):
+    """
+    Test that a day of the week outside 0 (Monday) to 6 (Sunday) raises a
+    ValidationError.
+    """
+    with pytest.raises(ValidationError, match="closed_weekdays"):
+        DataProfile(
+            n_series        = 1,
+            series_lengths  = {"y": 100},
+            target          = "y",
+            index_type      = "datetime",
+            closed_weekdays = [weekday],
+        )
+
+
+def test_data_profile_output_when_json_has_no_csv_thousands():
+    """
+    Test that a profile saved before `csv_thousands` existed loads without
+    thousands separator, that the field defaults to None, and that '.'
+    survives a JSON round trip.
+    """
+    profile = DataProfile(
+        n_series       = 1,
+        series_lengths = {"y": 100},
+        target         = "y",
+        index_type     = "datetime",
+        data_path      = "eu.csv",
+        csv_sep        = ";",
+        csv_decimal    = ",",
+        csv_thousands  = ".",
+    )
+    saved = profile.model_dump(mode="json")
+    del saved["csv_thousands"]
+    default = DataProfile(
+        n_series=1, series_lengths={"y": 100}, target="y", index_type="datetime"
+    )
+
+    old = DataProfile.model_validate_json(json.dumps(saved))
+    restored = DataProfile.model_validate_json(profile.model_dump_json())
+
+    assert old.csv_thousands is None
+    assert (old.csv_sep, old.csv_decimal) == (";", ",")
+    assert default.csv_thousands is None
+    assert restored.csv_thousands == "."
+    assert restored == profile
+
+
+@pytest.mark.parametrize(
+    "sep, decimal, thousands, message",
+    [
+        (";", ".", ".", "`csv_thousands` cannot be '.' when `csv_decimal` is '.'."),
+        (",", ".", ".", "`csv_thousands` cannot be '.' when `csv_decimal` is '.'."),
+        (";", ",", ",", "Input should be '.'"),
+    ],
+    ids=["with decimal point", "with comma file", "invalid thousands"],
+)
+def test_data_profile_ValidationError_when_csv_thousands_not_valid(
+    sep, decimal, thousands, message
+):
+    """
+    Test that a profile whose thousands separator does not go with ',' as
+    decimal mark, or is not '.', raises a ValidationError: the script would
+    drop the decimal mark of every number.
+    """
+    with pytest.raises(ValidationError, match=re.escape(message)):
+        DataProfile(
+            n_series       = 1,
+            series_lengths = {"y": 100},
+            target         = "y",
+            index_type     = "datetime",
+            csv_sep        = sep,
+            csv_decimal    = decimal,
+            csv_thousands  = thousands,
+        )
+
+
+def test_data_profile_output_when_json_has_no_csv_encoding():
+    """
+    Test that a profile saved before `csv_encoding` existed loads as UTF-8,
+    that the field defaults to 'utf-8', and that 'cp1252' survives a JSON
+    round trip.
+    """
+    profile = DataProfile(
+        n_series       = 1,
+        series_lengths = {"y": 100},
+        target         = "y",
+        index_type     = "datetime",
+        data_path      = "excel.csv",
+        csv_sep        = ";",
+        csv_decimal    = ",",
+        csv_encoding   = "cp1252",
+    )
+    saved = profile.model_dump(mode="json")
+    del saved["csv_encoding"]
+    default = DataProfile(
+        n_series=1, series_lengths={"y": 100}, target="y", index_type="datetime"
+    )
+
+    old = DataProfile.model_validate_json(json.dumps(saved))
+    restored = DataProfile.model_validate_json(profile.model_dump_json())
+
+    assert old.csv_encoding == "utf-8"
+    assert default.csv_encoding == "utf-8"
+    assert restored.csv_encoding == "cp1252"
+    assert restored == profile
+
+
+@pytest.mark.parametrize(
+    "csv_encoding", ["latin-1", "utf-16", "UTF-8"], ids=lambda dt: dt
+)
+def test_data_profile_ValidationError_when_csv_encoding_not_valid(csv_encoding):
+    """
+    Test that a profile whose encoding is not one of those read raises a
+    ValidationError: it is written into the generated script, also from a
+    profile loaded from JSON.
+    """
+    with pytest.raises(ValidationError, match=re.escape("Input should be 'utf-8' or 'cp1252'")):
+        DataProfile(
+            n_series       = 1,
+            series_lengths = {"y": 100},
+            target         = "y",
+            index_type     = "datetime",
+            csv_encoding   = csv_encoding,
+        )
+
+
+@pytest.mark.parametrize(
+    "date_format",
+    [None, "%d/%m/%Y", "%m/%d/%Y", "%Y%m%d", "%d.%m.%Y %H:%M"],
+    ids=lambda date_format: f"date_format: {date_format}",
+)
+def test_data_profile_output_when_date_format_given(date_format):
+    """
+    Test that a profile accepts no `date_format` (the default) or a format of
+    dates, stores it, and that it survives a JSON round trip.
+    """
+    profile = DataProfile(
+        n_series       = 1,
+        series_lengths = {"y": 100},
+        target         = "y",
+        index_type     = "datetime",
+        date_format    = date_format,
+    )
+
+    restored = DataProfile.model_validate_json(profile.model_dump_json())
+
+    assert profile.date_format == date_format
+    assert restored.date_format == date_format
+    assert restored == profile
+
+
+def test_data_profile_date_format_defaults_to_none():
+    """
+    Test that a profile has no `date_format` unless given, and that a profile
+    saved before the field existed loads with None and keeps the rest.
+    """
+    profile = DataProfile(
+        n_series       = 1,
+        series_lengths = {"y": 100},
+        target         = "y",
+        index_type     = "datetime",
+        data_path      = "eu.csv",
+        csv_sep        = ";",
+        csv_decimal    = ",",
+    )
+    saved = profile.model_dump(mode="json")
+    del saved["date_format"]
+
+    old = DataProfile.model_validate_json(json.dumps(saved))
+
+    assert profile.date_format is None
+    assert old.date_format is None
+    assert old == profile
+
+
+@pytest.mark.parametrize(
+    "date_format",
+    ["dd/mm/yyyy", "", "2020-01-31"],
+    ids=lambda date_format: f"date_format: {date_format!r}",
+)
+def test_data_profile_ValidationError_when_date_format_is_not_a_format(date_format):
+    """
+    Test that a profile whose `date_format`, which the generated script writes
+    into `pd.to_datetime(..., format=...)`, has no directive (no '%') raises a
+    ValidationError, also when loaded from JSON.
+    """
+    fields = {
+        "n_series": 1,
+        "series_lengths": {"y": 100},
+        "target": "y",
+        "index_type": "datetime",
+        "date_format": date_format,
+    }
+    err_msg = re.escape(
+        f"`date_format` must be a format of dates such as '%d/%m/%Y', got "
+        f"{date_format!r}."
+    )
+
+    with pytest.raises(ValidationError, match=err_msg) as exc_info:
+        DataProfile(**fields)
+    with pytest.raises(ValidationError, match=err_msg):
+        DataProfile.model_validate_json(json.dumps(fields))
+
+    assert exc_info.value.errors()[0]["loc"] == ("date_format",)
+
+
+comparison_cost = ComparisonCost(
+    n_folds    = 6,
+    candidates = {
+        "direct": CandidateCost(
+            forecaster="ForecasterDirect", n_fits=6, estimator_fits=36,
+            inference_windows=0,
+        ),
+        "foundation": CandidateCost(
+            forecaster="ForecasterFoundation", n_fits=0, estimator_fits=0,
+            inference_windows=12,
+        ),
+    },
+)
+
+
+def test_comparison_cost_json_roundtrip():
+    """
+    Test ComparisonCost dumps its totals and survives a model_dump_json ->
+    model_validate_json roundtrip, and a model_dump -> model_validate one.
+    """
+    dumped = comparison_cost.model_dump()
+
+    assert dumped["n_fits"] == 6
+    assert dumped["estimator_fits"] == 36
+    assert dumped["inference_windows"] == 12
+    assert ComparisonCost.model_validate(dumped) == comparison_cost
+    assert (
+        ComparisonCost.model_validate_json(comparison_cost.model_dump_json())
+        == comparison_cost
+    )
+
+
+def test_comparison_cost_ValidationError_when_a_total_is_not_the_sum():
+    """
+    Test ComparisonCost rejects a total that is not the sum of its
+    candidates instead of dropping it.
+    """
+    dumped = {**comparison_cost.model_dump(), "estimator_fits": 30}
+
+    err_msg = re.escape(
+        "estimator_fits must be the sum of the candidates (estimator_fits=36)."
+    )
+    with pytest.raises(ValidationError, match=err_msg):
+        ComparisonCost.model_validate(dumped)
+
+
+def test_candidate_cost_ValidationError_when_a_count_is_negative():
+    """
+    Test CandidateCost rejects a negative count and an unknown field.
+    """
+    with pytest.raises(ValidationError, match="greater than or equal to 0"):
+        CandidateCost(
+            forecaster="ForecasterRecursive", n_fits=-1, estimator_fits=0,
+            inference_windows=0,
+        )
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        CandidateCost(
+            forecaster="ForecasterRecursive", n_fits=1, estimator_fits=1,
+            inference_windows=0, steps=6,
+        )

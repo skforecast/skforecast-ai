@@ -1,0 +1,2945 @@
+{
+  "run": {
+    "name": "0.5.0-fix3",
+    "started": "2026-11-03 11:03",
+    "model": "sonnet",
+    "commit": "d9c18ad",
+    "versions": {
+      "skforecast_ai": "0.5.0",
+      "skforecast": "0.27.0",
+      "mcp": "2.3.0",
+      "python": "3.13.13",
+      "claude_code": "2.1.296"
+    },
+    "context": {
+      "instructions_chars": 4066,
+      "tools": {
+        "profile": {
+          "description_chars": 160,
+          "schema_chars": 2592
+        },
+        "plan": {
+          "description_chars": 233,
+          "schema_chars": 6235
+        },
+        "refine_plan": {
+          "description_chars": 186,
+          "schema_chars": 6939
+        },
+        "create_cv": {
+          "description_chars": 184,
+          "schema_chars": 2499
+        },
+        "backtest": {
+          "description_chars": 237,
+          "schema_chars": 876
+        },
+        "compare": {
+          "description_chars": 299,
+          "schema_chars": 8132
+        },
+        "forecast": {
+          "description_chars": 223,
+          "schema_chars": 1043
+        },
+        "get_code": {
+          "description_chars": 175,
+          "schema_chars": 477
+        },
+        "get_failure": {
+          "description_chars": 244,
+          "schema_chars": 420
+        },
+        "list_objects": {
+          "description_chars": 219,
+          "schema_chars": 284
+        },
+        "describe_object": {
+          "description_chars": 131,
+          "schema_chars": 170
+        }
+      },
+      "n_tools": 11,
+      "tools_chars": 31958,
+      "skill_chars": 26037,
+      "skill_frontmatter_chars": 446,
+      "always_deferred_chars": 4832,
+      "always_full_chars": 36024
+    }
+  },
+  "pending": [],
+  "pass_rates": {
+    "multi_series": {
+      "passed": 3,
+      "total": 3
+    },
+    "compare_code": {
+      "passed": 3,
+      "total": 3
+    },
+    "user_overrides": {
+      "passed": 3,
+      "total": 3
+    },
+    "metric_list": {
+      "passed": 3,
+      "total": 3
+    },
+    "interval_few_residuals": {
+      "passed": 3,
+      "total": 3
+    },
+    "probe_why_winner": {
+      "passed": 3,
+      "total": 3
+    }
+  },
+  "sessions": {
+    "multi_series__r1": {
+      "scenario": "multi_series",
+      "skill": true,
+      "rep": 1,
+      "critical": false,
+      "status": "completed",
+      "checks": [
+        {
+          "name": "subscription, no API key",
+          "status": "pass",
+          "detail": "apiKeySource='none'"
+        },
+        {
+          "name": "isolated session",
+          "status": "pass",
+          "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "skill available",
+          "status": "pass",
+          "detail": "listed in init: True"
+        },
+        {
+          "name": "skill loaded by the agent",
+          "status": "pass",
+          "detail": "Skill call"
+        },
+        {
+          "name": "finished within the limits",
+          "status": "pass",
+          "detail": "status=completed, 48.4 s of 600 s"
+        },
+        {
+          "name": "no work handed to a subagent",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "every turn ends with an answer",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "the plan of the forecast was measured",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `profile`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `plan`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `create_cv`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `forecast`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no internal_error",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no unexpected error",
+          "status": "pass",
+          "detail": "errors: ['invalid_argument']"
+        },
+        {
+          "name": "no failed call repeated with the same arguments",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "absolute paths",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "files of the user unchanged",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no tool denied by the client",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no denied attempt to write data of the user",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "profile used series_id_column",
+          "status": "pass",
+          "detail": "profile(series_id_column='series')"
+        },
+        {
+          "name": "read the metrics per series",
+          "status": "pass",
+          "detail": "per series in the summary of the backtest"
+        }
+      ],
+      "auto": "pass",
+      "verdict": "correct",
+      "scores": {
+        "flow": 2,
+        "arguments": 1,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "tools": [
+        "Skill",
+        "ToolSearch",
+        "profile",
+        "profile",
+        "plan",
+        "create_cv",
+        "backtest",
+        "forecast"
+      ],
+      "n_calls": 8,
+      "n_server_calls": 6,
+      "error_codes": [
+        "invalid_argument"
+      ],
+      "denials": [],
+      "unsourced_numbers": [],
+      "usage": {
+        "input_tokens": 16,
+        "output_tokens": 2035,
+        "cache_read_tokens": 230503,
+        "cache_creation_tokens": 35926,
+        "cost_usd": 0.1871,
+        "agent_turns": 10,
+        "wall_seconds": 48.4
+      }
+    },
+    "multi_series__r2": {
+      "scenario": "multi_series",
+      "skill": true,
+      "rep": 2,
+      "critical": false,
+      "status": "completed",
+      "checks": [
+        {
+          "name": "subscription, no API key",
+          "status": "pass",
+          "detail": "apiKeySource='none'"
+        },
+        {
+          "name": "isolated session",
+          "status": "pass",
+          "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "skill available",
+          "status": "pass",
+          "detail": "listed in init: True"
+        },
+        {
+          "name": "skill loaded by the agent",
+          "status": "pass",
+          "detail": "Skill call"
+        },
+        {
+          "name": "finished within the limits",
+          "status": "pass",
+          "detail": "status=completed, 38.8 s of 600 s"
+        },
+        {
+          "name": "no work handed to a subagent",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "every turn ends with an answer",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "the plan of the forecast was measured",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `profile`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `plan`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `create_cv`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `forecast`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no internal_error",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no unexpected error",
+          "status": "pass",
+          "detail": "errors: ['invalid_argument']"
+        },
+        {
+          "name": "no failed call repeated with the same arguments",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "absolute paths",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "files of the user unchanged",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no tool denied by the client",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no denied attempt to write data of the user",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "profile used series_id_column",
+          "status": "pass",
+          "detail": "profile(series_id_column='series')"
+        },
+        {
+          "name": "read the metrics per series",
+          "status": "pass",
+          "detail": "per series in the summary of the backtest"
+        }
+      ],
+      "auto": "pass",
+      "verdict": "improvable",
+      "scores": {
+        "flow": 2,
+        "arguments": 1,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 1,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "tools": [
+        "Skill",
+        "ToolSearch",
+        "profile",
+        "profile",
+        "plan",
+        "create_cv",
+        "backtest",
+        "forecast"
+      ],
+      "n_calls": 8,
+      "n_server_calls": 6,
+      "error_codes": [
+        "invalid_argument"
+      ],
+      "denials": [],
+      "unsourced_numbers": [],
+      "usage": {
+        "input_tokens": 14,
+        "output_tokens": 2146,
+        "cache_read_tokens": 177640,
+        "cache_creation_tokens": 32819,
+        "cost_usd": 0.1705,
+        "agent_turns": 10,
+        "wall_seconds": 38.8
+      }
+    },
+    "multi_series__r3": {
+      "scenario": "multi_series",
+      "skill": true,
+      "rep": 3,
+      "critical": false,
+      "status": "completed",
+      "checks": [
+        {
+          "name": "subscription, no API key",
+          "status": "pass",
+          "detail": "apiKeySource='none'"
+        },
+        {
+          "name": "isolated session",
+          "status": "pass",
+          "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "skill available",
+          "status": "pass",
+          "detail": "listed in init: True"
+        },
+        {
+          "name": "skill loaded by the agent",
+          "status": "pass",
+          "detail": "Skill call"
+        },
+        {
+          "name": "finished within the limits",
+          "status": "pass",
+          "detail": "status=completed, 35.8 s of 600 s"
+        },
+        {
+          "name": "no work handed to a subagent",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "every turn ends with an answer",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "the plan of the forecast was measured",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `profile`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `plan`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `create_cv`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `forecast`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no internal_error",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no unexpected error",
+          "status": "pass",
+          "detail": "errors: ['invalid_argument']"
+        },
+        {
+          "name": "no failed call repeated with the same arguments",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "absolute paths",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "files of the user unchanged",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no tool denied by the client",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no denied attempt to write data of the user",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "profile used series_id_column",
+          "status": "pass",
+          "detail": "profile(series_id_column='series')"
+        },
+        {
+          "name": "read the metrics per series",
+          "status": "pass",
+          "detail": "per series in the summary of the backtest"
+        }
+      ],
+      "auto": "pass",
+      "verdict": "correct",
+      "scores": {
+        "flow": 2,
+        "arguments": 1,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "tools": [
+        "Skill",
+        "ToolSearch",
+        "profile",
+        "profile",
+        "plan",
+        "create_cv",
+        "backtest",
+        "forecast"
+      ],
+      "n_calls": 8,
+      "n_server_calls": 6,
+      "error_codes": [
+        "invalid_argument"
+      ],
+      "denials": [],
+      "unsourced_numbers": [],
+      "usage": {
+        "input_tokens": 14,
+        "output_tokens": 2077,
+        "cache_read_tokens": 177551,
+        "cache_creation_tokens": 32801,
+        "cost_usd": 0.1698,
+        "agent_turns": 10,
+        "wall_seconds": 35.8
+      }
+    },
+    "compare_code__r1": {
+      "scenario": "compare_code",
+      "skill": true,
+      "rep": 1,
+      "critical": true,
+      "status": "completed",
+      "checks": [
+        {
+          "name": "subscription, no API key",
+          "status": "pass",
+          "detail": "apiKeySource='none'"
+        },
+        {
+          "name": "isolated session",
+          "status": "pass",
+          "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "skill available",
+          "status": "pass",
+          "detail": "listed in init: True"
+        },
+        {
+          "name": "skill loaded by the agent",
+          "status": "pass",
+          "detail": "Skill call"
+        },
+        {
+          "name": "finished within the limits",
+          "status": "pass",
+          "detail": "status=completed, 51.0 s of 900 s"
+        },
+        {
+          "name": "no work handed to a subagent",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "every turn ends with an answer",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `profile`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `plan`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `create_cv`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `compare`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `get_code`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "`create_cv` before `compare`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "`compare` before `get_code`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no internal_error",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no unexpected error",
+          "status": "pass",
+          "detail": "errors: []"
+        },
+        {
+          "name": "no failed call repeated with the same arguments",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "absolute paths",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "files of the user unchanged",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no tool denied by the client",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no denied attempt to write data of the user",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "the answer mentions the baseline",
+          "status": "pass",
+          "detail": "found 'naive'"
+        }
+      ],
+      "auto": "pass",
+      "verdict": "correct",
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "tools": [
+        "Skill",
+        "ToolSearch",
+        "profile",
+        "plan",
+        "create_cv",
+        "compare",
+        "get_code"
+      ],
+      "n_calls": 7,
+      "n_server_calls": 5,
+      "error_codes": [],
+      "denials": [],
+      "unsourced_numbers": [],
+      "usage": {
+        "input_tokens": 14,
+        "output_tokens": 1696,
+        "cache_read_tokens": 188321,
+        "cache_creation_tokens": 39718,
+        "cost_usd": 0.1947,
+        "agent_turns": 9,
+        "wall_seconds": 51.0
+      }
+    },
+    "compare_code__r2": {
+      "scenario": "compare_code",
+      "skill": true,
+      "rep": 2,
+      "critical": true,
+      "status": "completed",
+      "checks": [
+        {
+          "name": "subscription, no API key",
+          "status": "pass",
+          "detail": "apiKeySource='none'"
+        },
+        {
+          "name": "isolated session",
+          "status": "pass",
+          "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "skill available",
+          "status": "pass",
+          "detail": "listed in init: True"
+        },
+        {
+          "name": "skill loaded by the agent",
+          "status": "pass",
+          "detail": "Skill call"
+        },
+        {
+          "name": "finished within the limits",
+          "status": "pass",
+          "detail": "status=completed, 40.7 s of 900 s"
+        },
+        {
+          "name": "no work handed to a subagent",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "every turn ends with an answer",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "the plan of the forecast was measured",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `profile`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `plan`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `create_cv`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `compare`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `get_code`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "`create_cv` before `compare`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "`compare` before `get_code`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no internal_error",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no unexpected error",
+          "status": "pass",
+          "detail": "errors: []"
+        },
+        {
+          "name": "no failed call repeated with the same arguments",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "absolute paths",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "files of the user unchanged",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no tool denied by the client",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no denied attempt to write data of the user",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "the answer mentions the baseline",
+          "status": "pass",
+          "detail": "found 'naive'"
+        }
+      ],
+      "auto": "pass",
+      "verdict": "correct",
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "tools": [
+        "Skill",
+        "ToolSearch",
+        "profile",
+        "plan",
+        "create_cv",
+        "compare",
+        "get_code",
+        "forecast"
+      ],
+      "n_calls": 8,
+      "n_server_calls": 6,
+      "error_codes": [],
+      "denials": [],
+      "unsourced_numbers": [],
+      "usage": {
+        "input_tokens": 14,
+        "output_tokens": 1939,
+        "cache_read_tokens": 196800,
+        "cache_creation_tokens": 34314,
+        "cost_usd": 0.1764,
+        "agent_turns": 10,
+        "wall_seconds": 40.7
+      }
+    },
+    "compare_code__r3": {
+      "scenario": "compare_code",
+      "skill": true,
+      "rep": 3,
+      "critical": true,
+      "status": "completed",
+      "checks": [
+        {
+          "name": "subscription, no API key",
+          "status": "pass",
+          "detail": "apiKeySource='none'"
+        },
+        {
+          "name": "isolated session",
+          "status": "pass",
+          "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "skill available",
+          "status": "pass",
+          "detail": "listed in init: True"
+        },
+        {
+          "name": "skill loaded by the agent",
+          "status": "pass",
+          "detail": "Skill call"
+        },
+        {
+          "name": "finished within the limits",
+          "status": "pass",
+          "detail": "status=completed, 61.1 s of 900 s"
+        },
+        {
+          "name": "no work handed to a subagent",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "every turn ends with an answer",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `profile`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `plan`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `create_cv`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `compare`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `get_code`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "`create_cv` before `compare`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "`compare` before `get_code`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no internal_error",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no unexpected error",
+          "status": "pass",
+          "detail": "errors: []"
+        },
+        {
+          "name": "no failed call repeated with the same arguments",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "absolute paths",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "files of the user unchanged",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no tool denied by the client",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no denied attempt to write data of the user",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "the answer mentions the baseline",
+          "status": "pass",
+          "detail": "found 'naive'"
+        }
+      ],
+      "auto": "pass",
+      "verdict": "correct",
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "tools": [
+        "Skill",
+        "ToolSearch",
+        "profile",
+        "plan",
+        "create_cv",
+        "compare",
+        "get_code"
+      ],
+      "n_calls": 7,
+      "n_server_calls": 5,
+      "error_codes": [],
+      "denials": [],
+      "unsourced_numbers": [],
+      "usage": {
+        "input_tokens": 14,
+        "output_tokens": 1940,
+        "cache_read_tokens": 195294,
+        "cache_creation_tokens": 32909,
+        "cost_usd": 0.1706,
+        "agent_turns": 9,
+        "wall_seconds": 61.1
+      }
+    },
+    "user_overrides__r1": {
+      "scenario": "user_overrides",
+      "skill": true,
+      "rep": 1,
+      "critical": false,
+      "status": "completed",
+      "checks": [
+        {
+          "name": "subscription, no API key",
+          "status": "pass",
+          "detail": "apiKeySource='none'"
+        },
+        {
+          "name": "isolated session",
+          "status": "pass",
+          "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "skill available",
+          "status": "pass",
+          "detail": "listed in init: True"
+        },
+        {
+          "name": "skill loaded by the agent",
+          "status": "pass",
+          "detail": "Skill call"
+        },
+        {
+          "name": "finished within the limits",
+          "status": "pass",
+          "detail": "status=completed, 40.5 s of 600 s"
+        },
+        {
+          "name": "no work handed to a subagent",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "every turn ends with an answer",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "the plan of the forecast was measured",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `profile`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `plan`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `create_cv`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `backtest|compare`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `forecast`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "`profile` before `plan`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "`plan` before `create_cv`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "`create_cv` before `backtest|compare`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no internal_error",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no unexpected error",
+          "status": "pass",
+          "detail": "errors: []"
+        },
+        {
+          "name": "no failed call repeated with the same arguments",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "absolute paths",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "files of the user unchanged",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no tool denied by the client",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no denied attempt to write data of the user",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "lags = 48",
+          "status": "pass",
+          "detail": "plan: lags=48"
+        },
+        {
+          "name": "metric = MAE",
+          "status": "pass",
+          "detail": "plan: metric='mean_absolute_error'"
+        },
+        {
+          "name": "interval = [0.1, 0.9]",
+          "status": "pass",
+          "detail": "plan: interval=[0.1, 0.9]"
+        },
+        {
+          "name": "no other decision changed",
+          "status": "pass",
+          "detail": "only the requested decisions were set"
+        }
+      ],
+      "auto": "pass",
+      "verdict": "correct",
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "tools": [
+        "Skill",
+        "ToolSearch",
+        "profile",
+        "plan",
+        "create_cv",
+        "backtest",
+        "forecast"
+      ],
+      "n_calls": 7,
+      "n_server_calls": 5,
+      "error_codes": [],
+      "denials": [],
+      "unsourced_numbers": [],
+      "usage": {
+        "input_tokens": 12,
+        "output_tokens": 1615,
+        "cache_read_tokens": 129924,
+        "cache_creation_tokens": 27429,
+        "cost_usd": 0.1389,
+        "agent_turns": 9,
+        "wall_seconds": 40.5
+      }
+    },
+    "user_overrides__r2": {
+      "scenario": "user_overrides",
+      "skill": true,
+      "rep": 2,
+      "critical": false,
+      "status": "completed",
+      "checks": [
+        {
+          "name": "subscription, no API key",
+          "status": "pass",
+          "detail": "apiKeySource='none'"
+        },
+        {
+          "name": "isolated session",
+          "status": "pass",
+          "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "skill available",
+          "status": "pass",
+          "detail": "listed in init: True"
+        },
+        {
+          "name": "skill loaded by the agent",
+          "status": "pass",
+          "detail": "Skill call"
+        },
+        {
+          "name": "finished within the limits",
+          "status": "pass",
+          "detail": "status=completed, 17.3 s of 600 s"
+        },
+        {
+          "name": "no work handed to a subagent",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "every turn ends with an answer",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "the plan of the forecast was measured",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `profile`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `plan`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `create_cv`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `backtest|compare`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `forecast`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "`profile` before `plan`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "`plan` before `create_cv`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "`create_cv` before `backtest|compare`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no internal_error",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no unexpected error",
+          "status": "pass",
+          "detail": "errors: []"
+        },
+        {
+          "name": "no failed call repeated with the same arguments",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "absolute paths",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "files of the user unchanged",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no tool denied by the client",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no denied attempt to write data of the user",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "lags = 48",
+          "status": "pass",
+          "detail": "plan: lags=48"
+        },
+        {
+          "name": "metric = MAE",
+          "status": "pass",
+          "detail": "plan: metric='mean_absolute_error'"
+        },
+        {
+          "name": "interval = [0.1, 0.9]",
+          "status": "pass",
+          "detail": "plan: interval=[0.1, 0.9]"
+        },
+        {
+          "name": "no other decision changed",
+          "status": "pass",
+          "detail": "only the requested decisions were set"
+        }
+      ],
+      "auto": "pass",
+      "verdict": "correct",
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "tools": [
+        "Skill",
+        "ToolSearch",
+        "profile",
+        "plan",
+        "create_cv",
+        "backtest",
+        "forecast"
+      ],
+      "n_calls": 7,
+      "n_server_calls": 5,
+      "error_codes": [],
+      "denials": [],
+      "unsourced_numbers": [],
+      "usage": {
+        "input_tokens": 12,
+        "output_tokens": 1532,
+        "cache_read_tokens": 130368,
+        "cache_creation_tokens": 26884,
+        "cost_usd": 0.1359,
+        "agent_turns": 9,
+        "wall_seconds": 17.3
+      }
+    },
+    "user_overrides__r3": {
+      "scenario": "user_overrides",
+      "skill": true,
+      "rep": 3,
+      "critical": false,
+      "status": "completed",
+      "checks": [
+        {
+          "name": "subscription, no API key",
+          "status": "pass",
+          "detail": "apiKeySource='none'"
+        },
+        {
+          "name": "isolated session",
+          "status": "pass",
+          "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "skill available",
+          "status": "pass",
+          "detail": "listed in init: True"
+        },
+        {
+          "name": "skill loaded by the agent",
+          "status": "pass",
+          "detail": "Skill call"
+        },
+        {
+          "name": "finished within the limits",
+          "status": "pass",
+          "detail": "status=completed, 21.4 s of 600 s"
+        },
+        {
+          "name": "no work handed to a subagent",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "every turn ends with an answer",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "the plan of the forecast was measured",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `profile`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `plan`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `create_cv`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `backtest|compare`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `forecast`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "`profile` before `plan`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "`plan` before `create_cv`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "`create_cv` before `backtest|compare`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no internal_error",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no unexpected error",
+          "status": "pass",
+          "detail": "errors: []"
+        },
+        {
+          "name": "no failed call repeated with the same arguments",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "absolute paths",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "files of the user unchanged",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no tool denied by the client",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no denied attempt to write data of the user",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "lags = 48",
+          "status": "pass",
+          "detail": "plan: lags=48"
+        },
+        {
+          "name": "metric = MAE",
+          "status": "pass",
+          "detail": "plan: metric='mean_absolute_error'"
+        },
+        {
+          "name": "interval = [0.1, 0.9]",
+          "status": "pass",
+          "detail": "plan: interval=[0.1, 0.9]"
+        },
+        {
+          "name": "no other decision changed",
+          "status": "pass",
+          "detail": "only the requested decisions were set"
+        }
+      ],
+      "auto": "pass",
+      "verdict": "correct",
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "tools": [
+        "Skill",
+        "ToolSearch",
+        "profile",
+        "plan",
+        "create_cv",
+        "backtest",
+        "forecast"
+      ],
+      "n_calls": 7,
+      "n_server_calls": 5,
+      "error_codes": [],
+      "denials": [],
+      "unsourced_numbers": [],
+      "usage": {
+        "input_tokens": 12,
+        "output_tokens": 1608,
+        "cache_read_tokens": 141929,
+        "cache_creation_tokens": 29764,
+        "cost_usd": 0.1494,
+        "agent_turns": 9,
+        "wall_seconds": 21.4
+      }
+    },
+    "metric_list__r1": {
+      "scenario": "metric_list",
+      "skill": true,
+      "rep": 1,
+      "critical": false,
+      "status": "completed",
+      "checks": [
+        {
+          "name": "subscription, no API key",
+          "status": "pass",
+          "detail": "apiKeySource='none'"
+        },
+        {
+          "name": "isolated session",
+          "status": "pass",
+          "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "skill available",
+          "status": "pass",
+          "detail": "listed in init: True"
+        },
+        {
+          "name": "skill loaded by the agent",
+          "status": "pass",
+          "detail": "Skill call"
+        },
+        {
+          "name": "finished within the limits",
+          "status": "pass",
+          "detail": "status=completed, 31.3 s of 900 s"
+        },
+        {
+          "name": "no work handed to a subagent",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "every turn ends with an answer",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `profile`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `plan`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `create_cv`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `compare`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "`create_cv` before `compare`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no internal_error",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no unexpected error",
+          "status": "pass",
+          "detail": "errors: []"
+        },
+        {
+          "name": "no failed call repeated with the same arguments",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "absolute paths",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "files of the user unchanged",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no tool denied by the client",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no denied attempt to write data of the user",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "metric = [MSE, MAE]",
+          "status": "pass",
+          "detail": "plan: metric=['mean_squared_error', 'mean_absolute_error']"
+        }
+      ],
+      "auto": "pass",
+      "verdict": "correct",
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "tools": [
+        "Skill",
+        "ToolSearch",
+        "profile",
+        "plan",
+        "create_cv",
+        "compare"
+      ],
+      "n_calls": 6,
+      "n_server_calls": 4,
+      "error_codes": [],
+      "denials": [],
+      "unsourced_numbers": [],
+      "usage": {
+        "input_tokens": 12,
+        "output_tokens": 1368,
+        "cache_read_tokens": 143046,
+        "cache_creation_tokens": 29536,
+        "cost_usd": 0.1462,
+        "agent_turns": 8,
+        "wall_seconds": 31.3
+      }
+    },
+    "metric_list__r2": {
+      "scenario": "metric_list",
+      "skill": true,
+      "rep": 2,
+      "critical": false,
+      "status": "completed",
+      "checks": [
+        {
+          "name": "subscription, no API key",
+          "status": "pass",
+          "detail": "apiKeySource='none'"
+        },
+        {
+          "name": "isolated session",
+          "status": "pass",
+          "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "skill available",
+          "status": "pass",
+          "detail": "listed in init: True"
+        },
+        {
+          "name": "skill loaded by the agent",
+          "status": "pass",
+          "detail": "Skill call"
+        },
+        {
+          "name": "finished within the limits",
+          "status": "pass",
+          "detail": "status=completed, 24.1 s of 900 s"
+        },
+        {
+          "name": "no work handed to a subagent",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "every turn ends with an answer",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `profile`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `plan`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `create_cv`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `compare`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "`create_cv` before `compare`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no internal_error",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no unexpected error",
+          "status": "pass",
+          "detail": "errors: []"
+        },
+        {
+          "name": "no failed call repeated with the same arguments",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "absolute paths",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "files of the user unchanged",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no tool denied by the client",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no denied attempt to write data of the user",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "metric = [MSE, MAE]",
+          "status": "pass",
+          "detail": "plan: metric=['mean_squared_error', 'mean_absolute_error']"
+        }
+      ],
+      "auto": "pass",
+      "verdict": "correct",
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "tools": [
+        "Skill",
+        "ToolSearch",
+        "profile",
+        "plan",
+        "create_cv",
+        "compare"
+      ],
+      "n_calls": 6,
+      "n_server_calls": 4,
+      "error_codes": [],
+      "denials": [],
+      "unsourced_numbers": [],
+      "usage": {
+        "input_tokens": 12,
+        "output_tokens": 1263,
+        "cache_read_tokens": 141503,
+        "cache_creation_tokens": 28574,
+        "cost_usd": 0.1411,
+        "agent_turns": 8,
+        "wall_seconds": 24.1
+      }
+    },
+    "metric_list__r3": {
+      "scenario": "metric_list",
+      "skill": true,
+      "rep": 3,
+      "critical": false,
+      "status": "completed",
+      "checks": [
+        {
+          "name": "subscription, no API key",
+          "status": "pass",
+          "detail": "apiKeySource='none'"
+        },
+        {
+          "name": "isolated session",
+          "status": "pass",
+          "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "skill available",
+          "status": "pass",
+          "detail": "listed in init: True"
+        },
+        {
+          "name": "skill loaded by the agent",
+          "status": "pass",
+          "detail": "Skill call"
+        },
+        {
+          "name": "finished within the limits",
+          "status": "pass",
+          "detail": "status=completed, 37.8 s of 900 s"
+        },
+        {
+          "name": "no work handed to a subagent",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "every turn ends with an answer",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "the plan of the forecast was measured",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `profile`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `plan`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `create_cv`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `compare`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "`create_cv` before `compare`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no internal_error",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no unexpected error",
+          "status": "pass",
+          "detail": "errors: []"
+        },
+        {
+          "name": "no failed call repeated with the same arguments",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "absolute paths",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "files of the user unchanged",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no tool denied by the client",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no denied attempt to write data of the user",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "metric = [MSE, MAE]",
+          "status": "pass",
+          "detail": "plan: metric=['mean_squared_error', 'mean_absolute_error']"
+        }
+      ],
+      "auto": "pass",
+      "verdict": "correct",
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "tools": [
+        "Skill",
+        "ToolSearch",
+        "profile",
+        "plan",
+        "create_cv",
+        "compare",
+        "forecast"
+      ],
+      "n_calls": 7,
+      "n_server_calls": 5,
+      "error_codes": [],
+      "denials": [],
+      "unsourced_numbers": [],
+      "usage": {
+        "input_tokens": 14,
+        "output_tokens": 1510,
+        "cache_read_tokens": 193941,
+        "cache_creation_tokens": 33186,
+        "cost_usd": 0.1673,
+        "agent_turns": 9,
+        "wall_seconds": 37.8
+      }
+    },
+    "interval_few_residuals__r1": {
+      "scenario": "interval_few_residuals",
+      "skill": true,
+      "rep": 1,
+      "critical": false,
+      "status": "completed",
+      "checks": [
+        {
+          "name": "subscription, no API key",
+          "status": "pass",
+          "detail": "apiKeySource='none'"
+        },
+        {
+          "name": "isolated session",
+          "status": "pass",
+          "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "skill available",
+          "status": "pass",
+          "detail": "listed in init: True"
+        },
+        {
+          "name": "skill loaded by the agent",
+          "status": "pass",
+          "detail": "Skill call"
+        },
+        {
+          "name": "finished within the limits",
+          "status": "pass",
+          "detail": "status=completed, 17.3 s of 600 s"
+        },
+        {
+          "name": "no work handed to a subagent",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "every turn ends with an answer",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `profile`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `plan`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `create_cv`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `backtest`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "`profile` before `plan`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "`plan` before `create_cv`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "`create_cv` before `backtest|compare`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no internal_error",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no unexpected error",
+          "status": "pass",
+          "detail": "errors: []"
+        },
+        {
+          "name": "no failed call repeated with the same arguments",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "absolute paths",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "files of the user unchanged",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no tool denied by the client",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no denied attempt to write data of the user",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "the answer says the intervals rest on few residuals",
+          "status": "pass",
+          "detail": "found 'residual'"
+        }
+      ],
+      "auto": "pass",
+      "verdict": "improvable",
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "tools": [
+        "Skill",
+        "ToolSearch",
+        "profile",
+        "plan",
+        "create_cv",
+        "backtest"
+      ],
+      "n_calls": 6,
+      "n_server_calls": 4,
+      "error_codes": [],
+      "denials": [],
+      "unsourced_numbers": [],
+      "usage": {
+        "input_tokens": 12,
+        "output_tokens": 1370,
+        "cache_read_tokens": 141025,
+        "cache_creation_tokens": 28780,
+        "cost_usd": 0.1429,
+        "agent_turns": 8,
+        "wall_seconds": 17.3
+      }
+    },
+    "interval_few_residuals__r2": {
+      "scenario": "interval_few_residuals",
+      "skill": true,
+      "rep": 2,
+      "critical": false,
+      "status": "completed",
+      "checks": [
+        {
+          "name": "subscription, no API key",
+          "status": "pass",
+          "detail": "apiKeySource='none'"
+        },
+        {
+          "name": "isolated session",
+          "status": "pass",
+          "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "skill available",
+          "status": "pass",
+          "detail": "listed in init: True"
+        },
+        {
+          "name": "skill loaded by the agent",
+          "status": "pass",
+          "detail": "Skill call"
+        },
+        {
+          "name": "finished within the limits",
+          "status": "pass",
+          "detail": "status=completed, 26.2 s of 600 s"
+        },
+        {
+          "name": "no work handed to a subagent",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "every turn ends with an answer",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `profile`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `plan`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `create_cv`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `backtest`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "`profile` before `plan`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "`plan` before `create_cv`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "`create_cv` before `backtest|compare`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no internal_error",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no unexpected error",
+          "status": "pass",
+          "detail": "errors: []"
+        },
+        {
+          "name": "no failed call repeated with the same arguments",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "absolute paths",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "files of the user unchanged",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no tool denied by the client",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no denied attempt to write data of the user",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "the answer says the intervals rest on few residuals",
+          "status": "pass",
+          "detail": "found 'too narrow'"
+        }
+      ],
+      "auto": "pass",
+      "verdict": "improvable",
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "tools": [
+        "Skill",
+        "ToolSearch",
+        "profile",
+        "plan",
+        "create_cv",
+        "backtest"
+      ],
+      "n_calls": 6,
+      "n_server_calls": 4,
+      "error_codes": [],
+      "denials": [],
+      "unsourced_numbers": [],
+      "usage": {
+        "input_tokens": 12,
+        "output_tokens": 1608,
+        "cache_read_tokens": 141572,
+        "cache_creation_tokens": 28307,
+        "cost_usd": 0.1435,
+        "agent_turns": 8,
+        "wall_seconds": 26.2
+      }
+    },
+    "interval_few_residuals__r3": {
+      "scenario": "interval_few_residuals",
+      "skill": true,
+      "rep": 3,
+      "critical": false,
+      "status": "completed",
+      "checks": [
+        {
+          "name": "subscription, no API key",
+          "status": "pass",
+          "detail": "apiKeySource='none'"
+        },
+        {
+          "name": "isolated session",
+          "status": "pass",
+          "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "skill available",
+          "status": "pass",
+          "detail": "listed in init: True"
+        },
+        {
+          "name": "skill loaded by the agent",
+          "status": "pass",
+          "detail": "Skill call"
+        },
+        {
+          "name": "finished within the limits",
+          "status": "pass",
+          "detail": "status=completed, 36.1 s of 600 s"
+        },
+        {
+          "name": "no work handed to a subagent",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "every turn ends with an answer",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `profile`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `plan`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `create_cv`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `backtest`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "`profile` before `plan`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "`plan` before `create_cv`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "`create_cv` before `backtest|compare`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no internal_error",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no unexpected error",
+          "status": "pass",
+          "detail": "errors: []"
+        },
+        {
+          "name": "no failed call repeated with the same arguments",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "absolute paths",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "files of the user unchanged",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no tool denied by the client",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no denied attempt to write data of the user",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "the answer says the intervals rest on few residuals",
+          "status": "pass",
+          "detail": "found 'too narrow'"
+        }
+      ],
+      "auto": "pass",
+      "verdict": "improvable",
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "tools": [
+        "Skill",
+        "ToolSearch",
+        "profile",
+        "plan",
+        "create_cv",
+        "backtest"
+      ],
+      "n_calls": 6,
+      "n_server_calls": 4,
+      "error_codes": [],
+      "denials": [],
+      "unsourced_numbers": [
+        "90"
+      ],
+      "usage": {
+        "input_tokens": 12,
+        "output_tokens": 1481,
+        "cache_read_tokens": 128013,
+        "cache_creation_tokens": 24905,
+        "cost_usd": 0.1273,
+        "agent_turns": 8,
+        "wall_seconds": 36.1
+      }
+    },
+    "probe_why_winner__r1": {
+      "scenario": "probe_why_winner",
+      "skill": true,
+      "rep": 1,
+      "critical": false,
+      "status": "completed",
+      "checks": [
+        {
+          "name": "subscription, no API key",
+          "status": "pass",
+          "detail": "apiKeySource='none'"
+        },
+        {
+          "name": "isolated session",
+          "status": "pass",
+          "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "skill available",
+          "status": "pass",
+          "detail": "listed in init: True"
+        },
+        {
+          "name": "skill loaded by the agent",
+          "status": "pass",
+          "detail": "Skill call"
+        },
+        {
+          "name": "finished within the limits",
+          "status": "pass",
+          "detail": "status=completed, 48.3 s of 900 s"
+        },
+        {
+          "name": "no work handed to a subagent",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "every turn ends with an answer",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "the plan of the forecast was measured",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `profile`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `plan`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `create_cv`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `compare`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no internal_error",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no unexpected error",
+          "status": "pass",
+          "detail": "errors: []"
+        },
+        {
+          "name": "no failed call repeated with the same arguments",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "absolute paths",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "files of the user unchanged",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no tool denied by the client",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no denied attempt to write data of the user",
+          "status": "pass",
+          "detail": ""
+        }
+      ],
+      "auto": "pass",
+      "verdict": "correct",
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "tools": [
+        "Skill",
+        "ToolSearch",
+        "profile",
+        "plan",
+        "create_cv",
+        "compare",
+        "forecast"
+      ],
+      "n_calls": 7,
+      "n_server_calls": 5,
+      "error_codes": [],
+      "denials": [],
+      "unsourced_numbers": [],
+      "usage": {
+        "input_tokens": 16,
+        "output_tokens": 1952,
+        "cache_read_tokens": 215863,
+        "cache_creation_tokens": 31531,
+        "cost_usd": 0.1673,
+        "agent_turns": 10,
+        "wall_seconds": 48.3
+      }
+    },
+    "probe_why_winner__r2": {
+      "scenario": "probe_why_winner",
+      "skill": true,
+      "rep": 2,
+      "critical": false,
+      "status": "completed",
+      "checks": [
+        {
+          "name": "subscription, no API key",
+          "status": "pass",
+          "detail": "apiKeySource='none'"
+        },
+        {
+          "name": "isolated session",
+          "status": "pass",
+          "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "skill available",
+          "status": "pass",
+          "detail": "listed in init: True"
+        },
+        {
+          "name": "skill loaded by the agent",
+          "status": "pass",
+          "detail": "Skill call"
+        },
+        {
+          "name": "finished within the limits",
+          "status": "pass",
+          "detail": "status=completed, 45.1 s of 900 s"
+        },
+        {
+          "name": "no work handed to a subagent",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "every turn ends with an answer",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "the plan of the forecast was measured",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `profile`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `plan`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `create_cv`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `compare`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no internal_error",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no unexpected error",
+          "status": "pass",
+          "detail": "errors: []"
+        },
+        {
+          "name": "no failed call repeated with the same arguments",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "absolute paths",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "files of the user unchanged",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no tool denied by the client",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no denied attempt to write data of the user",
+          "status": "pass",
+          "detail": ""
+        }
+      ],
+      "auto": "pass",
+      "verdict": "correct",
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "tools": [
+        "Skill",
+        "ToolSearch",
+        "profile",
+        "plan",
+        "create_cv",
+        "compare",
+        "forecast"
+      ],
+      "n_calls": 7,
+      "n_server_calls": 5,
+      "error_codes": [],
+      "denials": [],
+      "unsourced_numbers": [],
+      "usage": {
+        "input_tokens": 16,
+        "output_tokens": 1678,
+        "cache_read_tokens": 216337,
+        "cache_creation_tokens": 30968,
+        "cost_usd": 0.1623,
+        "agent_turns": 10,
+        "wall_seconds": 45.1
+      }
+    },
+    "probe_why_winner__r3": {
+      "scenario": "probe_why_winner",
+      "skill": true,
+      "rep": 3,
+      "critical": false,
+      "status": "completed",
+      "checks": [
+        {
+          "name": "subscription, no API key",
+          "status": "pass",
+          "detail": "apiKeySource='none'"
+        },
+        {
+          "name": "isolated session",
+          "status": "pass",
+          "detail": "servers=[('skforecast-ai', 'connected')], plugins=[]"
+        },
+        {
+          "name": "only the tools of the session",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "skill available",
+          "status": "pass",
+          "detail": "listed in init: True"
+        },
+        {
+          "name": "skill loaded by the agent",
+          "status": "pass",
+          "detail": "Skill call"
+        },
+        {
+          "name": "finished within the limits",
+          "status": "pass",
+          "detail": "status=completed, 45.0 s of 900 s"
+        },
+        {
+          "name": "no work handed to a subagent",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "every turn ends with an answer",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "the plan of the forecast was measured",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `profile`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `plan`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `create_cv`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "called `compare`",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no internal_error",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no unexpected error",
+          "status": "pass",
+          "detail": "errors: []"
+        },
+        {
+          "name": "no failed call repeated with the same arguments",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "absolute paths",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "files of the user unchanged",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no tool denied by the client",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "no denied attempt to write data of the user",
+          "status": "pass",
+          "detail": ""
+        }
+      ],
+      "auto": "pass",
+      "verdict": "correct",
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "tools": [
+        "Skill",
+        "ToolSearch",
+        "profile",
+        "plan",
+        "create_cv",
+        "compare",
+        "forecast"
+      ],
+      "n_calls": 7,
+      "n_server_calls": 5,
+      "error_codes": [],
+      "denials": [],
+      "unsourced_numbers": [],
+      "usage": {
+        "input_tokens": 16,
+        "output_tokens": 1865,
+        "cache_read_tokens": 216272,
+        "cache_creation_tokens": 31031,
+        "cost_usd": 0.1644,
+        "agent_turns": 10,
+        "wall_seconds": 45.0
+      }
+    }
+  }
+}

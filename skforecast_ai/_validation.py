@@ -24,11 +24,16 @@ from ._constants import (
     BLOCKING_PREPROCESSING_TEMPLATES,
     FORECASTER_TASK_TYPES,
     ML_TASK_TYPES,
+    N_EVALUATED_COLUMN,
     PASSTHROUGH_KWARGS_ESTIMATORS,
     SUPPORTED_ESTIMATORS,
     SUPPORTED_TRANSFORMERS,
 )
-from .exceptions import InvalidInputError, InvalidInputTypeError
+from .exceptions import (
+    InvalidInputError,
+    InvalidInputTypeError,
+    MissingBackendWarning,
+)
 
 # Task types whose interval method (native ARIMA intervals, conformal
 # intervals of the baseline) only predicts symmetric intervals.
@@ -224,6 +229,67 @@ def validate_estimator(
         )
 
 
+def _estimator_class(estimator: str | None) -> type | None:
+    """
+    Class of a supported machine-learning estimator, or of the `Arima` model
+    of `ForecasterStats`. None for any other name, and when the package of
+    the estimator is not installed (`importlib.util.find_spec` imports
+    nothing to find it out).
+    """
+
+    if estimator == "Arima":
+        # The ARIMA model of ForecasterStats, which skforecast ships.
+        from skforecast.stats import Arima
+
+        return Arima
+    if estimator not in SUPPORTED_ESTIMATORS:
+        return None
+    module_name = SUPPORTED_ESTIMATORS[estimator]
+    if importlib.util.find_spec(module_name.split(".")[0]) is None:
+        return None
+
+    return getattr(importlib.import_module(module_name), estimator)
+
+
+def estimator_param_defaults(estimator: str | None) -> dict[str, object]:
+    """
+    Default values of the named parameters of an estimator constructor.
+
+    Parameters
+    ----------
+    estimator : str, None
+        Name of a supported machine-learning estimator, or `'Arima'`.
+
+    Returns
+    -------
+    defaults : dict
+        Default value of each named parameter that has one, collected along
+        the constructor chain as `_estimator_param_names()` walks it (the
+        closest constructor wins). Empty for any other name, and when the
+        package of the estimator is not installed.
+    """
+
+    cls = _estimator_class(estimator)
+    if cls is None:
+        return {}
+    defaults: dict[str, object] = {}
+    for klass in cls.__mro__:
+        init = klass.__dict__.get("__init__")
+        if init is None:
+            continue
+        try:
+            params = list(inspect.signature(init).parameters.values())
+        except (TypeError, ValueError):
+            break
+        for p in params:
+            if p.default is not inspect.Parameter.empty:
+                defaults.setdefault(p.name, p.default)
+        if not any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params):
+            break
+
+    return defaults
+
+
 def _estimator_param_names(cls: type) -> set[str]:
     """
     Collect the parameter names an estimator constructor accepts.
@@ -305,8 +371,9 @@ def validate_estimator_kwargs(
     Only for the supported machine-learning estimators, when their package
     is installed (otherwise the names cannot be read and the check is
     skipped: running the plan then fails with an install message), and for
-    the `Arima` model of `ForecasterStats`. The class is imported but not
-    instantiated.
+    the `Arima` model of `ForecasterStats`. The values are checked by
+    building the estimator with them, which checks what its library
+    checks without data (`_check_estimator_kwarg_values`).
 
     Parameters
     ----------
@@ -327,23 +394,15 @@ def validate_estimator_kwargs(
     `PASSTHROUGH_KWARGS_ESTIMATORS` (LightGBM, XGBoost), which forward
     unknown names to the library as extra parameters and accept parameter
     aliases: they get a `UserWarning`, since the library ignores a name
-    that does not exist without an error.
+    that does not exist without an error. A value that the estimator
+    rejects raises an `InvalidInputError` (a `ValueError`) too.
     """
 
     warning_messages: list[str] = []
     if not estimator_kwargs:
         return warning_messages
-    if estimator == "Arima":
-        # The ARIMA model of ForecasterStats, which skforecast ships.
-        from skforecast.stats import Arima
-
-        cls = Arima
-    elif estimator in SUPPORTED_ESTIMATORS:
-        module_name = SUPPORTED_ESTIMATORS[estimator]
-        if importlib.util.find_spec(module_name.split(".")[0]) is None:
-            return warning_messages
-        cls = getattr(importlib.import_module(module_name), estimator)
-    else:
+    cls = _estimator_class(estimator)
+    if cls is None:
         return warning_messages
     names = _estimator_param_names(cls)
     extra_names = _library_param_names(estimator)
@@ -370,8 +429,120 @@ def validate_estimator_kwargs(
             f"{estimator} has no parameter {key!r}.{hint}{listed}",
             field = "estimator_kwargs",
         )
+    _check_estimator_kwarg_values(cls, estimator, estimator_kwargs)
 
     return warning_messages
+
+
+def _check_estimator_kwarg_values(
+    cls: type,
+    estimator: str,
+    estimator_kwargs: dict,
+) -> None:
+    """
+    Check the values of the keyword arguments by building the estimator
+    with them, so a wrong value fails when the plan is made and not when
+    its script fits the estimator.
+
+    The constructor of the `Arima` model checks its values; those of
+    scikit-learn only store them, and `_validate_params` applies the
+    constraints that `fit` would apply, without data. The other libraries
+    (LightGBM, XGBoost, CatBoost) check their values only when they fit.
+    """
+
+    try:
+        instance = cls(**estimator_kwargs)
+        if hasattr(instance, "_parameter_constraints"):
+            instance._validate_params()
+    except (ValueError, TypeError) as exc:
+        raise InvalidInputError(
+            f"`estimator_kwargs` is not valid for {estimator}: {exc}",
+            field = "estimator_kwargs",
+        ) from exc
+
+
+def missing_estimator_package(estimator: str | None) -> str | None:
+    """
+    Return the package to install for a machine-learning estimator whose
+    library is not installed.
+
+    The check imports nothing (`importlib.util.find_spec`).
+
+    Parameters
+    ----------
+    estimator : str, None
+        Estimator name.
+
+    Returns
+    -------
+    package : str, None
+        Name to pass to `pip install` (`'xgboost'`), or None when the
+        package is installed or `estimator` is not one of
+        `SUPPORTED_ESTIMATORS`.
+    """
+
+    if estimator not in SUPPORTED_ESTIMATORS:
+        return None
+    package = SUPPORTED_ESTIMATORS[estimator].split(".")[0]
+    if importlib.util.find_spec(package) is not None:
+        return None
+
+    return _PIP_NAMES.get(package, package)
+
+
+def missing_package_message(name: str, package: str) -> str:
+    """
+    First words of every message about a package that is not installed
+    (`"XGBRegressor needs the 'xgboost' package, which is not installed"`),
+    which the library and the MCP server complete each in its own way.
+
+    Parameters
+    ----------
+    name : str
+        Estimator or foundation model that needs the package.
+    package : str
+        Name to pass to `pip install`.
+
+    Returns
+    -------
+    message : str
+        The sentence, without its end.
+    """
+
+    return f"{name} needs the '{package}' package, which is not installed"
+
+
+def warn_estimator_not_installed(estimator: str | None, task_type: str) -> None:
+    """
+    Warn, when a plan is made, that its machine-learning estimator needs a
+    package that is not installed.
+
+    The plan is still made: its script may run on another machine, and
+    running it here fails before anything runs (`check_estimator_installed`).
+
+    Parameters
+    ----------
+    estimator : str, None
+        Estimator name of the plan.
+    task_type : str
+        Forecasting task category of the plan.
+
+    Returns
+    -------
+    None
+    """
+
+    if task_type not in ML_TASK_TYPES:
+        return
+    package = missing_estimator_package(estimator)
+    if package is None:
+        return
+    warnings.warn(
+        f"{missing_package_message(estimator, package)}: the plan cannot run "
+        f"here until it is (pip install {package}).",
+        MissingBackendWarning,
+        stacklevel = 3,
+    )
 
 
 def check_estimator_installed(
@@ -409,16 +580,16 @@ def check_estimator_installed(
 
         check_foundation_backend(estimator)
         return
-    if task_type not in ML_TASK_TYPES or estimator not in SUPPORTED_ESTIMATORS:
+    if task_type not in ML_TASK_TYPES:
         return
-    package = SUPPORTED_ESTIMATORS[estimator].split(".")[0]
-    if importlib.util.find_spec(package) is None:
-        pip_name = _PIP_NAMES.get(package, package)
+    package = missing_estimator_package(estimator)
+    if package is not None:
         raise InvalidInputError(
-            f"{estimator} needs the '{pip_name}' package, which is not "
-            f"installed (pip install {pip_name}).",
+            f"{missing_package_message(estimator, package)} "
+            f"(pip install {package}).",
             code  = "missing_dependency",
             field = "estimator",
+            hint  = f"Install it where skforecast-ai runs: pip install {package}.",
         )
 
 
@@ -518,10 +689,26 @@ def validate_metrics(metrics: list[str], field: str = "metric") -> None:
     -----
     A `ValueError` listing `ALLOWED_METRICS` is raised for any other name,
     including skforecast's classification scores, which are higher is
-    better while `compare()` ranks ascending.
+    better while `compare()` ranks ascending, and `'n_evaluated'`, the
+    column of the backtesting metrics with the number of points evaluated.
+    A repeated name is also rejected: the names are the columns of the
+    metrics, and skforecast would fail on it inside the script.
     """
 
+    repeated = sorted({name for name in metrics if metrics.count(name) > 1})
+    if repeated:
+        raise InvalidInputError(
+            f"`{field}` repeats {repeated}: list each metric once.",
+            field = field,
+        )
     for metric in metrics:
+        if metric == N_EVALUATED_COLUMN:
+            raise InvalidInputError(
+                f"{metric!r} is not a metric: it is the column of the "
+                f"backtesting metrics with the number of points evaluated. "
+                f"Supported metrics: {list(ALLOWED_METRICS)}.",
+                field = field,
+            )
         if metric not in ALLOWED_METRICS:
             raise InvalidInputError(
                 f"Unknown metric {metric!r}. Supported metrics: "
@@ -663,6 +850,44 @@ def validate_steps(steps: object) -> int:
         )
 
     return int(steps)
+
+
+def validate_confirm_cost(confirm_cost: object) -> None:
+    """
+    Check the confirmation of an expensive run passed to `backtest()` or
+    `compare()`.
+
+    Parameters
+    ----------
+    confirm_cost : bool, int
+        True, False, or the figure of the cost of the run (an integer
+        greater than or equal to 0).
+
+    Returns
+    -------
+    None
+
+    Notes
+    -----
+    A `TypeError` is raised for a value that is neither a bool nor an
+    integer, and a `ValueError` for a negative integer. Checked before
+    anything runs, whatever the cost.
+    """
+
+    if isinstance(confirm_cost, bool):
+        return
+    if not isinstance(confirm_cost, numbers.Integral):
+        raise InvalidInputTypeError(
+            f"`confirm_cost` must be True, False or the integer figure of the "
+            f"cost, got {type(confirm_cost).__name__}.",
+            field = "confirm_cost",
+        )
+    if confirm_cost < 0:
+        raise InvalidInputError(
+            f"`confirm_cost` must be True, False or the integer figure of the "
+            f"cost (0 or more), got {confirm_cost}.",
+            field = "confirm_cost",
+        )
 
 
 def validate_forecaster(forecaster: str, task_type: str) -> None:
@@ -949,14 +1174,15 @@ def _validate_window_features(
 
     Each entry must be a dict with a `'stats'` key (a non-empty list whose
     members are all in `ALLOWED_WINDOW_STATS`) and a `'window_size'` key
-    holding a scalar positive int. A scalar is required because the code
-    generator pairs every statistic in an entry with that entry's single
-    window size; a list would be emitted as a nested list and rejected by
-    `RollingFeatures`. To combine several window sizes, add one entry per
-    size. The same statistic must not be paired with the same window size
-    in two entries: the code generator flattens the entries into a single
-    `RollingFeatures`, which rejects duplicate pairs. A `ValueError` is
-    raised on the first violation.
+    holding a scalar positive int, and no other key. A scalar is required
+    because the code generator pairs every statistic in an entry with that
+    entry's single window size; a list would be emitted as a nested list
+    and rejected by `RollingFeatures`. To combine several window sizes,
+    add one entry per size. The same statistic must not be paired with the
+    same window size in two entries: the code generator flattens the
+    entries into a single `RollingFeatures`, which rejects duplicate pairs.
+    An `InvalidInputError` (a `ValueError`) is raised on the first
+    violation.
 
     Parameters
     ----------
@@ -994,6 +1220,16 @@ def _validate_window_features(
                 f"`window_features[{i}]` is missing required key(s): "
                 f"{sorted(missing)}. Each entry must have 'stats' and "
                 f"'window_size'.",
+                field = field,
+            )
+        # An unknown key would be dropped by the code generator while the
+        # plan still showed it as chosen.
+        unknown = sorted(str(key) for key in wf.keys() - {"stats", "window_size"})
+        if unknown:
+            raise InvalidInputError(
+                f"`window_features[{i}]` has unknown key(s): {unknown}. Each "
+                f"entry takes only 'stats' and 'window_size'; add one entry "
+                f"per window size to use several sizes.",
                 field = field,
             )
 

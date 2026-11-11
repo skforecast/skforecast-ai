@@ -1,23 +1,37 @@
 # Unit test tool forecast
 
+import numpy as np
+import pandas as pd
 import pytest
 
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai._utils import load_exog
 from skforecast_ai.mcp import create_server
+from skforecast_ai.mcp.models import ToolNotice
 
-from ..fixtures_assistant import df_single
+from ..fixtures_assistant import (
+    df_crossing_zero,
+    df_multi_wide,
+    df_single,
+    patch_find_spec,
+)
 from ..fixtures_csv_dialect import df_dialect, write_dialect
-from ..fixtures_datasets import df_items_sales_long
+from ..fixtures_datasets import df_hourly_madrid_spring, df_items_sales_long
 from .fixtures_mcp import (
     DATA_VALUES_HINT,
+    MSE_UNIT,
+    RMSE_UNIT,
     call,
+    df_numeric_ids_exog,
+    df_numeric_ids_future_exog,
     df_single_future_exog,
     content_of,
     csv_of,
+    cv_of,
     error_of,
     h2o_server,
     profile_and_plan,
+    run_session,
     text_of,
     write_csv,
 )
@@ -55,11 +69,12 @@ def test_tool_forecast_output_matches_python_api(tmp_path, test_size):
     assert text_of(result["files"]["predictions"]) == csv_of(expected.predictions)
     # Only an evaluation has metrics, and with them the notice that gives
     # the reference of MASE and the unit of MAPE, after the one that says it
-    # is an evaluation.
+    # is an evaluation. A forecast of the future of a plan the session never
+    # measured says so.
     categories = [notice["category"] for notice in result["notices"]]
     if test_size is None:
         assert sorted(result["files"]) == ["predictions"]
-        assert categories == []
+        assert categories == ["UnmeasuredPlanNotice"]
     else:
         assert text_of(result["files"]["metrics"]) == csv_of(expected.metrics)
         assert categories == [
@@ -72,7 +87,9 @@ def test_tool_forecast_evaluation_plan_is_not_registered(tmp_path):
     """
     Test that the plan of an evaluation, which holds the split of the test
     set, is never registered as a plan, and that only the evaluation carries
-    the notice that its dates are already in the data.
+    the notice that its dates are already in the data. The evaluation
+    measures the plan, so the forecast of the future that follows carries no
+    notice at all.
     """
     server, path = h2o_server(tmp_path)
     _, plan_id = profile_and_plan(server, path)
@@ -91,6 +108,114 @@ def test_tool_forecast_evaluation_plan_is_not_registered(tmp_path):
         evaluation["notices"][0]["message"]
     )
     assert future["notices"] == []
+
+
+@pytest.mark.parametrize(
+    "frame, target, columns",
+    [
+        (
+            df_single,
+            "sales",
+            [
+                "mean_absolute_error",
+                "root_mean_squared_error",
+                "mean_absolute_scaled_error",
+            ],
+        ),
+        (
+            df_multi_wide,
+            ["series_a", "series_b"],
+            [
+                "levels",
+                "mean_absolute_error",
+                "root_mean_squared_error",
+                "mean_absolute_scaled_error",
+            ],
+        ),
+    ],
+    ids=["single series", "multi series"],
+)
+def test_tool_forecast_metrics_csv_has_the_columns_of_the_backtest(
+    tmp_path, frame, target, columns
+):
+    """
+    Test that the CSV of metrics of a `forecast` with `test_size` has the
+    columns of the CSV of metrics of a `backtest` of the same plan (V05 of
+    the audit): one per metric, named as the metric, which is the name the
+    `MetricReferenceNotice` of the same response uses, and `levels` with
+    the series when there are several, as skforecast's backtesting, whose
+    CSV ends with `n_evaluated` (skforecast 0.27), the number of points
+    evaluated, which the hold-out metrics do not have.
+    """
+    path = write_csv(tmp_path, "data.csv", frame)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, plan_id, cv_id = cv_of(
+        server, path, target=target, steps=5,
+        cv_arguments={"initial_train_size": 60},
+    )
+
+    forecast = content_of(
+        call(server, "forecast", {"plan_id": plan_id, "test_size": 5})
+    )
+    backtest = content_of(call(server, "backtest", {"cv_id": cv_id}))
+    forecast_metrics = pd.read_csv(forecast["files"]["metrics"], index_col=0)
+    backtest_metrics = pd.read_csv(backtest["files"]["metrics"], index_col=0)
+    reference = [
+        notice["message"] for notice in forecast["notices"]
+        if notice["category"] == "MetricReferenceNotice"
+    ]
+
+    assert list(forecast_metrics.columns) == columns
+    assert list(backtest_metrics.columns) == [*columns, "n_evaluated"]
+    if "levels" in columns:
+        assert list(forecast_metrics["levels"]) == target
+    assert reference[0].startswith("`mean_absolute_scaled_error` divides")
+
+
+def test_tool_forecast_output_when_metric_is_root_mean_squared_error(tmp_path):
+    """
+    Test that a plan whose `metric` is `root_mean_squared_error` computes
+    it in a `forecast` with `test_size` as the Python API does, in a column
+    of that name next to the MSE whose square root it is, and that the
+    response gives the units of both, squared and that of the target, in a
+    `MetricUnitNotice`.
+    """
+    path = write_csv(tmp_path, "sales.csv", df_single)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    metric = ["root_mean_squared_error", "mean_squared_error"]
+    _, plan_id = profile_and_plan(
+        server, path, target="sales", steps=5, metric=metric
+    )
+
+    result = content_of(
+        call(server, "forecast", {"plan_id": plan_id, "test_size": 5})
+    )
+    metrics = pd.read_csv(result["files"]["metrics"], index_col=0)
+
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(path, target="sales")
+    expected = assistant.forecast(
+        data=path,
+        profile=profile,
+        plan=assistant.plan(profile=profile, steps=5, metric=metric),
+        test_size=5,
+    )
+
+    assert text_of(result["files"]["metrics"]) == csv_of(expected.metrics)
+    assert list(metrics.columns) == metric
+    np.testing.assert_almost_equal(
+        metrics["root_mean_squared_error"].iloc[0],
+        np.sqrt(metrics["mean_squared_error"].iloc[0]),
+    )
+    assert result["notices"][0]["category"] == "HoldoutEvaluationNotice"
+    assert [ToolNotice(**n) for n in result["notices"][1:]] == [
+        ToolNotice(
+            source   = "runtime",
+            category = "MetricUnitNotice",
+            message  = f"{MSE_UNIT} {RMSE_UNIT}",
+            count    = 1,
+        )
+    ]
 
 
 def test_tool_forecast_with_future_exog(tmp_path):
@@ -114,7 +239,7 @@ def test_tool_forecast_with_future_exog(tmp_path):
         data=path,
         profile=profile,
         plan=assistant.plan(profile=profile, steps=10),
-        exog=load_exog(exog_path, date_column="date"),
+        exog=load_exog(exog_path, date_column="date")[0],
     )
 
     assert text_of(result["files"]["predictions"]) == csv_of(expected.predictions)
@@ -241,7 +366,7 @@ def test_tool_forecast_without_exog_when_plan_does_not_use_them(tmp_path):
 
     assert text_of(result["files"]["predictions"]) == csv_of(expected.predictions)
     assert [notice["category"] for notice in result["notices"]] == [
-        "ExogLeftOutNotice"
+        "UnmeasuredPlanNotice", "ExogLeftOutNotice"
     ]
     assert (given["code"], given["field"]) == ("invalid_argument", "exog_path")
     assert given["message"] == (
@@ -284,6 +409,38 @@ def test_tool_forecast_invalid_argument_when_future_exog_is_missing(tmp_path):
         "`test_size`: it evaluates dates already in the data, which is not "
         "the forecast the user asked for."
     )
+
+
+def test_tool_forecast_missing_dependency_of_an_estimator(tmp_path, monkeypatch):
+    """
+    Test that forecasting with a plan whose estimator is not installed
+    (CatBoost) is `missing_dependency` on `plan_id` before any script runs,
+    with the install advice for pip and for uvx, the restart, and the
+    estimator and the package in `details` (V02), also with `test_size`.
+    """
+    patch_find_spec(monkeypatch, missing=["catboost"])
+    server, path = h2o_server(tmp_path)
+    _, plan_id = profile_and_plan(server, path, estimator="CatBoostRegressor")
+
+    future = error_of(call(server, "forecast", {"plan_id": plan_id}), "forecast")
+    holdout = error_of(
+        call(server, "forecast", {"plan_id": plan_id, "test_size": 12}), "forecast"
+    )
+
+    assert future == holdout == {
+        "code": "missing_dependency",
+        "message": (
+            "CatBoostRegressor needs the 'catboost' package, which is not "
+            "installed where the server runs. Nothing was run."
+        ),
+        "field": "plan_id",
+        "hint": (
+            'Ask the user to install it where the server runs and to restart the '
+            'server: `pip install "catboost"` in its Python environment, or '
+            '`--with "catboost"` added to the uvx command that starts it.'
+        ),
+        "details": {"estimator": "CatBoostRegressor", "package": "catboost"},
+    }
 
 
 def test_tool_forecast_invalid_argument_when_foundation_series_ends_early(
@@ -344,8 +501,9 @@ def test_tool_forecast_invalid_argument_when_foundation_series_ends_early(
     assert error["message"] == (
         "The target has missing values in the test split ('item_2': 7 value(s), "
         "such as '2012-04-23', '2012-04-24', '2012-04-25', '2012-04-26', "
-        "'2012-04-27' and 2 more). skforecast cannot compute the metrics on "
-        "them, whatever the estimator. Impute the target, or evaluate on dates "
+        "'2012-04-27' and 2 more). The metrics of the evaluation cannot be "
+        "computed on them, whatever the estimator. Impute the target, or "
+        "evaluate on dates "
         "without missing values. Series without any value in the test split "
         "('item_2') end before it: remove them from the data, or evaluate on "
         "dates they reach."
@@ -407,7 +565,7 @@ def test_tool_forecast_invalid_argument_with_hint_when_future_exog_has_missing_v
         "value(s), such as '2023-04-13'). ForecasterRecursive with Ridge "
         "cannot use them, so its predictions would be missing. "
         "Either they are filled in, or the plan uses an estimator that "
-        "accepts missing values (for example 'LGBMRegressor')."
+        "accepts missing values (such as 'RandomForestRegressor')."
     )
     assert error["hint"] == (
         "The file of future values is the user's: tell them what the message "
@@ -439,6 +597,46 @@ def test_tool_forecast_invalid_argument_with_hint_when_future_exog_has_no_date_c
     assert error["message"] == (
         f"The exog CSV '{exog_path}' has no column 'date'; its columns are "
         f"['day', 'promo']."
+    )
+    assert error["hint"] == (
+        "The file of future values is the user's: tell them what the message "
+        "says and let them correct it. Never write or change those values "
+        "yourself."
+    )
+
+
+def test_tool_forecast_invalid_argument_with_hint_when_data_without_dates_and_exog_positions_do_not_follow(
+    tmp_path,
+):
+    """
+    Test that a file of future values of data without dates whose column of
+    positions (the index that `to_csv()` writes) does not follow the last
+    row of the data is `invalid_argument` on `exog_path`, with a message
+    that says so and the hint that leaves the file to the user, instead of
+    the error of skforecast when it predicts.
+    """
+    data = pd.DataFrame(
+        {"y": 10.0 + np.sin(np.arange(60) / 4), "x": np.cos(np.arange(60))}
+    )
+    path = write_csv(tmp_path, "datos.csv", data)
+    exog_path = tmp_path / "futuro.csv"
+    pd.DataFrame({"x": np.cos(np.arange(5))}).to_csv(exog_path)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, plan_id = profile_and_plan(
+        server, path, target="y", steps=5, estimator="Ridge"
+    )
+
+    error = error_of(
+        call(server, "forecast", {"plan_id": plan_id, "exog_path": str(exog_path)}),
+        "forecast",
+    )
+
+    assert (error["code"], error["field"]) == ("invalid_argument", "exog_path")
+    assert error["message"] == (
+        "`exog` must be indexed by the positions that follow the last row of "
+        "the data (a RangeIndex), 60 to 64 for the 5 steps of the horizon; its "
+        "first rows are at 0, 1, 2, 3, 4. The data have no dates: the future "
+        "values are one row per step of the horizon, in order."
     )
     assert error["hint"] == (
         "The file of future values is the user's: tell them what the message "
@@ -545,3 +743,436 @@ def test_tool_forecast_data_changed_when_gzip_file_was_modified(tmp_path):
         f"The file {path!r} changed since it was profiled, so its profile and "
         f"the objects built from it no longer describe it. Nothing was run."
     )
+
+
+def test_tool_forecast_output_when_series_ids_are_numbers(tmp_path):
+    """
+    Test that `forecast` runs on long-format data whose series ids are
+    numbers ('001', '1', '10'), with the future exogenous variables of
+    `exog_path` read with the same ids as text, as the Python API does.
+    Before, it failed as `execution_failed` with `KeyError: 1` inside
+    skforecast (skforecast issue #1357).
+    """
+    path = write_csv(tmp_path, "stores.csv", df_numeric_ids_exog)
+    exog_path = write_csv(tmp_path, "future.csv", df_numeric_ids_future_exog)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    arguments = {"target": "value", "series_id_column": "series_id"}
+    profile = content_of(call(server, "profile", {"data_path": path, **arguments}))
+    plan = content_of(
+        call(server, "plan", {"profile_id": profile["id"], "steps": 7})
+    )
+
+    result = content_of(
+        call(server, "forecast", {"plan_id": plan["id"], "exog_path": exog_path})
+    )
+
+    assistant = ForecastingAssistant()
+    expected_profile = assistant.profile(path, **arguments)
+    expected = assistant.forecast(
+        data=path,
+        profile=expected_profile,
+        plan=assistant.plan(profile=expected_profile, steps=7),
+        exog=load_exog(
+            exog_path, date_column="date", series_id_column="series_id"
+        )[0],
+    )
+    predictions = pd.read_csv(
+        result["files"]["predictions"], index_col=0, dtype={"level": str}
+    )
+
+    assert expected.plan.use_exog is True
+    assert result["summary"] == expected.describe()
+    assert text_of(result["files"]["predictions"]) == csv_of(expected.predictions)
+    assert sorted(predictions["level"].unique()) == ["001", "1", "10"]
+
+
+def test_tool_forecast_notice_of_undefined_mape_when_target_crosses_zero(tmp_path):
+    """
+    Test that MAPE requested on a target that crosses zero gets, in the
+    response of `forecast`, the notice that it has no meaning instead of its
+    unit, which needs the profile of the data.
+    """
+    path = write_csv(tmp_path, "profit.csv", df_crossing_zero)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, plan_id = profile_and_plan(
+        server, path, target="profit", steps=6,
+        metric="mean_absolute_percentage_error",
+    )
+
+    result = content_of(
+        call(server, "forecast", {"plan_id": plan_id, "test_size": 6})
+    )
+    assert [n["category"] for n in result["notices"]] == ["HoldoutEvaluationNotice", "MetricUndefinedNotice"]
+    assert result["notices"][-1]["message"].startswith(
+        "`mean_absolute_percentage_error` has no meaning on this data"
+    )
+
+
+UNMEASURED_MESSAGE = (
+    "No `backtest`, `compare` or `forecast` with `test_size` in this session "
+    "measured this plan (the same decisions, with any interval or metric), so "
+    "this forecast has no measure of accuracy. Say so, and before presenting "
+    "it as reliable measure it: "
+    "`create_cv` with this `plan_id`, then `backtest` or `compare`. Never give "
+    "the accuracy of another plan as that of this forecast."
+)
+
+
+def _categories(result: dict) -> list[str]:
+    """
+    Categories of the notices of a response.
+    """
+
+    return [notice["category"] for notice in result["notices"]]
+
+
+def test_tool_forecast_unmeasured_notice_until_the_plan_is_backtested(tmp_path):
+    """
+    Test that a forecast of the future of a plan no backtest measured carries
+    the `UnmeasuredPlanNotice`, and that once a backtest of that plan ran the
+    same forecast carries none.
+    """
+    server, path = h2o_server(tmp_path)
+
+    async def steps(client):
+        profile = content_of(
+            await client.call_tool("profile", {"data_path": path, "target": "x"})
+        )
+        plan = content_of(
+            await client.call_tool("plan", {"profile_id": profile["id"], "steps": 12})
+        )
+        before = content_of(
+            await client.call_tool("forecast", {"plan_id": plan["id"]})
+        )
+        cv = content_of(await client.call_tool("create_cv", {"plan_id": plan["id"]}))
+        content_of(await client.call_tool("backtest", {"cv_id": cv["id"]}))
+        after = content_of(
+            await client.call_tool("forecast", {"plan_id": plan["id"]})
+        )
+        return before, after
+
+    before, after = run_session(server, steps)
+
+    assert before["notices"] == [
+        {
+            "source": "runtime",
+            "category": "UnmeasuredPlanNotice",
+            "message": UNMEASURED_MESSAGE,
+            "count": 1,
+        }
+    ]
+    assert after["notices"] == []
+
+
+@pytest.mark.parametrize(
+    "rebuild",
+    ["plan", "refine_plan"],
+    ids=lambda dt: f"rebuild: {dt}",
+)
+def test_tool_forecast_no_unmeasured_notice_when_plan_rebuilt_with_interval(
+    tmp_path, rebuild
+):
+    """
+    Test that a plan built again with the decisions of a backtested plan plus
+    an interval (with `plan` or with `refine_plan`), which has another id,
+    counts as measured: the interval does not change the point predictions.
+    """
+    server, path = h2o_server(tmp_path)
+
+    async def steps(client):
+        profile = content_of(
+            await client.call_tool("profile", {"data_path": path, "target": "x"})
+        )
+        plan = content_of(
+            await client.call_tool("plan", {"profile_id": profile["id"], "steps": 12})
+        )
+        cv = content_of(await client.call_tool("create_cv", {"plan_id": plan["id"]}))
+        content_of(await client.call_tool("backtest", {"cv_id": cv["id"]}))
+        if rebuild == "plan":
+            arguments = {
+                "profile_id": profile["id"], "steps": 12, "interval": [0.1, 0.9],
+            }
+        else:
+            arguments = {
+                "plan_id": plan["id"], "overrides": {"interval": [0.1, 0.9]},
+            }
+        rebuilt = content_of(await client.call_tool(rebuild, arguments))
+        forecast = content_of(
+            await client.call_tool("forecast", {"plan_id": rebuilt["id"]})
+        )
+        return plan, rebuilt, forecast
+
+    plan, rebuilt, forecast = run_session(server, steps)
+
+    assert rebuilt["id"] != plan["id"]
+    assert "UnmeasuredPlanNotice" not in _categories(forecast)
+
+
+def test_tool_forecast_unmeasured_notice_when_another_plan_was_measured(tmp_path):
+    """
+    Test that a backtest of one plan does not count for another: a plan
+    refined with another estimator, and the same decisions on another
+    profile of the data, still carry the `UnmeasuredPlanNotice`. The plan
+    with the estimator chosen by the user also carries the
+    `EstimatorNotRecommendedNotice`.
+    """
+    server, path = h2o_server(tmp_path)
+
+    async def steps(client):
+        profile = content_of(
+            await client.call_tool("profile", {"data_path": path, "target": "x"})
+        )
+        plan = content_of(
+            await client.call_tool("plan", {"profile_id": profile["id"], "steps": 12})
+        )
+        cv = content_of(await client.call_tool("create_cv", {"plan_id": plan["id"]}))
+        content_of(await client.call_tool("backtest", {"cv_id": cv["id"]}))
+        refined = content_of(
+            await client.call_tool(
+                "refine_plan",
+                {
+                    "plan_id": plan["id"],
+                    "overrides": {"estimator": "RandomForestRegressor"},
+                },
+            )
+        )
+        other_estimator = content_of(
+            await client.call_tool("forecast", {"plan_id": refined["id"]})
+        )
+        other_profile = content_of(
+            await client.call_tool("profile", {"data_path": path, "target": "x"})
+        )
+        same_plan = content_of(
+            await client.call_tool(
+                "plan", {"profile_id": other_profile["id"], "steps": 12}
+            )
+        )
+        other_data = content_of(
+            await client.call_tool("forecast", {"plan_id": same_plan["id"]})
+        )
+        return other_estimator, other_data
+
+    other_estimator, other_data = run_session(server, steps)
+
+    assert sorted(_categories(other_estimator)) == [
+        "EstimatorNotRecommendedNotice",
+        "UnmeasuredPlanNotice",
+    ]
+    assert _categories(other_data) == ["UnmeasuredPlanNotice"]
+
+
+def test_tool_forecast_no_unmeasured_notice_for_any_candidate_of_compare(tmp_path):
+    """
+    Test that `compare` measures every candidate that ran, not only the
+    winner: neither the plan of the winner nor a plan built again with the
+    decisions of another candidate (ForecasterDirect) carries the
+    `UnmeasuredPlanNotice`.
+    """
+    server, path = h2o_server(tmp_path)
+
+    async def steps(client):
+        profile = content_of(
+            await client.call_tool("profile", {"data_path": path, "target": "x"})
+        )
+        plan = content_of(
+            await client.call_tool("plan", {"profile_id": profile["id"], "steps": 12})
+        )
+        cv = content_of(await client.call_tool("create_cv", {"plan_id": plan["id"]}))
+        comparison = content_of(
+            await client.call_tool("compare", {"cv_id": cv["id"]})
+        )
+        direct = content_of(
+            await client.call_tool(
+                "refine_plan",
+                {
+                    "plan_id": plan["id"],
+                    "overrides": {"forecaster": "ForecasterDirect"},
+                },
+            )
+        )
+        best = content_of(
+            await client.call_tool(
+                "forecast", {"plan_id": comparison["links"]["best_plan_id"]}
+            )
+        )
+        other = content_of(
+            await client.call_tool("forecast", {"plan_id": direct["id"]})
+        )
+        return comparison, best, other
+
+    comparison, best, other = run_session(server, steps)
+
+    assert "ForecasterDirect" in comparison["summary"]
+    assert "UnmeasuredPlanNotice" not in _categories(best)
+    assert "UnmeasuredPlanNotice" not in _categories(other)
+
+
+def test_tool_forecast_evaluation_says_it_is_a_holdout_without_unmeasured_notice(
+    tmp_path,
+):
+    """
+    Test that a forecast with `test_size` of a plan never measured gets no
+    `UnmeasuredPlanNotice` (it is a measure itself), that its summary, the
+    context `ask()` reads, says in words that it is a hold-out evaluation on
+    dates already in the data and not the future, and that it measures the
+    plan for the forecast of the future that follows.
+    """
+    server, path = h2o_server(tmp_path)
+    _, plan_id = profile_and_plan(server, path)
+
+    result = content_of(
+        call(server, "forecast", {"plan_id": plan_id, "test_size": 12})
+    )
+    future = content_of(call(server, "forecast", {"plan_id": plan_id}))
+
+    assert _categories(result) == [
+        "HoldoutEvaluationNotice", "MetricReferenceNotice", "MetricUnitNotice",
+    ]
+    assert (
+        "<evaluation_metrics>\n"
+        "Hold-out evaluation, not a forecast of the future: the model was "
+        "trained on the data up to 2007-06-01 and predicted the next 12 steps, "
+        "whose dates are already in the data. These metrics score those "
+        "predictions against the observed values.\n"
+    ) in result["summary"]
+    assert future["notices"] == []
+
+
+def test_tool_forecast_no_unmeasured_notice_when_plan_refined_with_another_metric(
+    tmp_path,
+):
+    """
+    Test that a backtested plan refined with another metric counts as
+    measured (the metric does not change the predictions), and that a plan
+    measured only by a forecast with `test_size` of another plan does not.
+    """
+    server, path = h2o_server(tmp_path)
+
+    async def steps(client):
+        profile = content_of(
+            await client.call_tool("profile", {"data_path": path, "target": "x"})
+        )
+        plan = content_of(
+            await client.call_tool("plan", {"profile_id": profile["id"], "steps": 12})
+        )
+        cv = content_of(await client.call_tool("create_cv", {"plan_id": plan["id"]}))
+        content_of(await client.call_tool("backtest", {"cv_id": cv["id"]}))
+        refined = content_of(
+            await client.call_tool(
+                "refine_plan",
+                {
+                    "plan_id": plan["id"],
+                    "overrides": {"metric": "mean_squared_error"},
+                },
+            )
+        )
+        other_metric = content_of(
+            await client.call_tool("forecast", {"plan_id": refined["id"]})
+        )
+        other = content_of(
+            await client.call_tool("plan", {"profile_id": profile["id"], "steps": 6})
+        )
+        content_of(
+            await client.call_tool(
+                "forecast", {"plan_id": other["id"], "test_size": 6}
+            )
+        )
+        other_horizon = content_of(
+            await client.call_tool(
+                "plan", {"profile_id": profile["id"], "steps": 3}
+            )
+        )
+        unmeasured = content_of(
+            await client.call_tool("forecast", {"plan_id": other_horizon["id"]})
+        )
+        return refined, other_metric, unmeasured
+
+    refined, other_metric, unmeasured = run_session(server, steps)
+
+    assert "- Primary metric: mean_squared_error" in refined["summary"]
+    assert other_metric["notices"] == []
+    assert _categories(unmeasured) == ["UnmeasuredPlanNotice"]
+
+
+@pytest.mark.parametrize(
+    "test_size",
+    ["2023-03-27T22:00:00Z", "2023-03-27T22:00:00+00:00", "2023-03-27 22:00:00"],
+    ids=["Z", "+00:00", "without_zone"],
+)
+def test_tool_forecast_output_when_test_size_is_a_date_with_time_zone(
+    tmp_path, test_size
+):
+    """
+    Test that `forecast` on data in UTC reads a `test_size` date written
+    with `Z`, with `+00:00` or without zone as the same first date of the
+    test set, instead of an `internal_error` that says not to retry (G04).
+    """
+    frame = df_hourly_madrid_spring.tz_convert("UTC").reset_index(names="date")
+    path = write_csv(tmp_path, "hourly_utc.csv", frame)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, plan_id = profile_and_plan(server, path, target="y", steps=19)
+
+    result = content_of(
+        call(server, "forecast", {"plan_id": plan_id, "test_size": test_size})
+    )
+
+    assert result["kind"] == "forecast"
+    assert "2023-03-27 21:00:00" in result["summary"]
+
+
+def test_tool_forecast_invalid_argument_when_test_size_has_time_zone_and_data_has_none(
+    tmp_path,
+):
+    """
+    Test that a `test_size` date with a time zone on data without one is
+    `invalid_argument` on `test_size` saying to drop the zone (G04).
+    """
+    server, path = h2o_server(tmp_path)
+    _, plan_id = profile_and_plan(server, path)
+
+    error = error_of(
+        call(
+            server,
+            "forecast",
+            {"plan_id": plan_id, "test_size": "2007-07-01T00:00:00Z"},
+        ),
+        "forecast",
+    )
+
+    assert error["code"] == "invalid_argument"
+    assert error["field"] == "test_size"
+    assert error["message"] == (
+        "`test_size` ('2007-07-01T00:00:00Z') has a time zone, and the dates of "
+        "the data have none. Pass the first date of the test set without the "
+        "time zone, such as '2007-07-01'."
+    )
+
+
+def test_tool_forecast_insufficient_data_when_training_partition_shorter_than_window(
+    tmp_path,
+):
+    """
+    Test that a hold-out whose training partition is shorter than the window
+    of the forecaster is `insufficient_data` on `test_size`, with the longest
+    horizon that fits in the hint, before running anything, instead of an
+    `execution_failed` (V30).
+    """
+    server, path = h2o_server(tmp_path)
+    _, plan_id = profile_and_plan(server, path, steps=180, lags=36)
+
+    error = error_of(
+        call(server, "forecast", {"plan_id": plan_id, "test_size": 180}),
+        "forecast",
+    )
+
+    assert error["code"] == "insufficient_data"
+    assert error["field"] == "test_size"
+    assert error["message"].startswith(
+        "The training partition of the evaluation, up to 1993-06-01, has 24 "
+        "observations, and ForecasterRecursive needs at least 37 (more than its "
+        "window size, 36), so skforecast would fail."
+    )
+    assert error["hint"].startswith(
+        "Keeping the rest of the plan, at most 167 `steps` fit"
+    )
+    assert error["details"] is None

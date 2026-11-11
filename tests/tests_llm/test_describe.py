@@ -376,15 +376,18 @@ def test_describe_output_when_many_series_cuts_each_list():
     expected_metrics = (
         "<evaluation_metrics>\n"
         "Rows shown (first 5 of 500 series, plus the aggregated rows).\n"
-        "          levels  mean_absolute_error\n"
-        "      series_000                 5.00\n"
-        "      series_001                 5.01\n"
-        "      series_002                 5.02\n"
-        "      series_003                 5.03\n"
-        "      series_004                 5.04\n"
-        "         average                 7.50\n"
-        "weighted_average                 7.50\n"
-        "         pooling                 7.40\n"
+        "          levels  mean_absolute_error  n_evaluated\n"
+        "      series_000                 5.00            3\n"
+        "      series_001                 5.01            3\n"
+        "      series_002                 5.02            3\n"
+        "      series_003                 5.03            3\n"
+        "      series_004                 5.04            3\n"
+        "         average                 7.50         1500\n"
+        "weighted_average                 7.50         1500\n"
+        "         pooling                 7.40         1500\n"
+        "`n_evaluated` is not a metric: it is the number of predictions with "
+        "an observed value each row is measured on (summed in the aggregated "
+        "rows).\n"
         "</evaluation_metrics>"
     )
     assert expected_metrics in description
@@ -394,15 +397,17 @@ def test_describe_output_when_many_series_cuts_each_list():
 
 def test_describe_output_when_many_series_stays_short_and_ask_is_whole():
     """
-    Test that describe() of 500 series stays under 4,500 characters, while
-    the context of ask() keeps every series and lag, as before the limits.
+    Test that describe() of 500 series stays under 5,000 characters (the
+    backtest of skforecast 0.27 adds `n_evaluated`, `step` and `y_true`,
+    which the description explains), while the context of ask() keeps every
+    series and lag, as before the limits.
     """
     result = GOLDEN_DESCRIBE_SCENARIOS["backtest_many_series"]()
 
     description = result.describe()
     context = result.to_llm_context(send_data=False).text
 
-    assert len(description) < 4500
+    assert len(description) < 5000
     assert len(context) > 25000
     assert "'series_499'" in context
     assert "      series_499 " in context

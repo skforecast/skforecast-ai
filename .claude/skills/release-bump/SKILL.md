@@ -79,8 +79,10 @@ python tools/docs/check_release_notes.py
 
 Remind the user of the steps of the release that follow the bump, all in
 `packages/README.md` ("A release, step by step"): the pull request of the
-release branch to `main`, opened and green but not merged; the GitHub
-release `vX.Y.Z` on the release branch, which starts
+release branch to `main`, opened and green but not merged; the local
+check of the release on the head of that pull request
+(`tools/release/publish_pypi.py release`), before creating it; the GitHub
+release `vX.Y.Z` on that commit, which starts
 `.github/workflows/publish-pypi.yml` and publishes `skforecast-ai` and
 `skforecast-ai-mcp` to PyPI after the two approvals; the entry of the MCP
 registry; the merge into `main`; and selecting **Publish** for the new

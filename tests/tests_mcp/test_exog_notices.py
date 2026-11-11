@@ -6,11 +6,16 @@ from skforecast_ai import ForecastingAssistant
 from skforecast_ai.mcp.models import ToolNotice
 from skforecast_ai.mcp.server import _exog_notices
 
-from ..fixtures_assistant import df_no_exog, df_single
+from ..fixtures_assistant import df_categorical_exog, df_no_exog, df_single
 
 assistant = ForecastingAssistant()
 profile_exog = assistant.profile(df_single, target="sales")
 profile_no_exog = assistant.profile(df_no_exog, target="sales")
+profile_categorical = assistant.profile(df_categorical_exog, target="sales")
+# Only a categorical exogenous column, which ForecasterStats does not read.
+profile_only_categorical = assistant.profile(
+    df_categorical_exog.drop(columns="promo"), target="sales"
+)
 
 
 def test_exog_notices_plan_that_uses_exogenous_variables():
@@ -96,3 +101,68 @@ def test_exog_notices_empty_when_nothing_to_say(use_exog, forecast):
     assert _exog_notices(plan, profile_exog, forecast=forecast) == []
     assert _exog_notices(plan_no_exog, profile_no_exog, forecast=True) == []
     assert _exog_notices(plan_no_exog, profile_no_exog, forecast=False) == []
+
+
+def test_exog_notices_plan_of_stats_names_only_the_numeric_columns():
+    """
+    Test that the notice of a ForecasterStats plan names the columns its
+    script reads, the numeric ones, and leaves out the categorical column,
+    while the notice of a recursive plan on the same data names both.
+    """
+    stats = assistant.plan(
+        profile=profile_categorical, steps=10, forecaster="ForecasterStats"
+    )
+    recursive = assistant.plan(profile=profile_categorical, steps=10)
+
+    notices_stats = _exog_notices(stats, profile_categorical, forecast=False)
+    notices_recursive = _exog_notices(recursive, profile_categorical, forecast=False)
+
+    assert [n.message.split(":")[0] for n in notices_stats] == [
+        "This plan uses the exogenous columns 'promo'"
+    ]
+    assert [n.message.split(":")[0] for n in notices_recursive] == [
+        "This plan uses the exogenous columns 'promo', 'weekday'"
+    ]
+
+
+def test_exog_notices_empty_when_the_model_reads_none_of_the_columns():
+    """
+    Test that a ForecasterStats plan on data whose only exogenous column is
+    categorical, which its script does not read, gets no notice that asks
+    for future values.
+    """
+    plan = assistant.plan(
+        profile=profile_only_categorical, steps=10, forecaster="ForecasterStats"
+    )
+
+    assert _exog_notices(plan, profile_only_categorical, forecast=False) == []
+
+
+def test_exog_notices_forecast_without_exog_names_every_exogenous_column():
+    """
+    Test that the notice of a forecast of a ForecasterStats plan with
+    `use_exog=False` still names every exogenous column of the data, the
+    categorical one too, since the answer must say which columns were left
+    out.
+    """
+    plan = assistant.plan(
+        profile=profile_categorical,
+        steps=10,
+        forecaster="ForecasterStats",
+        use_exog=False,
+    )
+
+    notices = _exog_notices(plan, profile_categorical, forecast=True)
+
+    assert notices == [
+        ToolNotice(
+            source   = "plan",
+            category = "ExogLeftOutNotice",
+            message  = (
+                "Say in your answer that this forecast does not use the "
+                "exogenous columns of the data ('promo', 'weekday'): its plan "
+                "has `use_exog: false`."
+            ),
+            count    = 1,
+        )
+    ]

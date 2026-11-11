@@ -17,7 +17,6 @@ from skforecast_ai.exceptions import (
     LLMCallError,
     LLMRequiredError,
     SkforecastAIError,
-    _reported_type_name,
 )
 
 
@@ -182,8 +181,7 @@ def test_skforecast_ai_error_importable_from_package_root(name):
 def test_skforecast_ai_error_init_DataContentError_is_InvalidInputError():
     """
     Test that DataContentError is also an InvalidInputError and a
-    ValueError, so the `except` clauses written for those still catch it,
-    and that failure summaries report it as a ValueError.
+    ValueError, so the `except` clauses written for those still catch it.
     """
     error = DataContentError("The data has missing values.", field="data")
 
@@ -193,4 +191,3 @@ def test_skforecast_ai_error_init_DataContentError_is_InvalidInputError():
     assert (error.code, error.field, error.hint) == (
         "invalid_argument", "data", None
     )
-    assert _reported_type_name(error) == "ValueError"

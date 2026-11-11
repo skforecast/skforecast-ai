@@ -1,6 +1,9 @@
 # Unit test _requirements
 
+from importlib import metadata
 from importlib.metadata import version
+
+import pytest
 
 from skforecast_ai.mcp.server import _requirements
 
@@ -35,10 +38,13 @@ def test_requirements_packages_of_the_imports_with_their_versions():
 def test_requirements_backend_of_the_foundation_model():
     """
     Test that the backend package of a foundation model, which the script
-    does not import, is the last requirement, and that a model skforecast
-    does not serve adds none.
+    does not import, is the last requirement of a script that loads the
+    model, and that a model skforecast does not serve adds none.
     """
-    code = "import pandas as pd\n"
+    code = (
+        "import pandas as pd\n"
+        "from skforecast.foundation import FoundationModel, ForecasterFoundation\n"
+    )
 
     chronos = _requirements(code, "autogluon/chronos-2-small")
     unknown = _requirements(code, "unknown/model")
@@ -46,6 +52,77 @@ def test_requirements_backend_of_the_foundation_model():
     assert chronos[0] == f"pandas=={version('pandas')}"
     assert [name.split("==")[0] for name in chronos] == [
         "pandas",
+        "skforecast",
         "chronos-forecasting",
     ]
-    assert unknown == [f"pandas=={version('pandas')}"]
+    assert [name.split("==")[0] for name in unknown] == ["pandas", "skforecast"]
+
+
+def test_requirements_backend_of_a_direct_reference_is_kept_as_it_is():
+    """
+    Test that a backend that skforecast gives as a direct reference (that
+    of Timestral, installed from its git repository) is the last
+    requirement as it is, without a version after the URL, which would
+    make it invalid.
+    """
+    code = (
+        "import pandas as pd\n"
+        "from skforecast.foundation import FoundationModel, ForecasterFoundation\n"
+    )
+
+    requirements = _requirements(code, "mistralai/Timestral-28M")
+
+    assert requirements[-1] == (
+        "timestral @ git+https://github.com/mistralai/timestral.git"
+    )
+
+
+def test_requirements_no_backend_when_the_script_loads_no_model():
+    """
+    Test that the script of a cross-validation strategy, which builds the
+    folds and loads no model, does not list the backend of the foundation
+    model of its plan.
+    """
+    code = (
+        "from skforecast.model_selection import TimeSeriesFold\n"
+        "cv = TimeSeriesFold(steps=12, initial_train_size=100)\n"
+    )
+
+    requirements = _requirements(code, "autogluon/chronos-2-small")
+
+    assert requirements == [f"skforecast=={version('skforecast')}"]
+
+
+@pytest.mark.parametrize(
+    "installed, expected",
+    [("0.6.1", "tfc-t0[torch]==0.6.1"), (None, "tfc-t0[torch]>=0.6")],
+    ids=["installed", "not installed"],
+)
+def test_requirements_backend_with_extras_and_version_specifier(
+    monkeypatch, installed, expected
+):
+    """
+    Test that the backend of T0, which skforecast gives with extras and a
+    version specifier (`tfc-t0[torch]>=0.6`), keeps its extras and is
+    pinned to the version installed where the server runs, instead of
+    getting `==<version>` after the specifier, which pip rejects; when it
+    is not installed, it is the requirement as skforecast gives it.
+    """
+    original = metadata.version
+
+    def fake_version(name):
+        if name != "tfc-t0":
+            return original(name)
+        if installed is None:
+            raise metadata.PackageNotFoundError(name)
+        return installed
+
+    monkeypatch.setattr(metadata, "version", fake_version)
+    code = (
+        "import pandas as pd\n"
+        "from skforecast.foundation import FoundationModel, ForecasterFoundation\n"
+    )
+
+    requirements = _requirements(code, "theforecastingcompany/t0-alpha")
+
+    assert requirements[-1] == expected

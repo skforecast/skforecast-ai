@@ -3,6 +3,7 @@
 import subprocess
 import sys
 import textwrap
+import warnings
 
 import anyio
 import numpy as np
@@ -13,8 +14,15 @@ from mcp import Client
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai.mcp import create_server
 
+from ..fixtures_assistant import df_no_sundays
 from ..fixtures_datasets import df_items_sales_long, df_items_sales_wide
-from .fixtures_mcp import content_of, csv_of, df_h2o_csv, text_of, write_csv
+from .fixtures_mcp import (
+    content_of,
+    csv_of,
+    df_h2o_csv,
+    text_of,
+    write_csv,
+)
 
 CANDIDATES = [
     {"name": "ridge", "config": {"estimator": "Ridge"}},
@@ -28,7 +36,7 @@ def _run_as_file(code: str, workdir) -> pd.DataFrame:
     `predictions`.
     """
     script = workdir / "script.py"
-    script.write_text(code)
+    script.write_text(code, encoding="utf-8")
     export = workdir / "exported.csv"
     wrapper = workdir / "run.py"
     wrapper.write_text(
@@ -114,13 +122,20 @@ def test_server_workflow_matches_python_api_and_scripts(
     expected_backtest = assistant.backtest(
         data=path, cv=cv, profile=profile, plan=plan, show_progress=False
     )
-    expected_comparison = assistant.compare(
-        data=path,
-        cv=cv,
-        profile=profile,
-        show_progress=False,
-        candidates=[(c["name"], dict(c["config"])) for c in CANDIDATES],
-    )
+    with warnings.catch_warnings():
+        # With several series the plan of the strategy (LGBMRegressor with
+        # its own lags) is none of the candidates, which a warning says.
+        warnings.filterwarnings(
+            "ignore", message="The plan the strategy was created for",
+            category=UserWarning,
+        )
+        expected_comparison = assistant.compare(
+            data=path,
+            cv=cv,
+            profile=profile,
+            show_progress=False,
+            candidates=[(c["name"], dict(c["config"])) for c in CANDIDATES],
+        )
     expected_forecast = assistant.forecast(
         data=path, profile=profile, plan=expected_comparison.best_candidate.plan
     )
@@ -156,3 +171,94 @@ def test_server_workflow_matches_python_api_and_scripts(
             expected.predictions["pred"].to_numpy(),
             rtol=1e-6,
         )
+
+
+@pytest.mark.slow
+def test_server_workflow_when_daily_data_closed_on_sundays(tmp_path):
+    """
+    Test the flow of the server on a year of daily sales of a shop closed on
+    Sundays, which had no frequency before (the cause of finding V14 of the
+    MCP audit): `profile` infers 'D' and warns about the 51 Sundays missing,
+    which a forecast predicts too and a business closed on them can fill
+    with 0 after asking the user; `plan` and `forecast` run; `backtest` runs
+    too, warns that its lags read the Sundays asfreq() restores (its
+    estimator treats them as missing values) and leaves the Sundays of its
+    test folds out of the metrics; and the script of `get_code` run as a
+    file gives the predictions of `forecast`.
+    """
+    path = write_csv(tmp_path, "shop.csv", df_no_sundays)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    async def flow():
+        async with Client(server) as client:
+            profile = content_of(
+                await client.call_tool(
+                    "profile", {"data_path": path, "target": "sales"}
+                )
+            )
+            plan = content_of(
+                await client.call_tool(
+                    "plan", {"profile_id": profile["id"], "steps": 14}
+                )
+            )
+            cv = content_of(
+                await client.call_tool("create_cv", {"plan_id": plan["id"]})
+            )
+            backtest = content_of(
+                await client.call_tool("backtest", {"cv_id": cv["id"]})
+            )
+            forecast = content_of(
+                await client.call_tool("forecast", {"plan_id": plan["id"]})
+            )
+            code = content_of(
+                await client.call_tool("get_code", {"object_id": forecast["id"]})
+            )["code"]
+            return profile, backtest, forecast, code
+
+    profile, backtest, forecast, code = anyio.run(flow)
+
+    missing = (
+        "Missing timestamps: 51 timestamps of frequency 'D' are missing from "
+        "the date range, all of them on Sundays, when the data never has a "
+        "date. asfreq() inserts them as rows with missing values, and a "
+        "forecast predicts Sundays too. If the business is closed on Sundays, "
+        "they can be filled with 0 in the data, after asking the user."
+    )
+    assert "- Frequency: D\n" in profile["summary"]
+    assert "- Index irregularities: gaps in the index\n" in profile["summary"]
+    assert profile["notices"] == [
+        {
+            "source": "data",
+            "category": "DataProfileWarning",
+            "message": missing,
+            "count": 1,
+        }
+    ]
+    assert (
+        "The metrics leave out 15 test dates without an observed value of the "
+        "target."
+    ) in backtest["summary"]
+    assert [
+        notice["message"] for notice in backtest["notices"]
+        if notice["category"] == "UserWarning"
+    ] == [
+        "To predict 8 of the 8 test folds, the forecaster reads values of the "
+        "target before the start of those folds, the ones their predictions "
+        "start from, and some are missing ('sales': 17 value(s), such as "
+        "'2023-08-27', '2023-09-03', '2023-09-10', '2023-09-17', '2023-09-24' "
+        "and 12 more). All of them are on Sundays, when the target never has a "
+        "value. LGBMRegressor treats them as missing values; check that they "
+        "are meant to be missing."
+    ]
+    # The backtest ran, so the plan of the forecast is measured.
+    assert [notice["category"] for notice in forecast["notices"]] == [
+        "UserWarning", "MissingValuesWarning", "MissingValuesWarning",
+    ]
+    predictions = pd.read_csv(forecast["files"]["predictions"], index_col=0)
+    assert list(predictions.index[:2]) == ["2023-12-31", "2024-01-01"]
+    assert "data = data.asfreq('D')\n" in code
+    standalone = _run_as_file(code, tmp_path)
+    assert len(standalone) == len(predictions) == 14
+    np.testing.assert_allclose(
+        standalone["pred"].to_numpy(), predictions["pred"].to_numpy(), rtol=1e-6
+    )

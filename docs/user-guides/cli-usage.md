@@ -41,7 +41,7 @@ skforecast-ai forecast "$DATA" --target y --date-column fecha --steps 12 --test-
 | `config` | Show, set and locate the configuration file | |
 | `mcp` | Serve the workflow to coding agents as an MCP server | |
 
-The commands that read data take a local CSV path or an `https://` URL as their first argument. The file can be separated by `,`, `;` or tabulators, with `.` or `,` as decimal mark (what a spreadsheet exports in most of Europe), and compressed (`.csv.gz`); `.tsv` files are read too. The separator and the decimal mark are detected from the first lines of the file, and the generated script reads the file with them. When a file reads in more than one way, the command fails and asks for them: profile it with `--sep` and `--decimal` and pass the saved profile on. Two things a spreadsheet often exports are not read yet: the file must be UTF-8 (in Excel, save as "CSV UTF-8", not "CSV"), and dates written day first (`31/01/2024`) are read month first or rejected, so write them in ISO 8601 (`2024-01-31`).
+The commands that read data take a local CSV path or an `https://` URL as their first argument. The file can be separated by `,`, `;` or tabulators, with `.` or `,` as decimal mark, and with `.` between the thousands when `,` is the decimal mark (`1.705,11`, what a spreadsheet exports in most of Europe), and compressed (`.csv.gz`); `.tsv` files are read too. The separator, the decimal mark and the thousands separator are detected from the first lines of the file, and the generated script reads the file with them. Dates written day first (`31/01/2024`, `15.01.2020`) are read day first when a day after the 12th says so; when every date reads both ways (monthly data on the first of each month), they are read in the only order in which they have a regular frequency, with a warning in the profile. Dates written as whole numbers (`20240131`) are read as dates, and the generated script reads the dates in the same format. The file of future values of `forecast --exog` is read in its own format (none for ISO 8601, as `to_csv()` writes it), in the order of the data when its dates read both ways. When a file reads in more than one way, the command fails and asks for them: profile it with `--sep`, `--decimal` or `--thousands`, or with `--dayfirst` or `--monthfirst` when neither a day after the 12th nor the regularity of the dates tells their order (a year or less of monthly data), and pass the saved profile on. A file that is not UTF-8 is read as cp1252, the "CSV" that Excel saves on Windows, with a warning in the profile, since that encoding cannot be checked; the generated script reads it with `encoding='cp1252'`. Files in UTF-16 are not read: save them as UTF-8 (in Excel, "CSV UTF-8").
 
 ```bash
 skforecast-ai profile sales.csv --target revenue --sep ";" --decimal "," --format json -o profile.json
@@ -78,7 +78,7 @@ Every command that reads data accepts these three options, so the examples below
 `forecast` runs the whole pipeline in one call and works in two modes:
 
 - **Evaluation mode** (`--test-size`): holds out the end of the series, forecasts it and reports metrics. `--test-size` takes an integer (the last *N* observations), a float in `(0, 1)` (the last fraction) or a date (the start of the test set); the test set must hold exactly `--steps` observations. To evaluate over a longer period, use `backtest`.
-- **Prediction mode** (the default): trains on all the data and forecasts the next `--steps` periods. There is no ground truth, so there are no metrics. When the data has exogenous variables, their future values are required: pass `--exog` with a CSV that has the date column and the same exogenous columns, covering the horizon.
+- **Prediction mode** (the default): trains on all the data and forecasts the next `--steps` periods. There is no ground truth, so there are no metrics. When the data has exogenous variables, their future values are required: pass `--exog` with a CSV that has the date column of the data and the same exogenous columns, covering the horizon. For data without dates, the file has one row per step of the horizon, in order (a first column without a name, as `to_csv()` writes the index, holds their positions, which must follow the last row of the data).
 
 ```bash
 # Evaluation mode: hold out the last 12 observations and forecast them
@@ -101,7 +101,7 @@ skforecast-ai forecast "$H2O" --target x --date-column fecha --steps 12
 
 `--interval` takes two quantiles between 0 and 1: `"0.1,0.9"` is an 80% interval. Percentile values such as `"10,90"` are deprecated and will stop working in a future skforecast release.
 
-`forecast-code` builds the same plan and writes the prediction script instead of running it, to the terminal or to `--output`. The script is the code `forecast` would execute: when the data has exogenous variables, it reads their future values from `exog_future.csv`. `--format json` wraps the script with the profile and the plan.
+`forecast-code` builds the same plan and writes the prediction script instead of running it, to the terminal or to `--output`. The script is the code `forecast` would execute: when the data has exogenous variables, it reads their future values from the file given with `--exog`, by its path, with its separator, decimal mark, encoding and date format, as `forecast --exog` reads it. Without `--exog`, it reads them from `exog_future.csv`, whose dates are best written in ISO 8601 (`2024-01-31`), as `to_csv()` writes them: the script reads them as pandas guesses them from the first date. `--format json` wraps the script with the profile and the plan.
 
 ```bash
 skforecast-ai forecast-code "$DATA" --target y --date-column fecha --steps 12 --output forecast.py
@@ -159,7 +159,7 @@ skforecast-ai backtest-code "$DATA" --target y --date-column fecha --steps 12 \
   --initial-train-size 100 --no-refit --output backtest.py
 ```
 
-`compare` backtests several candidates on the same folds and ranks them by the metric. Without `--candidates`, the candidates are built from the profile. With it, each candidate is a `[name, config]` pair; the config takes `forecaster`, `estimator`, `estimator_kwargs`, `lags`, `window_features`, `use_exog`, `differentiation`, `calendar_features`, `target_transformer` and `dropna_from_series`, and all the candidates must belong to the same forecaster family.
+`compare` backtests several candidates on the same folds and ranks them by the metric. Without `--candidates`, the candidates are built from the profile. With it, each candidate is a `[name, config]` pair; the config takes `forecaster`, `estimator`, `estimator_kwargs`, `lags`, `window_features`, `use_exog`, `differentiation`, `calendar_features`, `target_transformer` and `dropna_from_series`, and all the candidates must belong to the same forecaster family. Candidates with different `differentiation` orders run on the same folds.
 
 For a single series, a seasonal naive baseline (`ForecasterEquivalentDate`) is ranked as one more row, and the explanation says whether the best candidate beats it; `--no-baseline` leaves it out.
 
@@ -178,6 +178,14 @@ skforecast-ai compare "$DATA" --target y --date-column fecha --steps 12 --no-bas
 ```
 
 `compare` also takes the cross-validation options of `backtest`.
+
+An expensive run stops before it starts: a `backtest` that fits more than 50 estimators (a direct forecaster fits one per step in every training, so `--refit` multiplies them by the folds), or a foundation model that forecasts more than 2000 inference windows (one per series and fold), exits with code 1 and an error that states the cost and the cheaper strategies. For `compare`, the thresholds apply to all its candidates together, the baseline included. `--confirm-cost` runs it as it is; below the thresholds it changes nothing.
+
+```bash
+# A direct forecaster refitted in every fold: 12 estimators per training
+skforecast-ai backtest "$DATA" --target y --date-column fecha --steps 12 \
+  --forecaster ForecasterDirect --refit --confirm-cost
+```
 
 ---
 

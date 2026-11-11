@@ -11,6 +11,266 @@ All significant changes to this project are documented in this release file.
 | <span class="badge text-bg-docs">Docs</span>               | Documentation improvement             |
 
 
+## 0.5.0 <small>Nov 11, 2026</small> { id="0.5.0" }
+
+The main changes in this release are:
+
++ <span class="badge text-bg-feature">Feature</span> [<code>ForecastingAssistant.profile()</code>][assistant] reads CSV files as the spreadsheets of most of Europe write them: dates written day first, `.` between thousands and files saved as cp1252, with the new arguments `dayfirst` and `thousands` for the files that do not tell. See the [CLI guide][cli-guide] ([#86](https://github.com/skforecast/skforecast-ai/pull/86), [#96](https://github.com/skforecast/skforecast-ai/pull/96), [#97](https://github.com/skforecast/skforecast-ai/pull/97)).
+
++ <span class="badge text-bg-feature">Feature</span> The predictions of [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` carry the `step` of the horizon and the observed value `y_true`, and their metrics the number of points measured (`n_evaluated`) and, with a prediction interval, its coverage and mean width. A new `IntervalCoverageWarning` says when the interval covers clearly less than its nominal level ([#112](https://github.com/skforecast/skforecast-ai/pull/112), [#137](https://github.com/skforecast/skforecast-ai/pull/137)).
+
++ <span class="badge text-bg-feature">Feature</span> The Timestral models of Mistral AI and TiRex-2 of NX-AI, new in skforecast 0.27.0, can be the `estimator` of a `ForecasterFoundation` plan ([#140](https://github.com/skforecast/skforecast-ai/pull/140)).
+
++ <span class="badge text-bg-enhancement">Enhancement</span> Missing values are checked before anything runs, with advice that works for the estimator of the plan: [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` name the folds, series and columns at fault instead of failing inside the script, and a single series with missing target values inside the test folds is measured on the dates with a value ([#105](https://github.com/skforecast/skforecast-ai/pull/105), [#119](https://github.com/skforecast/skforecast-ai/pull/119), [#123](https://github.com/skforecast/skforecast-ai/pull/123), [#139](https://github.com/skforecast/skforecast-ai/pull/139)).
+
++ <span class="badge text-bg-enhancement">Enhancement</span> MCP server: the description of each tool says where it goes in the workflow, and new notices tell the agent when a forecast comes from a plan that was never measured, when the estimator is not the recommended one and when an interval covers less than its nominal level. See the [MCP server reference][mcp] ([#109](https://github.com/skforecast/skforecast-ai/pull/109), [#110](https://github.com/skforecast/skforecast-ai/pull/110), [#112](https://github.com/skforecast/skforecast-ai/pull/112), [#126](https://github.com/skforecast/skforecast-ai/pull/126)).
+
++ <span class="badge text-bg-api-change">API Change</span> [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` stop before an expensive run (above 50 estimator fits, or 2000 inference windows of a foundation model) with a `CostNotConfirmedError` that states its cost, until `confirm_cost=True` (`--confirm-cost` in the CLI) confirms it. The MCP server asks agents for the number of that cost ([#113](https://github.com/skforecast/skforecast-ai/pull/113)).
+
++ <span class="badge text-bg-api-change">API Change</span> The default metrics of [<code>ForecastingAssistant.plan()</code>][assistant] have RMSE (`root_mean_squared_error`) instead of MSE, and the metrics of `forecast()` with `test_size` name their columns as those of `backtest()` (`mean_absolute_error` instead of `MAE`) ([#114](https://github.com/skforecast/skforecast-ai/pull/114), [#117](https://github.com/skforecast/skforecast-ai/pull/117)).
+
++ <span class="badge text-bg-api-change">API Change</span> skforecast-ai now requires `skforecast>=0.27.0`. The strategy of [<code>ForecastingAssistant.create_cv()</code>][assistant] no longer carries the differentiation order of its plan, so one strategy serves plans of any order ([#106](https://github.com/skforecast/skforecast-ai/pull/106), [#115](https://github.com/skforecast/skforecast-ai/pull/115)).
+
++ <span class="badge text-bg-danger">Fix</span> Three wrong results, fixed with skforecast 0.27: `ForecasterStats` returned the 95 % interval whatever the `interval`, [<code>ForecastingAssistant.compare()</code>][assistant] of several series could rank candidates with different lags in the wrong order by MASE, and a TabICL or TabPFN-TS forecast used exogenous columns that had no future values ([#112](https://github.com/skforecast/skforecast-ai/pull/112), [#143](https://github.com/skforecast/skforecast-ai/pull/143), [skforecast#1479](https://github.com/skforecast/skforecast/pull/1479)).
+
++ <span class="badge text-bg-danger">Fix</span> Several series: long-format data with numeric series ids or a `(series_id, date)` MultiIndex failed in every run, and [<code>ForecastingAssistant.backtest()</code>][assistant] left out, without a warning, the series that no fold or only some folds could forecast ([#90](https://github.com/skforecast/skforecast-ai/pull/90), [#91](https://github.com/skforecast/skforecast-ai/pull/91), [#103](https://github.com/skforecast/skforecast-ai/pull/103), [#123](https://github.com/skforecast/skforecast-ai/pull/123)).
+
+!!! warning "Before upgrading"
+
+    skforecast 0.27.0 is the minimum version of skforecast: installing skforecast-ai 0.5.0 upgrades it, and several of the changes below come from it.
+
+    Some results change with this version, without any change in your code:
+
+    + `plan()`: the default metrics have `root_mean_squared_error` instead of `mean_squared_error` (pass it in `metric` to keep it) and leave MAPE out for a target at or around zero. The estimator can change with `ForecasterDirectMultiVariate` (`Ridge` where it was `LGBMRegressor`) and with wide data whose series start or end with missing values; pass `estimator` to keep the previous one.
+    + `backtest()` and `compare()`: the predictions have the columns `step` and `y_true` (`level, fold, step, y_true, pred, ...`) and the metrics end with `n_evaluated`, also a column of the table of `compare()`. With several series, the predictions are missing at the dates without an observed value.
+    + `backtest()` and `compare()`: MASE and RMSSE take other values, scaled the same way for every candidate, so with several series the winner of `compare()` can change.
+    + `backtest()` and `compare()` of `ForecasterStats`: with a strategy that refits, the metrics change from the second fold and the run is faster, since the model selected in the first fit is kept; with an interval other than 95 %, the bounds are those of that interval.
+    + `backtest()` and `compare()` of a single series with missing target values inside the test folds run, measured on the dates with a value, instead of raising (except with `ForecasterStats`).
+    + `backtest()` raises for a series that no fold forecasts, which it left out before, and, with an estimator that does not accept missing values, for a missing exogenous value that a test fold reads. A candidate of `compare()` that hits one of them fails and is ranked last, with that error.
+    + `compare()` without `candidates` on the strategy of a plan with `use_exog=False`: every candidate leaves the exogenous variables out, so the ranking can change.
+    + `forecast()` of several series in wide format: the rows of the predictions follow the order of the columns of the data instead of the alphabetical order, with the same values.
+    + `forecast()` of a TabICL or TabPFN-TS plan with future exogenous values for only some columns or some series gives other predictions, without the columns that have no future values.
+    + `forecast()` with `test_size` on data in a time zone with daylight saving time ends the training an hour later, at the right date, when the test set starts after the spring change: other predictions and metrics.
+    + The generated scripts change, with the same predictions: the series ids of long data are read as text, the dates that write the day and the month as numbers are read with their format, and future exogenous values given as a file are read from that file by its path instead of `exog_future.csv`.
+    + MCP server: `cost.n_fits` of the `compare` tool counts the trainings of all its candidates instead of those of the shared strategy.
+
+    And some code needs to be updated:
+
+    + `backtest()` and `compare()` of an expensive run (above 50 estimator fits, or 2000 inference windows) raise `CostNotConfirmedError` before running instead of warning with `LongTrainingWarning`. Pass `confirm_cost=True` (`--confirm-cost` in the CLI); the tools of the MCP server take the number of the cost in `confirm_cost`.
+    + `create_cv()`: `cv_config` (also that of the results of `backtest()` and `compare()`) and the JSON of `CVResult.cv` have no `differentiation`. Read the order from the plan, `plan.forecaster_kwargs['differentiation']`.
+    + `profile()` raises `data_unreadable` where it guessed before: for a `.` that can be a decimal mark or a thousands separator (pass `decimal` or `thousands`) and for dates that read both day first and month first when their regularity does not tell (pass `dayfirst`). A MultiIndex with a level without a name raises `InvalidInputError`: name the levels.
+    + `forecast()` with `test_size`: `ForecastResult.metrics` names its columns as `backtest()` does, `mean_absolute_error` instead of `MAE`..., and the series in `levels` instead of `series`, a column a single series no longer has.
+    + `plan()` raises `InvalidInputError` for an unknown key of an entry of `window_features`, which it ignored, and for a value of `estimator_kwargs` that the estimator rejects, which failed when the plan ran.
+    + `compare()`: a candidate that fails with an error of skforecast-ai has `CandidateFailure.error_type` `'InvalidInputError'` (or another class of `skforecast_ai.exceptions`) instead of `'ValueError'`, and a candidate cannot be named `'Strategy plan'`.
+    + `--exog` of the CLI reads the dates of the file from the date column of the data: name that column as in the data.
+    + MCP server: `get_failure` with the id of a comparison requires `candidate`, and `create_cv` rejects `fixed_train_size` with `refit` false or null.
+
+    See **Added**, **Changed** and **Fixed**.
+
+
+**Added**
+
+*Data and profiles*
+
++ New argument `thousands` of [<code>ForecastingAssistant.profile()</code>][assistant] (`--thousands` in the CLI, `thousands` in the `profile` tool of the MCP server), recorded as `DataProfile.csv_thousands` and passed to `pd.read_csv` by the generated script. See the [CLI guide][cli-guide] ([#86](https://github.com/skforecast/skforecast-ai/pull/86)).
+
++ New argument `dayfirst` of [<code>ForecastingAssistant.profile()</code>][assistant] (`--dayfirst` or `--monthfirst` in the CLI, `dayfirst` in the MCP server) for text dates that read both day first and month first. The profile records the format of the dates as `DataProfile.date_format`. See the [CLI guide][cli-guide] ([#96](https://github.com/skforecast/skforecast-ai/pull/96)).
+
++ New attribute `closed_weekdays` of [<code>DataProfile</code>][profiles]: the days of the week on which every missing timestamp falls when the data never has a date on them (a shop closed on Sundays). The warning of `create_cv()` gives the advice of the closed days only then ([#119](https://github.com/skforecast/skforecast-ai/pull/119)).
+
+*Plans and overrides*
+
++ New metric `root_mean_squared_error` (RMSE, in the units of the target) for `metric` of [<code>ForecastingAssistant.plan()</code>][assistant], `refine_plan()`, `forecast()` and `compare()`, `--metric` in the CLI and the MCP server, whose `MetricUnitNotice` gives its unit ([#114](https://github.com/skforecast/skforecast-ai/pull/114)).
+
+*Forecasting*
+
++ [<code>ForecastingAssistant.forecast()</code>][assistant] and `forecast_code()` take the path of a CSV file in `exog`, read as the data are read (date column, series ids, separator), and the script reads that file by its path. The `forecast-code` command of the [CLI][cli] gains `--exog`, as `forecast` has. See the [CLI guide][cli-guide] ([#99](https://github.com/skforecast/skforecast-ai/pull/99), [#125](https://github.com/skforecast/skforecast-ai/pull/125)).
+
+*Backtesting and comparison*
+
++ New argument `confirm_cost` of [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` (`--confirm-cost` in the CLI, `confirm_cost` in the tools of the MCP server) and new error `CostNotConfirmedError` (`cost_not_confirmed` in the MCP server), raised before an expensive run that it does not confirm. See **Changed** and the [MCP server reference][mcp] ([#113](https://github.com/skforecast/skforecast-ai/pull/113)).
+
++ New attribute `cost` of the [<code>ComparisonResult</code>][results] of [<code>ForecastingAssistant.compare()</code>][assistant]: the trainings, estimator fits and inference windows of each candidate and of all of them together, the baseline included, counted before any candidate runs ([#108](https://github.com/skforecast/skforecast-ai/pull/108), [#113](https://github.com/skforecast/skforecast-ai/pull/113)).
+
++ New `IntervalCoverageWarning` of [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` when the prediction interval covers clearly less than its nominal level (more than two binomial standard errors and 5 points below it), naming the series or the candidates; an `IntervalCoverageNotice` in the MCP server. See [Exceptions][exceptions] ([#112](https://github.com/skforecast/skforecast-ai/pull/112)).
+
++ New `FoldsLeftOutWarning` of [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` when a series was not forecast in some test folds where it has values (one that starts late, with `refit`), so its metrics and the average across series use fewer folds, which went unnoticed before; a notice in the MCP server. See [Exceptions][exceptions] ([#123](https://github.com/skforecast/skforecast-ai/pull/123)).
+
+*Foundation models*
+
++ The Timestral models of Mistral AI (`mistralai/Timestral-5M` to `-209M`) and TiRex-2 of NX-AI (`NX-AI/TiRex-2`), new in skforecast 0.27.0, can be the `estimator` of a `ForecasterFoundation` plan. The MCP server runs TiRex-2 (Apache-2.0) by default, and Timestral, whose license gives no rights to companies above USD 20 million of monthly revenue, only with `--allow-model mistralai/Timestral`. See the [MCP server guide][mcp-guide] ([skforecast#1454](https://github.com/skforecast/skforecast/pull/1454), [skforecast#1463](https://github.com/skforecast/skforecast/pull/1463), [#140](https://github.com/skforecast/skforecast-ai/pull/140)).
+
+*MCP server*
+
++ The `forecast` tool adds an `UnmeasuredPlanNotice` to a forecast of the future when no `backtest`, `compare` or `forecast` with `test_size` of the server measured its plan, so an agent does not present it as reliable or give it the accuracy of another plan. See the [MCP server reference][mcp] ([#109](https://github.com/skforecast/skforecast-ai/pull/109)).
+
++ The `backtest` and `forecast` tools carry an `EstimatorNotRecommendedNotice` when the estimator of the plan was chosen instead of the one the rules recommend for its forecaster (after a `MissingValuesNotice`, say). It names both and asks the agent to tell the user. See the [MCP server reference][mcp] ([#110](https://github.com/skforecast/skforecast-ai/pull/110)).
+
+
+**Changed**
+
+*Data and profiles*
+
++ In wide-format data, each series of `DataProfile.series_lengths` spans the dates from its first to its last value, as in long format, instead of the whole frame. `n_total_observations`, which sizes the estimator, follows them, so the plan of series that start or end with missing values may choose another estimator ([#103](https://github.com/skforecast/skforecast-ai/pull/103)).
+
++ The methods that take a saved profile read the file it was built from with its separator, decimal mark and thousands separator, so what was given to [<code>ForecastingAssistant.profile()</code>][assistant] holds for them; another file is still read as it is written ([#86](https://github.com/skforecast/skforecast-ai/pull/86)).
+
++ Two errors about the data name the problem: a target with numbers written with a thousands separator or `%` (`10,025.1`, `12.5%`) raises a `DataContentError` that names that format, and the error of [<code>ForecastingAssistant.plan()</code>][assistant] for dates without a regular frequency describes their spacing instead of asking for ISO 8601 dates ([#86](https://github.com/skforecast/skforecast-ai/pull/86), [#96](https://github.com/skforecast/skforecast-ai/pull/96)).
+
+*Plans and overrides*
+
++ The default metrics of [<code>ForecastingAssistant.plan()</code>][assistant] have RMSE (`root_mean_squared_error`, in the units of the target) instead of MSE, in squared units: MAE, RMSE and MASE, plus MAPE away from zero. The generated scripts and the metrics of every result change; the metric that ranks and chooses does not ([#117](https://github.com/skforecast/skforecast-ai/pull/117)).
+
+*Forecasting*
+
++ The metrics of [<code>ForecastingAssistant.forecast()</code>][assistant] with `test_size` have the columns of those of `backtest()`, in [<code>ForecastResult</code>][results], the CLI and the MCP server: the names of the metrics (`mean_absolute_error` instead of `MAE`...) and `levels` instead of `series`, which a single series no longer has. Its description says that they come from a hold-out evaluation, not from a forecast of the future ([#109](https://github.com/skforecast/skforecast-ai/pull/109), [#114](https://github.com/skforecast/skforecast-ai/pull/114)).
+
++ The predictions of [<code>ForecastingAssistant.forecast()</code>][assistant] of several series in wide format follow the order of the columns of the data, where they followed the alphabetical order of the series: skforecast 0.27 keeps the order in which the series are given. The values are the same ([skforecast#1435](https://github.com/skforecast/skforecast/pull/1435), [#123](https://github.com/skforecast/skforecast-ai/pull/123)).
+
+*Backtesting and comparison*
+
++ [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` raise `CostNotConfirmedError` before an expensive run (above 50 estimator fits, or 2000 inference windows; for `compare()`, all its candidates together) instead of warning once it started; the error states the cost and the changes that lower it. Pass `confirm_cost=True` to run it. The MCP server takes only the number of the cost, which `create_cv` and the error give. See the [CLI guide][cli-guide] ([#113](https://github.com/skforecast/skforecast-ai/pull/113)).
+
++ The predictions of [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` carry the `step` of the horizon and the observed value `y_true` of skforecast 0.27, and their metrics end with `n_evaluated`, the number of points each row is measured on, which the table of `compare()` shows without ranking by it. `y_true` holds values of your data, so `ask()` sends them only with `send_data_to_llm=True`. See [LLM configuration][llm-config] ([#137](https://github.com/skforecast/skforecast-ai/pull/137)).
+
++ With a prediction interval, the summary of [<code>ForecastingAssistant.backtest()</code>][assistant] (and what `ask()` and the MCP server read) gives, by series, the coverage and the mean width that skforecast measures (`coverage`, `interval_width`) next to the nominal coverage, and the table of `compare()` adds both columns without changing the ranking ([#112](https://github.com/skforecast/skforecast-ai/pull/112)).
+
++ [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` of a single series run when a test fold has missing target values, which they rejected: skforecast 0.27 leaves those dates out of the metrics, and the explanation of `backtest()` counts them. They still raise with ForecasterStats, which cannot train on them, and when no test date has a value; `forecast()` with `test_size` still rejects them ([#139](https://github.com/skforecast/skforecast-ai/pull/139)).
+
++ [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` with an estimator that accepts missing values warn, without failing, when a test fold reads a missing exogenous value, naming the columns and the dates, as `forecast()` does with the future values (a notice in the MCP server) ([#123](https://github.com/skforecast/skforecast-ai/pull/123)).
+
++ The errors and warnings about missing values name the estimator that the rules choose for the data (`RandomForestRegressor` below 250 observations, `LGBMRegressor` from 250) instead of always `LGBMRegressor`, put first the advice of a business closed on the missing weekdays, and say where the value is: the test folds that hold it in [<code>ForecastingAssistant.backtest()</code>][assistant], the last window in `forecast()` ([#105](https://github.com/skforecast/skforecast-ai/pull/105), [#130](https://github.com/skforecast/skforecast-ai/pull/130), [#131](https://github.com/skforecast/skforecast-ai/pull/131)).
+
++ The strategy of [<code>ForecastingAssistant.create_cv()</code>][assistant] no longer carries the differentiation order of its plan, which skforecast 0.27 takes from the forecaster: the backtesting scripts build `TimeSeriesFold` without `differentiation`, `cv_config` and the JSON of `CVResult.cv` lose that key, and one strategy serves plans of any order, so `compare()` runs every candidate on it. The predictions are the same ([#115](https://github.com/skforecast/skforecast-ai/pull/115)).
+
++ The description of a cross-validation strategy, in [<code>ForecastingAssistant.create_cv()</code>][assistant], `backtest()`, `compare()`, the context of `ask()` and the MCP server, says how many steps the last fold has when it is shorter than the horizon: `6 folds (the last one has only 2 steps)`. The configuration of the strategy (`cv_config`) adds `last_fold_steps` then ([#130](https://github.com/skforecast/skforecast-ai/pull/130), [#133](https://github.com/skforecast/skforecast-ai/pull/133)).
+
++ [<code>ForecastingAssistant.compare()</code>][assistant] builds the plans of all the candidates before any of them runs: their warnings come first, and a candidate whose plan cannot be built, or that fails a check `backtest()` makes before running (a series that no fold forecasts, a missing value that a fold reads), fails then and is not counted in the cost ([#113](https://github.com/skforecast/skforecast-ai/pull/113), [#123](https://github.com/skforecast/skforecast-ai/pull/123)).
+
++ A candidate of [<code>ForecastingAssistant.compare()</code>][assistant] that fails with an error of skforecast-ai is named by its class (`InvalidInputError`) in `CandidateFailure.error_type`, the table, the warnings and `AllCandidatesFailedError`, instead of the built-in class it derives from (`ValueError`). The MCP server now sends its message, and `get_failure` with the id of a comparison requires `candidate` ([#121](https://github.com/skforecast/skforecast-ai/pull/121)).
+
+*Statistical models*
+
++ [<code>ForecastingAssistant.backtest()</code>][assistant] and `compare()` of ForecasterStats with a strategy that refits give other metrics from the second fold, and run faster: skforecast 0.27 keeps the model that the automatic `Arima` selected in the first fit, which the scripts already asked for with `freeze_params=True` ([skforecast#1425](https://github.com/skforecast/skforecast/pull/1425), [#116](https://github.com/skforecast/skforecast-ai/pull/116)).
+
+*Generated scripts*
+
++ The scripts of long-format data read the column of series ids as text (`dtype={'store': str}` in `pd.read_csv`) and turn the ids into text before the reshape, also those of the future exogenous variables. The predictions are the same; future exogenous variables with integer ids now match the same ids of the data written as text ([#90](https://github.com/skforecast/skforecast-ai/pull/90)).
+
++ The scripts read the dates with their format when they write the day and the month as numbers or are whole numbers such as `20200131` (`format='%d/%m/%Y'`), and the future exogenous values with their own. With `.` between thousands, the date column is read as text. The predictions are the same ([#96](https://github.com/skforecast/skforecast-ai/pull/96)).
+
+*LLM layer*
+
++ [<code>ForecastingAssistant.ask()</code>][assistant] quotes MAPE as the fraction the metrics give, never as a percentage, and the `MetricUnitNotice` of the MCP server gives the unit of sMAPE, already a percentage from 0 to 200. The context of `ask()` also names the metrics a backtesting script computes and says that the horizon of a plan (`steps`) is the user's ([#104](https://github.com/skforecast/skforecast-ai/pull/104), [#128](https://github.com/skforecast/skforecast-ai/pull/128)).
+
++ The skills of [<code>ForecastingAssistant.ask()</code>][assistant] are chosen within the room that a window of 32,768 tokens leaves after the context, counting the API reference only with `include_reference=True`. A skill that does not fit whole is sent as its `SKILL.md` alone, recorded as `'<name>/SKILL.md'` in `AskResult.skills`, and `baseline-forecasting` is no longer loaded with several series. See [Skills][skills] ([#137](https://github.com/skforecast/skforecast-ai/pull/137), [#141](https://github.com/skforecast/skforecast-ai/pull/141)).
+
+*MCP server*
+
++ The description of each tool says where it goes in the workflow: which id it takes, which tool takes the id it returns and which tool to use instead when the two can be confused. The skill is shorter, says that a coverage measured on few values is a rough check, and the `model_not_allowed` hint tells the agent to stop until the user chooses. See the [MCP server reference][mcp] ([#126](https://github.com/skforecast/skforecast-ai/pull/126), [#130](https://github.com/skforecast/skforecast-ai/pull/130)).
+
++ The `CostNotice` of `create_cv` and the `cost_not_confirmed` error give the estimator fits of each cheaper strategy: `refit=false` and the smallest integer `refit` at or below 50 fits, counted as the cost of the run is. See the [MCP server reference][mcp] ([#130](https://github.com/skforecast/skforecast-ai/pull/130)).
+
+*CLI*
+
++ `--exog` of the `forecast` and `forecast-code` commands of the [CLI][cli] reads the dates of the file from the date column of the data, as `exog_path` of the MCP server does: a file whose dates are in a column named otherwise (`fecha` for `date`), which was read before, raises an error naming its columns. Name that column as in the data ([#125](https://github.com/skforecast/skforecast-ai/pull/125)).
+
+*Dependencies*
+
++ skforecast-ai now requires `skforecast>=0.27.0`, whose fixes it relies on instead of working around them ([#106](https://github.com/skforecast/skforecast-ai/pull/106)).
+
+
+**Fixed**
+
+*Data and profiles*
+
++ Fixed an issue in [<code>ForecastingAssistant.profile()</code>][assistant] and the MCP server where a CSV file whose first row has more fields than its header (a separator at the end of every row) gave a target without values or a profile with the dates as an exogenous variable. It now raises `data_unreadable`, as does a column without name and values ([#85](https://github.com/skforecast/skforecast-ai/pull/85)).
+
++ In CSV files separated by `;` or tabulators, `.` between thousands was read as a decimal mark without a warning (`1.020` as 1.02), and `1.705,11` failed as a target that is not numeric. It is now read as thousands separator when the file says so; otherwise [<code>ForecastingAssistant.profile()</code>][assistant] raises `data_unreadable` and asks for `thousands` or `decimal` ([#86](https://github.com/skforecast/skforecast-ai/pull/86)).
+
++ Dates written day first (`31/01/2024`, the Excel of most of Europe) were read month first or rejected, and dates written as whole numbers (`20200131`) were taken for an exogenous variable. [<code>ForecastingAssistant.profile()</code>][assistant] now reads them day first when a day after the 12th says so or, when no date tells, in the only order with a regular frequency, with a note in `DataProfile.warnings`; otherwise it asks for `dayfirst` ([#96](https://github.com/skforecast/skforecast-ai/pull/96)).
+
++ CSV files that are not UTF-8, as Excel saves them on Windows, raised `data_unreadable` when a header or a category held an `ñ` or an accent. [<code>ForecastingAssistant.profile()</code>][assistant] now reads them as cp1252, recorded as `DataProfile.csv_encoding` with a note in `DataProfile.warnings`, and the generated script passes `encoding='cp1252'`. UTF-16 files still raise `data_unreadable`, asking for UTF-8 ([#97](https://github.com/skforecast/skforecast-ai/pull/97)).
+
++ [<code>ForecastingAssistant.profile()</code>][assistant] found no frequency in daily data with regular or frequent gaps (a shop closed on Sundays, a day in four missing at random), so `plan()` rejected them. It now infers `'D'` (`'B'` for business days), also in long-format data, and warns about the missing dates, naming the weekdays they always fall on ([#98](https://github.com/skforecast/skforecast-ai/pull/98)).
+
++ Fixed an issue with long-format data whose series ids are numbers (`001`, `1`, `10`), where every backtest, forecast and comparison failed with `KeyError: 1` and [<code>ForecastingAssistant.profile()</code>][assistant] dropped the leading zeros. The ids are now kept as written; integer ids of a DataFrame become text, so its series are ordered as text (`1`, `10`, `2`) ([#90](https://github.com/skforecast/skforecast-ai/pull/90)).
+
++ Fixed an issue with long-format data indexed by a `(series_id, date)` MultiIndex, where [<code>ForecastingAssistant.forecast()</code>][assistant], `backtest()` and `compare()` raised `ForecastExecutionError`, and `profile()` raised `KeyError` when the levels had no names. A MultiIndex that is not two levels named with text now raises `InvalidInputError` in every method, with a hint ([#91](https://github.com/skforecast/skforecast-ai/pull/91), [#94](https://github.com/skforecast/skforecast-ai/pull/94)).
+
++ Fixed an issue in [<code>ForecastingAssistant.profile()</code>][assistant] (and the `profile` command and MCP tool) where `target` as a list was accepted with `series_id_column`, which was ignored or gave a misleading error about repeated timestamps, or with a repeated column, profiled as two series. Both now raise `InvalidInputError` naming the argument ([#100](https://github.com/skforecast/skforecast-ai/pull/100)).
+
++ [<code>ForecastingAssistant.profile()</code>][assistant] gave no warning for numbers written as text in an exogenous column (`12%`, `-` for a missing value), used then as a categorical variable, nor for its missing values below a rate of 20 %. Both now add a warning naming the column (a `DataProfileWarning` notice in the MCP server) ([#95](https://github.com/skforecast/skforecast-ai/pull/95)).
+
+*Plans and overrides*
+
++ [<code>ForecastingAssistant.plan()</code>][assistant], `refine_plan()` and `compare()` accepted arguments that were ignored or failed when the plan ran: an unknown key of an entry of `window_features` (`min_periods`), a value of `estimator_kwargs` that the estimator rejects (`alpha='abc'` for `Ridge`), `mean_squared_log_error` on a target at or below -1 and a repeated metric. They now raise before anything runs (`invalid_argument` in the MCP server) ([#117](https://github.com/skforecast/skforecast-ai/pull/117), [#121](https://github.com/skforecast/skforecast-ai/pull/121), [#125](https://github.com/skforecast/skforecast-ai/pull/125), [#137](https://github.com/skforecast/skforecast-ai/pull/137)).
+
++ Fixed an issue in [<code>ForecastingAssistant.plan()</code>][assistant] and `refine_plan()` where `ForecasterDirectMultiVariate` got the estimator chosen for the series pooled (`LGBMRegressor` from 250 observations), which on few dates per step predicted a constant. The rule now counts the dates the series share, and the explanation says so ([#102](https://github.com/skforecast/skforecast-ai/pull/102)).
+
++ Fixed an issue in [<code>ForecastingAssistant.plan()</code>][assistant] where the default metrics of a target that crosses zero (profits, temperatures) included MAPE, which reached values such as 3e13. MAPE is now left out when any series touches or crosses zero, and the explanation says why; asked for in `metric`, it comes with a warning ([#104](https://github.com/skforecast/skforecast-ai/pull/104), [#117](https://github.com/skforecast/skforecast-ai/pull/117)).
+
++ Fixed an issue in [<code>ForecastingAssistant.refine_plan()</code>][assistant] where switching to `ForecasterStats`, `ForecasterFoundation` or the baseline dropped the differentiation, calendar features and target transformer without a warning, as a new `estimator` did with the `estimator_kwargs` of the previous one. A `PlanEditsDiscardedWarning` (a notice in the MCP server) now names what is left out and who chose it ([#107](https://github.com/skforecast/skforecast-ai/pull/107), [#118](https://github.com/skforecast/skforecast-ai/pull/118)).
+
++ An estimator whose package is not installed (XGBoost, CatBoost) was only reported when the plan ran, and [<code>ForecastingAssistant.compare()</code>][assistant] without `candidates` on several series ran `XGBRegressor`, which no extra installs, and failed. `plan()` now warns with `MissingBackendWarning` (a notice in the MCP server, whose `missing_dependency` error says how to install it), and `compare()` leaves that candidate out with the same warning ([#124](https://github.com/skforecast/skforecast-ai/pull/124)).
+
++ A plan with `use_exog=False` was not followed everywhere: [<code>ForecastingAssistant.compare()</code>][assistant] without `candidates` on its strategy ran the candidates with the exogenous variables, so the winner needed their future values, and `describe()`, the context of `ask()` and the notices of the MCP server carried the warnings about the exogenous columns. Both leave them out now ([#118](https://github.com/skforecast/skforecast-ai/pull/118), [#130](https://github.com/skforecast/skforecast-ai/pull/130)).
+
+*Forecasting*
+
++ The script of a forecast with future exogenous values read from a file (`exog_path` of the MCP server, `--exog` of the CLI) read `exog_future.csv` from its working directory as `to_csv()` writes it, so it failed outside the session. It now reads that file by its path with its separator, decimal mark, encoding and date format. See the [MCP server guide][mcp-guide] ([#99](https://github.com/skforecast/skforecast-ai/pull/99)).
+
++ [<code>ForecastingAssistant.forecast()</code>][assistant] of data without dates (a RangeIndex) with future exogenous values from a file failed, as the first column of the file was read as its dates. The rows of the file are now the steps of the horizon in order, and positions that do not follow the data raise a clear error ([#125](https://github.com/skforecast/skforecast-ai/pull/125)).
+
++ [<code>ForecastingAssistant.forecast()</code>][assistant] with `test_size` as a date with a time zone (`'2024-04-09T00:00:00Z'`) raised `TypeError` (an `internal_error` in the MCP server). It is now placed on the dates in their zone, or raises `InvalidInputError` when the data has none. On data in a zone with daylight saving time, the test set no longer starts an hour early after the change ([#121](https://github.com/skforecast/skforecast-ai/pull/121)).
+
++ [<code>ForecastingAssistant.forecast()</code>][assistant] with a `test_size` that leaves fewer observations to train on than the window of the forecaster, and `create_cv()` without `initial_train_size` for a plan whose `steps` are half the data or more, failed inside the script or with an error about an argument that was never passed. Both now raise `insufficient_data` before running, with the longest horizon that fits ([#121](https://github.com/skforecast/skforecast-ai/pull/121)).
+
++ [<code>ForecastingAssistant.forecast()</code>][assistant] of a TabICL or TabPFN-TS plan whose future exogenous values lacked some columns, or some series, still fed the model the history of those columns, although a warning said they were ignored: the predictions were wrong. Fixed by skforecast 0.27 ([skforecast#1479](https://github.com/skforecast/skforecast/pull/1479)).
+
+*Backtesting and comparison*
+
++ Fixed an issue in [<code>ForecastingAssistant.backtest()</code>][assistant] with ForecasterRecursiveMultiSeries, or a `ForecasterFoundation` model on several series, where a series that no fold could forecast (too short for the window, starting late, ending before the folds, or without usable values before every fold) was left out of the predictions and of the average across series without a warning. It now raises `InvalidInputError` naming those series, and a candidate of `compare()` fails with it ([#103](https://github.com/skforecast/skforecast-ai/pull/103), [#105](https://github.com/skforecast/skforecast-ai/pull/105), [#123](https://github.com/skforecast/skforecast-ai/pull/123)).
+
++ [<code>ForecastingAssistant.backtest()</code>][assistant] and `forecast()` failed inside the script when missing values left a fold without training rows ("All samples have been removed due to NaNs") or, with an estimator that does not accept them, when a test fold read a missing exogenous value ("Input contains NaN"); with several series those predictions were left out of the metrics without a warning. They now raise `DataContentError` before running, naming the columns, series and dates ([#105](https://github.com/skforecast/skforecast-ai/pull/105), [#119](https://github.com/skforecast/skforecast-ai/pull/119)).
+
++ The advice on missing values was wrong in places: [<code>ForecastingAssistant.create_cv()</code>][assistant] and the MCP server promised that an estimator that accepts them let every fold of `backtest()` run, and `plan()` proposed `dropna_from_series` for missing exogenous values. They now say only what works, and `create_cv()` also warns with the differentiation and for exogenous values ([#105](https://github.com/skforecast/skforecast-ai/pull/105)).
+
++ [<code>ForecastingAssistant.create_cv()</code>][assistant] gave no warning of prediction intervals estimated from too few residuals with ForecasterRecursiveMultiSeries or ForecasterDirectMultiVariate, as it does with a single series. It now counts the rows of each series in the first training window, also when a series starts later, and names the series with fewer than 100 ([#101](https://github.com/skforecast/skforecast-ai/pull/101), [#103](https://github.com/skforecast/skforecast-ai/pull/103)).
+
++ [<code>ForecastingAssistant.create_cv()</code>][assistant] accepted `skip_folds` for a `ForecasterStats` plan, whose backtest then failed inside the script. It now raises `InvalidInputError` naming `skip_folds` (`invalid_argument` in the MCP server), and `compare()` without `candidates` leaves `ForecasterStats` out of a strategy with `skip_folds`, with a warning ([#118](https://github.com/skforecast/skforecast-ai/pull/118)).
+
++ [<code>ForecastingAssistant.compare()</code>][assistant] applied the threshold of a long training (50 estimator fits) to each candidate, so candidates cheap one by one ran 78 fits without a warning. It now applies it to all the candidates together, before any of them runs, and states the total and what each candidate adds ([#108](https://github.com/skforecast/skforecast-ai/pull/108), [#113](https://github.com/skforecast/skforecast-ai/pull/113)).
+
++ Fixed an issue in [<code>ForecastingAssistant.compare()</code>][assistant] with `candidates` and the `CVResult` of a refined plan, where that plan was not compared without saying so, and a candidate could take the name `'Strategy plan'`. The text of the strategy now names the candidate that runs that plan or, with a `UserWarning`, says it was not compared; `'Strategy plan'` is reserved ([#123](https://github.com/skforecast/skforecast-ai/pull/123), [#130](https://github.com/skforecast/skforecast-ai/pull/130)).
+
++ With several series, [<code>ForecastingAssistant.compare()</code>][assistant] could rank candidates with different lags in the wrong order by MASE, their default metric, because the scale of MASE and RMSSE depended on the lags. With skforecast 0.27 it is the one-step naive forecast over the observations known at each prediction, as `ask()` and the MCP server now describe it ([#143](https://github.com/skforecast/skforecast-ai/pull/143)).
+
++ `ForecasterStats` with an interval other than 95 % (`[0.1, 0.9]`, say) returned the 95 % interval in [<code>ForecastingAssistant.forecast()</code>][assistant], `backtest()` and `compare()`. Fixed by skforecast 0.27 ([skforecast#1416](https://github.com/skforecast/skforecast/pull/1416), [#112](https://github.com/skforecast/skforecast-ai/pull/112)).
+
+*Generated scripts*
+
++ The script of data without dates passed in memory printed a pandas `UserWarning` ("Could not infer format") when run, as it read the positions saved by `to_csv()` with `parse_dates=True`. It now reads them as they are; the predictions are the same ([#125](https://github.com/skforecast/skforecast-ai/pull/125)).
+
+*CLI*
+
++ On Windows, `--output` of the [CLI][cli] wrote the script in the encoding of the system, so a script with a column named outside ASCII (`año`) failed with a `SyntaxError`. Scripts, JSON outputs and the configuration file are now written in UTF-8 ([#148](https://github.com/skforecast/skforecast-ai/pull/148)).
+
+*LLM layer*
+
++ [<code>ForecastingAssistant.refine_plan()</code>][assistant] and `create_cv()` with a `prompt` fell back to the deterministic result, with a warning, when the LLM was Claude Sonnet 5.5 or Opus 5.5 and pydantic-ai was older than 2.52, which forced a `tool_choice` those models reject. The `llm` extra now requires pydantic-ai 2.52 or later ([#129](https://github.com/skforecast/skforecast-ai/pull/129)).
+
+*MCP server*
+
++ `cost.n_fits` of `compare` was the trainings of the shared strategy, not of the comparison; it is now the total, like `estimator_fits`. The `CostNotice` of `create_cv` offered `refit` also where it lowers nothing (ForecasterStats, foundation models, a strategy that trains once); it now names only the changes that lower the cost. See the [MCP server reference][mcp] ([#108](https://github.com/skforecast/skforecast-ai/pull/108)).
+
++ The `create_cv` tool accepted `fixed_train_size` with `refit` false or null, with a warning, while its description said it was an error. It now rejects it (`invalid_argument`); the Python API still warns, as skforecast accepts it. See the [MCP server reference][mcp] ([#118](https://github.com/skforecast/skforecast-ai/pull/118)).
+
++ The `FutureExogNotice` asked for the future values of categorical columns that `ForecasterStats` or a foundation model without categorical covariates does not read, which `forecast` then rejected in the file of a foundation model. It now names only the columns the model reads ([#118](https://github.com/skforecast/skforecast-ai/pull/118)).
+
++ The first `get_code` held every other call while a long run was going, and the requirements of the script of a strategy for a foundation model listed its backend, which that script does not load. A backend given with a version (`tabpfn-time-series>=1.3`) is now pinned to the installed version as the other packages are, keeping its extras (`tfc-t0[torch]==0.6.1`) ([#124](https://github.com/skforecast/skforecast-ai/pull/124), [#145](https://github.com/skforecast/skforecast-ai/pull/145)).
+
+
 ## 0.4.2 <small>Oct 12, 2026</small> { id="0.4.2" }
 
 The main changes in this release are:
@@ -422,6 +682,7 @@ First public release. `skforecast-ai` wraps the [`skforecast`](https://skforecas
 [cli-guide]: ../user-guides/cli-usage.md
 [config]: ../user-guides/cli-usage.md#configuration
 [llm-config]: ../user-guides/llm-configuration.md
+[skills]: ../user-guides/skills.md
 [agentic-guide]: ../user-guides/agentic-forecasting.ipynb#what-is-skforecast-ai
 [agentic-guide-backtesting]: ../user-guides/agentic-forecasting.ipynb#backtesting
 [agentic-guide-compare]: ../user-guides/agentic-forecasting.ipynb#comparing-forecaster-configurations

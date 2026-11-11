@@ -10,16 +10,18 @@ import ast
 import copy
 import errno
 import functools
+import hashlib
 import inspect
 import json
 import logging
 import os
+import re
 import sys
 import tempfile
 import threading
 import warnings
 from collections import OrderedDict
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable, Hashable, Iterable
 from dataclasses import dataclass, field
 from importlib import metadata
 from pathlib import Path
@@ -36,8 +38,17 @@ from .._constants import (
     FORECASTER_TASK_TYPES,
     LONG_INFERENCE_WINDOWS,
     LONG_TRAINING_FITS,
+    ML_TASK_TYPES,
 )
-from ..exceptions import DataContentError, InvalidInputError, SkforecastAIError
+from .._validation import missing_estimator_package, missing_package_message
+from ..exceptions import (
+    CostNotConfirmedError,
+    DataContentError,
+    IntervalCoverageWarning,
+    InvalidInputError,
+    MissingBackendWarning,
+    SkforecastAIError,
+)
 from . import _inputs
 from ._errors import (
     ServerError,
@@ -49,9 +60,20 @@ from ._errors import (
     tool_error,
 )
 from . import _preload
-from ._foundation import ModelPolicy, check_allow_models
+from ._foundation import (
+    ModelPolicy,
+    check_allow_models,
+    install_advice,
+    missing_dependency_error,
+)
 from ._inputs import AllowedDir
-from ._runtime import CallControl, build_notices, notice_text, run_call
+from ._runtime import (
+    MAX_NOTICE_CHARS,
+    CallControl,
+    build_notices,
+    notice_text,
+    run_call,
+)
 from ._store import Entry, Store, estimate_nbytes
 from .models import (
     CALENDAR_FEATURES_DESCRIPTION,
@@ -92,6 +114,7 @@ from .models import (
 # it, and starts it when nothing did (`create_server`).
 if TYPE_CHECKING:
     from ..assistant import ForecastingAssistant
+    from ..schemas import ComparisonCost
 
 logger = logging.getLogger("skforecast_ai.mcp")
 
@@ -129,18 +152,12 @@ _MAX_DESCRIPTORS = 256
 Count = Annotated[int, Field(ge=1)]
 NonNegative = Annotated[int, Field(ge=0)]
 
-# Metrics scaled by the error of a naive forecast, as the metrics of a
-# backtest (the names of skforecast) and of a forecast (short names) call
-# them.
-SCALED_METRICS = {
-    "mean_absolute_scaled_error": "mean_absolute_scaled_error",
-    "root_mean_squared_scaled_error": "root_mean_squared_scaled_error",
-    "MASE": "mean_absolute_scaled_error",
-    "RMSSE": "root_mean_squared_scaled_error",
-}
-
-# MAPE, as the metrics of a backtest and of a forecast call it.
-MAPE_NAMES = frozenset({"mean_absolute_percentage_error", "MAPE"})
+# Metrics scaled by the error of a naive forecast, as the columns of the
+# metrics of a backtest, a forecast and a leaderboard name them.
+SCALED_METRICS = frozenset({
+    "mean_absolute_scaled_error",
+    "root_mean_squared_scaled_error",
+})
 
 # Hint of an error of `profile` about the content of the file.
 DATA_PROBLEM_HINT = (
@@ -166,18 +183,31 @@ FUTURE_EXOG_HINT = (
     "dates already in the data, which is not the forecast the user asked for."
 )
 
+# What an agent says when it changes the estimator because of the missing
+# values: the model switched it and did not tell, in the hint and in the
+# notice of `create_cv`.
+SWITCH_ESTIMATOR_NOTE = (
+    "if you switch to it, say in your answer that you changed the estimator "
+    "and why"
+)
+
 # Hint of `backtest`, `compare` and `forecast` for an error of the library
 # about the values of the data (missing values a prediction reads, final
 # rows without a target). The message says what would solve it, and an agent
 # does it without asking: it fills the values in, or changes the estimator
 # and does not tell.
+# The estimator is the one the message names: the rules choose it for the
+# data (`select_nan_tolerant_estimator`), and a message names one only when
+# it avoids that error (a missing value inside a test fold is no error: the
+# metrics leave it out). With the differentiation it avoids it only in a
+# plan without it, which the message says too.
 DATA_VALUES_HINT = (
     "The values the message names are data of the user: do not fill in, drop "
     "or write any of them yourself, and ask before a corrected copy is "
-    "written. Say in your answer that this call failed and why. When the "
-    "message blames the estimator, one that accepts missing values (such as "
-    "'LGBMRegressor') avoids the error without touching the data: if you "
-    "switch to it, say in your answer that you changed the estimator and why."
+    "written. Say in your answer that this call failed and why. Only when the "
+    "message names an estimator that accepts missing values does changing the "
+    "plan as the message says avoid this error without touching the data: "
+    f"{SWITCH_ESTIMATOR_NOTE}."
 )
 
 # Hint of `forecast` for an error of the library about the file of future
@@ -212,13 +242,10 @@ Every response has a plain-text `summary` and the warnings of the call in \
 `notices`; it never holds rows of data, which go to CSV files (`files`). \
 What you do see of the data: the messages of errors and warnings can name \
 columns and series and quote up to 5 values, a traceback of `get_failure` \
-can quote values, and scripts and plan summaries name the path of the file. \
-`get_code` returns the script that ran, `get_failure` the traceback of a \
-failure, `describe_object` the response that created an object, \
-`list_objects` the ids registered now.
+can quote values, and scripts and plan summaries name the path of the file.
 
 Errors are JSON objects with `code`, `message`, `field`, `hint` and \
-`details`. Dates are ISO 8601 text ('2012-01-01'); counts are numbers.
+`details`: act on `code` and `field`, and follow `hint`. Dates are ISO 8601 text ('2012-01-01'); counts are numbers.
 
 Rules (the skforecast-ai-forecasting skill has the rest):
 1. Trust: a `compare` whose winner beats the baseline > a `backtest` > a \
@@ -226,14 +253,16 @@ Rules (the skforecast-ai-forecasting skill has the rest):
 error measure). Without a baseline (several series, or a target with gaps), \
 judge each series by `mean_absolute_scaled_error` in the CSV of metrics and \
 name the worst one: the summary only has the average. Below 1 it beats the \
-one-step naive forecast (repeat the previous value) on the training data, \
-which is not a seasonal naive forecast nor the baseline of `compare`. Never \
+one-step naive forecast (repeat the previous value) over the observations \
+known when each prediction is made, which is not a seasonal naive forecast nor the baseline of `compare`. Never \
 invent a number, nor derive one: no percentage, ratio or difference that a \
 response does not give.
 2. Cost: read `cost` of `create_cv` before running. Before a run above 50 \
-estimator fits, stop: tell the user the number of fits and the cheaper \
-strategies (an integer `refit`, fewer folds, `refit=false`) and run the \
-expensive one only if they choose it. Asking to retrain is not that choice.
+estimator fits (a `compare`: all its candidates together), stop: tell the \
+user the number of fits and the cheaper strategies its `CostNotice` names \
+and run the expensive one only if they choose it, passing that number as \
+`confirm_cost` (without it, `backtest` and `compare` refuse the run and give \
+the number). Asking to retrain is not that choice.
 3. Read `notices` before reporting and tell the user about data problems \
 (missing dates, rows without target) and plan warnings.
 4. `compare` without `interval` uses the interval of the plan of the \
@@ -301,15 +330,25 @@ def _leave_to_user(
         exc.hint = hints[exc.field]
 
 
-def _exog_notices(plan: Any, profile: Any, forecast: bool) -> list[ToolNotice]:
+def _exog_notices(
+    plan: Any,
+    profile: Any,
+    forecast: bool,
+    subject: str = "This plan",
+) -> list[ToolNotice]:
     """
     Notice about the exogenous columns of the data: on a plan that uses
     them, that `forecast` needs their future values from the user; on a
-    forecast of a plan that does not, that they were left out.
+    forecast of a plan that does not, that they were left out. `compare`
+    gives the notice of a plan for the plan of its winner.
 
     The hint of `forecast` arrives after an agent wrote the file of future
     values itself, which it does as soon as the summary of the plan names
     that file; and an agent that leaves the columns out seldom says so.
+    The notice of a plan names the columns its script reads
+    (`used_exog_columns`): not the categorical ones that ForecasterStats
+    or a foundation model without categorical covariates leaves out, which
+    `forecast` rejects in the file of a foundation model.
 
     Parameters
     ----------
@@ -319,16 +358,26 @@ def _exog_notices(plan: Any, profile: Any, forecast: bool) -> list[ToolNotice]:
         Profile the plan comes from.
     forecast : bool
         Whether the notice is for a forecast (True) or for a plan (False).
+    subject : str, default 'This plan'
+        Words that name the plan in the notice of a plan.
 
     Returns
     -------
     notices : list of ToolNotice
-        One notice, or none: a plan without exogenous variables, a forecast
-        that uses them, or data without exogenous columns.
+        One notice, or none: a plan without exogenous variables (or whose
+        model reads none of the columns), a forecast that uses them, or
+        data without exogenous columns.
     """
 
-    columns = list(profile.data_profile.exog_columns)
-    if not columns or plan.use_exog == forecast:
+    from .._future_exog import used_exog_columns
+
+    if plan.use_exog == forecast:
+        return []
+    columns = (
+        list(profile.data_profile.exog_columns) if forecast
+        else used_exog_columns(plan, profile.data_profile)
+    )
+    if not columns:
         return []
     shown = ", ".join(repr(column) for column in columns[:5])
     if len(columns) > 5:
@@ -352,7 +401,7 @@ def _exog_notices(plan: Any, profile: Any, forecast: bool) -> list[ToolNotice]:
             source   = "plan",
             category = "FutureExogNotice",
             message  = (
-                f"This plan uses the exogenous columns {shown}: `forecast` "
+                f"{subject} uses the exogenous columns {shown}: `forecast` "
                 f"needs their future values, which only the user has, in a "
                 f"CSV file (`exog_path`). Never write that file yourself: ask "
                 f"the user for it, or use `use_exog: false` and tell them "
@@ -366,12 +415,14 @@ def _exog_notices(plan: Any, profile: Any, forecast: bool) -> list[ToolNotice]:
 def _missing_values_notices(plan: Any, profile: Any) -> list[ToolNotice]:
     """
     Notice of `create_cv` for a plan whose backtest can fail on the missing
-    values of the target. The warning of the library that comes with it says
-    what would solve it (`Impute the target, or choose an estimator...`),
-    which is right for whoever owns the data and an order for an agent: it
-    fills the values in without asking, or skips the backtest and forecasts
-    without telling. This notice carries the rule of `DATA_VALUES_HINT`, one
-    call before the error that has it.
+    values of the data (see `backtest_missing_values`). The warning of the
+    library that comes with it says when the backtest fails and what avoids
+    it (`impute the target to backtest every fold`), which is right for
+    whoever owns the data and an order for an agent: it fills the values in
+    without asking, switches the estimator before the backtest says it
+    helps, or skips the backtest and forecasts without telling. This notice
+    carries the rule of `DATA_VALUES_HINT`, one call before the error that
+    has it, with the estimator of the warning and what it does not avoid.
 
     Parameters
     ----------
@@ -387,22 +438,45 @@ def _missing_values_notices(plan: Any, profile: Any) -> list[ToolNotice]:
         for that reason.
     """
 
-    from .._last_window import backtest_missing_values_reason
-
-    reason = backtest_missing_values_reason(plan, profile.data_profile)
-    if reason is None:
-        return []
-    message = (
-        "The missing values of the target are data of the user: do not fill "
-        "in, drop or write any of them yourself, in their file or in a copy "
-        "of it, unless they asked for exactly that. Ask before you do."
+    from ..recommendation.missing_values import (
+        TOLERANT_ESTIMATOR_SCOPE,
+        backtest_missing_values,
+        tolerant_estimator_phrase,
     )
-    if reason[1]:
+
+    missing_values = backtest_missing_values(plan, profile.data_profile)
+    if missing_values is None:
+        return []
+    owners = [
+        name for name, missing in (
+            ("the target", missing_values.target),
+            ("the exogenous columns", missing_values.exog),
+        )
+        if missing
+    ]
+    message = (
+        f"The missing values of {' and '.join(owners)} are data of the user: do "
+        f"not fill in, drop or write any of them yourself, in their file or in "
+        f"a copy of it, unless they asked for exactly that. Ask before you do."
+    )
+    # `backtest` checks the target and the exogenous columns of every fold.
+    message += (
+        " `backtest` checks every test fold before running anything and "
+        "names the dates that make it fail: run it before changing the "
+        "plan or asking the user about the values."
+    )
+    if missing_values.estimator is not None:
+        does = []
+        if missing_values.exog:
+            does.append("lets the plan predict from the missing exogenous values")
+        if missing_values.cannot_predict is not None:
+            for_target = "for the target, " if does else ""
+            does.append(f"{for_target}{TOLERANT_ESTIMATOR_SCOPE}")
         message += (
-            " Without touching the data, an estimator that accepts missing "
-            "values (such as 'LGBMRegressor', with `refine_plan` and a new "
-            "`create_cv`) lets `backtest` run on every fold: if you switch to "
-            "it, say in your answer that you changed the estimator and why."
+            f" Without touching the data, switching with `refine_plan` and a "
+            f"new `create_cv` to "
+            f"{tolerant_estimator_phrase(missing_values.estimator)} "
+            f"{' and, '.join(does)}: {SWITCH_ESTIMATOR_NOTE}."
         )
     message += (
         " If you forecast without a backtest, say in your answer that the "
@@ -419,7 +493,106 @@ def _missing_values_notices(plan: Any, profile: Any) -> list[ToolNotice]:
     ]
 
 
-def _cost_notices(cost: dict[str, int]) -> list[ToolNotice]:
+def _estimator_notices(plan: Any, profile: Any, run: str) -> list[ToolNotice]:
+    """
+    Notice of `backtest` and `forecast` for a plan whose estimator was chosen
+    instead of the one the rules recommend for its forecaster (see
+    `estimator_change`). An agent that switches the estimator, after a
+    `MissingValuesNotice` for example, reports the result as that of the
+    recommended plan: the user is not told. The library does not warn
+    about it: there, the user who chose the estimator knows it.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan that ran.
+    profile : ForecastingProfile
+        Profile the plan comes from.
+    run : str
+        `'backtest'` or `'forecast'`.
+
+    Returns
+    -------
+    notices : list of ToolNotice
+        One notice (source `'plan'`), or none when the estimator is the one
+        of the rules, was not chosen (the winner of a `compare` without
+        `candidates`) or the forecaster has none to choose.
+    """
+
+    from ..recommendation import estimator_change
+
+    change = estimator_change(plan, profile.data_profile)
+    if change is None:
+        return []
+    origin = (
+        "It was passed to `plan`, `refine_plan` or the `candidates` of "
+        "`compare`"
+    )
+    if change.missing_values:
+        origin += (
+            ", and it is the estimator that accepts missing values that the "
+            "advice on the missing values of the data names"
+        )
+    message = (
+        f"This {run} ran the estimator {change.estimator!r}, not the one the "
+        f"rules recommend for {change.forecaster} on these data "
+        f"({change.recommended!r}). {origin}. Say in your answer that the "
+        f"estimator is not the recommended one, which one the rules recommend "
+        f"and why it was changed."
+    )
+
+    return [
+        ToolNotice(
+            source   = "plan",
+            category = "EstimatorNotRecommendedNotice",
+            message  = message,
+            count    = 1,
+        )
+    ]
+
+
+def _refit_fits(
+    cv: Any,
+    data_profile: Any,
+    count: Callable[[Any], tuple[int, Hashable]],
+    n_fits: int,
+) -> Any:
+    """
+    Estimator fits of the cheaper values of `refit` (`refit_fits()`), which
+    the cheaper strategies state, so an agent does not count them itself.
+    `count` gives the estimator fits of the run on a strategy and the runs
+    they add up. None when the strategy trains once: `refit` lowers nothing
+    then, and `cost_remedies` does not name it.
+    """
+
+    from .._utils import refit_fits
+    from ..recommendation import count_cv_folds
+
+    if n_fits <= 1:
+        return None
+
+    return refit_fits(
+               cv      = cv,
+               n_folds = count_cv_folds(
+                             cv,
+                             n_observations = data_profile.span_index_length,
+                             start_date     = data_profile.span_start_date,
+                             frequency      = data_profile.frequency,
+                             time_zone      = data_profile.time_zone,
+                         ),
+               count   = count,
+           )
+
+
+def _cost_notices(
+    cost: dict[str, int],
+    forecaster: str,
+    steps: int,
+    compare_cost: ComparisonCost,
+    compare_n_fits: int,
+    backtest_fits: Any = None,
+    compare_fits: Any = None,
+) -> list[ToolNotice]:
     """
     Notice of `create_cv` for a strategy whose backtest, or whose `compare`
     without candidates, is above the thresholds of an expensive run. The
@@ -427,14 +600,39 @@ def _cost_notices(cost: dict[str, int]) -> list[ToolNotice]:
     (`... will be fit 220 times`), and rule 2 of the instructions says what
     to do with it: an agent that has only the instructions reads the number
     and runs anyway. This notice carries that rule with the number, in the
-    response where the strategy can still change.
+    response where the strategy can still change, names only the changes
+    that lower that cost (`cost_remedies`): `refit` lowers nothing for
+    ForecasterStats nor for a foundation model, nor once the strategy
+    trains once. The cheaper values of `refit` come with their estimator
+    fits (`refit_fits()`), counted as `create_cv` counts the cost, since
+    agents otherwise count them themselves; without them when the notice
+    would not fit in `MAX_NOTICE_CHARS`. It also says how to run it once
+    the user chose it: `backtest`
+    and `compare` refuse a run above the thresholds without `confirm_cost`
+    set to the number of its cost (`expensive_run_figure`).
 
     Parameters
     ----------
     cost : dict
-        Cost of the strategy as `create_cv` returns it: `estimator_fits` and
-        `inference_windows` of its backtest, `compare_estimator_fits` and
-        `compare_inference_windows` of a `compare` without candidates.
+        Cost of the strategy as `create_cv` returns it: `n_fits`,
+        `estimator_fits` and `inference_windows` of its backtest,
+        `compare_estimator_fits` and `compare_inference_windows` of a
+        `compare` without candidates.
+    forecaster : str
+        Forecaster of the plan of the strategy.
+    steps : int
+        Forecast horizon of the plan.
+    compare_cost : ComparisonCost
+        Cost of each candidate of a `compare` without candidates.
+    compare_n_fits : int
+        Number of folds in which the shared strategy of that `compare`
+        trains a forecaster.
+    backtest_fits : RefitFits, default None
+        Estimator fits of the backtest with the cheaper values of `refit`
+        (`refit_fits()`), which the notice states. None to name them
+        without their cost.
+    compare_fits : RefitFits, default None
+        The same for a `compare` without candidates.
 
     Returns
     -------
@@ -442,6 +640,13 @@ def _cost_notices(cost: dict[str, int]) -> list[ToolNotice]:
         One notice (source `'runtime'`), or none when every run is at or
         below the thresholds.
     """
+
+    from .._utils import (
+        comparison_remedies,
+        cost_remedies,
+        expensive_run_figure,
+        join_remedies,
+    )
 
     backtest_parts = []
     if cost["estimator_fits"] > LONG_TRAINING_FITS:
@@ -452,9 +657,7 @@ def _cost_notices(cost: dict[str, int]) -> list[ToolNotice]:
         )
     compare_parts = []
     if cost["compare_estimator_fits"] > LONG_TRAINING_FITS:
-        compare_parts.append(
-            f"fits about {cost['compare_estimator_fits']} estimators"
-        )
+        compare_parts.append(f"fits {cost['compare_estimator_fits']} estimators")
     if cost["compare_inference_windows"] > LONG_INFERENCE_WINDOWS:
         compare_parts.append(
             f"runs up to {cost['compare_inference_windows']} inference windows"
@@ -462,25 +665,72 @@ def _cost_notices(cost: dict[str, int]) -> list[ToolNotice]:
     if not backtest_parts and not compare_parts:
         return []
 
-    runs = []
-    if backtest_parts:
-        runs.append(f"`backtest` {' and '.join(backtest_parts)}")
-    if compare_parts:
-        runs.append(
-            f"`compare` without `candidates` {' and '.join(compare_parts)}"
+    def message_of(figures: bool) -> str:
+        runs = []
+        cheaper = []
+        # The number each run is confirmed with, which the agent repeats
+        # once the user chose that run: the one the core asks for.
+        confirm = []
+        if backtest_parts:
+            runs.append(f"`backtest` {' and '.join(backtest_parts)}")
+            remedies = cost_remedies(
+                           forecasters = [forecaster],
+                           n_fits      = cost["n_fits"],
+                           steps       = steps,
+                           false       = "false",
+                           fits        = backtest_fits if figures else None,
+                       )
+            cheaper.append(
+                f"for `backtest`, {join_remedies(remedies)}" if compare_parts
+                else join_remedies(remedies)
+            )
+            figure = expensive_run_figure(
+                cost["estimator_fits"], cost["inference_windows"]
+            )
+            confirm.append(f"`confirm_cost: {figure}` to `backtest`")
+        if compare_parts:
+            runs.append(
+                f"`compare` without `candidates` {' and '.join(compare_parts)}"
+            )
+            remedies = comparison_remedies(
+                           cost   = compare_cost,
+                           n_fits = compare_n_fits,
+                           steps  = steps,
+                           false  = "false",
+                           fits   = compare_fits if figures else None,
+                       )
+            cheaper.append(
+                f"for `compare`, "
+                f"{join_remedies(['a list of `candidates`', *remedies])}"
+            )
+            figure = expensive_run_figure(
+                cost["compare_estimator_fits"], cost["compare_inference_windows"]
+            )
+            confirm.append(
+                f"`confirm_cost: {figure}` to `compare` without `candidates`"
+            )
+        message = (
+            f"Expensive run: with this strategy, {'; '.join(runs)} (an "
+            f"expensive run is one above {LONG_TRAINING_FITS} estimator fits or "
+            f"{LONG_INFERENCE_WINDOWS} inference windows). Stop here and do not "
+            f"run it: tell the user those numbers and the cheaper strategies "
+            f"({'; '.join(cheaper)}), and run the expensive one only if they "
+            f"choose it, passing {' or '.join(confirm)}: without that number "
+            f"the run is refused. Asking to retrain the model, or to evaluate "
+            f"it as in production, is not that choice."
         )
-    message = (
-        f"Expensive run: with this strategy, {'; '.join(runs)} (an expensive "
-        f"run is one above {LONG_TRAINING_FITS} estimator fits or "
-        f"{LONG_INFERENCE_WINDOWS} inference windows). Stop here and do not "
-        f"run it: tell the user those numbers and the cheaper strategies (an "
-        f"integer `refit`, fewer folds, `refit=false`; for `compare`, a list "
-        f"of `candidates`), and run the expensive one only if they choose it. "
-        f"Asking to retrain the model, or to evaluate it as in production, is "
-        f"not that choice."
-    )
-    if not backtest_parts:
-        message += " `backtest` of this plan is below the thresholds and can run."
+        if not backtest_parts:
+            message += (
+                " `backtest` of this plan is below the thresholds and can run."
+            )
+        return message
+
+    # The figures of the cheaper strategies help, the rule is needed: when
+    # both do not fit in a notice, which is cut after `MAX_NOTICE_CHARS`,
+    # the rule is kept whole.
+    message = message_of(figures=True)
+    if len(message) > MAX_NOTICE_CHARS:
+        message = message_of(figures=False)
 
     return [
         ToolNotice(
@@ -535,7 +785,223 @@ def _holdout_notices(predictions: Any, test_size: Any) -> list[ToolNotice]:
     ]
 
 
-def _metric_notices(metrics: Any) -> list[ToolNotice]:
+def _coverage_notices(
+    records: list[warnings.WarningMessage],
+) -> tuple[list[warnings.WarningMessage], list[ToolNotice]]:
+    """
+    Turn the `IntervalCoverageWarning` of a backtest or a comparison into a
+    notice that tells the agent how to report the interval.
+
+    The warning names the series (or the candidates) whose interval covers
+    clearly less than its nominal level, with the coverage measured. Agents
+    read an interval by its nominal level (an 80 % interval) unless told
+    otherwise, so the notice carries the warning with what to say instead,
+    and replaces it.
+
+    Parameters
+    ----------
+    records : list of warnings.WarningMessage
+        Warnings emitted by the call.
+
+    Returns
+    -------
+    records : list of warnings.WarningMessage
+        The warnings without the `IntervalCoverageWarning`.
+    notices : list of ToolNotice
+        One `IntervalCoverageNotice` (source `'runtime'`) per distinct
+        warning, else empty.
+    """
+
+    kept, texts = [], []
+    for record in records:
+        if issubclass(record.category, IntervalCoverageWarning):
+            text = notice_text(record)
+            if text not in texts:
+                texts.append(text)
+        else:
+            kept.append(record)
+    notices = [
+        ToolNotice(
+            source   = "runtime",
+            category = "IntervalCoverageNotice",
+            message  = (
+                f"{text} The same holds for a `forecast` of the same plan "
+                f"with this interval: give the user the coverage measured "
+                f"here (by series when there are several) and say that the "
+                f"uncertainty is larger than its bounds show."
+            ),
+            count    = 1,
+        )
+        for text in texts
+    ]
+
+    return kept, notices
+
+
+def _missing_package(plan: Any) -> str | None:
+    """
+    Package to install for the machine-learning estimator of a plan, or
+    None when it is installed or the plan has none (a foundation model has
+    its own check, `ModelPolicy.check_backend`).
+    """
+
+    if plan.task_type not in ML_TASK_TYPES:
+        return None
+
+    return missing_estimator_package(plan.estimator)
+
+
+def _missing_dependency_notices(
+    records: list[warnings.WarningMessage],
+    plan: Any,
+) -> tuple[list[warnings.WarningMessage], list[ToolNotice]]:
+    """
+    Turn the `MissingBackendWarning` of `plan` (its estimator is not
+    installed) into a notice with the advice of the error that running the
+    plan would give: how to install it with pip and with uvx, and the
+    restart. The warning of the library only gives the `pip install`.
+
+    Parameters
+    ----------
+    records : list of warnings.WarningMessage
+        Warnings emitted by the call.
+    plan : ForecastPlan
+        Plan the call made.
+
+    Returns
+    -------
+    records : list of warnings.WarningMessage
+        The warnings without the `MissingBackendWarning`.
+    notices : list of ToolNotice
+        One `MissingDependencyNotice` (source `'plan'`) when the estimator
+        of the plan is not installed, else empty.
+    """
+
+    kept = [
+        record for record in records
+        if not issubclass(record.category, MissingBackendWarning)
+    ]
+    package = _missing_package(plan)
+    if package is None:
+        return kept, []
+    notice = ToolNotice(
+        source   = "plan",
+        category = "MissingDependencyNotice",
+        message  = (
+            f"{missing_package_message(plan.estimator, package)} where the "
+            f"server runs: until it is, `backtest` and `forecast` with this "
+            f"plan fail with `missing_dependency`, and its row of `compare` "
+            f"fails and is ranked last. {install_advice(package)}"
+        ),
+        count    = 1,
+    )
+
+    return kept, [notice]
+
+
+# Fields of a plan left out when telling whether a plan was measured: the
+# interval and the metrics, which do not change the point predictions, and
+# the text that describes them (`explanation`), plus where the decisions came
+# from (who chose them, what `plan()` warned about, what the LLM refined),
+# which a candidate of `compare` records differently for the same decisions.
+_UNMEASURED_FIELDS = frozenset({
+    "interval",
+    "interval_method",
+    "metric",
+    "metrics_to_compute",
+    "explanation",
+    "warnings",
+    "llm_refined_fields",
+    "overridden_fields",
+})
+
+
+def _measured_key(profile_id: str, plan: Any) -> str:
+    """
+    Key of a plan of a profile in the plans measured in the session: equal
+    for the same plan built again with another interval or other metrics,
+    and for a candidate of `compare` with the same decisions.
+
+    Parameters
+    ----------
+    profile_id : str
+        Id of the profile the plan was built from: the same decisions on
+        another profile (other data, another target) are another plan.
+    plan : ForecastPlan
+        Plan to key.
+
+    Returns
+    -------
+    key : str
+        SHA-256 of the profile id and the decisions of the plan.
+    """
+
+    decisions = plan.model_dump(mode="json", exclude=set(_UNMEASURED_FIELDS))
+    text = json.dumps([profile_id, decisions], sort_keys=True, default=str)
+
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _unmeasured_notices(
+    measured: set[str],
+    profile_id: str,
+    plan: Any,
+    test_size: Any,
+) -> list[ToolNotice]:
+    """
+    Notice of a forecast of the future whose plan no `backtest`, `compare`
+    or `forecast` with `test_size` of the session measured, so it has no
+    measure of accuracy.
+
+    Agents presented such a forecast as reliable, or gave it the accuracy
+    of another plan they had measured (H11 of the check with agents of
+    0.4.0).
+
+    Parameters
+    ----------
+    measured : set of str
+        Keys (`_measured_key`) of the plans that a backtest, a candidate of
+        a comparison or a forecast with `test_size` ran in the session.
+    profile_id : str
+        Id of the profile of the plan.
+    plan : ForecastPlan
+        Plan of the forecast.
+    test_size : int, float, str, None
+        Argument of the tool. An evaluation (not None) is its own measure
+        and gets no notice.
+
+    Returns
+    -------
+    notices : list of ToolNotice
+        One notice (source `'runtime'`) when the plan was not measured,
+        else empty.
+    """
+
+    if test_size is not None or _measured_key(profile_id, plan) in measured:
+        return []
+
+    return [
+        ToolNotice(
+            source   = "runtime",
+            category = "UnmeasuredPlanNotice",
+            message  = (
+                "No `backtest`, `compare` or `forecast` with `test_size` in "
+                "this session measured this plan (the same decisions, with "
+                "any interval or metric), so this forecast has no measure of "
+                "accuracy. Say so, and "
+                "before presenting it as reliable measure it: `create_cv` "
+                "with this `plan_id`, then `backtest` or `compare`. Never "
+                "give the accuracy of another plan as that of this forecast."
+            ),
+            count    = 1,
+        )
+    ]
+
+
+def _metric_notices(
+    metrics: Any,
+    data_profile: Any = None,
+) -> list[ToolNotice]:
     """
     Notice with the reference of the scaled metrics (MASE, RMSSE) among the
     metrics of a backtest or a forecast.
@@ -548,22 +1014,22 @@ def _metric_notices(metrics: Any) -> list[ToolNotice]:
     ----------
     metrics : pandas DataFrame, None
         Metrics of the result, one column per metric.
+    data_profile : DataProfile, default None
+        Profile of the data the metrics were computed on, passed to
+        `_unit_notices`.
 
     Returns
     -------
     notices : list of ToolNotice
         One notice (source `'runtime'`) when a scaled metric was computed,
-        and the one of `_mape_notices` when MAPE was.
+        and those of `_unit_notices` when MAPE, sMAPE or RMSE was.
     """
 
     if metrics is None:
         return []
-    names = list(dict.fromkeys(
-        SCALED_METRICS[column] for column in metrics.columns
-        if column in SCALED_METRICS
-    ))
+    names = [column for column in metrics.columns if column in SCALED_METRICS]
     if not names:
-        return _mape_notices(metrics)
+        return _unit_notices(metrics, data_profile)
     shown = " and ".join(f"`{name}`" for name in names)
 
     return [
@@ -573,49 +1039,116 @@ def _metric_notices(metrics: Any) -> list[ToolNotice]:
             message  = (
                 f"{shown} divide{'s' if len(names) == 1 else ''} the error "
                 f"by that of the one-step naive forecast (repeat the previous "
-                f"value) on the training data: below 1 the error is smaller "
+                f"value) over the observations known when each prediction "
+                f"is made: below 1 the error is smaller "
                 f"than that reference. The reference is not a seasonal naive "
                 f"forecast nor the baseline of `compare`, so do not report a "
                 f"value below 1 as beating either."
             ),
             count    = 1,
         ),
-        *_mape_notices(metrics),
+        *_unit_notices(metrics, data_profile),
     ]
 
 
-def _mape_notices(metrics: Any) -> list[ToolNotice]:
+def _unit_notices(
+    metrics: Any,
+    data_profile: Any = None,
+) -> list[ToolNotice]:
     """
-    Notice with the unit of MAPE among the metrics of a result or the
-    columns of a leaderboard: a fraction, which agents report as a
-    percentage as it is (1.245 as "1.25 %", 100 times too small).
+    Notices with the unit of MAPE, sMAPE, MSE and RMSE among the metrics of
+    a result or the columns of a leaderboard, or saying that MAPE means
+    nothing on the data.
+
+    MAPE is a fraction, which agents report as a percentage as it is (1.245
+    as "1.25 %", 100 times too small), and sMAPE a percentage, which they
+    would multiply by 100 next to it. On a target at or around zero, MAPE
+    divides by values near zero: telling the agent to multiply its 3e13 by
+    100 invited a 3e15 %. MSE is in squared units, which agents reported as
+    an RMSE, or turned into one by taking its square root; RMSE is in the
+    units of the target.
 
     Parameters
     ----------
     metrics : pandas DataFrame, None
         Metrics of the result, one column per metric.
+    data_profile : DataProfile, default None
+        Profile of the data the metrics were computed on. When the target
+        of any of its series takes values at or around zero, MAPE gets a
+        `MetricUndefinedNotice` instead of its unit.
 
     Returns
     -------
     notices : list of ToolNotice
-        One notice (source `'runtime'`) when MAPE was computed, else empty.
+        A `MetricUnitNotice` (source `'runtime'`) with the unit of each of
+        MAPE, sMAPE, MSE and RMSE that was computed, and a
+        `MetricUndefinedNotice` (source `'runtime'`) for MAPE on such a
+        target; empty when none was computed.
     """
 
-    if metrics is None or not MAPE_NAMES.intersection(metrics.columns):
-        return []
+    from ..recommendation import describe_series_near_zero
 
-    return [
-        ToolNotice(
-            source   = "runtime",
-            category = "MetricUnitNotice",
-            message  = (
-                "`mean_absolute_percentage_error` is a fraction, not a "
-                "percentage: 0.05 is 5 %, and 1.245 is 124.5 %. Multiply it "
-                "by 100 before you write it with a % sign."
-            ),
-            count    = 1,
+    if metrics is None:
+        return []
+    has_mape = "mean_absolute_percentage_error" in metrics.columns
+    has_smape = "symmetric_mean_absolute_percentage_error" in metrics.columns
+    near_zero = (
+        describe_series_near_zero(data_profile)
+        if has_mape and data_profile is not None else None
+    )
+
+    units = []
+    if has_mape and near_zero is None:
+        units.append(
+            "`mean_absolute_percentage_error` is a fraction, not a "
+            "percentage: 0.05 is 5 %, and 1.245 is 124.5 %. Multiply it "
+            "by 100 before you write it with a % sign."
         )
-    ]
+    if has_smape:
+        units.append(
+            "`symmetric_mean_absolute_percentage_error` is already a "
+            "percentage, from 0 to 200: 1.245 is 1.245 %. Write it with a % "
+            "sign as it is, without multiplying it by 100."
+        )
+    if "mean_squared_error" in metrics.columns:
+        units.append(
+            "`mean_squared_error` is in the squared units of the target: do "
+            "not write it with the unit of the target."
+        )
+    if "root_mean_squared_error" in metrics.columns:
+        units.append(
+            "`root_mean_squared_error` is in the units of the target: report "
+            "it as it is."
+        )
+    notices = []
+    if units:
+        notices.append(
+            ToolNotice(
+                source   = "runtime",
+                category = "MetricUnitNotice",
+                message  = " ".join(units),
+                count    = 1,
+            )
+        )
+    if near_zero is not None:
+        notices.append(
+            ToolNotice(
+                source   = "runtime",
+                category = "MetricUndefinedNotice",
+                message  = (
+                    f"`mean_absolute_percentage_error` has no meaning on "
+                    f"this data: it divides each error by the actual value, "
+                    f"and {near_zero}. Do not report its value, neither as a "
+                    f"fraction nor as a percentage, and do not convert it: "
+                    f"say that MAPE is not defined for this target, and use "
+                    f"a metric that does not divide by the actual value, "
+                    f"such as `mean_absolute_error`."
+                ),
+                count    = 1,
+            )
+        )
+
+    return notices
 
 
 def _accepts_text(annotation: Any) -> bool:
@@ -923,6 +1456,11 @@ class _ServerState:
         announced.
     max_file_bytes : int
         Largest CSV file the server reads, in bytes; 0 for no limit.
+    measured_plans : set of str
+        Keys (`_measured_key`) of the plans a backtest, a candidate of a
+        comparison or a forecast with `test_size` ran, kept for the life of the server (also when their
+        objects are removed from the store), so `forecast` can tell a plan
+        that was never measured.
     """
 
     allowed: AllowedDir
@@ -930,6 +1468,7 @@ class _ServerState:
     store: Store
     models: ModelPolicy = field(default_factory=ModelPolicy)
     max_file_bytes: int = DEFAULT_MAX_FILE_MB * 1024 * 1024
+    measured_plans: set[str] = field(default_factory=set)
     failures: OrderedDict[str, tuple[str, str | None]] = field(
         default_factory=OrderedDict
     )
@@ -1175,6 +1714,53 @@ def _check_foundation_kwargs(
         )
 
 
+def _check_window_without_refit(
+    fixed_train_size: bool | None,
+    refit: Any,
+    forecaster: str,
+) -> None:
+    """
+    Reject a `fixed_train_size` for a strategy that trains the forecaster
+    once.
+
+    The core accepts it with an `IgnoredArgumentWarning`, as skforecast,
+    whose default is `fixed_train_size=True` with `refit=False`, accepts
+    it. An agent that passes it means a window that rolls between refits,
+    which never happens: the server rejects it, so the strategy is fixed
+    before a backtest is described as one with a fixed window.
+
+    Parameters
+    ----------
+    fixed_train_size : bool, None
+        Value given by the agent.
+    refit : bool, int, None
+        `refit` given by the agent; null trains once.
+    forecaster : str
+        Forecaster of the plan.
+
+    Returns
+    -------
+    None
+    """
+
+    from .._utils import window_without_refit
+
+    if window_without_refit(fixed_train_size, refit, forecaster):
+        shown = "null" if refit is None else json.dumps(refit)
+        raise ServerError(
+            f"`fixed_train_size` has no effect with `refit` {shown}: "
+            f"{forecaster} is not refitted between folds, so there is no "
+            f"training window to keep or grow.",
+            code  = "invalid_argument",
+            field = "fixed_train_size",
+            hint  = (
+                "Pass `refit: true` (or an integer) to refit it, with a fixed "
+                "(true) or growing (false) window, or leave "
+                "`fixed_train_size` out."
+            ),
+        )
+
+
 def _check_steps(steps: Any, profile: Any, argument: str) -> None:
     """
     Reject a horizon longer than the longest series of the profile.
@@ -1217,10 +1803,12 @@ def _check_steps(steps: Any, profile: Any, argument: str) -> None:
         )
 
 
-def _data_texts(data_profile: Any) -> list[str]:
+def _data_texts(data_profile: Any, use_exog: bool = True) -> list[str]:
     """
     Problems of the data to give as notices: the warnings the profile
-    records, and the missing values of the target.
+    records, and the missing values of the target. For a plan without
+    exogenous variables (`use_exog` False), not the warnings about the
+    exogenous columns (see `plan_data_warnings`).
 
     The profile only warns about missing values above a rate of 20 %, and
     says how many there are in its summary. Fewer already matter to the
@@ -1229,7 +1817,9 @@ def _data_texts(data_profile: Any) -> list[str]:
     accept them, both when the script runs, three calls later.
     """
 
-    texts = list(data_profile.warnings)
+    from ..profiling.data_profile import plan_data_warnings
+
+    texts = plan_data_warnings(data_profile, use_exog)
     missing = {name: n for name, n in data_profile.missing_target.items() if n > 0}
     if missing:
         shown = ", ".join(f"{name!r}: {n}" for name, n in list(missing.items())[:5])
@@ -1327,16 +1917,33 @@ def _undeclared_distributions() -> dict[str, list[str]]:
     return distributions
 
 
+# Distribution name and extras at the start of a requirement, before a
+# version specifier: `tfc-t0[torch]>=0.6`, the backend of T0.
+_REQUIREMENT_NAME = re.compile(
+    r"(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)(?P<extras>\[[^\]]*\])?"
+)
+
+
 def _pinned(package: str) -> str:
     """
     A package with the version installed where the server runs
-    (`'pandas==2.3.1'`), or the package alone when it is not installed.
+    (`'pandas==2.3.1'`, `'tfc-t0[torch]==0.6.1'` for `'tfc-t0[torch]>=0.6'`:
+    the extras are kept and the specifier gives way to that version), or
+    the requirement as given when it is not installed. A direct reference
+    (`'timestral @ git+https://...'`, the backend of Timestral) is kept as
+    it is: it names its source, and a version after the URL would make the
+    requirement invalid.
     """
 
+    if "@" in package:
+        return package
+    match = _REQUIREMENT_NAME.match(package.strip())
     try:
-        return f"{package}=={metadata.version(package.split('[', 1)[0])}"
+        installed = metadata.version(match["name"])
     except metadata.PackageNotFoundError:
         return package
+
+    return f"{match['name']}{match['extras'] or ''}=={installed}"
 
 
 def _requirements(code: str, model_id: str | None) -> list[str]:
@@ -1348,31 +1955,44 @@ def _requirements(code: str, model_id: str | None) -> list[str]:
     code : str
         Script, whole.
     model_id : str, None
-        Foundation model the script runs, whose backend skforecast imports
-        when it loads the model: the script does not import it.
+        Foundation model of the plan, whose backend skforecast imports when
+        the script loads the model (`FoundationModel`): the script does not
+        import it.
 
     Returns
     -------
     requirements : list of str
         The packages of the modules the script imports, sorted, then the
-        backend of the foundation model, each with the version installed
-        where the server runs.
+        backend of the foundation model when the script loads it (not the
+        script of a cross-validation strategy), each with the version
+        installed where the server runs.
+
+    Notes
+    -----
+    The first call reads the installed distributions (`_distributions`),
+    which takes seconds: the server calls it in a worker thread, so it never
+    holds the event loop.
     """
 
     from .._foundation import resolve_foundation_model
 
     modules = set()
+    loads_model = False
     for node in ast.walk(ast.parse(code)):
         if isinstance(node, ast.Import):
             modules.update(alias.name.split(".")[0] for alias in node.names)
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
             modules.add(node.module.split(".")[0])
+            loads_model = loads_model or (
+                node.module == "skforecast.foundation"
+                and any(alias.name == "FoundationModel" for alias in node.names)
+            )
     distributions = _distributions()
     packages = sorted(
         sorted(distributions.get(module, [module]))[0]
         for module in modules - sys.stdlib_module_names
     )
-    if model_id is not None:
+    if model_id is not None and loads_model:
         try:
             packages.append(resolve_foundation_model(model_id).backend_package)
         except InvalidInputError:
@@ -1437,36 +2057,54 @@ def _default_compare_cost(
     assistant: ForecastingAssistant,
     profile: Any,
     cv_result: Any,
-) -> tuple[dict[str, int], int]:
+    plans: dict[str, Any] | None = None,
+) -> tuple[ComparisonCost, int]:
     """
-    Cost of the candidates that a `compare` without candidates runs with a
-    strategy, resolved by `resolve_default_candidates()`, as `compare()`
-    resolves them: the candidates of the profile (without a foundation model
-    whose backend is not installed), the plan the strategy was created for
-    when it is none of them, and without the alternatives above the budget
-    of `compare()` (the recommended forecaster and the plan of the strategy
-    always run). The
-    interval and the metric are those the `compare` tool takes from that
-    plan. The baseline fits nothing and is not counted. The fits are those
-    of the strategy as `compare()` shares it, not as the forecaster of the
-    plan runs it (ForecasterStats is refitted in every fold).
+    Cost of the `compare` tool without candidates on a strategy, counted as
+    `compare()` counts it (`count_comparison_cost`), from the candidates
+    `resolve_default_candidates()` resolves: the candidates of the profile
+    (without a foundation model whose backend is not installed, nor
+    ForecasterStats when the strategy skips folds), the plan
+    the strategy was created for when it is none of them, and without the
+    alternatives above the budget of `compare()` (the recommended
+    forecaster and the plan of the strategy always run), plus the baseline
+    the tool adds by default, and without those whose plan cannot be built
+    (`compare()` builds every plan first, and such a candidate runs
+    nothing), so its total is the number that `confirm_cost` of that
+    `compare` repeats. The interval and the metric are those the `compare`
+    tool takes from that plan. The fits are those of the strategy as
+    `compare()` shares it, not as the forecaster of the plan runs it
+    (ForecasterStats is refitted in every fold).
+
+    Parameters
+    ----------
+    assistant : ForecastingAssistant
+        Assistant of the server.
+    profile : ProfileResult
+        Profile the strategy was created from.
+    cv_result : CVResult
+        The strategy.
+    plans : dict, default None
+        Plans already built (or the errors of building them), by their
+        configuration, filled in as they are built. A cost counted again
+        with another `refit` builds the same plans (`_default_compare_count`).
 
     Returns
     -------
-    fits : dict
-        Estimator fits of each candidate, by the name of its row.
-    inference_windows : int
-        Inference windows of the foundation candidates (one per series and
-        fold).
+    cost : ComparisonCost
+        Cost of each candidate, by the name of its row, and the totals.
+    n_fits : int
+        Number of folds in which the shared strategy trains a forecaster.
     """
 
     from .._utils import plan_override_value
-    from ..execution.comparison import resolve_default_candidates
-    from ..recommendation import (
-        count_estimator_fits,
-        count_inference_windows,
-        resolve_cv_config,
+    from ..execution.comparison import (
+        add_baseline_candidate,
+        buildable_candidates,
+        count_comparison_cost,
+        resolve_default_candidates,
     )
+    from ..recommendation import resolve_cv_config
 
     plan = cv_result.plan
     interval = list(plan.interval) if plan.interval is not None else None
@@ -1476,16 +2114,26 @@ def _default_compare_cost(
         else None
     )
 
+    plans = {} if plans is None else plans
+
     def build_plan(config: dict) -> Any:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            return assistant.plan(
-                profile  = profile,
-                steps    = plan.steps,
-                interval = interval,
-                metric   = metric,
-                **config,
-            )
+        key = json.dumps(config, sort_keys=True, default=repr)
+        if key not in plans:
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    plans[key] = assistant.plan(
+                        profile  = profile,
+                        steps    = plan.steps,
+                        interval = interval,
+                        metric   = metric,
+                        **config,
+                    )
+            except Exception as exc:
+                plans[key] = exc
+        if isinstance(plans[key], Exception):
+            raise plans[key]
+        return plans[key]
 
     shared, _ = resolve_cv_config(cv_result.cv, profile.data_profile)
     n_fits, n_folds = int(shared["n_fits"]), int(shared["n_folds"])
@@ -1496,27 +2144,132 @@ def _default_compare_cost(
                      n_fits        = n_fits,
                      steps         = plan.steps,
                      n_folds       = n_folds,
+                     skip_folds    = cv_result.cv.skip_folds,
                  ).candidates
+    candidates, _, _ = add_baseline_candidate(candidates, profile, interval)
+    candidates = buildable_candidates(candidates, build_plan)
 
-    fits = {}
-    inference_windows = 0
-    for name, config in candidates:
-        forecaster = config.get("forecaster") or profile.forecaster
-        fits[name] = int(
-            count_estimator_fits(
-                n_fits     = n_fits,
-                forecaster = forecaster,
-                steps      = plan.steps,
-                n_folds    = n_folds,
-            )
-        )
-        inference_windows += count_inference_windows(
-            n_folds    = n_folds,
-            n_series   = profile.data_profile.n_series,
-            forecaster = forecaster,
-        )
+    cost = count_comparison_cost(
+               candidate_configs = candidates,
+               preferred         = profile.forecaster,
+               steps             = plan.steps,
+               n_fits            = n_fits,
+               n_folds           = n_folds,
+               n_series          = profile.data_profile.n_series,
+           )
 
-    return fits, int(inference_windows)
+    return cost, n_fits
+
+
+def _default_compare_count(
+    assistant: ForecastingAssistant,
+    profile: Any,
+    cv_result: Any,
+    plans: dict[str, Any] | None = None,
+) -> Callable[[Any], tuple[int, Hashable]]:
+    """
+    Function of a strategy that returns the estimator fits of a `compare`
+    without candidates on it (`_default_compare_cost` with that strategy in
+    place of the one of `cv_result`) and the names of the candidates they
+    add up, for `refit_fits()`. Its candidates are counted again for each
+    strategy: a cheaper one can run an alternative that the fit budget of
+    `compare()` leaves out. The plans are built once, in `plans` (see
+    `_default_compare_cost`), which the caller shares when it counts the
+    strategy as it is.
+    """
+
+    plans = {} if plans is None else plans
+
+    def count(cv: Any) -> tuple[int, Hashable]:
+        cost, _ = _default_compare_cost(
+                      assistant,
+                      profile,
+                      cv_result.model_copy(update={"cv": cv}),
+                      plans,
+                  )
+        return cost.estimator_fits, tuple(cost.candidates)
+
+    return count
+
+
+def _cost_not_confirmed(
+    exc: CostNotConfirmedError,
+    tool: str,
+    confirm_cost: int | None,
+    remedies: list[str],
+) -> ServerError:
+    """
+    Error of `backtest` or `compare` for a run above the thresholds of an
+    expensive run that `confirm_cost` does not confirm, raised before
+    anything runs.
+
+    The core accepts True, which an agent would pass without reading the
+    cost (the weaker model ran with the `CostNotice` read, 12 of 12): the
+    tool takes only the number of the cost, so the agent has to read it,
+    and a strategy or candidates with another cost refuse the old number.
+    The error states the cost, what makes it and the cheaper strategies,
+    and tells the agent not to call again until the user answers. Its
+    code is the server's own, `cost_not_confirmed`: `invalid_argument`
+    asks an agent to correct the argument and call again, which it would
+    do at once with the number the error gives, without asking.
+
+    Parameters
+    ----------
+    exc : CostNotConfirmedError
+        Error of the core.
+    tool : str
+        Name of the tool, `'backtest'` or `'compare'`.
+    confirm_cost : int, None
+        Argument of the tool.
+    remedies : list of str
+        Changes that lower the cost, written for the arguments of the tools
+        (`refit=false`).
+
+    Returns
+    -------
+    error : ServerError
+        Error with the code `'cost_not_confirmed'` and the field
+        `'confirm_cost'`.
+    """
+
+    from .._utils import changed_since, join_remedies
+
+    run = "comparison" if tool == "compare" else "backtest"
+    message = (
+        f"Expensive run not confirmed, so nothing ran. This {run} is above "
+        f"the threshold of an expensive run ({LONG_TRAINING_FITS} estimator "
+        f"fits or {LONG_INFERENCE_WINDOWS} inference windows). "
+        f"{exc.description}"
+    )
+    if confirm_cost is not None:
+        message += (
+            f" `confirm_cost` is {confirm_cost}, not {exc.figure}: "
+            f"{changed_since(run)} changed since that number was given."
+        )
+    cheaper = (
+        f" and the cheaper strategies ({join_remedies(remedies)})" if remedies else ""
+    )
+    hint = (
+        f"Do not call `{tool}` again until the user answers: tell them these "
+        f"numbers{cheaper}, and ask whether to run it. Only if they choose to "
+        f"run it as it is, call `{tool}` again with the same arguments and "
+        f"`confirm_cost: {exc.figure}`. Asking to retrain the model, or to "
+        f"evaluate it as in production, is not that choice."
+    )
+    details: dict[str, Any] = {"confirm_cost": exc.figure, "cost": dict(exc.cost)}
+    if exc.comparison_cost is not None:
+        details["candidates"] = {
+            name: candidate.model_dump()
+            for name, candidate in exc.comparison_cost.candidates.items()
+        }
+
+    return ServerError(
+        message,
+        code    = "cost_not_confirmed",
+        field   = "confirm_cost",
+        hint    = hint,
+        details = details,
+    )
 
 
 def _register(
@@ -1612,9 +2365,11 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             "not accepted."
         ))],
         target: Annotated[str | list[str] | None, Field(description=(
-            "Column to forecast, or a list of columns (one series each) for "
-            "wide multi-series data. Null when it is not known: the error "
-            "lists the columns of the file."
+            "Column to forecast, as the user named it, also when you are not "
+            "sure it exists (an error then lists the columns of the file), or "
+            "a list of columns (one series each) for wide multi-series data. "
+            "Null only when the user named no column: the error lists the "
+            "columns of the file."
         ))] = None,
         date_column: Annotated[str | None, Field(description=(
             "Column with the dates. When null, the first column holding dates "
@@ -1637,6 +2392,19 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             "Decimal mark of the file: '.' or ',' (only when the separator "
             "is not ','). When null, it is detected from the file."
         ))] = None,
+        thousands: Annotated[Literal["."] | None, Field(description=(
+            "Thousands separator of the file: '.', with ',' as decimal mark "
+            "(as in '1.705,11'). When null, it is detected from the file; "
+            "pass it only when an error says it cannot be told."
+        ))] = None,
+        dayfirst: Annotated[bool | None, Field(description=(
+            "Order of the day and the month of the dates of the file: true "
+            "for day first ('31/01/2024'), false for month first "
+            "('01/31/2024'). When null, it is told from the dates, or from "
+            "their regularity with a notice when they read both ways; pass it "
+            "only when an error says they read both ways, or the user gives "
+            "another order than a notice, with the order the user confirms."
+        ))] = None,
         ctx: Context = None,
     ) -> ToolResult:
         _inputs.check_text_argument(target, "target")
@@ -1652,16 +2420,26 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             if target is None:
                 # Agents called `profile` with a made up target to read the
                 # columns in its error: the same answer, without guessing.
-                frame = read_csv_file(path, sep=sep, decimal=decimal)
+                frame = read_csv_file(
+                            path      = path,
+                            sep       = sep,
+                            decimal   = decimal,
+                            thousands = thousands,
+                        )
                 columns = [str(column) for column in frame.columns]
                 raise ServerError(
                     f"`target` was not given. Columns of the file: "
                     f"{_listed_columns(columns)}.",
                     code  = "invalid_argument",
                     field = "target",
+                    # Seen with a small model: the user named a column that
+                    # is not in the file, the agent called without `target`
+                    # and profiled another column without telling.
                     hint  = (
-                        "Pass the column to forecast as `target`. If more than "
-                        "one could be it, ask the user."
+                        "If the user named a column that is not in this list, "
+                        "tell them and ask which one to forecast before using "
+                        "another. Otherwise pass the column to forecast as "
+                        "`target`; if more than one could be it, ask the user."
                     ),
                 )
             digest = _inputs.file_sha256(path)
@@ -1674,6 +2452,8 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                     exog_columns     = exog_columns,
                     sep              = sep,
                     decimal          = decimal,
+                    thousands        = thousands,
+                    dayfirst         = dayfirst,
                 )
             except SkforecastAIError as exc:
                 # Every error of a profile on `data` is about the file:
@@ -1728,9 +2508,14 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         from ..schemas.plans import REFINE_PLAN_OVERRIDE_KEYS
 
         if notices is None:
+            # An estimator that is not installed, with the advice of the
+            # error that running the plan gives.
+            outcome_warnings, server_notices = _missing_dependency_notices(
+                outcome_warnings, new_plan
+            )
             # The license of its foundation model, in the announcement of
             # the download when one is due.
-            server_notices = state.models.notices(
+            server_notices += state.models.notices(
                 [state.models.model_of(new_plan.forecaster, new_plan.estimator)],
                 uncached,
             )
@@ -1740,7 +2525,9 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             texts = [
                 *_text_notices(new_plan.warnings, outcome_warnings, "plan"),
                 *_text_notices(
-                    _data_texts(source.profile.data_profile), outcome_warnings, "data"
+                    _data_texts(source.profile.data_profile, new_plan.use_exog),
+                    outcome_warnings,
+                    "data",
                 ),
             ]
             notices = build_notices(
@@ -1803,7 +2590,7 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             f"{LAGS_DESCRIPTION} Null for the selection from the partial "
             f"autocorrelation."
         ))] = None,
-        window_features: Annotated[WindowFeatures | None, Field(description=(
+        window_features: Annotated[WindowFeatures, Field(description=(
             f"{WINDOW_FEATURES_DESCRIPTION} Null for the deterministic "
             f"selection."
         ))] = None,
@@ -1875,8 +2662,10 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         plan_id: Annotated[str, Field(description="Id of the plan to refine.")],
         overrides: Annotated[RefinePlanArgs, Field(description=(
             "Values to change, e.g. {'estimator': 'Ridge', 'lags': 12}. An "
-            "omitted key keeps the value of the plan; {'lags': null} selects "
-            "the lags again and {'interval': null} removes the interval."
+            "omitted key keeps the value of the plan, unless the new "
+            "forecaster or estimator cannot take it: it is left out and a "
+            "notice names it. {'lags': null} selects the lags again and "
+            "{'interval': null} removes the interval."
         ))],
         ctx: Context = None,
     ) -> ToolResult:
@@ -1944,8 +2733,9 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         fixed_train_size: Annotated[bool | None, Field(description=(
             "Whether the training window keeps its size when refitting "
             "(true) or grows (false). Null for false. Only with `refit` true "
-            "or an integer: with `refit` false or null it is an error, as it "
-            "would not run (ForecasterStats aside)."
+            "or an integer: with `refit` false or null nothing is refitted, "
+            "so it has no effect and is rejected (`invalid_argument`); "
+            "ForecasterStats aside, which is refitted in every fold."
         ))] = None,
         gap: Annotated[int | None, Field(ge=0, description=(
             "Observations between the end of training and the test set. Null "
@@ -1956,7 +2746,8 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             "Folds are numbered from 0, and fold 0 always runs. An integer n "
             "keeps folds 0, n, 2n, ...; a list skips the folds at those "
             "numbers (each at least 1 and below the number of folds). Null "
-            "for every fold."
+            "for every fold. Rejected for a ForecasterStats plan, which "
+            "skforecast refits in every fold."
         ))] = None,
         allow_incomplete_fold: Annotated[bool | None, Field(description=(
             "Whether the last fold may have fewer than `steps` observations. "
@@ -1964,13 +2755,21 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         ))] = None,
         ctx: Context = None,
     ) -> ToolResult:
+        from .._utils import cost_remedies, join_remedies
         from ..schemas.results import CV_OVERRIDE_NAMES
 
         _inputs.check_not_numeric_text(initial_train_size, "initial_train_size")
         plan_entry = store.get(plan_id, "plan_id", ("plan",))
+        _check_window_without_refit(
+            fixed_train_size, refit, plan_entry.obj.forecaster
+        )
 
         def work(control: CallControl):
-            from .._utils import warn_long_inference, warn_long_training
+            from .._utils import (
+                run_estimator_fits,
+                warn_long_inference,
+                warn_long_training,
+            )
 
             # The core turns what skforecast rejects in the strategy (an
             # `initial_train_size` beyond the data, a `gap` too large) into
@@ -1987,8 +2786,9 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 allow_incomplete_fold = allow_incomplete_fold,
             )
             cost = _cost(result.cv_config, result.plan.forecaster, result.plan.steps)
-            # The warning a backtest of this strategy will emit, given now,
-            # when the strategy can still change.
+            # The cost of a backtest of this strategy above the thresholds,
+            # given now, when the strategy can still change: `backtest` then
+            # refuses to run it until it is confirmed.
             warn_long_training(
                 estimator_fits = cost["estimator_fits"],
                 n_fits         = cost["n_fits"],
@@ -2000,19 +2800,56 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 n_series          = plan_entry.profile.data_profile.n_series,
                 n_folds           = cost["n_folds"],
             )
-            compare_fits, compare_windows = _default_compare_cost(
-                state.assistant, plan_entry.profile, result
+            # The plans of the candidates, built once here: the cheaper
+            # strategies of the notices count the same candidates again.
+            plans: dict[str, Any] = {}
+            compare_count = _default_compare_count(
+                state.assistant, plan_entry.profile, result, plans
             )
-            cost["compare_estimator_fits"] = sum(compare_fits.values())
-            cost["compare_inference_windows"] = compare_windows
+            compare_cost, compare_n_fits = _default_compare_cost(
+                state.assistant, plan_entry.profile, result, plans
+            )
+            cost["compare_estimator_fits"] = compare_cost.estimator_fits
+            cost["compare_inference_windows"] = compare_cost.inference_windows
+            # The fits of the cheaper values of `refit` of each expensive
+            # run, counted once here, off the event loop, for the notices.
+            data_profile = plan_entry.profile.data_profile
+            backtest_fits = compare_fits = None
+            if cost["estimator_fits"] > LONG_TRAINING_FITS:
+                backtest_fits = _refit_fits(
+                                    result.cv,
+                                    data_profile,
+                                    run_estimator_fits(
+                                        data_profile,
+                                        [result.plan.forecaster],
+                                        result.plan.steps,
+                                    ),
+                                    cost["n_fits"],
+                                )
+            if cost["compare_estimator_fits"] > LONG_TRAINING_FITS:
+                compare_fits = _refit_fits(
+                                   result.cv, data_profile, compare_count,
+                                   compare_n_fits,
+                               )
             object_id = store.new_id("cv")
             summary = state.summary(object_id, result.describe())
             code_file = state.code_file(object_id, result.code)
             control.wrote(summary[2], code_file)
-            return object_id, result, summary, code_file, cost, compare_fits
+            return (
+                object_id, result, summary, code_file, cost, compare_cost,
+                compare_n_fits, backtest_fits, compare_fits,
+            )
 
         outcome = await run_call(work, report=_report(ctx), label="create_cv")
-        object_id, result, summary, code_file, cost, compare_fits = outcome.value
+        (
+            object_id, result, summary, code_file, cost, compare_cost,
+            compare_n_fits, backtest_fits, compare_fits,
+        ) = outcome.value
+        compare_candidates = compare_cost.candidates.values()
+        compare_skip_folds = all(
+            candidate.forecaster != "ForecasterStats"
+            for candidate in compare_candidates
+        )
         links = {"profile_id": plan_entry.profile_id, "plan_id": plan_entry.id}
         # A `compare` without candidates runs other forecasters with this
         # strategy, which can cost far more than the plan it was built for
@@ -2021,17 +2858,32 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         if cost["compare_estimator_fits"] > max(
             LONG_TRAINING_FITS, cost["estimator_fits"]
         ):
-            shown = ", ".join(f"{name}: {fits}" for name, fits in compare_fits.items())
+            shown = ", ".join(
+                f"{name}: {candidate.estimator_fits}"
+                for name, candidate in compare_cost.candidates.items()
+            )
+            remedies = cost_remedies(
+                           forecasters = [
+                                             candidate.forecaster
+                                             for candidate in compare_candidates
+                                             if candidate.estimator_fits
+                                         ],
+                           n_fits      = compare_n_fits,
+                           steps       = result.plan.steps,
+                           skip_folds  = compare_skip_folds,
+                           false       = "false",
+                           fits        = compare_fits,
+                       )
             compare_notice.append(
                 ToolNotice(
                     source   = "runtime",
                     category = "CompareCostNotice",
                     message  = (
                         f"`compare` without `candidates` on this strategy fits "
-                        f"about {cost['compare_estimator_fits']} estimators "
+                        f"{cost['compare_estimator_fits']} estimators "
                         f"({shown}), more than the {cost['estimator_fits']} of "
-                        f"this plan. Pass `candidates` to choose what runs, or "
-                        f"use `refit=false` or fewer folds."
+                        f"this plan. Pass `candidates` to choose what runs"
+                        + (f", or use {join_remedies(remedies)}." if remedies else ".")
                     ),
                     count    = 1,
                 )
@@ -2044,6 +2896,13 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             and cost["inference_windows"] == 0
         ):
             n_series = plan_entry.profile.data_profile.n_series
+            remedies = cost_remedies(
+                           forecasters = ["ForecasterFoundation"],
+                           n_fits      = compare_n_fits,
+                           steps       = result.plan.steps,
+                           skip_folds  = compare_skip_folds,
+                           false       = "false",
+                       )
             compare_notice.append(
                 ToolNotice(
                     source   = "runtime",
@@ -2054,7 +2913,8 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                         f"{cost['compare_inference_windows']} inference windows "
                         f"({n_series} series x {cost['n_folds']} folds), which "
                         f"can take minutes on a CPU. Pass `candidates` to "
-                        f"choose what runs, or use fewer folds."
+                        f"choose what runs, or use "
+                        f"{join_remedies(remedies)}."
                     ),
                     count    = 1,
                 )
@@ -2072,7 +2932,15 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                                 plan_warnings  = result.plan.warnings,
                                 data_warnings  = plan_entry.data_warnings,
                                 server_notices = [
-                                    *_cost_notices(cost),
+                                    *_cost_notices(
+                                        cost,
+                                        forecaster     = result.plan.forecaster,
+                                        steps          = result.plan.steps,
+                                        compare_cost   = compare_cost,
+                                        compare_n_fits = compare_n_fits,
+                                        backtest_fits  = backtest_fits,
+                                        compare_fits   = compare_fits,
+                                    ),
                                     *_missing_values_notices(
                                         plan_entry.obj, plan_entry.profile
                                     ),
@@ -2113,6 +2981,14 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         model_id = state.models.model_of(plan_obj.forecaster, plan_obj.estimator)
         state.models.check(model_id, argument)
         state.models.check_backend(model_id, argument)
+        package = _missing_package(plan_obj)
+        if package is not None:
+            raise missing_dependency_error(
+                name    = plan_obj.estimator,
+                package = package,
+                field   = argument,
+                details = {"estimator": plan_obj.estimator, "package": package},
+            )
 
     def _keep_failure(exc: Exception) -> None:
         # The traceback and the code of a failed script never go in the
@@ -2148,6 +3024,15 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             "Plan to backtest, built from the same profile. Null for the plan "
             "the cross-validation strategy was built for."
         ))] = None,
+        confirm_cost: Annotated[NonNegative | None, Field(description=(
+            "Confirms an expensive run (above 50 estimator fits, or 2000 "
+            "inference windows of a foundation model), only once the user "
+            "chose it: the number of its cost that `create_cv` or the error "
+            "of a call without it gives (its estimator fits; its inference "
+            "windows when only those are above). Without it, or with another "
+            "number, such a run is an error and nothing runs. Ignored below "
+            "the thresholds."
+        ))] = None,
         ctx: Context = None,
     ) -> ToolResult:
         cv_entry = store.get(cv_id, "cv_id", ("cv",))
@@ -2167,9 +3052,12 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                     details = {"plan_id": plan_id, "cv_id": cv_id},
                 )
             backtested, plan_link = plan_entry.obj, plan_entry.id
-        _run_plan_locally(backtested, "plan_id")
+        # The argument that named the plan: the strategy names its own.
+        _run_plan_locally(backtested, "plan_id" if plan_id is not None else "cv_id")
 
         def work(control: CallControl):
+            from .._utils import cost_remedies, run_estimator_fits
+
             path = _data_of(cv_entry)
             try:
                 result = state.assistant.backtest(
@@ -2180,7 +3068,28 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                     profile       = _copy(cv_entry.profile),
                     plan          = _copy(backtested),
                     show_progress = False,
+                    confirm_cost  = False if confirm_cost is None else confirm_cost,
                 )
+            except CostNotConfirmedError as exc:
+                remedies = cost_remedies(
+                               forecasters = [backtested.forecaster],
+                               n_fits      = exc.cost["n_fits"],
+                               steps       = backtested.steps,
+                               false       = "false",
+                               fits        = _refit_fits(
+                                                 cv_result.cv,
+                                                 cv_entry.profile.data_profile,
+                                                 run_estimator_fits(
+                                                     cv_entry.profile.data_profile,
+                                                     [backtested.forecaster],
+                                                     backtested.steps,
+                                                 ),
+                                                 exc.cost["n_fits"],
+                                             ),
+                           )
+                raise _cost_not_confirmed(
+                    exc, "backtest", confirm_cost, remedies
+                ) from None
             except SkforecastAIError as exc:
                 _leave_to_user(exc, {"data": DATA_VALUES_HINT})
                 _keep_failure(exc)
@@ -2199,6 +3108,8 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             "profile_id": cv_entry.profile_id, "plan_id": plan_link, "cv_id": cv_id,
         }
         cost = _cost(result.cv_config, result.plan.forecaster, result.plan.steps)
+        state.measured_plans.add(_measured_key(cv_entry.profile_id, result.plan))
+        records, coverage_notices = _coverage_notices(outcome.warnings)
 
         return _register(
             state,
@@ -2208,10 +3119,18 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             links     = links,
             summary   = summary,
             notices   = build_notices(
-                            outcome.warnings,
+                            records,
                             plan_warnings  = result.plan.warnings,
                             data_warnings  = cv_entry.data_warnings,
-                            server_notices = _metric_notices(result.metrics),
+                            server_notices = [
+                                *_estimator_notices(
+                                    result.plan, cv_entry.profile, "backtest"
+                                ),
+                                *coverage_notices,
+                                *_metric_notices(
+                                    result.metrics, cv_entry.profile.data_profile
+                                ),
+                            ],
                         ),
             source    = cv_entry,
             code      = result.code,
@@ -2238,8 +3157,9 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 "the estimators of the recommended forecaster when that leaves "
                 "one, without those above 500 estimator fits; plus the plan "
                 "the strategy was built for, in the row 'Strategy plan', when "
-                "it is none of them. The summary names the row of that plan. "
-                "A candidate that fails is ranked last with its error."
+                "it is none of them. A list runs only those candidates. The "
+                "summary names the row of that plan, if any. A candidate that "
+                "fails is ranked last with its error."
             ),
         )] = None,
         interval: Annotated[Interval | None, Field(description=(
@@ -2256,6 +3176,15 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             "Whether to add a seasonal naive baseline (ForecasterEquivalentDate) "
             "to the ranking."
         ))] = True,
+        confirm_cost: Annotated[NonNegative | None, Field(description=(
+            "Confirms an expensive run (all the candidates together above 50 "
+            "estimator fits, or 2000 inference windows of foundation models), "
+            "only once the user chose it: the number of its cost that "
+            "`create_cv` (without `candidates`) or the error of a call without "
+            "it gives (the estimator fits; the inference windows when only "
+            "those are above). Without it, or with another number, such a run "
+            "is an error and nothing runs. Ignored below the thresholds."
+        ))] = None,
         ctx: Context = None,
     ) -> ToolResult:
         from .._utils import plan_override_value
@@ -2330,7 +3259,47 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                     show_progress     = False,
                     baseline          = baseline,
                     progress_callback = on_progress,
+                    confirm_cost      = False if confirm_cost is None else confirm_cost,
                 )
+            except CostNotConfirmedError as exc:
+                from .._utils import comparison_remedies, run_estimator_fits
+                from ..recommendation import resolve_cv_config
+
+                shared, _ = resolve_cv_config(cv_entry.obj.cv, profile_obj.data_profile)
+                remedies = comparison_remedies(
+                               cost   = exc.comparison_cost,
+                               n_fits = int(shared["n_fits"]),
+                               steps  = cv_entry.obj.cv.steps,
+                               false  = "false",
+                               fits   = _refit_fits(
+                                            cv_entry.obj.cv,
+                                            profile_obj.data_profile,
+                                            # Without candidates, those of
+                                            # each strategy; with them, the
+                                            # same ones.
+                                            _default_compare_count(
+                                                state.assistant,
+                                                profile_obj,
+                                                cv_entry.obj,
+                                            ) if candidates is None
+                                            else run_estimator_fits(
+                                                profile_obj.data_profile,
+                                                [
+                                                    c.forecaster for c in
+                                                    exc.comparison_cost.candidates.values()
+                                                ],
+                                                cv_entry.obj.cv.steps,
+                                            ),
+                                            int(shared["n_fits"]),
+                                        ),
+                           )
+                fewer = (
+                    "a list of `candidates`" if candidates is None
+                    else "fewer `candidates`"
+                )
+                raise _cost_not_confirmed(
+                    exc, "compare", confirm_cost, [fewer, *remedies]
+                ) from None
             except SkforecastAIError as exc:
                 _leave_to_user(exc, {"data": DATA_VALUES_HINT})
                 _keep_failure(exc)
@@ -2393,6 +3362,13 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         ) = outcome.value
         best = result.best_candidate
         best_plan_id, best_summary, best_code = best_plan
+        # Every candidate that ran is measured, not only the winner: a plan
+        # built again with its decisions forecasts what the leaderboard
+        # scored.
+        state.measured_plans.update(
+            _measured_key(cv_entry.profile_id, candidate.plan)
+            for candidate in result.candidates.values()
+        )
         plan_warnings = [
             text for candidate in result.candidates.values()
             for text in candidate.plan.warnings
@@ -2407,13 +3383,6 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             best_summary,
             best_code,
         )
-        # The cost of the candidates that ran, each with the strategy it ran.
-        candidate_costs = [
-            _cost(candidate.cv_config, candidate.plan.forecaster, candidate.plan.steps)
-            for candidate in result.candidates.values()
-        ]
-        estimator_fits = sum(cost["estimator_fits"] for cost in candidate_costs)
-        inference_windows = sum(cost["inference_windows"] for cost in candidate_costs)
         # Only the candidates whose script ran (also those that failed while
         # running) can have downloaded weights. Their license is given too,
         # in the announcement of the download or alone.
@@ -2429,12 +3398,16 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 if failure.generated_code is not None
             ),
         ]
+        # The one count of the comparison, made before any candidate ran
+        # (the one its thresholds apply to): the totals of every candidate,
+        # the baseline and those that failed included.
         cost = {
-            "n_folds": int(result.cv_config["n_folds"]),
-            "n_fits": int(result.cv_config["n_fits"]),
-            "estimator_fits": estimator_fits,
-            "inference_windows": inference_windows,
+            "n_folds": result.cost.n_folds,
+            "n_fits": result.cost.n_fits,
+            "estimator_fits": result.cost.estimator_fits,
+            "inference_windows": result.cost.inference_windows,
         }
+        records, coverage_notices = _coverage_notices(outcome.warnings)
 
         return _register(
             state,
@@ -2448,14 +3421,30 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             },
             summary              = summary,
             notices              = build_notices(
-                                       outcome.warnings,
+                                       records,
                                        plan_warnings  = plan_warnings,
                                        data_warnings  = cv_entry.data_warnings,
                                        server_notices = [
                                            *state.models.notices(
                                                ran_models, uncached, ran=True
                                            ),
-                                           *_mape_notices(result.results),
+                                           *coverage_notices,
+                                           *_unit_notices(
+                                               result.results,
+                                               cv_entry.profile.data_profile,
+                                           ),
+                                           # The winner can need the future
+                                           # values that the plan of the
+                                           # strategy left out.
+                                           *_exog_notices(
+                                               best.plan,
+                                               cv_entry.profile,
+                                               forecast = False,
+                                               subject  = (
+                                                   "The plan of the winner "
+                                                   "(`links.best_plan_id`)"
+                                               ),
+                                           ),
                                        ],
                                    ),
             source               = cv_entry,
@@ -2483,9 +3472,10 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         exog_path: Annotated[str | None, Field(description=(
             "Absolute path of a CSV file with the future values of the "
             "exogenous variables, one row per date (and series) of the "
-            "horizon. Required to forecast the future when the plan uses "
-            "exogenous variables. The script of `get_code` reads them from "
-            "'exog_future.csv' in its working directory."
+            "horizon, or for data without dates one row per step, in order. "
+            "Required to forecast the future when the plan uses exogenous "
+            "variables. The script of `get_code` reads them from this file, "
+            "by its path, as it reads the data."
         ))] = None,
         ctx: Context = None,
     ) -> ToolResult:
@@ -2495,32 +3485,21 @@ def _build_tools(state: _ServerState) -> list[Tool]:
         _run_plan_locally(plan_entry.obj, "plan_id")
 
         def work(control: CallControl):
-            from .._utils import load_exog
-
             path = _data_of(plan_entry)
-            exog, exog_file, exog_digest = None, None, None
+            exog_file, exog_digest = None, None
             if exog_path is not None:
                 exog_file = _inputs.resolve_csv_path(
                     exog_path, state.allowed, "exog_path"
                 )
                 _inputs.check_file_size(exog_file, state.max_file_bytes, "exog_path")
                 exog_digest = _inputs.file_sha256(exog_file)
-                data_profile = plan_entry.profile.data_profile
-                try:
-                    exog = load_exog(
-                        exog_file,
-                        date_column      = data_profile.date_column,
-                        series_id_column = data_profile.series_id_column,
-                    )
-                except SkforecastAIError as exc:
-                    # A file that cannot be read as future values is as
-                    # much the user's as one with a wrong value in it.
-                    _leave_to_user(exc, {"exog": EXOG_FILE_HINT})
-                    raise
             try:
+                # The library reads the file with the profile of the data
+                # (its date column, its series ids, the order of its dates),
+                # and the script reads it by its path.
                 result = state.assistant.forecast(
                     data      = path,
-                    exog      = exog,
+                    exog      = exog_file,
                     test_size = test_size,
                     profile   = _copy(plan_entry.profile),
                     plan      = _copy(plan_entry.obj),
@@ -2532,6 +3511,8 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                     _leave_to_user(
                         exc, {"exog": FUTURE_EXOG_HINT}, kind=SkforecastAIError
                     )
+                # A file that cannot be read as future values is as much
+                # the user's as one with a wrong value in it.
                 _leave_to_user(
                     exc, {"data": DATA_VALUES_HINT, "exog": EXOG_FILE_HINT}
                 )
@@ -2549,6 +3530,17 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             label  = plan_entry.obj.forecaster,
         )
         result, object_id, files, summary, code_file, nbytes = outcome.value
+        # The notice is built first: an evaluation measures its plan for the
+        # forecasts of the future that follow, not for itself.
+        unmeasured = _unmeasured_notices(
+            state.measured_plans, plan_entry.profile_id, plan_entry.obj, test_size
+        )
+        if test_size is not None:
+            # Keyed by the plan it was given, without the `end_train` of the
+            # split, so the forecast of the future of that plan finds it.
+            state.measured_plans.add(
+                _measured_key(plan_entry.profile_id, plan_entry.obj)
+            )
 
         # The plan of an evaluation (with `end_train`) is never registered as
         # a plan: the forecast links the plan it was given.
@@ -2564,8 +3556,14 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                             plan_warnings  = result.plan.warnings,
                             data_warnings  = plan_entry.data_warnings,
                             server_notices = [
+                                *_estimator_notices(
+                                    result.plan, plan_entry.profile, "forecast"
+                                ),
                                 *_holdout_notices(result.predictions, test_size),
-                                *_metric_notices(result.metrics),
+                                *unmeasured,
+                                *_metric_notices(
+                                    result.metrics, plan_entry.profile.data_profile
+                                ),
                                 *_exog_notices(
                                     result.plan, plan_entry.profile, forecast=True
                                 ),
@@ -2585,7 +3583,8 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             "whose candidate failed."
         ))],
         candidate: Annotated[str | None, Field(description=(
-            "Name of the failed candidate of a comparison."
+            "Name of the failed candidate, required with the id of a "
+            "comparison; null with a `failure_id`."
         ))] = None,
     ) -> FailureResult:
         with state.failures_lock:
@@ -2607,11 +3606,26 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             )
         if kept is None:
             entry = store.get(object_id, "object_id", ("comparison",))
+            failed = sorted(entry.candidate_failures)
+            if not failed:
+                raise ServerError(
+                    f"Every candidate of the comparison {object_id!r} ran: it "
+                    f"has no failure to return.",
+                    code  = "invalid_argument",
+                    field = "object_id",
+                )
+            if candidate is None:
+                raise ServerError(
+                    f"{object_id!r} is a comparison: name in `candidate` the "
+                    f"failed candidate whose failure to return. Failed "
+                    f"candidates: {failed}.",
+                    code  = "invalid_argument",
+                    field = "candidate",
+                )
             if candidate not in entry.candidate_failures:
                 raise ServerError(
                     f"The comparison {object_id!r} has no failed candidate named "
-                    f"{candidate!r}. Failed candidates: "
-                    f"{sorted(entry.candidate_failures)}.",
+                    f"{candidate!r}. Failed candidates: {failed}.",
                     code  = "invalid_argument",
                     field = "candidate",
                 )
@@ -2669,8 +3683,13 @@ def _build_tools(state: _ServerState) -> list[Tool]:
             plan_obj = ran.plan
         else:
             plan_obj = obj if entry.kind == "plan" else obj.plan
-        requirements = _requirements(
-            code, state.models.model_of(plan_obj.forecaster, plan_obj.estimator)
+        # In a worker thread: the first call reads the installed
+        # distributions, which takes seconds (tens of them while a run holds
+        # the GIL) and would hold every other call.
+        requirements = await anyio.to_thread.run_sync(
+            _requirements,
+            code,
+            state.models.model_of(plan_obj.forecaster, plan_obj.estimator),
         )
         if code_file is None:
             return CodeResult(
@@ -2719,51 +3738,66 @@ def _build_tools(state: _ServerState) -> list[Tool]:
     return [
         _StrictTool.build(profile, "profile", (
             "Profile a CSV file: frequency, series, exogenous columns and the "
-            "recommended forecaster and estimator. Returns a profile id."
+            "recommended forecaster and estimator. The first step: returns a "
+            "profile id, which `plan` takes."
         )),
         _StrictTool.build(plan, "plan", (
             "Build a forecasting plan (lags, window features, metric, "
-            "preprocessing, interval) from a profile and a horizon. Returns a "
-            "plan id."
+            "preprocessing, interval) from a profile id and a horizon. Returns "
+            "a plan id, which `create_cv` and `forecast` take. To change a "
+            "decision of an existing plan, use `refine_plan`."
         )),
         _StrictTool.build(refine_plan, "refine_plan", (
             "Build a new plan from an existing one, changing some of its "
-            "decisions. Returns a new plan id; the original plan is kept."
+            "decisions and keeping the others: use it instead of `plan` to "
+            "change a plan. Returns a new plan id; the original plan is kept."
         )),
         _StrictTool.build(create_cv, "create_cv", (
             "Build a time series cross-validation strategy (TimeSeriesFold) for "
-            "a plan. The response states its cost in `cost`. Returns a cv id."
+            "a plan id. Returns a cv id, which `backtest` and `compare` take, "
+            "and its cost in `cost`: read it before running them."
         )),
         _StrictTool.build(backtest, "backtest", (
-            "Backtest a plan with a cross-validation strategy: metrics over the "
-            "folds, with the predictions and metrics in CSV files. Returns a "
-            "backtest id."
+            "Backtest one plan with a cv id of `create_cv`: metrics over the "
+            "folds, with the predictions and metrics in CSV files named by the "
+            "new id, so no run overwrites another. To rank several "
+            "configurations, use `compare`. Returns a backtest id."
         )),
         _StrictTool.build(compare, "compare", (
-            "Backtest several configurations on the same folds and rank them by "
-            "`metric`. Reports progress per candidate and can be cancelled "
-            "between candidates. Returns a comparison id and the "
-            "plan of the winner in `links.best_plan_id`."
+            "Backtest several configurations on the folds of a cv id of "
+            "`create_cv` and rank them by `metric`; for one plan, use "
+            "`backtest`. Reports progress per "
+            "candidate and can be cancelled between candidates. Returns a "
+            "comparison id and the plan of the winner in "
+            "`links.best_plan_id`, which `forecast` takes."
         )),
         _StrictTool.build(forecast, "forecast", (
             "Run a plan: forecast the future, or evaluate on a test set with "
-            "`test_size`. Predictions and metrics go to CSV files. Returns a "
-            "forecast id."
+            "`test_size`. Predictions and metrics go to CSV files. A forecast "
+            "of the future has no error measure: backtest or compare the plan "
+            "first. Returns a forecast id."
         )),
         _StrictTool.build(get_code, "get_code", (
-            "Return the Python script of an object: the one that ran, or that "
-            "would run for a plan."
+            "Return the Python script of an object and the packages it needs: "
+            "the one that ran, or that would run for a plan (a profile has "
+            "none). For a run that failed, use `get_failure`."
         ), read_only=True),
         _StrictTool.build(get_failure, "get_failure", (
-            "Return the traceback and the code of a failed run or of a failed "
-            "candidate of a comparison."
+            "Return the traceback and the code of a failed run (the "
+            "`details.failure_id` of an error) or of a failed candidate of a "
+            "comparison. The id of an object that did not fail is "
+            "`invalid_argument`; for the script of a run that worked, use "
+            "`get_code`."
         ), read_only=True),
         _StrictTool.build(list_objects, "list_objects", (
-            "List the ids of the objects the server keeps."
+            "List the ids of the profiles, plans, strategies and runs the "
+            "server keeps, most recently used first; beyond its limits the "
+            "least recently used are removed, and none survives a restart. "
+            "Use `describe_object` to read one."
         ), read_only=True),
         _StrictTool.build(describe_object, "describe_object", (
-            "Return the response that created an object (summary, links, "
-            "notices, files)."
+            "Return again the response that created an object (summary, links, "
+            "notices, files), from an id of any response or of `list_objects`."
         ), read_only=True),
     ]
 

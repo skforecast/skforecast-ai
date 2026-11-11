@@ -25,12 +25,23 @@ from skforecast_ai.cli import (
     _report_error,
     _showwarning_to_stderr,
 )
-from skforecast_ai.exceptions import ForecastExecutionError
+from skforecast_ai.exceptions import ForecastExecutionError, IntervalCoverageWarning
 from skforecast_ai.assistant import ForecastingAssistant
 
-from .fixtures_csv_dialect import df_dialect, write_dialect
+from .fixtures_csv_dialect import (
+    df_dialect,
+    df_dialect_excel,
+    df_dialect_excel_exog,
+    df_dialect_monthly,
+    df_dialect_thousands,
+    write_dialect,
+    write_excel_es,
+    write_thousands,
+)
 from .fixtures_assistant import (
     df_categorical_exog,
+    df_day_first,
+    df_day_first_exog,
     df_multi_long,
     df_multi_wide,
     df_single,
@@ -428,6 +439,27 @@ class TestGenerateCode:
         code = out_path.read_text()
         ast.parse(code)
 
+    def test_forecast_code_output_to_file_when_target_not_ascii(self, tmp_path):
+        """
+        Test that forecast-code --output writes the script in UTF-8, the
+        encoding Python reads a source file in, whatever the encoding of the
+        system: a target named with a letter outside ASCII ('año') reads back
+        from the bytes of the file. Before, Windows wrote it in cp1252 and the
+        script failed with a SyntaxError.
+        """
+        csv_path = _write_csv(tmp_path, df_single.rename(columns={"sales": "año"}))
+        out_path = tmp_path / "script.py"
+        result = runner.invoke(
+            app,
+            ["forecast-code", csv_path, "--target", "año", "--date-column", "date",
+             "--steps", "10", "--output", str(out_path), "--quiet"],
+        )
+
+        assert result.exit_code == 0
+        code = out_path.read_bytes().decode("utf-8")
+        ast.parse(code)
+        assert "data['año']" in code
+
     def test_forecast_code_syntax_valid(self, tmp_path):
         """
         Generated code is syntactically valid Python.
@@ -512,6 +544,77 @@ class TestGenerateCode:
         assert "first.csv" not in code
 
 
+    def test_forecast_code_exog_reads_the_file_with_its_dialect(self, tmp_path):
+        """
+        forecast-code --exog renders the script that forecast --exog runs:
+        the file given is read by its path with its whole dialect (the Excel
+        in Spanish: cp1252, ';', ',' as decimal mark, '.' between thousands,
+        dates day first), not `exog_future.csv`.
+        """
+        csv_path = write_excel_es(tmp_path, df_dialect_excel, "ventas.csv")
+        exog_path = write_excel_es(tmp_path, df_dialect_excel_exog, "futuro.csv")
+        arguments = [csv_path, "--target", "año", "--steps", "10",
+                     "--estimator", "Ridge", "--exog", exog_path,
+                     "--format", "json", "--quiet"]
+        # The note on cp1252 of the future values (see load_exog).
+        with pytest.warns(UserWarning, match="it was read as cp1252"):
+            code = runner.invoke(app, ["forecast-code", *arguments])
+        with pytest.warns(UserWarning, match="it was read as cp1252"):
+            forecast = runner.invoke(app, ["forecast", *arguments])
+        assert code.exit_code == 0, code.output
+        assert forecast.exit_code == 0, forecast.output
+        script = json.loads(code.stdout)["code"]
+        assert script == json.loads(forecast.stdout)["code"]
+        assert (
+            f"exog_future = pd.read_csv({exog_path!r}, sep=';', decimal=',', "
+            f"thousands='.', encoding='cp1252', dtype={{'fecha': str}})\n"
+            in script
+        )
+        assert "exog_future.csv" not in script
+
+    def test_forecast_code_exog_from_plan(self, tmp_path):
+        """
+        forecast-code --from-plan --exog, without DATA, reads the file given
+        by its path with its dialect, in the order of the dates of the data
+        of the plan bundle; without --exog the script reads
+        `exog_future.csv`, as before.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        exog_path = str(tmp_path / "futuro.csv")
+        pd.DataFrame(
+            {"date": pd.date_range("2023-04-11", periods=5, freq="D"),
+             "promo": [0.0, 1.0, 0.0, 1.0, 0.0]}
+        ).to_csv(exog_path, index=False, sep=";")
+        plan_result = runner.invoke(
+            app,
+            ["plan", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--format", "json", "--quiet"],
+        )
+        assert plan_result.exit_code == 0, plan_result.output
+        plan_file = tmp_path / "plan.json"
+        plan_file.write_text(plan_result.stdout)
+        with_exog = runner.invoke(
+            app,
+            ["forecast-code", "--from-plan", str(plan_file), "--exog", exog_path,
+             "--output", str(tmp_path / "with_exog.py"), "--quiet"],
+        )
+        without_exog = runner.invoke(
+            app,
+            ["forecast-code", "--from-plan", str(plan_file),
+             "--output", str(tmp_path / "without_exog.py"), "--quiet"],
+        )
+        assert with_exog.exit_code == 0, with_exog.output
+        assert without_exog.exit_code == 0, without_exog.output
+        assert (
+            f"exog_future = pd.read_csv({exog_path!r}, sep=';', decimal='.')\n"
+            in (tmp_path / "with_exog.py").read_text()
+        )
+        assert (
+            "exog_future = pd.read_csv('exog_future.csv')\n"
+            in (tmp_path / "without_exog.py").read_text()
+        )
+
+
 # ---------------------------------------------------------------------------
 # forecast command
 # ---------------------------------------------------------------------------
@@ -522,7 +625,8 @@ class TestForecast:
 
     def test_forecast_basic(self, tmp_path):
         """
-        Forecast command prints metrics table with MAE, MSE, MASE.
+        Forecast command prints the metrics table, with the columns named
+        as the metrics, as in a backtest.
         """
         csv_path = _write_csv(tmp_path, df_single)
         result = runner.invoke(
@@ -531,8 +635,8 @@ class TestForecast:
              "--steps", "5", "--test-size", "5", "--quiet"],
         )
         assert result.exit_code == 0
-        assert "MAE" in result.output
-        assert "MSE" in result.output
+        assert "mean_absolute_error" in result.output
+        assert "mean_squared_error" in result.output
 
     def test_forecast_json_format(self, tmp_path):
         """
@@ -652,7 +756,7 @@ class TestForecast:
         data = json.loads(result.output)
         assert data["plan"]["end_train"] is not None
         assert len(data["metrics"]) == 1
-        assert "MAE" in data["metrics"][0]
+        assert "mean_absolute_error" in data["metrics"][0]
         assert len(data["predictions"]) == 5
 
     def test_forecast_with_exog(self, tmp_path):
@@ -814,6 +918,38 @@ class TestForecast:
             "row(s) (2023-04-11 to 2023-04-15)" in " ".join(result.output.split())
         )
 
+
+    def test_forecast_exog_error_when_file_names_the_dates_otherwise(
+        self, tmp_path
+    ):
+        """
+        forecast --exog without --date-column reads the file of future
+        values with the date column of the profile, as `forecast(exog=path)`
+        and the MCP server do: a file whose dates are in a column named
+        otherwise than in the data ('fecha') fails with an error that names
+        the columns of the file (before, the script renamed it).
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        exog_path = _write_csv(
+            tmp_path,
+            pd.DataFrame(
+                {"fecha": pd.date_range("2023-04-11", periods=5, freq="D"),
+                 "promo": [0.0, 1.0, 0.0, 1.0, 0.0]}
+            ),
+            name="futuro.csv",
+        )
+        result = runner.invoke(
+            app,
+            ["forecast", csv_path, "--target", "sales", "--steps", "5",
+             "--exog", exog_path, "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 1
+        error = json.loads(result.stderr)["error"]
+        assert error["field"] == "exog"
+        assert error["message"] == (
+            f"The exog CSV '{exog_path}' has no column 'date'; its columns are "
+            f"['fecha', 'promo']."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1244,6 +1380,77 @@ class TestRefinePlanAuto:
 class TestBacktest:
     """Tests for the `backtest` CLI command."""
 
+    # A ForecasterDirect refitted in each of 6 folds: 60 estimator fits.
+    _expensive = ["--steps", "10", "--forecaster", "ForecasterDirect",
+                  "--initial-train-size", "40", "--refit"]
+
+    def test_backtest_stops_with_the_cost_without_confirm_cost(self, tmp_path):
+        """
+        An expensive backtest exits with code 1 before running: the error
+        states its cost and the tip names `--confirm-cost`, not the argument
+        of the Python API.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["backtest", csv_path, "--target", "sales", "--date-column", "date",
+             *self._expensive, "--quiet"],
+        )
+        stderr = " ".join(result.stderr.split())
+        assert result.exit_code == 1
+        assert result.stdout == ""
+        assert (
+            "Error: This backtest is above the threshold of an expensive run (50 "
+            "estimator fits or 2000 inference windows), so it needs a "
+            "confirmation and nothing ran. ForecasterDirect will be fit 60 times "
+            "(6 trainings x 10 estimators)."
+        ) in stderr
+        assert stderr.endswith("Tip: Pass --confirm-cost to run it as it is.")
+
+    def test_backtest_json_error_of_the_cost_names_the_option(self, tmp_path):
+        """
+        With --format json the error of an expensive backtest is
+        `invalid_argument` on `confirm_cost`, with the hint of the CLI.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["backtest", csv_path, "--target", "sales", "--date-column", "date",
+             *self._expensive, "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 1
+        error = json.loads(result.stderr)["error"]
+        assert error["code"] == "invalid_argument"
+        assert error["field"] == "confirm_cost"
+        assert error["hint"] == "Pass --confirm-cost to run it as it is."
+        assert "ForecasterDirect will be fit 60 times" in error["message"]
+
+    def test_backtest_runs_with_confirm_cost(self, tmp_path):
+        """
+        `--confirm-cost` runs the expensive backtest as it is.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        result = runner.invoke(
+            app,
+            ["backtest", csv_path, "--target", "sales", "--date-column", "date",
+             *self._expensive, "--confirm-cost", "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout)["cv_config"]["n_fits"] == 6
+
+    def test_backtest_below_threshold_ignores_confirm_cost(self, tmp_path):
+        """
+        Below the threshold `--confirm-cost` changes nothing: the output is
+        the same with and without it.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        base = ["backtest", csv_path, "--target", "sales", "--date-column", "date",
+                "--steps", "5", "--format", "json", "--quiet"]
+        without = runner.invoke(app, base)
+        with_flag = runner.invoke(app, [*base, "--confirm-cost"])
+        assert without.exit_code == with_flag.exit_code == 0
+        assert json.loads(without.stdout) == json.loads(with_flag.stdout)
+
     def test_backtest_basic(self, tmp_path):
         """
         Backtest command prints metrics table and CV configuration.
@@ -1315,8 +1522,12 @@ class TestBacktest:
         (lower_bound/upper_bound) in the JSON predictions output.
         """
         csv_path = _write_csv(tmp_path, df_single)
-        # The default strategy leaves 49 rows for the intervals (create_cv warns).
-        with pytest.warns(UserWarning, match="the prediction intervals are estimated"):
+        # The default strategy leaves 49 rows for the intervals (create_cv
+        # warns), and the interval covers far less than 80 % of this data.
+        with (
+            pytest.warns(UserWarning, match="the prediction intervals are estimated"),
+            pytest.warns(IntervalCoverageWarning, match="nominal coverage of 80 %"),
+        ):
             result = runner.invoke(
                 app,
                 ["backtest", csv_path, "--target", "sales", "--date-column",
@@ -1445,6 +1656,32 @@ class TestCompare:
         '"lags": [1, 2, 3]}]]'
     )
 
+    def test_compare_stops_with_the_cost_and_runs_with_confirm_cost(self, tmp_path):
+        """
+        A comparison whose candidates fit more than 50 estimators together
+        (two ForecasterDirect of 36 and a ForecasterRecursive of 6, plus the
+        baseline) exits with code 1 and the total before running, and runs
+        with `--confirm-cost`.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        candidates = (
+            '[["dir_a", {"forecaster": "ForecasterDirect", "lags": 3}], '
+            '["dir_b", {"forecaster": "ForecasterDirect", "lags": 2}], '
+            '["rec", {"forecaster": "ForecasterRecursive"}]]'
+        )
+        base = ["compare", csv_path, "--target", "sales", "--date-column", "date",
+                "--steps", "6", "--initial-train-size", "64", "--refit",
+                "--candidates", candidates, "--format", "json", "--quiet"]
+        stopped = runner.invoke(app, base)
+        confirmed = runner.invoke(app, [*base, "--confirm-cost"])
+        assert stopped.exit_code == 1
+        error = json.loads(stopped.stderr)["error"]
+        assert error["field"] == "confirm_cost"
+        assert error["hint"] == "Pass --confirm-cost to run it as it is."
+        assert "The comparison will fit 78 estimators in all" in error["message"]
+        assert confirmed.exit_code == 0, confirmed.output
+        assert len(json.loads(confirmed.stdout)["results"]) == 4
+
     def test_compare_basic(self, tmp_path):
         """
         Compare command prints the leaderboard and CV configuration.
@@ -1508,11 +1745,42 @@ class TestCompare:
         assert len(data["results"]) == 2
         assert data["best_name"] in data["candidates"]
 
+    def test_compare_candidates_do_not_say_the_sizing_plan_was_not_compared(
+        self, tmp_path
+    ):
+        """
+        Compare --candidates whose configurations make other decisions than
+        the default plan of the profile, which the CLI builds only to size
+        the strategy, runs without the warning of `compare()` that the plan
+        of the strategy was not compared, and without that sentence in the
+        explanation: the user never chose that plan. The Python API, given
+        the `CVResult` of a plan of the user, still says it.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        candidates = '[["forest", {"estimator": "RandomForestRegressor"}]]'
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            result = runner.invoke(app, [
+                "compare", csv_path, "--target", "sales", "--date-column", "date",
+                "--steps", "5", "--candidates", candidates, "--no-baseline",
+                "--format", "json", "--quiet",
+            ])
+
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert list(data["candidates"]) == ["forest"]
+        assert "was not compared" not in data["explanation"]
+        assert data["cv_defaults_explanation"].startswith(
+            "The strategy was created for the plan (ForecasterRecursive + Ridge)."
+        )
+
     def test_compare_json_records_the_cv_options_passed(self, tmp_path):
         """
         Compare --format json lists in `cv_overridden_fields` the strategy
         options given on the command line and says the strategy was created
-        for the plan; without options the list is empty.
+        for the plan of the candidate that makes its decisions; without
+        options the list is empty.
         """
         csv_path = _write_csv(tmp_path, df_single)
         base = ["compare", csv_path, "--target", "sales", "--date-column", "date",
@@ -1528,9 +1796,10 @@ class TestCompare:
         assert data["cv_overridden_fields"] == ["refit"]
         assert data["cv_fields_without_effect"] == []
         assert data["cv_defaults_explanation"] == (
-            "The strategy was created for the plan (ForecasterRecursive + "
-            "Ridge). Initial training size by default: 70% of the 100 "
-            "observations (70), up to 2023-03-11. `refit` as requested."
+            "The strategy was created for the plan of row 'rec' "
+            "(ForecasterRecursive + Ridge). Initial training size by default: "
+            "70% of the 100 observations (70), up to 2023-03-11. `refit` as "
+            "requested."
         )
         default = json.loads(without_options.output)
         assert default["cv_overridden_fields"] == []
@@ -1624,15 +1893,15 @@ class TestWarningsToStderr:
             result = runner.invoke(
                 app,
                 ["backtest", csv_path, "--target", "sales", "--date-column", "date",
-                 "--steps", "1", "--initial-train-size", "40", "--refit",
+                 "--steps", "1", "--initial-train-size", "40", "--fixed-train-size",
                  "--format", "json", "--quiet"],
             )
             handler_after = warnings.showwarning
         assert result.exit_code == 0, result.output
         payload = json.loads(result.stdout)
         assert "metrics" in payload
-        assert "LongTrainingWarning" in result.stderr
-        assert "LongTrainingWarning" not in result.stdout
+        assert "IgnoredArgumentWarning" in result.stderr
+        assert "IgnoredArgumentWarning" not in result.stdout
         assert handler_after is rich_warning_handler
 
     def test_backtest_json_stdout_parseable_in_a_new_interpreter(self, tmp_path):
@@ -1646,15 +1915,15 @@ class TestWarningsToStderr:
         proc = subprocess.run(
             [sys.executable, "-W", "always", "-m", "skforecast_ai.cli",
              "backtest", csv_path, "--target", "sales", "--date-column", "date",
-             "--steps", "1", "--initial-train-size", "40", "--refit",
+             "--steps", "1", "--initial-train-size", "40", "--fixed-train-size",
              "--format", "json", "--quiet"],
             capture_output=True, text=True, timeout=300, cwd=tmp_path,
         )
         assert proc.returncode == 0, proc.stderr[-2000:]
         payload = json.loads(proc.stdout)
         assert "metrics" in payload
-        assert "LongTrainingWarning" in proc.stderr
-        assert "LongTrainingWarning" not in proc.stdout
+        assert "IgnoredArgumentWarning" in proc.stderr
+        assert "IgnoredArgumentWarning" not in proc.stdout
 
     def test_showwarning_to_stderr_keeps_explicit_file(self, capsys):
         """
@@ -2194,7 +2463,9 @@ class TestDecisionOptions:
     ):
         """
         With --from-plan, the options are applied on top of the saved plan
-        through refine_plan, as the other overrides are.
+        through refine_plan, as the other overrides are. The backtesting
+        script writes the order in the forecaster only, not in the strategy
+        (skforecast 0.27 takes it from the window of the forecaster).
         """
         csv_path = _write_csv(tmp_path, df_single)
         planned = runner.invoke(
@@ -2219,7 +2490,10 @@ class TestDecisionOptions:
         assert code.exit_code == 0, code.output
         assert backtest_code.exit_code == 0, backtest_code.output
         assert re.search(r"differentiation\s+=\s+1,", code.output)
-        assert len(re.findall(r"differentiation\s+=\s+1,", backtest_code.output)) == 2
+        assert len(re.findall(r"differentiation\s+=\s+1,", backtest_code.output)) == 1
+        assert "differentiation" not in backtest_code.output.split(
+            "cv = TimeSeriesFold("
+        )[1]
 
 
     def test_forecast_and_backtest_from_plan_apply_decision_options(self, tmp_path):
@@ -2527,3 +2801,345 @@ class TestCsvDialects:
         assert f"data = pd.read_csv({csv_path!r}, sep=';', decimal=',')\n" in code
         ast.parse(code)
 
+    def test_profile_error_json_and_thousands_when_thousands_are_ambiguous(
+        self, tmp_path
+    ):
+        """
+        A file whose numbers with a '.' all read as thousands and as three
+        decimals exits with code 1, the code 'data_unreadable' and the hint
+        that names `--thousands`; giving `--thousands .` reads them as
+        thousands and records it in the JSON.
+        """
+        csv_path = tmp_path / "thousands.csv"
+        csv_path.write_text(
+            "date;y\n"
+            + "".join(f"2023-01-{day:02d};{day}.{day:03d}\n" for day in range(1, 29))
+        )
+        failed = runner.invoke(
+            app,
+            ["profile", str(csv_path), "--target", "y", "--format", "json",
+             "--quiet"],
+        )
+        result = runner.invoke(
+            app,
+            ["profile", str(csv_path), "--target", "y", "--thousands", ".",
+             "--format", "json", "--quiet"],
+        )
+        assert failed.exit_code == 1
+        error = json.loads(failed.stderr)["error"]
+        assert error["code"] == "data_unreadable"
+        assert "`--thousands` or `--decimal` in the `profile` command" in error["hint"]
+        assert result.exit_code == 0, result.stderr
+        data_profile = json.loads(result.stdout)["data_profile"]
+        assert data_profile["csv_decimal"] == ","
+        assert data_profile["csv_thousands"] == "."
+        assert data_profile["target_stats"]["y"]["max"] == 28028.0
+
+    def test_profile_error_when_thousands_is_not_valid(self, tmp_path):
+        """
+        An invalid `--thousands` exits with code 1 and the field 'thousands'.
+        """
+        csv_path = write_dialect(tmp_path, df_dialect, "semicolon_comma")
+        result = runner.invoke(
+            app,
+            ["profile", csv_path, "--target", "y", "--thousands", ",",
+             "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 1
+        error = json.loads(result.stderr)["error"]
+        assert error["field"] == "thousands"
+        assert error["message"] == "`thousands` must be '.', got ','."
+
+    def test_forecast_output_code_on_file_with_thousands(self, tmp_path):
+        """
+        `forecast --output-code` on a ';' file with '.' between thousands
+        writes a script that reads it with `thousands='.'`.
+        """
+        csv_path = write_thousands(tmp_path, df_dialect_thousands)
+        code_path = tmp_path / "script.py"
+        result = runner.invoke(
+            app,
+            ["forecast", csv_path, "--target", "y", "--steps", "3",
+             "--output-code", str(code_path), "--quiet"],
+        )
+        assert result.exit_code == 0, result.stderr
+        code = code_path.read_text()
+        assert (
+            f"data = pd.read_csv({csv_path!r}, sep=';', decimal=',', "
+            f"thousands='.', dtype={{'date': str}})\n" in code
+        )
+        ast.parse(code)
+
+
+class TestDayFirstDates:
+    """Tests of the dates written day first in the CLI."""
+
+    @pytest.mark.parametrize(
+        "flag, date_format, frequency",
+        [
+            ("--dayfirst", "%d/%m/%Y", "MS"),
+            ("--monthfirst", "%m/%d/%Y", None),
+        ],
+        ids=["dayfirst", "monthfirst"],
+    )
+    def test_profile_with_dayfirst_reads_the_ambiguous_dates(
+        self, tmp_path, flag, date_format, frequency
+    ):
+        """
+        `profile --dayfirst` reads the first of every month as the months of
+        the year (frequency 'MS') and `--monthfirst` as the days of January
+        (no frequency), and the JSON records the format of the dates.
+        """
+        csv_path = _write_csv(tmp_path, df_dialect_monthly, name="monthly.csv")
+        result = runner.invoke(
+            app,
+            ["profile", csv_path, "--target", "y", flag, "--format", "json",
+             "--quiet"],
+        )
+        assert result.exit_code == 0, result.stderr
+        data_profile = json.loads(result.stdout)["data_profile"]
+        assert data_profile["date_format"] == date_format
+        assert data_profile["frequency"] == frequency
+        assert data_profile["start_date"] == "2018-01-01"
+
+    def test_profile_error_json_when_dates_read_in_both_orders(self, tmp_path):
+        """
+        Dates that read both day first and month first, regular in both
+        orders (three months: monthly day first, daily month first), exit
+        with code 1 and, with --format json, report the code
+        'data_unreadable', the field 'data' and the hint that names
+        `--dayfirst` and `--monthfirst` on stderr, instead of guessing the
+        order.
+        """
+        csv_path = _write_csv(
+            tmp_path, df_dialect_monthly.head(3), name="monthly.csv"
+        )
+        result = runner.invoke(
+            app,
+            ["profile", csv_path, "--target", "y", "--format", "json",
+             "--quiet"],
+        )
+        assert result.exit_code == 1
+        assert result.stdout == ""
+        assert json.loads(result.stderr) == {
+            "error": {
+                "code": "data_unreadable",
+                "message": (
+                    "The dates of column 'date' read both day first and month "
+                    "first: no day is after the 12th, so '01/02/2018' may be "
+                    "'2018-02-01' or '2018-01-02', and both readings have a "
+                    "regular frequency ('MS' day first and 'D' month first), "
+                    "so the order is not guessed. Profile the file saying "
+                    "which it is, with `dayfirst`."
+                ),
+                "field": "data",
+                "hint": (
+                    "Profile the file saying the order of its dates, with "
+                    "`dayfirst` (True when they are written day first, as "
+                    "'31/01/2024', False when month first, as '01/31/2024') "
+                    "in `profile()`, `--dayfirst` or `--monthfirst` in the "
+                    "`profile` command, or `dayfirst` (true or false) in the "
+                    "`profile` tool of the MCP server, and use that profile. "
+                    "The dates do not tell it: ask whoever wrote the file if "
+                    "it is not known."
+                ),
+            }
+        }
+
+    @pytest.mark.parametrize(
+        "written, read, flag",
+        [("%m/%d/%Y", "month", "--dayfirst"), ("%d/%m/%Y", "day", "--monthfirst")],
+        ids=["us monthly", "spanish monthly"],
+    )
+    def test_profile_reads_monthly_dates_in_the_only_regular_order(
+        self, tmp_path, written, read, flag
+    ):
+        """
+        `profile` of four years of monthly dates that read both ways reads
+        them in the only order in which they are regular: month first for a
+        US file, day first for a Spanish one, both monthly from January
+        2018. The JSON records the format, and the warnings start with the
+        note that names the flag for the other order.
+        """
+        data = df_dialect_monthly.assign(
+            date=pd.date_range("2018-01-01", periods=48, freq="MS").strftime(
+                written
+            )
+        )
+        csv_path = _write_csv(tmp_path, data, name="monthly.csv")
+        result = runner.invoke(
+            app,
+            ["profile", csv_path, "--target", "y", "--format", "json",
+             "--quiet"],
+        )
+        assert result.exit_code == 0, result.stderr
+        data_profile = json.loads(result.stdout)["data_profile"]
+        assert data_profile["date_format"] == written
+        assert data_profile["frequency"] == "MS"
+        assert data_profile["start_date"] == "2018-01-01"
+        note = data_profile["warnings"][0]
+        assert note.startswith(
+            f"The dates of column 'date' read both day first and month first "
+            f"(no day is after the 12th): they were read {read} first, the "
+            f"only order in which they have a regular frequency ('MS')"
+        )
+        assert f"`{flag}` in the `profile` command" in note
+
+    def test_profile_table_shows_the_date_format(self, tmp_path):
+        """
+        The table of `profile` shows the format of the dates when it is
+        recorded.
+        """
+        csv_path = _write_csv(tmp_path, df_day_first)
+        result = runner.invoke(
+            app, ["profile", csv_path, "--target", "y", "--quiet"]
+        )
+        assert result.exit_code == 0, result.stderr
+        assert "Date format" in result.stdout
+        assert "'%d/%m/%Y'" in result.stdout
+
+    def test_forecast_exog_reads_the_exog_dates_as_the_data(self, tmp_path):
+        """
+        `forecast --exog` on day-first daily data reads an exog file whose
+        seven days read both ways ('01/02/2021' to '07/02/2021') with the
+        format of the data: the predictions are those of 1 to 7 February
+        2021, and the script reads both files' dates day first.
+        """
+        csv_path = _write_csv(tmp_path, df_day_first)
+        exog_path = _write_csv(tmp_path, df_day_first_exog, name="exog.csv")
+        result = runner.invoke(
+            app,
+            ["forecast", csv_path, "--target", "y", "--steps", "7",
+             "--exog", exog_path, "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 0, result.stderr
+        data = json.loads(result.stdout)
+        assert [row["index"] for row in data["predictions"]] == [
+            "2021-02-01T00:00:00", "2021-02-02T00:00:00", "2021-02-03T00:00:00",
+            "2021-02-04T00:00:00", "2021-02-05T00:00:00", "2021-02-06T00:00:00",
+            "2021-02-07T00:00:00",
+        ]
+        np.testing.assert_array_almost_equal(
+            [row["pred"] for row in data["predictions"]],
+            [17.757746408435324, 17.997458443344815, 18.007362026504243,
+             17.80723891613638, 17.430903079968857, 16.9653885887927,
+             16.427784848251246],
+        )
+        assert data["profile"]["data_profile"]["date_format"] == "%d/%m/%Y"
+        assert data["code"].count("format='%d/%m/%Y'") == 2
+
+    def test_forecast_exog_from_plan_reads_the_exog_dates_as_the_data(
+        self, tmp_path
+    ):
+        """
+        `forecast --from-plan --exog` reads the exog file with the format of
+        the dates recorded in the profile of the plan, so it predicts the
+        same days as the direct path.
+        """
+        csv_path = _write_csv(tmp_path, df_day_first)
+        exog_path = _write_csv(tmp_path, df_day_first_exog, name="exog.csv")
+        plan_result = runner.invoke(
+            app,
+            ["plan", csv_path, "--target", "y", "--steps", "7", "--format",
+             "json", "--quiet"],
+        )
+        assert plan_result.exit_code == 0, plan_result.stderr
+        plan_file = tmp_path / "plan.json"
+        plan_file.write_text(plan_result.stdout)
+
+        result = runner.invoke(
+            app,
+            ["forecast", csv_path, "--from-plan", str(plan_file),
+             "--exog", exog_path, "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 0, result.stderr
+        data = json.loads(result.stdout)
+        assert json.loads(plan_result.stdout)["profile"]["data_profile"][
+            "date_format"
+        ] == "%d/%m/%Y"
+        assert [row["index"] for row in data["predictions"]] == [
+            "2021-02-01T00:00:00", "2021-02-02T00:00:00", "2021-02-03T00:00:00",
+            "2021-02-04T00:00:00", "2021-02-05T00:00:00", "2021-02-06T00:00:00",
+            "2021-02-07T00:00:00",
+        ]
+
+    def test_forecast_exog_from_plan_on_another_file_reads_the_dates_of_that_file(
+        self, tmp_path
+    ):
+        """
+        `forecast --from-plan --exog` on another file of the same data, with
+        its dates in ISO 8601, reads the ISO exog file as that data file is
+        read and not with the day-first format of the profile of the plan:
+        the predictions are those of the file of the profile.
+        """
+        csv_path = _write_csv(tmp_path, df_day_first)
+        exog_path = _write_csv(tmp_path, df_day_first_exog, name="exog.csv")
+        iso = pd.read_csv(csv_path)
+        iso["date"] = pd.to_datetime(iso["date"], format="%d/%m/%Y").dt.strftime(
+            "%Y-%m-%d"
+        )
+        iso_path = _write_csv(tmp_path, iso, name="iso.csv")
+        exog_iso = df_day_first_exog.assign(
+            date=pd.date_range("2021-02-01", periods=7).strftime("%Y-%m-%d")
+        )
+        exog_iso_path = _write_csv(tmp_path, exog_iso, name="exog_iso.csv")
+        plan_result = runner.invoke(
+            app,
+            ["plan", csv_path, "--target", "y", "--steps", "7", "--format",
+             "json", "--quiet"],
+        )
+        assert plan_result.exit_code == 0, plan_result.stderr
+        plan_file = tmp_path / "plan.json"
+        plan_file.write_text(plan_result.stdout)
+
+        same_file = runner.invoke(
+            app,
+            ["forecast", csv_path, "--from-plan", str(plan_file),
+             "--exog", exog_path, "--format", "json", "--quiet"],
+        )
+        other_file = runner.invoke(
+            app,
+            ["forecast", iso_path, "--from-plan", str(plan_file),
+             "--exog", exog_iso_path, "--format", "json", "--quiet"],
+        )
+        assert same_file.exit_code == 0, same_file.stderr
+        assert other_file.exit_code == 0, other_file.stderr
+        expected = json.loads(same_file.stdout)
+        data = json.loads(other_file.stdout)
+        assert data["predictions"] == expected["predictions"]
+        assert data["profile"]["data_profile"]["date_format"] is None
+        assert "format=" not in data["code"]
+
+    def test_forecast_exog_reads_iso_exog_dates_of_day_first_data(self, tmp_path):
+        """
+        `forecast --exog` with an exog file written in ISO 8601, as `to_csv()`
+        writes dates, on day-first data reads it with its own format: the
+        predictions are those of the same values written day first, and the
+        script reads that file without a format, the dates of the data with
+        theirs.
+        """
+        csv_path = _write_csv(tmp_path, df_day_first)
+        exog_iso = df_day_first_exog.assign(
+            date=pd.date_range("2021-02-01", periods=7).strftime("%Y-%m-%d")
+        )
+        exog_path = _write_csv(tmp_path, exog_iso, name="exog.csv")
+        day_first_path = _write_csv(tmp_path, df_day_first_exog, name="exog_dm.csv")
+        result = runner.invoke(
+            app,
+            ["forecast", csv_path, "--target", "y", "--steps", "7",
+             "--exog", exog_path, "--format", "json", "--quiet"],
+        )
+        day_first = runner.invoke(
+            app,
+            ["forecast", csv_path, "--target", "y", "--steps", "7",
+             "--exog", day_first_path, "--format", "json", "--quiet"],
+        )
+        assert result.exit_code == 0, result.stderr
+        assert day_first.exit_code == 0, day_first.stderr
+        data = json.loads(result.stdout)
+        assert data["predictions"] == json.loads(day_first.stdout)["predictions"]
+        assert data["code"].count("format='%d/%m/%Y'") == 1
+        assert (
+            "exog_future['date'] = pd.to_datetime(exog_future['date'])\n"
+            in data["code"]
+        )

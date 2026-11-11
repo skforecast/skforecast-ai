@@ -1,12 +1,21 @@
 # Unit test tool plan
 
 from importlib.metadata import version
+
+import numpy as np
+import pandas as pd
 import pytest
 
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai.mcp import create_server
 from skforecast_ai.mcp.models import ToolNotice
 
+from ..fixtures_assistant import (
+    RIDGE_ALPHA_TYPES,
+    df_categorical_exog,
+    df_crossing_zero,
+    patch_find_spec,
+)
 from .fixtures_mcp import (
     GAPS_WARNING,
     call,
@@ -49,6 +58,7 @@ def _profiled(tmp_path):
             "window_features": [{"stats": ["mean"], "window_size": 6}],
         },
         {"steps": 12, "forecaster": "ForecasterStats"},
+        {"steps": 12, "metric": ["root_mean_squared_error", "mean_absolute_error"]},
     ],
     ids=lambda dt: f"{dt}",
 )
@@ -57,7 +67,8 @@ def test_tool_plan_output_matches_python_api(tmp_path, arguments):
     Test that `plan` registers the plan the Python API builds, described by
     its forecasting script, links it to its profile and lists the arguments
     of `refine_plan`; `get_code` returns that script and the packages it
-    imports.
+    imports. `metric` takes `root_mean_squared_error`, which is not a name
+    of skforecast's backtesting.
     """
     server, path, profile_id = _profiled(tmp_path)
 
@@ -131,6 +142,59 @@ def test_tool_plan_notices_of_the_plan(tmp_path):
     ]
 
 
+def test_tool_plan_MissingDependencyNotice_when_estimator_not_installed(
+    tmp_path, monkeypatch
+):
+    """
+    Test that a plan whose estimator is not installed (XGBoost) is made, as
+    its script may run elsewhere, with a notice that it cannot run where
+    the server runs and the install advice of the error that running it
+    gives (V02), instead of the warning of the library, which only gives
+    the `pip install`. `refine_plan` to that estimator gives it too.
+    """
+    patch_find_spec(monkeypatch, missing=["xgboost"])
+    server, _, profile_id = _profiled(tmp_path)
+
+    result = content_of(
+        call(
+            server,
+            "plan",
+            {"profile_id": profile_id, "steps": 12, "estimator": "XGBRegressor"},
+        )
+    )
+    default = content_of(
+        call(server, "plan", {"profile_id": profile_id, "steps": 12})
+    )
+    refined = content_of(
+        call(
+            server,
+            "refine_plan",
+            {"plan_id": default["id"], "overrides": {"estimator": "XGBRegressor"}},
+        )
+    )
+
+    expected = [
+        ToolNotice(
+            source   = "plan",
+            category = "MissingDependencyNotice",
+            message  = (
+                "XGBRegressor needs the 'xgboost' package, which is not "
+                "installed where the server runs: until it is, `backtest` and "
+                "`forecast` with this plan fail with `missing_dependency`, and "
+                "its row of `compare` fails and is ranked last. Ask the user "
+                "to install it where the server runs and to restart the "
+                "server: `pip install \"xgboost\"` in its Python environment, "
+                "or `--with \"xgboost\"` added to the uvx command that starts "
+                "it."
+            ),
+            count    = 1,
+        )
+    ]
+    assert [ToolNotice(**n) for n in result["notices"]] == expected
+    assert [ToolNotice(**n) for n in refined["notices"]] == expected
+    assert default["notices"] == []
+
+
 @pytest.mark.parametrize(
     "arguments, code, field",
     [
@@ -140,6 +204,7 @@ def test_tool_plan_notices_of_the_plan(tmp_path):
         ({"steps": 0}, "invalid_argument", "steps"),
         ({"steps": 12, "metric": "accuracy"}, "invalid_argument", "metric"),
         ({"steps": 12, "metric": []}, "invalid_argument", "metric"),
+        ({"steps": 12, "metric": "n_evaluated"}, "invalid_argument", "metric"),
         (
             {"steps": 12, "metric": ["mean_absolute_error", "mean_absolute_error"]},
             "invalid_argument",
@@ -178,6 +243,69 @@ def test_tool_plan_invalid_argument(tmp_path, arguments, code, field):
 
     assert error["code"] == code
     assert error["field"] == field
+
+
+def test_tool_plan_invalid_argument_when_window_features_has_an_unknown_key(
+    tmp_path,
+):
+    """
+    Test that an unknown key of an entry of `window_features` is
+    `invalid_argument` naming the key and the valid ones, instead of a plan
+    that drops it from its script and shows it as chosen (V25).
+    """
+    server, _, profile_id = _profiled(tmp_path)
+    window_features = [
+        {"stats": ["mean"], "window_size": 3, "min_periods": 2},
+        {"stats": ["max"], "window_size": 6},
+    ]
+
+    error = error_of(
+        call(
+            server,
+            "plan",
+            {"profile_id": profile_id, "steps": 12, "window_features": window_features},
+        ),
+        "plan",
+    )
+
+    assert error["code"] == "invalid_argument"
+    assert error["field"] == "window_features"
+    assert error["message"] == (
+        "`window_features[0]` has unknown key(s): ['min_periods']. Each entry "
+        "takes only 'stats' and 'window_size'; add one entry per window size to "
+        "use several sizes."
+    )
+
+
+def test_tool_plan_invalid_argument_when_estimator_kwargs_value_not_valid(tmp_path):
+    """
+    Test that a value of `estimator_kwargs` that the estimator rejects is
+    `invalid_argument` on `estimator_kwargs` with the message of its
+    library when the plan is made, not an `execution_failed` when it runs
+    (V33).
+    """
+    server, _, profile_id = _profiled(tmp_path)
+
+    error = error_of(
+        call(
+            server,
+            "plan",
+            {
+                "profile_id": profile_id,
+                "steps": 12,
+                "estimator": "Ridge",
+                "estimator_kwargs": {"alpha": "abc"},
+            },
+        ),
+        "plan",
+    )
+
+    assert error["code"] == "invalid_argument"
+    assert error["field"] == "estimator_kwargs"
+    assert error["message"] == (
+        "`estimator_kwargs` is not valid for Ridge: The 'alpha' parameter of "
+        f"Ridge must be {RIDGE_ALPHA_TYPES}. Got 'abc' instead."
+    )
 
 
 def test_tool_plan_unknown_or_wrong_id(tmp_path):
@@ -289,6 +417,45 @@ def test_tool_plan_invalid_argument_when_steps_longer_than_the_series(
     assert content_of(longest)["kind"] == "plan"
 
 
+def test_tool_plan_invalid_argument_when_msle_and_target_below_minus_one(tmp_path):
+    """
+    Test that `mean_squared_log_error` on a target with values at or below
+    -1, which scikit-learn rejects when the script runs, is
+    `invalid_argument` on `metric` when the plan is built.
+    """
+    path = write_csv(tmp_path, "profit.csv", df_crossing_zero)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    profile_id = content_of(
+        call(
+            server,
+            "profile",
+            {"data_path": path, "target": "profit", "date_column": "date"},
+        )
+    )["id"]
+
+    error = error_of(
+        call(
+            server,
+            "plan",
+            {
+                "profile_id": profile_id,
+                "steps": 6,
+                "metric": "mean_squared_log_error",
+            },
+        ),
+        "plan",
+    )
+
+    assert (error["code"], error["field"]) == ("invalid_argument", "metric")
+    assert error["message"] == (
+        "`mean_squared_log_error` cannot be computed on this data: it takes "
+        "the logarithm of 1 plus each value, so it needs values above -1, "
+        "and the target has values down to -10. Use a metric without a "
+        "logarithm, such as `mean_absolute_error` or "
+        "`root_mean_squared_error`."
+    )
+
+
 def test_tool_plan_notices_of_the_plan_and_of_its_data(tmp_path):
     """
     Test that a plan carries, as notices, the warnings of the data it was
@@ -319,4 +486,146 @@ def test_tool_plan_notices_of_the_plan_and_of_its_data(tmp_path):
                    message=GAPS_WARNING, count=1),
         ToolNotice(source="plan", category="UserWarning",
                    message=LGBM_WARNING, count=1),
+    ]
+
+
+# Daily series with an exogenous column 'promo' whose first 30 values are
+# missing and a text column 'growth' of numbers with a final '%', which the
+# profile warns about (the missing values of 'promo', the numbers as text),
+# besides the high rate of missing values they cause.
+_n_obs = 60
+_promo = np.arange(_n_obs, dtype=float) % 2
+_promo[:30] = np.nan
+df_exog_warnings = pd.DataFrame(
+    {
+        "date": pd.date_range("2023-01-01", periods=_n_obs, freq="D").strftime(
+            "%Y-%m-%d"
+        ),
+        "y": np.arange(_n_obs, dtype=float) % 7 + np.arange(_n_obs) * 0.1,
+        "promo": _promo,
+        "growth": np.where(np.arange(_n_obs) % 2 == 0, "3.5%", "4.5%"),
+    }
+)
+
+RATE_EXOG = "High missing value rate (50.0%). Consider imputation before forecasting."
+RATE_TARGET = "High missing value rate (25.0%). Consider imputation before forecasting."
+MISSING_EXOG = (
+    "Missing values in exogenous columns: 'promo': 30. An estimator that does "
+    "not accept missing values fails when it reads them."
+)
+TEXT_NUMBERS = "Numbers written as text in exogenous column 'growth': "
+
+
+def _data_warnings(result):
+    """
+    Return the messages of the `DataProfileWarning` notices of a result.
+    """
+    return [
+        n["message"] for n in result["notices"] if n["category"] == "DataProfileWarning"
+    ]
+
+
+def test_tool_plan_leaves_out_the_warnings_of_the_exogenous_columns_when_use_exog_false(
+    tmp_path,
+):
+    """
+    Test that a plan with `use_exog: false` on data whose exogenous columns
+    have many missing values and numbers written as text carries none of their
+    warnings as `DataProfileWarning` notices (neither the rate of missing
+    values, which the target alone does not reach, nor the missing values
+    of the exogenous column, nor the numbers as text), and its summary does
+    not name them, while the plan with the default `use_exog` carries all
+    three, in the same order.
+    """
+    path = write_csv(tmp_path, "exog.csv", df_exog_warnings)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    profile_id = content_of(
+        call(server, "profile", {"data_path": path, "target": "y"})
+    )["id"]
+
+    default = content_of(call(server, "plan", {"profile_id": profile_id, "steps": 5}))
+    left_out = content_of(
+        call(server, "plan", {"profile_id": profile_id, "steps": 5, "use_exog": False})
+    )
+
+    messages = _data_warnings(default)
+    assert len(messages) == 3
+    assert messages[:2] == [RATE_EXOG, MISSING_EXOG]
+    assert messages[2].startswith(TEXT_NUMBERS)
+    assert all(message in default["summary"] for message in messages)
+    assert _data_warnings(left_out) == []
+    assert [n["category"] for n in left_out["notices"]] == []
+    for text in (RATE_EXOG, "Missing values in exogenous columns", TEXT_NUMBERS):
+        assert text not in left_out["summary"]
+
+
+def test_tool_plan_rate_of_missing_values_counts_only_the_target_when_use_exog_false(
+    tmp_path,
+):
+    """
+    Test that a plan with `use_exog: false` keeps the warning about the high
+    rate of missing values when the target alone reaches it (15 of 60 values,
+    25.0 %), with the rate computed on the target, while the plan that uses
+    the exogenous column counts its missing values too (37.5 %).
+    """
+    data = df_exog_warnings.copy()
+    data.loc[:14, "y"] = np.nan
+    path = write_csv(tmp_path, "exog.csv", data)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    profile_id = content_of(
+        call(server, "profile", {"data_path": path, "target": "y"})
+    )["id"]
+
+    default = content_of(call(server, "plan", {"profile_id": profile_id, "steps": 5}))
+    left_out = content_of(
+        call(server, "plan", {"profile_id": profile_id, "steps": 5, "use_exog": False})
+    )
+
+    assert _data_warnings(default)[0] == (
+        "High missing value rate (37.5%). Consider imputation before forecasting."
+    )
+    left_out_messages = _data_warnings(left_out)
+    assert left_out_messages[0] == RATE_TARGET
+    assert not any("exogenous column" in message for message in left_out_messages)
+    assert RATE_TARGET in left_out["summary"]
+    assert "Missing values in exogenous columns" not in left_out["summary"]
+
+
+def test_tool_plan_future_exog_notice_of_a_stats_plan_names_only_numeric_columns(
+    tmp_path,
+):
+    """
+    Test that the `FutureExogNotice` of a ForecasterStats plan on data with a
+    numeric ('promo') and a categorical ('weekday') exogenous column names
+    only the numeric one, the only column its script reads, while the plan of
+    a recursive forecaster names both.
+    """
+    path = write_csv(
+        tmp_path,
+        "categorical.csv",
+        df_categorical_exog.assign(date=df_categorical_exog["date"].dt.strftime("%Y-%m-%d")),
+    )
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    profile_id = content_of(
+        call(server, "profile", {"data_path": path, "target": "sales"})
+    )["id"]
+
+    stats = content_of(
+        call(
+            server, "plan",
+            {"profile_id": profile_id, "steps": 5, "forecaster": "ForecasterStats"},
+        )
+    )
+    recursive = content_of(call(server, "plan", {"profile_id": profile_id, "steps": 5}))
+
+    def future_exog(result):
+        return [
+            n["message"] for n in result["notices"] if n["category"] == "FutureExogNotice"
+        ]
+
+    assert [m.split(":")[0] for m in future_exog(stats)] == [
+        "This plan uses the exogenous columns 'promo'"
+    ]
+    assert [m.split(":")[0] for m in future_exog(recursive)] == [
+        "This plan uses the exogenous columns 'promo', 'weekday'"
     ]

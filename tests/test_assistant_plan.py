@@ -13,6 +13,7 @@ from skforecast_ai import ForecastingAssistant
 from skforecast_ai.exceptions import (
     InvalidInputError,
     InvalidInputTypeError,
+    MissingBackendWarning,
     UnrecommendedForecasterWarning,
 )
 from skforecast_ai.schemas import ForecastPlan
@@ -22,14 +23,19 @@ from tests.fixtures_assistant import (
     df_biweekly,
     df_calendar_named_exog,
     df_categorical_exog,
+    df_crossing_zero,
     df_hourly,
     df_irregular,
     df_multi_long,
     df_multi_wide,
+    df_multi_wide_crossing_zero,
+    df_multi_wide_pooled,
     df_no_exog,
     df_range_index,
     df_single,
+    df_single_positive,
     df_with_missing,
+    patch_find_spec,
 )
 
 
@@ -70,6 +76,35 @@ def test_plan_UnrecommendedForecasterWarning_when_forecaster_not_recommended():
         plan = assistant.plan(profile, steps=10, forecaster="ForecasterStats")
 
     assert plan.forecaster == "ForecasterStats"
+
+
+@pytest.mark.parametrize(
+    "estimator, package",
+    [("XGBRegressor", "xgboost"), ("CatBoostRegressor", "catboost")],
+    ids=lambda value: f"{value}",
+)
+def test_plan_MissingBackendWarning_when_estimator_not_installed(
+    monkeypatch, estimator, package
+):
+    """
+    Test that plan() makes the plan of an estimator whose package is not
+    installed (its script may run on another machine) and warns that it
+    cannot run here, without keeping the warning in `plan.warnings`, which
+    describes the plan and not where it was made (V02).
+    """
+    patch_find_spec(monkeypatch, missing=[package])
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+
+    warn_msg = re.escape(
+        f"{estimator} needs the '{package}' package, which is not installed: "
+        f"the plan cannot run here until it is (pip install {package})."
+    )
+    with pytest.warns(MissingBackendWarning, match=warn_msg):
+        plan = assistant.plan(profile, steps=10, estimator=estimator)
+
+    assert plan.estimator == estimator
+    assert plan.warnings == []
 
 
 def test_plan_output_when_multiplied_frequency_with_long_period():
@@ -591,10 +626,12 @@ def test_plan_output_when_baseline_forecaster():
     assert plan.explanation == (
         "Plan: ForecasterEquivalentDate. No lag or window features: the "
         "baseline repeats past values and learns nothing from the data. MAE "
-        "is interpretable, robust to outliers, and works at any scale. "
-        "Baseline: seasonal naive, each step repeats the value observed 7 "
-        "steps earlier (one seasonal period). Exogenous variables ['promo'] "
-        "are not used: the baseline only repeats past target values."
+        "is interpretable, robust to outliers, and works at any scale. MAPE "
+        "is not computed: it divides each error by the actual value, and the "
+        "target takes values at or around zero (from 0 to 99). Baseline: "
+        "seasonal naive, each step repeats the value observed 7 steps "
+        "earlier (one seasonal period). Exogenous variables ['promo'] are "
+        "not used: the baseline only repeats past target values."
     )
 
 
@@ -924,23 +961,59 @@ def test_plan_ValueError_when_interval_invalid(forecaster, interval, match):
 
 def test_plan_ValueError_when_datetime_index_has_no_frequency():
     """
-    Test that plan() raises, also pointing at day-first dates, when the
-    datetime index has no inferable frequency (irregular timestamps), since
-    the script would fail inside skforecast. Day-first dates that a later
-    date proves wrong are rejected earlier, by profile().
+    Test that plan() raises when the datetime index has no inferable
+    frequency (irregular timestamps), since the script would fail inside
+    skforecast. The message and the hint are about the spacing of the
+    dates, not about day-first dates, which profile() reads day first or
+    rejects when their order cannot be told.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_irregular, target="sales", date_column="date")
 
     err_msg = re.escape(
-        "The frequency of the datetime index could not be inferred (the "
-        "timestamps are irregular or too few), and 'ForecasterRecursive' needs "
-        "a regular DatetimeIndex. Check the dates: day-first values such as "
-        "'13/02/2023' are read month-first unless parsed explicitly, for "
-        "example with pandas.to_datetime(..., dayfirst=True)."
+        "The frequency of the datetime index could not be inferred: the dates "
+        "are not regularly spaced, or there are too few of them, and "
+        "'ForecasterRecursive' needs a regular DatetimeIndex. Missing dates are "
+        "filled in only when the other dates follow a regular frequency and "
+        "fill at least half of its periods."
     )
-    with pytest.raises(ValueError, match=err_msg):
+    with pytest.raises(ValueError, match="^" + err_msg + "$") as exc_info:
         assistant.plan(profile, steps=5)
+
+    assert exc_info.value.hint == (
+        "Give the data a regular frequency: one row per period (day, week, "
+        "month), with an empty value where a period has none, or values "
+        "aggregated to a frequency the dates follow."
+    )
+
+
+def test_plan_InvalidInputError_without_day_first_advice_when_iso_dates_are_irregular():
+    """
+    Test that daily dates already written in ISO 8601 with most days missing
+    at random (60 of 150, less than half of the daily grid: no regular
+    frequency) get a message and a hint about their spacing, and neither
+    asks to write them in ISO 8601 nor names day-first dates (finding V14 of
+    the MCP audit).
+    """
+    dates = pd.date_range("2020-01-01", periods=150, freq="D")
+    kept = np.sort(np.random.default_rng(3).choice(150, size=60, replace=False))
+    data = pd.DataFrame(
+        {
+            "date": dates[kept].strftime("%Y-%m-%d"),
+            "y": np.arange(60, dtype=float),
+        }
+    )
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=data, target="y", date_column="date")
+
+    with pytest.raises(InvalidInputError) as exc_info:
+        assistant.plan(profile, steps=7)
+
+    assert profile.data_profile.frequency is None
+    assert "not regularly spaced" in str(exc_info.value)
+    assert "at least half of its periods" in str(exc_info.value)
+    assert "ISO 8601" not in exc_info.value.hint
+    assert "first" not in str(exc_info.value) + exc_info.value.hint
 
 
 # =============================================================================
@@ -1122,11 +1195,11 @@ def test_plan_InvalidInputError_when_baseline_on_datetime_index_without_frequenc
     profile = assistant.profile(data=df_irregular, target="sales", date_column="date")
 
     err_msg = re.escape(
-        "The frequency of the datetime index could not be inferred (the "
-        "timestamps are irregular or too few), and 'ForecasterEquivalentDate' "
-        "needs a regular DatetimeIndex. Check the dates: day-first values "
-        "such as '13/02/2023' are read month-first unless parsed explicitly, "
-        "for example with pandas.to_datetime(..., dayfirst=True)."
+        "The frequency of the datetime index could not be inferred: the dates "
+        "are not regularly spaced, or there are too few of them, and "
+        "'ForecasterEquivalentDate' needs a regular DatetimeIndex. Missing "
+        "dates are filled in only when the other dates follow a regular "
+        "frequency and fill at least half of its periods."
     )
     with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
         assistant.plan(profile, steps=3, forecaster="ForecasterEquivalentDate")
@@ -1149,9 +1222,9 @@ def test_plan_InvalidInputError_without_warning_when_baseline_has_no_frequency_a
         profile = assistant.profile(data=data, target="sales", date_column="date")
 
     err_msg = re.escape(
-        "The frequency of the datetime index could not be inferred (the "
-        "timestamps are irregular or too few), and 'ForecasterEquivalentDate' "
-        "needs a regular DatetimeIndex."
+        "The frequency of the datetime index could not be inferred: the dates "
+        "are not regularly spaced, or there are too few of them, and "
+        "'ForecasterEquivalentDate' needs a regular DatetimeIndex."
     )
     with warnings.catch_warnings():
         warnings.simplefilter("error")
@@ -1241,9 +1314,9 @@ def test_plan_InvalidInputError_field_when_datetime_index_has_no_frequency():
     profile = assistant.profile(data=df_irregular, target="sales", date_column="date")
 
     err_msg = re.escape(
-        "The frequency of the datetime index could not be inferred (the "
-        "timestamps are irregular or too few), and 'ForecasterRecursive' needs "
-        "a regular DatetimeIndex."
+        "The frequency of the datetime index could not be inferred: the dates "
+        "are not regularly spaced, or there are too few of them, and "
+        "'ForecasterRecursive' needs a regular DatetimeIndex."
     )
     with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
         assistant.plan(profile, steps=5)
@@ -1595,8 +1668,14 @@ def test_plan_output_overridden_fields_record_the_arguments_given():
             "Primary metric: median_absolute_error, as requested; also "
             "computed: mean_absolute_error.",
         ),
+        (
+            "root_mean_squared_error",
+            "root_mean_squared_error",
+            ["root_mean_squared_error"],
+            "Metric: root_mean_squared_error, as requested.",
+        ),
     ],
-    ids=["one metric", "list"],
+    ids=["one metric", "list", "root mean squared error"],
 )
 def test_plan_output_when_metric_given(
     metric, expected_metric, expected_metrics, sentence
@@ -1628,15 +1707,22 @@ def test_plan_output_when_metric_given(
             "`metric` repeats ['mean_squared_error']: list each metric once.",
         ),
         ("accuracy", ValueError, "Unknown metric 'accuracy'."),
+        (
+            ["mean_absolute_error", "n_evaluated"],
+            ValueError,
+            "'n_evaluated' is not a metric: it is the column of the "
+            "backtesting metrics with the number of points evaluated.",
+        ),
         (3, TypeError, "`metric` must be a metric name or a list of metric names"),
         ([1], TypeError, "`metric` must be a metric name or a list of metric names"),
     ],
-    ids=["empty", "repeated", "unknown", "int", "list of int"],
+    ids=["empty", "repeated", "unknown", "n_evaluated", "int", "list of int"],
 )
 def test_plan_error_when_metric_invalid(metric, error, message):
     """
-    Test that an empty, repeated, unknown or non-text metric is rejected
-    with `field='metric'`.
+    Test that an empty, repeated, unknown or non-text metric, or
+    `n_evaluated` (a column of the backtesting metrics, not a metric), is
+    rejected with `field='metric'`.
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
@@ -1645,6 +1731,193 @@ def test_plan_error_when_metric_invalid(metric, error, message):
         assistant.plan(profile, steps=10, metric=metric)
 
     assert info.value.field == "metric"
+
+
+@pytest.mark.parametrize(
+    "data, target, expected_metric",
+    [
+        (df_crossing_zero, "profit", "mean_absolute_error"),
+        (
+            df_multi_wide_crossing_zero,
+            ["series_a", "series_b"],
+            "mean_absolute_scaled_error",
+        ),
+    ],
+    ids=["single series", "one of two series"],
+)
+def test_plan_output_default_panel_without_mape_when_target_crosses_zero(
+    data, target, expected_metric
+):
+    """
+    Test that the default panel leaves MAPE out, without a warning, when the
+    target of a series crosses zero (the minimum is negative), also when
+    only one series of several does, and that the explanation says why.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=data, target=target, date_column="date")
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        plan = assistant.plan(profile, steps=6)
+
+    assert plan.metric == expected_metric
+    assert plan.metrics_to_compute == [
+        "mean_absolute_error",
+        "root_mean_squared_error",
+        "mean_absolute_scaled_error",
+    ]
+    assert plan.warnings == []
+    assert (
+        " MAPE is not computed: it divides each error by the actual value, "
+        "and the target takes values at or around zero"
+    ) in plan.explanation
+
+
+def test_plan_output_default_panel_with_rmse_and_mape_when_target_positive():
+    """
+    Test that the default panel of a positive target is MAE, RMSE, MASE and
+    MAPE, without MSE, and that the explanation says nothing about MAPE.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_single_positive, target="sales", date_column="date"
+    )
+
+    plan = assistant.plan(profile, steps=6)
+
+    assert plan.metric == "mean_absolute_error"
+    assert plan.metrics_to_compute == [
+        "mean_absolute_error",
+        "root_mean_squared_error",
+        "mean_absolute_scaled_error",
+        "mean_absolute_percentage_error",
+    ]
+    assert "MAPE" not in plan.explanation
+
+
+@pytest.mark.parametrize(
+    "metric",
+    [
+        "mean_squared_log_error",
+        ["mean_absolute_error", "mean_squared_log_error"],
+    ],
+    ids=["primary", "also computed"],
+)
+def test_plan_ValueError_when_msle_requested_and_target_below_minus_one(metric):
+    """
+    Test that MSLE on a target with values at or below -1, which sklearn
+    rejects when the script runs, raises `ValueError` with `field='metric'`
+    when the plan is built.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_crossing_zero, target="profit", date_column="date"
+    )
+
+    err_msg = re.escape(
+        "`mean_squared_log_error` cannot be computed on this data: it takes "
+        "the logarithm of 1 plus each value, so it needs values above -1, "
+        "and the target has values down to -10. Use a metric without a "
+        "logarithm, such as `mean_absolute_error` or "
+        "`root_mean_squared_error`."
+    )
+    with pytest.raises(ValueError, match=err_msg) as info:
+        assistant.plan(profile, steps=6, metric=metric)
+
+    assert info.value.field == "metric"
+
+
+def test_plan_output_when_msle_requested_and_target_positive():
+    """
+    Test that MSLE on a positive target is computed as requested.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_single_positive, target="sales", date_column="date"
+    )
+
+    plan = assistant.plan(profile, steps=6, metric="mean_squared_log_error")
+
+    assert plan.metrics_to_compute == ["mean_squared_log_error"]
+
+
+@pytest.mark.parametrize(
+    "metric",
+    [
+        "mean_absolute_percentage_error",
+        ["mean_absolute_error", "mean_absolute_percentage_error"],
+    ],
+    ids=["primary", "also computed"],
+)
+def test_plan_UserWarning_when_mape_requested_and_target_crosses_zero(metric):
+    """
+    Test that MAPE requested on a target that crosses zero is computed as
+    requested, with a UserWarning saying that its value means nothing, whose
+    text also goes to `plan.warnings`.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_crossing_zero, target="profit", date_column="date"
+    )
+
+    warn_msg = (
+        "`mean_absolute_percentage_error` has no meaning on this data: it "
+        "divides each error by the actual value, and the target takes values "
+        "at or around zero (from -10 to 10), so its value can reach the "
+        "trillions. It is computed as requested; judge the model by a metric "
+        "that does not divide by the actual value, such as "
+        "`mean_absolute_error`."
+    )
+    with pytest.warns(UserWarning, match=re.escape(warn_msg)):
+        plan = assistant.plan(profile, steps=6, metric=metric)
+
+    assert "mean_absolute_percentage_error" in plan.metrics_to_compute
+    assert plan.warnings == [warn_msg]
+
+
+def test_plan_UserWarning_names_the_series_when_mape_requested_on_multiseries():
+    """
+    Test that, with several series, the warning of MAPE requested names the
+    series that crosses zero and its range.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data        = df_multi_wide_crossing_zero,
+        target      = ["series_a", "series_b"],
+        date_column = "date",
+    )
+
+    warn_msg = (
+        "the target takes values at or around zero in series 'series_b' "
+        "(from -10 to 10)"
+    )
+    with pytest.warns(UserWarning, match=re.escape(warn_msg)):
+        assistant.plan(profile, steps=6, metric="mean_absolute_percentage_error")
+
+
+@pytest.mark.parametrize(
+    "data, target, metric",
+    [
+        (df_single_positive, "sales", "mean_absolute_percentage_error"),
+        (df_crossing_zero, "profit", "mean_absolute_error"),
+        (df_crossing_zero, "profit", "symmetric_mean_absolute_percentage_error"),
+    ],
+    ids=["MAPE on positive target", "MAE crossing zero", "sMAPE crossing zero"],
+)
+def test_plan_no_warning_when_metric_is_meaningful(data, target, metric):
+    """
+    Test that MAPE on a target away from zero, or a metric that does not
+    divide by the actual value on a target that crosses zero, gives no
+    warning.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=data, target=target, date_column="date")
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        plan = assistant.plan(profile, steps=6, metric=metric)
+
+    assert plan.warnings == []
 
 
 def test_plan_TypeError_when_metric_given_positionally():
@@ -1790,6 +2063,64 @@ def test_plan_explanation_names_the_series_multivariate_predicts():
         "It predicts 'series_a', the first series of the target, from the lags "
         "of all the series."
     )
+
+
+def test_plan_estimator_when_multivariate_is_sized_on_the_dates_the_series_share():
+    """
+    Test that ForecasterDirectMultiVariate gets the estimator of the 150
+    dates it trains on (Ridge), not the LGBMRegressor that the profile
+    chose for the 300 observations pooled across the series, and that the
+    explanation gives that reason. The plan of the profile forecaster
+    keeps LGBMRegressor and its explanation has no such sentence.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_multi_wide_pooled, target=["series_a", "series_b"], date_column="date"
+    )
+
+    multivariate = assistant.plan(
+        profile, steps=7, forecaster="ForecasterDirectMultiVariate"
+    )
+    multi_series = assistant.plan(profile, steps=7)
+
+    assert profile.estimator == "LGBMRegressor"
+    assert multivariate.estimator == "Ridge"
+    assert multivariate.overridden_fields == ["forecaster"]
+    assert (
+        "Estimator: Ridge, chosen by the rules for ForecasterDirectMultiVariate "
+        "(the profile recommends LGBMRegressor for ForecasterRecursiveMultiSeries). "
+        "A linear model is preferred because the dataset is small "
+        "(150 observations < 250); gradient boosting is offered as an "
+        "alternative once more data is available. ForecasterDirectMultiVariate "
+        "trains on one row per date, so the size is the 150 dates the series "
+        "share, not the 300 observations pooled across them."
+    ) in multivariate.explanation
+    assert multi_series.forecaster == "ForecasterRecursiveMultiSeries"
+    assert multi_series.estimator == "LGBMRegressor"
+    assert "chosen by the rules" not in multi_series.explanation
+
+
+def test_plan_estimator_when_multivariate_estimator_is_passed():
+    """
+    Test that an estimator passed with ForecasterDirectMultiVariate is
+    kept, and that the explanation does not present it as a choice of the
+    rules.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(
+        data=df_multi_wide_pooled, target=["series_a", "series_b"], date_column="date"
+    )
+
+    plan = assistant.plan(
+        profile,
+        steps      = 7,
+        forecaster = "ForecasterDirectMultiVariate",
+        estimator  = "LGBMRegressor",
+    )
+
+    assert plan.estimator == "LGBMRegressor"
+    assert plan.overridden_fields == ["forecaster", "estimator"]
+    assert "chosen by the rules" not in plan.explanation
 
 
 def test_plan_output_when_use_exog_false_ignores_the_exog_left_out():

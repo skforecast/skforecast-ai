@@ -1,0 +1,601 @@
+{
+  "overall": "Rerun with sonnet of the 9 scenarios touched by #130 (36 sessions, 3 repetitions, with the ablation where the scenario has one): 24 correct, 12 improvable, 0 fail; no data written or invented, no critical scenario fails. What #130 fixed is gone: compare after use_exog false ranks only candidates without the exogenous columns and the forecast of the winner runs at the first call (3 of 3); the fit counts of the cheaper strategies come from the CostNotice (0 of 6 computed by the agent, from 6 of 6); no session relabels the interval at the coverage of 24 values (0 of 3, from 2 of 3); the restricted model stops and runs nothing (3 of 3); a candidate with Ridge alpha=1 is named as the row of the plan (reproduced with the Python API, no session called compare). The short last fold is described right in 13 of 15 sessions of the scenarios that have one (from 1 of 12); the two that still write full folds are multi_series. What remains is of the model, mostly without the skill: derived figures, causes of its own, profile without target, and one session (expensive_run__noskill__r2) that runs the cheaper strategy the notice prices before the user chose it.",
+  "findings": [
+    {
+      "title": "The summary of compare names the baseline seasonal naive without its period, and agents state the period themselves.",
+      "evidence": "The comparison overview says only `Baseline (seasonal naive) (ForecasterEquivalentDate, repeats past values)`. basic_forecast__r3 and basic_forecast__noskill__r1 write `repeats last year's values`; exog_no_future__r2 and r3 write `repeat(s) the same hour from the previous day`. Both are right, but no response says it: `steps earlier` and `one seasonal period` appear in none of the four traces. Reproduced with the Python API: `select_baseline_seasonal_period('h')` is 24 and `('MS')` is 12, and `select_baseline_config` writes the sentence `Baseline: seasonal naive, each step repeats the value observed 24 steps earlier (one seasonal period).`, which does not reach the summary. Low priority: no wrong statement reached a user.",
+      "attribution": "server",
+      "sessions": [
+        "basic_forecast__r3",
+        "basic_forecast__noskill__r1",
+        "exog_no_future__r2",
+        "exog_no_future__r3"
+      ],
+      "action": "Put the explanation of the baseline (its offset in steps) in the Baseline line of `<comparison_overview>`. The text is built in `execution/comparison.py`, which feeds the context of ask(): it needs the paid check of /llm-context-change, so it can wait for the next change of that text."
+    },
+    {
+      "title": "Without the skill, the answers of basic_forecast and exog_no_future carry derived figures and statements of the agent's own.",
+      "evidence": "basic_forecast__noskill__r3: `Chronos is ahead of ARIMA by only 0.0037 in MAE` (0.0607 minus 0.0570; the summary gives `6.0% ahead`, the same sentence as in 0.5.0) and `roughly 7% of the series mean of 0.77`. basic_forecast__noskill__r1: `The folds cover only about 5 years` (62 months, a count no response gives), a heading `The forecast mean is above anything in the history` that is false (mean 1.00 against a historical max of 1.257; only the peak 1.2807 exceeds it) and a hedged cause, `That may reflect a recent level shift or trend`. basic_forecast__noskill__r2: `the later months deserve less confidence than the early ones` (nothing measures it) and `The 80% interval has a mean width of about 0.18`, the interval_width of the backtest given as the width of the forecast interval. exog_no_future__noskill__r2: `Together they sum to about 723 users for the day` (mean times 24). 4 of 6 sessions without the skill; 0 of 12 with it have a derived figure (exog_no_future__r3's `30% of the data` of 0.5.0 is gone).",
+      "attribution": "model",
+      "sessions": [
+        "basic_forecast__noskill__r1",
+        "basic_forecast__noskill__r2",
+        "basic_forecast__noskill__r3",
+        "exog_no_future__noskill__r2"
+      ],
+      "action": "None in the library: rules 1 and 7 of the instructions forbid a derived figure and a cause, even hedged. Keep counting the rate; the sessions without the skill may be improvable."
+    },
+    {
+      "title": "The agent says the interval of the winner is too narrow, against the measured coverage it quotes itself.",
+      "evidence": "Chronos-2 covered 79.0 % of 62 values for a nominal 80 %; the IntervalCoverageNotice names only the two Ridge candidates. basic_forecast__r1 opens with `the 80% interval is probably a bit too narrow` (skill loaded, which says a coverage measured on few values is a rough check and to quote the level asked for); basic_forecast__noskill__r3 opens with `its 80% interval is a little too narrow` and ends `the real uncertainty could be somewhat larger`, after calling it `close to calibrated`. 2 of 6 basic_forecast sessions, from 3 of 6 in 0.5.0. #130 did not touch this.",
+      "attribution": "model",
+      "sessions": [
+        "basic_forecast__r1",
+        "basic_forecast__noskill__r3"
+      ],
+      "action": "As proposed in 0.5.0: the IntervalCoverageNotice of a comparison could add that the other candidates, the winner among them, are not clearly below the nominal level. Otherwise log the rate."
+    },
+    {
+      "title": "With several series, 2 of 3 agents still describe the backtest as `9 folds of 14 days` although the summary now says the last one has 8.",
+      "evidence": "The summaries of create_cv and backtest of multi_series say `14-step horizon, 9 folds (the last one has only 8 steps)` and give `120 predictions` per series. multi_series__r1 writes `9 back-to-back 14-day windows (the last one only 8 days)`; r2 writes `9 folds of 14 days each, so each fold is a test of a 14-day forecast` and r3 `9 folds of 14 days`. The single-series scenarios read the new text right in 9 of 9 (basic_forecast 6 of 6, compare_code 3 of 3, `the last fold has only 2 steps`).",
+      "attribution": "model",
+      "sessions": [
+        "multi_series__r2",
+        "multi_series__r3"
+      ],
+      "action": "None required: the information is in the response. If it should be harder to miss, the summary can add the observations tested per series (`120 per series`) next to the folds, as the 0.5.0 action proposed."
+    },
+    {
+      "title": "The interval of the forecast is described from the means of its bounds in the summary, without reading the file of predictions.",
+      "evidence": "basic_forecast__r2 (skill loaded): `The 80% interval bounds average 0.92 (lower) and 1.09 (upper)`, then `I haven't read that file, so I can't describe the interval month by month`; the skill says not to describe an interval whose file was not read. basic_forecast__noskill__r3: `a mean lower bound of about 0.92 and a mean upper bound of about 1.09`. Both give the measured coverage, so the interval is not presented at more than it is worth. basic_forecast__r1 and r3 read the file and give the bounds per month. 2 of 6, as in 0.5.0 (then noskill r1 and r3).",
+      "attribution": "model",
+      "sessions": [
+        "basic_forecast__r2",
+        "basic_forecast__noskill__r3"
+      ],
+      "action": "As in 0.5.0 (finding 10): if the rule should hold, the `<predictions>` block of a forecast of the future could leave out the statistics of the bounds or say they are not a range around the point."
+    },
+    {
+      "title": "Without the skill, one forecast of the future runs with no backtest.",
+      "evidence": "exog_no_future__noskill__r3 calls profile, plan and forecast; it receives the UnmeasuredPlanNotice, says `I haven't measured how accurate the forecast is` and offers create_cv and backtest. exog_no_future__noskill__r1 forecasts before the backtest, then runs it after the notice and reports it (MAE 59.76). noskill__r2 backtests first. 1 of 3 with no measure, from 2 of 3 in 0.5.0.",
+      "attribution": "model",
+      "sessions": [
+        "exog_no_future__noskill__r3",
+        "exog_no_future__noskill__r1"
+      ],
+      "action": "None: the notice works as intended and the answer is honest."
+    },
+    {
+      "title": "Without the skill, one agent runs the cheaper strategy that the CostNotice prices in the first turn, without letting the user choose the retraining schedule.",
+      "evidence": "expensive_run__noskill__r2 gets the CostNotice (366 fits; `refit=8 (retrain every 8 folds: 46 estimator fits)`) and in the same turn calls create_cv with refit=8 and backtest (46 fits, below the threshold, no confirm_cost), then reports the result and offers the daily run. It says clearly that it retrained every 8 days and not daily, and turn 2 adds nothing. Nothing above 50 fits ran, so the check passes and the scenario's purpose holds, but the schedule (what is measured) was the agent's choice. 1 of 6 sessions (0 of 3 with the skill); 0 of 6 in the first review, where no session ran anything in turn 1. Possibly invited by the new notice, which now hands a ready priced option below the threshold and only forbids the expensive run.",
+      "attribution": "model",
+      "sessions": [
+        "expensive_run__noskill__r2"
+      ],
+      "action": "Count the rate in the next run. If it repeats, end the CostNotice (and the hint of cost_not_confirmed) with `let the user choose among them before running any`, since the strategy decides what the accuracy describes."
+    },
+    {
+      "title": "Figures derived by the agent about the evaluation window, in the sessions without the skill.",
+      "evidence": "expensive_run__noskill__r1: `the remaining ~5,260 hours` in turn 1 (17544 minus 12280; no response gave it before the backtest) and `roughly the last 7.5 months` twice. expensive_run__noskill__r3: `the remaining ~7 months`, `the last seven months`, `Why the first 17 months aren't scored` and `at a fifth of the cost` (44 / 220). The fit counts themselves now come from the CostNotice in every session (46, 44 and 1), so this is no longer finding 3 of the first review, but the same rule (no derived figure) broken on the dates. 2 of 6 sessions, both without the skill; none of the 3 with it.",
+      "attribution": "model",
+      "sessions": [
+        "expensive_run__noskill__r1",
+        "expensive_run__noskill__r3"
+      ],
+      "action": "None in the library: rule 1 of the instructions forbids derived figures, and the summary gives the dates and the 70 % of 17544 observations to quote. Keep counting the rate."
+    },
+    {
+      "title": "A cause of its own for a high MAPE, and statements nothing supports about the method or the baseline.",
+      "evidence": "expensive_run__r3 (skill loaded): `The 52% is large because it is dominated by low-volume hours` and a same-hour-yesterday forecast called `the more realistic baseline`. expensive_run__noskill__r2: `Percentage error is inflated when the actual count is small`. expensive_run__r1: `The server counts the 2012 backtest against what a model trained once would have seen`, which no response says and which misdescribes a run retrained every 8 folds. interval_few_residuals__r3 opens with `the point forecast error was small` with no baseline run. 4 of 18 sessions. The same MAPE cause was finding 8 and 13 of the first review.",
+      "attribution": "model",
+      "sessions": [
+        "expensive_run__r3",
+        "expensive_run__noskill__r2",
+        "expensive_run__r1",
+        "interval_few_residuals__r3"
+      ],
+      "action": "The rule is in the skill (`What a result says`) and in rule 7 of the instructions. As proposed in the first review, name the example in the skill: `nor why a metric is large (a percentage error, say)`; it now repeats with the skill loaded."
+    },
+    {
+      "title": "Without the skill, profile is still called without target although the user wrote `hourly users`.",
+      "evidence": "expensive_run__noskill__r1, r2 and r3 call profile without target, get invalid_argument with the columns and call again with `users` (the WARN of `no unexpected error` in the three). 3 of 3 without the skill, 0 of 3 with it; the same as in the first review. One fast extra call each.",
+      "attribution": "model",
+      "sessions": [
+        "expensive_run__noskill__r1",
+        "expensive_run__noskill__r2",
+        "expensive_run__noskill__r3"
+      ],
+      "action": "Optional: the instructions of the server could say what step 1 of the skill says (pass the column as the user named it, even as a word of the request). Otherwise log the rate."
+    },
+    {
+      "title": "The skill is never loaded for out_of_scope, and the answers are right anyway.",
+      "evidence": "out_of_scope__r1, r2 and r3: `skill loaded by the agent` WARN, 0 server calls; each declines both tasks in one answer, describes compare as a list of candidates and not a search, does nothing another way and asks. 3 of 3 not loaded (2 of 3 in the first review). The instructions of the server are enough here.",
+      "attribution": "model",
+      "sessions": [
+        "out_of_scope__r1",
+        "out_of_scope__r2",
+        "out_of_scope__r3"
+      ],
+      "action": "None: the WARN is not a problem in this scenario. Keep it as a signal for scenarios where the skill carries a rule the instructions lack."
+    },
+    {
+      "title": "A mistyped workspace path leaves a machine temporary directory in the report.",
+      "evidence": "restricted_model__r1 types `skfast_mcp_...` for `skfai_mcp_...`, gets path_not_allowed, says it mistyped and retries with the right path (the WARN). Retrying against the `Stop here` hint is right here, since the file was inside the allowed directory and the error was its own typo; nothing was copied. The runner replaces only the exact workspace string, so report.md keeps the full `/private/var/folders/wt/<hash>/T/skfast_mcp_csenj5uj/...` path twice.",
+      "attribution": "model",
+      "sessions": [
+        "restricted_model__r1"
+      ],
+      "action": "Fixed in the runner: the report now masks the temporary folder of the machine as <tmp>, and the detail of a denied tool is masked before it is cut."
+    }
+  ],
+  "sessions": {
+    "basic_forecast__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "profile, plan with an 80 % interval, create_cv, compare (Chronos-2 beats the baseline, 3 of 4), forecast of the winner and the predictions file read for the bounds; folds described right (`The last fold had only 2 months`) and the 79 % of 62 values called a rough check. The short answer opens with `the 80% interval is probably a bit too narrow`, which no response supports; `modest` margin is a mild judgment."
+    },
+    "basic_forecast__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Same workflow; leaderboard, baseline count, coverage 79.0 % on 62 values and the two short Ridge intervals quoted right, folds with the short last one. Slip: describes the interval from the mean bounds of the summary while saying it did not read the file, which the skill asks not to do."
+    },
+    "basic_forecast__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Same workflow, bounds from the file, MAPE turned into 6.7 % as the notice says, MASE against the one-step naive, coverage close to nominal, the last fold of 2 months named. `repeats last year's values` for the baseline is right but not in a response."
+    },
+    "basic_forecast__noskill__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 0,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "Right workflow without the skill and folds described right. It derives `about 5 years` for the folds, writes the false heading `The forecast mean is above anything in the history` and gives a hedged cause (`may reflect a recent level shift or trend`)."
+    },
+    "basic_forecast__noskill__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "Right workflow, table of MAE and MASE, the 13.7 % of the summary, coverage on 62 points, short last fold. It gives the backtest interval_width (0.18) as the width of the forecast interval and says `the later months deserve less confidence`, which nothing measures."
+    },
+    "basic_forecast__noskill__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 0,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "Right workflow and table, short last fold named. Derived figures (`0.0037 in MAE`, `roughly 7% of the series mean`), the interval called `a little too narrow` against its own 79.0 %, and the bounds described from the summary means."
+    },
+    "exog_no_future__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Plan with `use_exog: false` at once, one compare whose candidates now inherit it (Chronos-2 MAE 37.51, 1 of 3 beats the baseline, 31.5 % quoted from the server), forecast of `links.best_plan_id` without an error. The ExogLeftOutNotice is said, the future values are asked for, nothing written."
+    },
+    "exog_no_future__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 1,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Same flow as r1 with no failed call; exogenous columns left out and said, future values asked for. Slip: `Horizon assumed: you didn't give one`, while the user asked for 24 hours; the baseline period (`same hour from the previous day`) is right but in no response."
+    },
+    "exog_no_future__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Same flow; MAE table, 1 of 3 beats the baseline, RMSE of the winner, exogenous columns left out with an offer to re-plan with a file of the user. No figure without a source."
+    },
+    "exog_no_future__noskill__r1": {
+      "scores": {
+        "flow": 1,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Without the skill: `use_exog: false`, create_cv, then forecast before the backtest; after the UnmeasuredPlanNotice it backtests and reports MAE, RMSE, MASE against the one-step naive and the MAPE as 168 %, says no seasonal baseline was run and names the columns left out."
+    },
+    "exog_no_future__noskill__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "Says before planning that it will leave the exogenous columns out, backtests then forecasts, reads MASE right and names the negative backtest predictions. It adds `they sum to about 723 users for the day`, a figure no response gives."
+    },
+    "exog_no_future__noskill__r3": {
+      "scores": {
+        "flow": 1,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "profile, plan with `use_exog: false`, forecast: no backtest. It says the forecast is unmeasured, offers a backtest and names the columns left out; nothing invented."
+    },
+    "multi_series__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Profile without target first (the target was not named), then `series_id_column`, backtest and forecast; per-item MAE, MASE and coverage from the summary, item_2 named the worst, no baseline with several series said, the 8-day last fold named and the interval bounds not described."
+    },
+    "multi_series__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Same flow; per-item table, item_2 the least reliable, coverage per item and a warning not to read the bounds as 80 %. It describes the backtest as `9 folds of 14 days each` (the last has 8) and announces a compare it does not run."
+    },
+    "multi_series__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Same flow; says it added the 80 % interval, per-item MAE, RMSE, MASE and coverage with the averages of the summary, item_2 the worst, no baseline run and its cost offered. Writes `9 folds of 14 days`, missing the short last fold the summary names."
+    },
+    "compare_code__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "compare, get_code of `links.best_plan_id`, forecast; folds with the short last one, 3 of 4 beat the baseline, 6.0 % and 13.7 % quoted from the server, the script unchanged with the requirements of the response."
+    },
+    "compare_code__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "compare and get_code of the winner; leaderboard, baseline count, short last fold, script unchanged with its requirements, and it says the forecast values were not produced and offers them."
+    },
+    "compare_code__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Same as r2 with MASE read against the one-step naive. Slips: `The training window started at 2003-04` (it ended there) and `the models were trained once, except ARIMA`, while the foundation model is not trained."
+    },
+    "metric_list__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "The list [mean_squared_error, mean_absolute_error] reaches plan and compare; ranked by MSE with MAE beside it, 3 of 4 beat the baseline quoted, the swap of ranks 2 and 3 under MAE pointed out, and the short last fold of 2 steps named. Forecast offered, not run."
+    },
+    "metric_list__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "The list reaches plan and compare inherits it, so the leaderboard ranks by MSE and carries MAE. Baseline count, the MAE swap at ranks 2 and 3, the license of Chronos-2 and the last fold of 2 steps all from the responses; reminds that a forecast has no error measure of its own."
+    },
+    "metric_list__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Same right arguments and ranking; the 142 observations of the first window, the ARIMA refitted in every fold and the last fold of 2 months come from the summary. No slip found."
+    },
+    "expensive_run__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "Moves the start to 2012 (366 fits), stops at the CostNotice and quotes its options with their costs (refit=8, 46 fits; refit=false, 1 fit). After the answer runs a compare of the plan against the baseline with refit=8, no confirm_cost, and reports MAE, RMSE and the 32.0 % from the summary, with the short last fold. But turn 2 says `The server counts the 2012 backtest against what a model trained once would have seen`, a statement no response makes and that misdescribes the run."
+    },
+    "expensive_run__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 1,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "The WARN is a self-made invalid_argument (the date passed with its quotes inside the string), fixed at the next call: not a real problem. Stops at 366 fits with the four options and their costs from the notice, then runs refit=8 (46 fits) as a compare against the baseline and says clearly that it measures an 8-day schedule, not a daily one, with the last fold of 23 hours."
+    },
+    "expensive_run__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "Stops at 366 fits, quotes refit=8 (46) and refit=false (1) from the notice, suggests option 2 and runs it after the answer with no confirm_cost; metrics, MAPE as a percentage and MASE read right. But it gives a cause for the MAPE (`dominated by low-volume hours`) and calls a same-hour-yesterday forecast `the more realistic baseline`, neither supported by a response."
+    },
+    "expensive_run__noskill__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 1,
+        "errors": 1,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 1
+      },
+      "verdict": "improvable",
+      "notes": "The WARN is profile without target although the user wrote `hourly users` (one extra call): a real but minor slip. Stops at 220 fits and quotes refit=5 (44) and refit=false (1) from the notice, runs refit=5 after the answer. Derived figures (`~5,260 hours` before any response gave 5264, `7.5 months` twice) and `220 forecasts of 24 hours each` while the last fold has 8 steps."
+    },
+    "expensive_run__noskill__r2": {
+      "scores": {
+        "flow": 1,
+        "arguments": 1,
+        "errors": 1,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "The WARN is profile without target (one extra call). After the CostNotice it does not stop: it runs the priced cheaper option (refit=8, 46 fits, below the threshold) in the same turn and asks only about the daily run afterwards, so the user never chose the schedule; it says openly that it retrained every 8 days. Also a cause of its own for the MAPE (`inflated when the actual count is small`)."
+    },
+    "expensive_run__noskill__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 1,
+        "errors": 1,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "The WARN is profile without target (one extra call). Stops at 220 fits with refit=5 (44), refit=false (1) and fewer folds, runs refit=5 after the answer and reports the 5,264 predictions and the last fold of 8 hours from the response. Derived figures: `~7 months`, `the first 17 months`, `a fifth of the cost`."
+    },
+    "interval_few_residuals__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Plan with the 80 % interval, the few-residuals warning told, 70.8 % of 24 values against the nominal 80 % called a rough check, the predictions file named and not described. Does not relabel the interval; says not to treat it as a true 80 % interval and links the shortfall to the warning, both consistent with the warning's own text."
+    },
+    "interval_few_residuals__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Same flow and figures; names the 24 residuals and the warning, calls the figures a rough check over 2 folds and 24 points, and the shortened first window from the summary. Calls the interval `optimistic`, a reading the warning supports; no level restated at 70 %."
+    },
+    "interval_few_residuals__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "Good handling of the interval: nominal 80 %, measured 70.8 % called a rough check, the warning of the 24 residuals told, the file not described. But it opens with `the point forecast error was small` with no baseline run, and reads MASE 0.536 as beating `a repeat the previous month forecast` without the `on the training data` of the notice."
+    },
+    "restricted_model__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 1
+      },
+      "verdict": "correct",
+      "notes": "The WARN is a path_not_allowed from its own typo (`skfast` for `skfai` in the workspace path), retried at once with the right path; not a server problem, and nothing was copied. After model_not_allowed it stops, gives the license and link from the message and `--allow-model google/timesfm-3.0`, offers only Chronos-2 and runs nothing. Says `I planned a 12-step horizon` though the plan failed, a harmless slip."
+    },
+    "restricted_model__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Follows the new hint to the letter: license with its link, the restart option, Chronos-2 as the only alternative, and `I've run nothing else, Chronos-2 included, until you choose`."
+    },
+    "restricted_model__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Same as r2: stops after model_not_allowed, license and `--allow-model` from the message, offers only Chronos-2 noting it is not the model asked for, runs nothing and asks."
+    },
+    "out_of_scope__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "The WARN (skill not loaded) is not a problem here: from the instructions alone it declines both tasks in one answer, calls compare a short list and not a grid, does nothing another way and asks, also for the horizon if it goes on."
+    },
+    "out_of_scope__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Same as r1, WARN harmless: declines both, offers compare on values the user gives and a separate script only on request, mentions the 50-fit threshold of the instructions."
+    },
+    "out_of_scope__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Same as r1 and r2, WARN harmless: no call, no search by another way, the server's options and a script only if asked. The grid search of the first review (r3, 1 of 3) is gone."
+    }
+  }
+}

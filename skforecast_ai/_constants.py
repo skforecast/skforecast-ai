@@ -39,18 +39,21 @@ MAX_DESCRIBE_ITEMS = 15
 # Prompt budgeting
 # ---------------------------------------------------------------------------
 
-# Context window assumed for local Ollama models. Hosted providers expose
-# provider-specific windows, so no budget is imposed for them.
+# Context window that `ask()` budgets every request against: the `num_ctx`
+# of local Ollama models, and the smallest window of the hosted models it
+# supports (most have 128k or more, but some Groq and Bedrock models have
+# 32k, and no provider says it up front). The skills get what the role
+# prompt, the rendered context, the API reference when it is sent and the
+# reserved answer leave of it (`compute_skill_token_budget`).
 OLLAMA_MAX_CONTEXT_TOKENS = 32768
 
 # Tokens held back for the model's own answer when budgeting the prompt.
 RESERVED_RESPONSE_TOKENS = 2048
 
-# Ceiling on the skill content of a single request, applied whatever the
-# provider. Hosted context windows are not known up front, so without it a
-# question matching many topics is sent unbounded and fails at the provider.
-# Sized so that the skills, the API reference, the role prompt and the reserved
-# answer still fit a 32k window.
+# Ceiling on the skill content of a single request, whatever room the
+# window leaves: every token of skills is paid on every call, so this is a
+# decision of cost and focus, not of fit. A skill that does not fit whole
+# goes as its SKILL.md alone (`select_skills`).
 MAX_SKILL_TOKENS = 20_000
 
 # Ceiling for the static role prompt. It is paid on every call and is not
@@ -77,12 +80,14 @@ FOUNDATION_MODEL_ID_PREFIXES: tuple[str, ...] = (
     "autogluon/chronos-2",
     "google/timesfm-2.5",
     "google/timesfm-3.0",
+    "NX-AI/TiRex-2",
     "Salesforce/moirai-2",
     "soda-inria/tabicl",
     "priorlabs/tabpfn",
     "theforecastingcompany/t0",
     "Synthefy/Nori",
     "taharnbl/TS-ICL",
+    "mistralai/Timestral",
 )
 
 BASELINE_FORECASTERS: set[str] = {
@@ -154,19 +159,21 @@ MAX_UNTABULATED_ARIMA_PERIOD = 12
 # fits one estimator per step). Counting fits instead of timing a trial fold
 # keeps the decision exact, known before running and reproducible.
 # `LONG_TRAINING_FITS` is the threshold of skforecast's LongTrainingWarning,
-# which the generated scripts silence with `suppress_warnings=True`, so the
-# assistant warns itself before running. `COMPARE_FIT_BUDGET` is the most a
-# candidate chosen automatically by `compare()` may cost.
+# which the generated scripts silence with `suppress_warnings=True`: above it
+# `backtest()` and `compare()` stop before running until `confirm_cost`
+# confirms the run, since a warning does not stop it. `COMPARE_FIT_BUDGET` is
+# the most a candidate chosen automatically by `compare()` may cost.
 LONG_TRAINING_FITS = 50
 COMPARE_FIT_BUDGET = 500
 
 # Backtesting cost of a foundation model, counted in inference windows: it
 # is never trained, so it loads its weights once and forecasts each series
-# in each fold. Above `LONG_INFERENCE_WINDOWS` the assistant warns with
-# LongTrainingWarning: about a minute of inference with Chronos-2 small on
-# a 4-core CPU (about 27 ms per window, `tools/perf/foundation_cost.py`),
-# and about 7 s on a laptop GPU. Kept low on purpose: it protects the
-# machine without a GPU, and `amazon/chronos-2` takes 3.5 times longer.
+# in each fold. Above `LONG_INFERENCE_WINDOWS`, as above `LONG_TRAINING_FITS`,
+# a run needs `confirm_cost`. That many windows are about a minute of
+# inference with Chronos-2 small on a 4-core CPU (about 27 ms per window,
+# `tools/perf/foundation_cost.py`), and about 7 s on a laptop GPU. Kept low
+# on purpose: it protects the machine without a GPU, and `amazon/chronos-2`
+# takes 3.5 times longer.
 LONG_INFERENCE_WINDOWS = 2000
 
 # Task types of the machine learning forecasters (lags, window features and
@@ -243,6 +250,7 @@ PASSTHROUGH_KWARGS_ESTIMATORS: set[str] = {"LGBMRegressor", "XGBRegressor"}
 # classification scores, which are higher is better and never apply here.
 ALLOWED_METRICS: tuple[str, ...] = (
     "mean_squared_error",
+    "root_mean_squared_error",
     "mean_absolute_error",
     "mean_absolute_percentage_error",
     "mean_squared_log_error",
@@ -251,6 +259,16 @@ ALLOWED_METRICS: tuple[str, ...] = (
     "median_absolute_error",
     "symmetric_mean_absolute_percentage_error",
 )
+
+# Last column of the backtesting metrics of skforecast (0.27.0 or later):
+# the number of points that enter the metrics of each row (prediction and
+# observed value not missing), summed in the aggregated rows of several
+# series. It is not a metric: it never ranks and is never listed with them.
+N_EVALUATED_COLUMN = "n_evaluated"
+# Column of the backtesting predictions of skforecast (0.27.0 or later) with
+# the observed value of each prediction: values of the dataset, which reach
+# the LLM of `ask()` only with `send_data_to_llm=True`.
+OBSERVED_COLUMN = "y_true"
 
 # Blocking preprocessing steps a generated script can contain. Blocking
 # steps are written into the script, so the snippet of a plan must match one
@@ -286,9 +304,10 @@ TREE_BASED_ESTIMATORS: set[str] = {
 }
 
 # Bins of the predicted value over which ForecasterRecursive,
-# ForecasterDirect and ForecasterEquivalentDate spread the residuals their
-# bootstrapped and conformal intervals are estimated from (the default
-# `n_bins` of `binner_kwargs` in skforecast).
+# ForecasterDirect, ForecasterEquivalentDate and, per series,
+# ForecasterRecursiveMultiSeries and ForecasterDirectMultiVariate spread the
+# residuals their bootstrapped and conformal intervals are estimated from
+# (the default `n_bins` of `binner_kwargs` in skforecast).
 INTERVAL_RESIDUAL_BINS: int = 10
 
 # Residuals per bin below which those intervals tend to be too narrow: the

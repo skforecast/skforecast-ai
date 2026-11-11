@@ -7,7 +7,11 @@ import pandas as pd
 import pytest
 
 from skforecast_ai.exceptions import InvalidInputError
-from skforecast_ai.profiling.csv_dialect import DIALECT_HINT, EXOG_DIALECT_HINT
+from skforecast_ai.profiling.csv_dialect import (
+    DIALECT_HINT,
+    DOTTED_VALUES_HINT,
+    EXOG_DIALECT_HINT,
+)
 from skforecast_ai.profiling.data_profile import decimal_after_sample
 
 
@@ -46,6 +50,46 @@ def test_decimal_after_sample_output_comma_when_text_column_has_numbers(values):
     result = decimal_after_sample(frame, "data.csv", "data")
 
     assert result == ","
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        ["870", "1.705,11"],
+        ["870", "1.234.567"],
+        ["870", " -1.705,11 "],
+        ["1.705,11", None],
+    ],
+    ids=["thousands and decimals", "two groups", "sign and spaces", "missing value"],
+)
+@pytest.mark.parametrize("sep", [";", "\t"])
+def test_decimal_after_sample_output_comma_when_text_column_has_dot_thousands(
+    values, sep
+):
+    """
+    Test that the decimal mark is ',' when a column read as text holds a
+    number with '.' between thousands that cannot read with '.' as decimal
+    mark ('1.705,11', '1.234.567'), next to a column of integers, with ';'
+    and with a tabulator (its only-thousands check does not fire for them).
+    """
+    frame = pd.DataFrame({"y": [1, 2], "x": values})
+
+    result = decimal_after_sample(frame, "data.csv", "data", sep=sep)
+
+    assert result == ","
+
+
+@pytest.mark.parametrize("sep", [";", "\t"])
+def test_decimal_after_sample_output_point_when_number_reads_as_float(sep):
+    """
+    Test that a text column holding '1.705', which is a valid float with '.'
+    as decimal mark, does not make the decimal mark ','.
+    """
+    frame = pd.DataFrame({"y": [1, 2], "x": ["870", "1.705"]})
+
+    result = decimal_after_sample(frame, "data.csv", "data", sep=sep)
+
+    assert result == "."
 
 
 @pytest.mark.parametrize(
@@ -105,3 +149,46 @@ def test_decimal_after_sample_output_comma_when_semicolon_and_only_thousands():
     result = decimal_after_sample(frame, "data.csv", "data", sep=";")
 
     assert result == ","
+
+
+def test_decimal_after_sample_InvalidInputError_when_dot_thousands_and_decimals():
+    """
+    Test that a number with '.' between thousands that cannot read with '.'
+    as decimal mark ('1.705,11') and a number with decimals in a numeric
+    column raise an InvalidInputError with the code 'data_unreadable'.
+    """
+    frame = pd.DataFrame({"y": [1.0, 2.75], "x": ["870", "1.705,11"]})
+
+    err_msg = re.escape(
+        "The decimal mark of the CSV file 'data.csv' cannot be told: it holds "
+        "numbers written with ',' (such as '1.705,11') and with '.' (such as "
+        "'2.75')."
+    )
+    with pytest.raises(InvalidInputError, match="^" + err_msg + "$") as exc_info:
+        decimal_after_sample(frame, "data.csv", "data")
+
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.field == "data"
+    assert exc_info.value.hint == DIALECT_HINT
+
+
+def test_decimal_after_sample_InvalidInputError_when_groups_without_comma_and_decimals():
+    """
+    Test that a number with several groups of thousands and no ','
+    ('1.234.567') in a column read as text, next to numbers with decimals
+    after a '.' in a numeric column, raises the error of '.' used both ways,
+    which does not quote it as a number written with ','.
+    """
+    frame = pd.DataFrame({"y": [0.5, 0.25, 1.5], "x": ["1", "2", "1.234.567"]})
+
+    err_msg = re.escape(
+        "The CSV file 'data.csv' cannot be read: it holds numbers with '.' "
+        "between the thousands (such as '1.234.567') and values with a '.' "
+        "that does not separate thousands (such as '0.5'), which pandas "
+        "would read as numbers without it."
+    )
+    with pytest.raises(InvalidInputError, match="^" + err_msg + "$") as exc_info:
+        decimal_after_sample(frame, "data.csv", "data")
+
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.hint == DOTTED_VALUES_HINT

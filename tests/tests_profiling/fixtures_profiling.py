@@ -112,3 +112,149 @@ df_wide_ending_early = pd.DataFrame(
     index=pd.date_range("2023-01-01", periods=4, freq="D"),
 )
 
+
+# --- Dates written with the day and the month as numbers before the year ---
+# Closed formulas, so no random seed is involved.
+
+# Daily series of 90 observations from 2020-01-01 written day first
+# ('01/01/2020'): the days after the 12th settle the order. The values go
+# from 10.0 to 54.5 (mean 32.25).
+df_dates_day_first = pd.DataFrame(
+    {
+        "date": pd.date_range("2020-01-01", periods=90, freq="D").strftime(
+            "%d/%m/%Y"
+        ),
+        "y": 10.0 + 0.5 * np.arange(90),
+    }
+)
+
+# The same series with ISO dates ('2020-01-01').
+df_dates_iso = df_dates_day_first.assign(
+    date=pd.date_range("2020-01-01", periods=90, freq="D").strftime("%Y-%m-%d")
+)
+
+# The same series with dates written as whole numbers ('20200101').
+df_dates_compact = df_dates_day_first.assign(
+    date=pd.date_range("2020-01-01", periods=90, freq="D")
+    .strftime("%Y%m%d")
+    .astype(int)
+)
+
+# Monthly series of 60 observations from 2015-01-01 written day first
+# ('01/02/2015'), as a Spanish file writes them: no day is after the 12th, so
+# every date reads day first and month first, and only the reading day first
+# has a regular frequency ('MS'). The values go from 5.0 to 93.5.
+df_dates_monthly_ambiguous = pd.DataFrame(
+    {
+        "date": pd.date_range("2015-01-01", periods=60, freq="MS").strftime(
+            "%d/%m/%Y"
+        ),
+        "y": 5.0 + 1.5 * np.arange(60),
+    }
+)
+
+# The same series written month first ('02/01/2015'), as a US file writes
+# them: only the reading month first has a regular frequency ('MS').
+df_dates_monthly_us = df_dates_monthly_ambiguous.assign(
+    date=pd.date_range("2015-01-01", periods=60, freq="MS").strftime("%m/%d/%Y")
+)
+
+# Three monthly observations from 2020-01-01 written day first ('01/02/2020'):
+# both readings have a regular frequency ('MS' day first, 'D' month first),
+# so the dates do not tell the order.
+df_dates_three_ambiguous = pd.DataFrame(
+    {
+        "date": ["01/01/2020", "01/02/2020", "01/03/2020"],
+        "y": [1.0, 2.0, 4.0],
+    }
+)
+
+# Daily series of 60 observations from 2020-01-13 written month first
+# ('01/13/2020'): the days after the 12th settle the order.
+df_dates_month_first = pd.DataFrame(
+    {
+        "date": pd.date_range("2020-01-13", periods=60, freq="D").strftime(
+            "%m/%d/%Y"
+        ),
+        "y": 5.0 + 1.5 * np.arange(60),
+    }
+)
+
+# Daily series of 60 observations as a spreadsheet of Germany exports it
+# (columns 'datum' and 'umsatz'): dates with points ('15.01.2020') and
+# amounts with '.' between thousands and ',' before two decimals
+# (`write_german_excel`). The amounts go from 1234.56 to 7149.31 (mean
+# 4191.935), the dates from 2020-01-15 and from 2020-01-01.
+_german_amounts = np.round(1234.56 + 100.25 * np.arange(60), 2)
+df_german_from_15th = pd.DataFrame(
+    {
+        "datum": pd.date_range("2020-01-15", periods=60, freq="D").strftime(
+            "%d.%m.%Y"
+        ),
+        "umsatz": _german_amounts,
+    }
+)
+df_german_from_1st = df_german_from_15th.assign(
+    datum=pd.date_range("2020-01-01", periods=60, freq="D").strftime("%d.%m.%Y")
+)
+
+# Monthly series of 60 amounts above 1,000 in the format of a German
+# spreadsheet, from 2015-01-01 ('01.02.2015'): no day is after the 12th.
+df_german_monthly = pd.DataFrame(
+    {
+        "datum": pd.date_range("2015-01-01", periods=60, freq="MS").strftime(
+            "%d.%m.%Y"
+        ),
+        "umsatz": np.round(1000.5 + 50.25 * np.arange(60), 2),
+    }
+)
+
+
+def write_german_excel(directory, frame: pd.DataFrame, name: str = "de.csv") -> str:
+    """
+    Write `frame` (columns 'datum' and 'umsatz') to `directory` separated by
+    ';', with '.' between the thousands and ',' before the decimals of the
+    amounts ('1.234,56'), as a German spreadsheet exports it, and return the
+    path. pandas cannot write a thousands separator.
+    """
+
+    def written(value: float) -> str:
+        return f"{value:,.2f}".replace(",", " ").replace(".", ",").replace(" ", ".")
+
+    lines = ["datum;umsatz"] + [
+        f"{date};{written(value)}"
+        for date, value in zip(frame["datum"], frame["umsatz"])
+    ]
+    path = directory / name
+    path.write_text("\n".join(lines) + "\n")
+
+    return str(path)
+
+
+# Exogenous columns of text, 30 daily rows: 'pct' holds percentages ('0%'),
+# 'dash' numbers with a '-' every 10 rows, 'mixed' plain numbers, ' 7 %' with
+# spaces, '-' and a blank cell; 'store' and 'code' are true categories
+# ('A', 'B' and product codes 'P-001', '007'), 'few' has 3 numbers in 30
+# values (below the share of 90 %) and 'x_na' is numeric with 2 missing
+# values.
+_dirty_n = 30
+_dash = [f"{i}.5" for i in range(_dirty_n)]
+_dash[::10] = ["-"] * 3
+_mixed = [str(i) for i in range(_dirty_n)]
+_mixed[1:4] = ["7%", " 7 %", "-"]
+_mixed[5] = " "
+_x_na = np.arange(_dirty_n, dtype=float)
+_x_na[[4, 9]] = np.nan
+df_dirty_exog = pd.DataFrame(
+    {
+        "y": np.arange(_dirty_n, dtype=float) % 7,
+        "pct": [f"{i}%" for i in range(_dirty_n)],
+        "dash": _dash,
+        "mixed": _mixed,
+        "store": ["A", "B", "C"] * 10,
+        "code": ["P-001", "P-002", "007"] * 10,
+        "few": ["1", "2", "3"] + ["low", "high", "mid"] * 9,
+        "x_na": _x_na,
+    },
+    index=pd.date_range("2023-01-01", periods=_dirty_n, freq="D"),
+)

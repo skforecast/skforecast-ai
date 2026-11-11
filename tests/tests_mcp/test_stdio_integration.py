@@ -168,9 +168,15 @@ def test_stdio_server_runs_executes_reports_progress_and_cancels(tmp_path):
                         scope.cancel()
 
                     group.start_soon(cancel)
+                    # Twelve Ridge candidates refitted in every fold are an
+                    # expensive run, confirmed with its number of fits.
                     await client.call_tool(
                         "compare",
-                        {"cv_id": cv["id"], "candidates": candidates},
+                        {
+                            "cv_id": cv["id"],
+                            "candidates": candidates,
+                            "confirm_cost": 12 * cv["cost"]["n_fits"],
+                        },
                         progress_callback=first_event,
                     )
             objects = content_of(await client.call_tool("list_objects", {}))["objects"]

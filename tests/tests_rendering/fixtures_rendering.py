@@ -197,6 +197,16 @@ plan_single_metric_override = plan_single_recursive_no_exog.model_copy(
     }
 )
 
+# `plan(metric=[...])` with `root_mean_squared_error`, which skforecast's
+# backtesting does not take by name.
+plan_single_rmse = plan_single_recursive_no_exog.model_copy(
+    update={
+        "metric": "root_mean_squared_error",
+        "metrics_to_compute": ["root_mean_squared_error", "mean_absolute_error"],
+        "overridden_fields": ["metric"],
+    }
+)
+
 # `plan(use_exog=False)` on data with exogenous columns.
 plan_single_without_exog = plan_single_recursive.model_copy(
     update={"use_exog": False, "overridden_fields": ["use_exog"]}
@@ -601,10 +611,11 @@ cv_basic = SimpleNamespace(
     fold_stride=None,
     skip_folds=None,
     allow_incomplete_fold=True,
-    differentiation=None,
 )
 
-# The strategy `create_cv()` builds for a plan with `differentiation=1`.
+# A strategy that still carries a differentiation order, as `create_cv()`
+# built it for a plan with `differentiation=1` before skforecast 0.27 (a
+# result saved then, or a `TimeSeriesFold` built by hand).
 cv_differentiation = SimpleNamespace(**{**vars(cv_basic), "differentiation": 1})
 
 # Foundation plan in prediction mode with exogenous variables.

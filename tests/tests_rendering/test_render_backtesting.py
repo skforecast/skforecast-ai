@@ -32,6 +32,7 @@ from .fixtures_rendering import (
     plan_single_differentiation,
     plan_single_feature_overrides,
     plan_single_metric_override,
+    plan_single_rmse,
     plan_single_recursive_no_exog,
     plan_statistical,
     plan_statistical_exog,
@@ -91,7 +92,7 @@ def test_render_backtesting_single_series_output_when_no_exog():
         "    forecaster        = forecaster,\n"
         "    y                 = data['sales'],\n"
         "    cv                = cv,\n"
-        "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    metric            = ['mean_absolute_error', 'root_mean_squared_error', 'mean_absolute_scaled_error'],\n"
         "    n_jobs            = 'auto',\n"
         "    verbose           = False,\n"
         "    show_progress     = True,\n"
@@ -149,7 +150,7 @@ def test_render_backtesting_multi_series_output_when_wide_format():
         "    forecaster        = forecaster,\n"
         "    series            = data[['series_a', 'series_b']],\n"
         "    cv                = cv,\n"
-        "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    metric            = ['mean_absolute_error', 'root_mean_squared_error', 'mean_absolute_scaled_error'],\n"
         "    n_jobs            = 'auto',\n"
         "    verbose           = False,\n"
         "    show_progress     = True,\n"
@@ -209,7 +210,7 @@ def test_render_backtesting_multivariate_output_when_wide_format():
         "    forecaster        = forecaster,\n"
         "    series            = data[['series_a', 'series_b']],\n"
         "    cv                = cv,\n"
-        "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    metric            = ['mean_absolute_error', 'root_mean_squared_error', 'mean_absolute_scaled_error'],\n"
         "    n_jobs            = 'auto',\n"
         "    verbose           = False,\n"
         "    show_progress     = True,\n"
@@ -268,7 +269,7 @@ def test_render_backtesting_statistical_output_when_auto_arima():
         "    forecaster        = forecaster,\n"
         "    y                 = data['sales'],\n"
         "    cv                = cv,\n"
-        "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    metric            = ['mean_absolute_error', 'root_mean_squared_error', 'mean_absolute_scaled_error'],\n"
         "    freeze_params     = True,\n"
         "    n_jobs            = 'auto',\n"
         "    verbose           = False,\n"
@@ -352,7 +353,7 @@ def test_render_backtesting_foundation_output_when_chronos():
         "    forecaster        = forecaster,\n"
         "    series            = data['sales'],\n"
         "    cv                = cv,\n"
-        "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    metric            = ['mean_absolute_error', 'root_mean_squared_error', 'mean_absolute_scaled_error'],\n"
         "    verbose           = False,\n"
         "    show_progress     = True,\n"
         "    suppress_warnings = True,\n"
@@ -411,7 +412,7 @@ def test_render_backtesting_foundation_output_when_model_only_accepts_numeric_co
         "    forecaster        = forecaster,\n"
         "    series            = data['sales'],\n"
         "    cv                = cv,\n"
-        "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    metric            = ['mean_absolute_error', 'root_mean_squared_error', 'mean_absolute_scaled_error'],\n"
         "    exog              = data[exog_features],\n"
         "    verbose           = False,\n"
         "    show_progress     = True,\n"
@@ -471,7 +472,7 @@ def test_render_backtesting_foundation_output_when_multi_series():
         "    forecaster        = forecaster,\n"
         "    series            = series_dict,\n"
         "    cv                = cv,\n"
-        "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    metric            = ['mean_absolute_error', 'root_mean_squared_error', 'mean_absolute_scaled_error'],\n"
         "    verbose           = False,\n"
         "    show_progress     = True,\n"
         "    suppress_warnings = True,\n"
@@ -499,8 +500,9 @@ def test_render_backtesting_foundation_output_when_multi_series_long_format_with
         "from skforecast.model_selection import TimeSeriesFold, backtesting_foundation\n"
         "\n"
         "# Load data\n"
-        "data = pd.read_csv('data.csv')\n"
+        "data = pd.read_csv('data.csv', dtype={'series_id': str})\n"
         "\n"
+        "data['series_id'] = data['series_id'].map(str, na_action='ignore')\n"
         "data['date'] = pd.to_datetime(data['date'])\n"
         "data = data.sort_values('date')\n"
         "\n"
@@ -541,7 +543,7 @@ def test_render_backtesting_foundation_output_when_multi_series_long_format_with
         "    forecaster        = forecaster,\n"
         "    series            = series_dict,\n"
         "    cv                = cv,\n"
-        "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    metric            = ['mean_absolute_error', 'root_mean_squared_error', 'mean_absolute_scaled_error'],\n"
         "    exog              = exog_dict,\n"
         "    verbose           = False,\n"
         "    show_progress     = True,\n"
@@ -572,8 +574,9 @@ def test_render_backtesting_multi_series_output_when_long_format():
         "from skforecast.model_selection import TimeSeriesFold, backtesting_forecaster_multiseries\n"
         "\n"
         "# Load data\n"
-        "data = pd.read_csv('data.csv')\n"
+        "data = pd.read_csv('data.csv', dtype={'series_id': str})\n"
         "\n"
+        "data['series_id'] = data['series_id'].map(str, na_action='ignore')\n"
         "data['date'] = pd.to_datetime(data['date'])\n"
         "data = data.sort_values('date')\n"
         "\n"
@@ -605,7 +608,7 @@ def test_render_backtesting_multi_series_output_when_long_format():
         "    forecaster        = forecaster,\n"
         "    series            = series_dict,\n"
         "    cv                = cv,\n"
-        "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    metric            = ['mean_absolute_error', 'root_mean_squared_error', 'mean_absolute_scaled_error'],\n"
         "    n_jobs            = 'auto',\n"
         "    verbose           = False,\n"
         "    show_progress     = True,\n"
@@ -666,7 +669,7 @@ def test_render_backtesting_multi_series_output_when_wide_format_with_exog():
         "    series            = data[['series_a', 'series_b']],\n"
         "    exog              = data[exog_features],\n"
         "    cv                = cv,\n"
-        "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    metric            = ['mean_absolute_error', 'root_mean_squared_error', 'mean_absolute_scaled_error'],\n"
         "    n_jobs            = 'auto',\n"
         "    verbose           = False,\n"
         "    show_progress     = True,\n"
@@ -739,7 +742,7 @@ def test_render_backtesting_baseline_output_when_seasonal_naive():
         "    forecaster        = forecaster,\n"
         "    y                 = data['sales'],\n"
         "    cv                = cv,\n"
-        "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    metric            = ['mean_absolute_error', 'root_mean_squared_error', 'mean_absolute_scaled_error'],\n"
         "    n_jobs            = 'auto',\n"
         "    verbose           = False,\n"
         "    show_progress     = True,\n"
@@ -792,7 +795,7 @@ def test_render_backtesting_baseline_output_when_intervals_requested():
         "    forecaster        = forecaster,\n"
         "    y                 = data['sales'],\n"
         "    cv                = cv,\n"
-        "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    metric            = ['mean_absolute_error', 'root_mean_squared_error', 'mean_absolute_scaled_error'],\n"
         "    interval          = [0.1, 0.9],\n"
         "    interval_method   = 'conformal',\n"
         "    n_jobs            = 'auto',\n"
@@ -900,7 +903,7 @@ def test_render_backtesting_multi_series_output_when_wide_format_with_intervals(
         "    forecaster        = forecaster,\n"
         "    series            = data[['series_a', 'series_b']],\n"
         "    cv                = cv,\n"
-        "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    metric            = ['mean_absolute_error', 'root_mean_squared_error', 'mean_absolute_scaled_error'],\n"
         "    interval          = [0.1, 0.9],\n"
         "    interval_method   = 'bootstrapping',\n"
         "    n_jobs            = 'auto',\n"
@@ -933,8 +936,9 @@ def test_render_backtesting_multi_series_output_when_long_format_with_intervals(
         "from skforecast.model_selection import TimeSeriesFold, backtesting_forecaster_multiseries\n"
         "\n"
         "# Load data\n"
-        "data = pd.read_csv('data.csv')\n"
+        "data = pd.read_csv('data.csv', dtype={'series_id': str})\n"
         "\n"
+        "data['series_id'] = data['series_id'].map(str, na_action='ignore')\n"
         "data['date'] = pd.to_datetime(data['date'])\n"
         "data = data.sort_values('date')\n"
         "\n"
@@ -966,7 +970,7 @@ def test_render_backtesting_multi_series_output_when_long_format_with_intervals(
         "    forecaster        = forecaster,\n"
         "    series            = series_dict,\n"
         "    cv                = cv,\n"
-        "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    metric            = ['mean_absolute_error', 'root_mean_squared_error', 'mean_absolute_scaled_error'],\n"
         "    interval          = [0.1, 0.9],\n"
         "    interval_method   = 'bootstrapping',\n"
         "    n_jobs            = 'auto',\n"
@@ -1024,7 +1028,7 @@ def test_render_backtesting_multivariate_output_when_wide_format_with_intervals(
         "    forecaster        = forecaster,\n"
         "    series            = data[['series_a', 'series_b']],\n"
         "    cv                = cv,\n"
-        "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    metric            = ['mean_absolute_error', 'root_mean_squared_error', 'mean_absolute_scaled_error'],\n"
         "    interval          = [0.1, 0.9],\n"
         "    interval_method   = 'bootstrapping',\n"
         "    n_jobs            = 'auto',\n"
@@ -1094,10 +1098,67 @@ def test_render_backtesting_single_series_output_when_metric_override():
     assert result.full_script == expected
 
 
+def test_render_backtesting_single_series_output_when_metric_is_rmse():
+    """
+    Test that the backtest of a plan with `root_mean_squared_error` passes
+    it to skforecast by name, as the other metrics, without importing it.
+    """
+    result = render_backtesting_single_series(
+        plan_single_rmse, profile_single_no_exog, cv_basic
+    )
+
+    expected = (
+        "import pandas as pd\n"
+        "from lightgbm import LGBMRegressor\n"
+        "from skforecast.recursive import ForecasterRecursive\n"
+        "from skforecast.model_selection import TimeSeriesFold, backtesting_forecaster\n"
+        "\n"
+        "# Load data\n"
+        "data = pd.read_csv('data.csv')\n"
+        "\n"
+        "data['date'] = pd.to_datetime(data['date'])\n"
+        "data = data.set_index('date')\n"
+        "data = data.asfreq('D')\n"
+        "data = data.sort_index()\n"
+        "\n"
+        "# Create forecaster\n"
+        "forecaster = ForecasterRecursive(\n"
+        "    estimator = LGBMRegressor(random_state=123, verbose=-1),\n"
+        "    lags      = 7,\n"
+        ")\n"
+        "\n"
+        "# Time series cross-validation configuration\n"
+        "cv = TimeSeriesFold(\n"
+        "    steps              = 10,\n"
+        "    initial_train_size = 80,\n"
+        "    refit              = False,\n"
+        ")\n"
+        "\n"
+        "# Run backtesting\n"
+        "metrics, predictions = backtesting_forecaster(\n"
+        "    forecaster        = forecaster,\n"
+        "    y                 = data['sales'],\n"
+        "    cv                = cv,\n"
+        "    metric            = ['root_mean_squared_error', 'mean_absolute_error'],\n"
+        "    n_jobs            = 'auto',\n"
+        "    verbose           = False,\n"
+        "    show_progress     = True,\n"
+        "    suppress_warnings = True,\n"
+        ")\n"
+        "\n"
+        "print(metrics)\n"
+        "print(predictions.head())"
+    )
+
+    assert result.full_script == expected
+
+
 def test_render_backtesting_single_series_output_when_differentiation():
     """
     Test that the backtest of a plan with a differentiation order writes
-    it into the forecaster and into the strategy `create_cv()` builds.
+    it into the forecaster only: skforecast 0.27 takes it from the window
+    of the forecaster and deprecates it in `TimeSeriesFold`, so the
+    strategy is written without it, also when it carries one.
     """
     result = render_backtesting_single_series(
         plan_single_differentiation, profile_single_no_exog, cv_differentiation
@@ -1129,7 +1190,6 @@ def test_render_backtesting_single_series_output_when_differentiation():
         "    steps              = 10,\n"
         "    initial_train_size = 80,\n"
         "    refit              = False,\n"
-        "    differentiation    = 1,\n"
         ")\n"
         "\n"
         "# Run backtesting\n"
@@ -1137,7 +1197,7 @@ def test_render_backtesting_single_series_output_when_differentiation():
         "    forecaster        = forecaster,\n"
         "    y                 = data['sales'],\n"
         "    cv                = cv,\n"
-        "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    metric            = ['mean_absolute_error', 'root_mean_squared_error', 'mean_absolute_scaled_error'],\n"
         "    n_jobs            = 'auto',\n"
         "    verbose           = False,\n"
         "    show_progress     = True,\n"
@@ -1200,7 +1260,7 @@ def test_render_backtesting_single_series_output_when_feature_overrides():
         "    forecaster        = forecaster,\n"
         "    y                 = data['sales'],\n"
         "    cv                = cv,\n"
-        "    metric            = ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error'],\n"
+        "    metric            = ['mean_absolute_error', 'root_mean_squared_error', 'mean_absolute_scaled_error'],\n"
         "    n_jobs            = 'auto',\n"
         "    verbose           = False,\n"
         "    show_progress     = True,\n"

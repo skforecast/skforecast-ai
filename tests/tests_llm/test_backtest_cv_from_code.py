@@ -83,6 +83,22 @@ def test_backtest_cv_from_code_output_when_literal_arguments(cv_call, expected):
         assert getattr(cv, name) == value
 
 
+def test_backtest_cv_from_code_output_when_script_passes_differentiation():
+    """
+    Test that a script written before skforecast 0.27, which passes the
+    differentiation order of the forecaster to `TimeSeriesFold`, is read
+    without it: it does not change the folds, and skforecast deprecates it
+    with a `FutureWarning` (an error in this suite).
+    """
+    cv = backtest_cv_from_code(
+        _script("TimeSeriesFold(steps=3, initial_train_size=10, differentiation=1)")
+    )
+
+    assert cv.steps == 3
+    assert cv.initial_train_size == 10
+    assert getattr(cv, "differentiation", None) is None
+
+
 @pytest.mark.parametrize(
     "code",
     [

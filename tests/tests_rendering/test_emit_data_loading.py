@@ -4,8 +4,13 @@ import pytest
 
 from skforecast_ai.rendering import render_forecast_single_series
 from skforecast_ai.rendering._helpers import _emit_data_loading
+from skforecast_ai.schemas import FutureExogFile
 
-from .fixtures_rendering import plan_single_predict_exog, profile_single
+from .fixtures_rendering import (
+    plan_single_predict_exog,
+    profile_multi_long,
+    profile_single,
+)
 
 
 def _lines(profile, **kwargs) -> list[str]:
@@ -126,7 +131,7 @@ def test_emit_data_loading_names_no_dialect_for_the_future_exog_file():
     )
 
     result = _lines(
-        profile, var="exog_future", path="exog_future.csv", comment="# Future exog"
+        profile, var="exog_future", exog_file=FutureExogFile(), comment="# Future exog"
     )
 
     assert result[0] == "# Future exog"
@@ -149,3 +154,300 @@ def test_emit_data_loading_in_a_full_script_with_future_exog():
     assert "data = pd.read_csv('eu.csv', sep=';', decimal=',')\n" in result.data_loading
     assert "exog_future = pd.read_csv('exog_future.csv')\n" in result.data_loading
     assert result.full_script.count("sep=';'") == 1
+
+
+@pytest.mark.parametrize(
+    "date_column, long_format, call",
+    [
+        (
+            "date",
+            False,
+            "data = pd.read_csv('eu.csv', sep=';', decimal=',', thousands='.', "
+            "dtype={'date': str})",
+        ),
+        (
+            None,
+            False,
+            "data = pd.read_csv('eu.csv', sep=';', decimal=',', thousands='.', "
+            "index_col=0, parse_dates=True)",
+        ),
+        (
+            "date",
+            True,
+            "data = pd.read_csv('eu.csv', sep=';', decimal=',', thousands='.', "
+            "dtype={'date': str})",
+        ),
+    ],
+    ids=["date column", "index stored", "long format"],
+)
+def test_emit_data_loading_output_when_csv_has_thousands(
+    date_column, long_format, call
+):
+    """
+    Test that the call to `pd.read_csv` names `thousands` after `sep` and
+    `decimal` when the file separates thousands with '.', before
+    `index_col` and `parse_dates` when the index is stored in the file,
+    and reads the date column as text, as the library reads it: with '.'
+    as thousands separator, pandas would read '15.01.2020' as a number.
+    """
+    profile = profile_single.model_copy(
+        update={
+            "data_path": "eu.csv",
+            "csv_sep": ";",
+            "csv_decimal": ",",
+            "csv_thousands": ".",
+            "date_column": date_column,
+        }
+    )
+
+    result = _lines(profile, long_format=long_format)
+
+    assert result == ["# Load data", call]
+
+
+def test_emit_data_loading_names_no_thousands_for_the_placeholder_or_exog_file():
+    """
+    Test that data in memory (the placeholder path) and `exog_future.csv`,
+    the frames saved with `to_csv()`, are read without `thousands` whatever
+    the thousands separator of the profile.
+    """
+    profile = profile_single.model_copy(
+        update={"csv_sep": ";", "csv_decimal": ",", "csv_thousands": "."}
+    )
+    with_path = profile.model_copy(update={"data_path": "eu.csv"})
+
+    placeholder = _lines(profile)
+    exog = _lines(
+        with_path, var="exog_future", exog_file=FutureExogFile(), comment="# Future exog"
+    )
+
+    assert placeholder == ["# Load data", "data = pd.read_csv('data.csv')"]
+    assert exog[1].startswith("exog_future = pd.read_csv('exog_future.csv'")
+    assert "thousands=" not in exog[1]
+
+
+def test_emit_data_loading_in_a_full_script_with_thousands_and_future_exog():
+    """
+    Test that the script of a prediction with exogenous variables reads the
+    data with the thousands separator of the profile, and only the data.
+    """
+    profile = profile_single.model_copy(
+        update={
+            "data_path": "eu.csv",
+            "csv_sep": ";",
+            "csv_decimal": ",",
+            "csv_thousands": ".",
+        }
+    )
+
+    result = render_forecast_single_series(plan_single_predict_exog, profile)
+
+    assert (
+        "data = pd.read_csv('eu.csv', sep=';', decimal=',', thousands='.', "
+        "dtype={'date': str})\n"
+        in result.data_loading
+    )
+    assert "exog_future = pd.read_csv('exog_future.csv')\n" in result.data_loading
+    assert result.full_script.count("thousands='.'") == 1
+
+
+@pytest.mark.parametrize(
+    "update, kwargs, call",
+    [
+        (
+            {"data_path": "sales.csv"},
+            {},
+            "data = pd.read_csv('sales.csv', dtype={'store': str})",
+        ),
+        (
+            {
+                "data_path": "eu.csv",
+                "csv_sep": ";",
+                "csv_decimal": ",",
+                "csv_thousands": ".",
+            },
+            {},
+            "data = pd.read_csv('eu.csv', sep=';', decimal=',', thousands='.', "
+            "dtype={'store': str, 'date': str})",
+        ),
+        (
+            {"csv_sep": ";", "csv_decimal": ",", "csv_thousands": "."},
+            {},
+            "data = pd.read_csv('data.csv', dtype={'store': str})",
+        ),
+        (
+            {"data_path": "eu.csv", "csv_sep": ";", "csv_decimal": ","},
+            {"var": "exog_future", "exog_file": FutureExogFile()},
+            "exog_future = pd.read_csv('exog_future.csv', dtype={'store': str})",
+        ),
+    ],
+    ids=["default dialect", "dialect", "placeholder", "future exog"],
+)
+def test_emit_data_loading_output_when_series_id_column(update, kwargs, call):
+    """
+    Test that the series ids of long-format data are read as text, after
+    the dialect of the file when it has one, in the data and in the future
+    exogenous variables, so that '001' keeps its zeros.
+    """
+    profile = profile_multi_long.model_copy(
+        update={"series_id_column": "store", **update}
+    )
+
+    result = _lines(profile, long_format=True, **kwargs)
+
+    assert result[-1] == call
+
+
+@pytest.mark.parametrize(
+    "update, call",
+    [
+        (
+            {"data_path": "excel.csv", "csv_encoding": "cp1252"},
+            "pd.read_csv('excel.csv', encoding='cp1252')",
+        ),
+        (
+            {
+                "data_path": "excel.csv",
+                "csv_sep": ";",
+                "csv_decimal": ",",
+                "csv_thousands": ".",
+                "csv_encoding": "cp1252",
+            },
+            "pd.read_csv('excel.csv', sep=';', decimal=',', thousands='.', "
+            "encoding='cp1252', dtype={'date': str})",
+        ),
+        (
+            {"data_path": "excel.csv", "csv_encoding": "utf-8"},
+            "pd.read_csv('excel.csv')",
+        ),
+        ({"csv_encoding": "cp1252"}, "pd.read_csv('data.csv')"),
+    ],
+    ids=["cp1252", "cp1252 with dialect", "utf-8", "data passed in memory"],
+)
+def test_emit_data_loading_output_when_csv_encoding(update, call):
+    """
+    Test that the data file is read with `encoding='cp1252'` when the
+    profile records it, after the dialect and before `dtype`; a UTF-8 file
+    and data passed in memory (the frame saved with `to_csv()`) name no
+    encoding.
+    """
+    profile = profile_single.model_copy(update=update)
+
+    result = _lines(profile)
+
+    assert result == ["# Load data", f"data = {call}"]
+
+
+@pytest.mark.parametrize(
+    "csv_encoding, encoding, expected",
+    [
+        ("cp1252", "utf-8", "exog_future = pd.read_csv('exog_future.csv', "
+         "index_col=0, parse_dates=True)"),
+        ("utf-8", "cp1252", "exog_future = pd.read_csv('exog_future.csv', "
+         "encoding='cp1252', index_col=0, parse_dates=True)"),
+    ],
+    ids=["data in cp1252", "exog in cp1252"],
+)
+def test_emit_data_loading_output_when_exog_file_has_its_own_encoding(
+    csv_encoding, encoding, expected
+):
+    """
+    Test that `exog_future.csv` is read in its own encoding, not in the one
+    of the data file.
+    """
+    profile = profile_single.model_copy(
+        update={
+            "data_path": "excel.csv",
+            "csv_encoding": csv_encoding,
+            "date_column": None,
+        }
+    )
+
+    result = _lines(
+                 profile,
+                 var       = "exog_future",
+                 exog_file = FutureExogFile(encoding=encoding),
+                 comment   = "# Future exog",
+             )
+
+    assert result == ["# Future exog", expected]
+
+
+@pytest.mark.parametrize(
+    "dialect, arguments",
+    [
+        ({}, ""),
+        ({"sep": ";"}, ", sep=';', decimal='.'"),
+        ({"sep": "\t"}, ", sep='\\t', decimal='.'"),
+        ({"sep": ";", "decimal": ","}, ", sep=';', decimal=','"),
+        (
+            {"sep": ";", "decimal": ",", "thousands": "."},
+            ", sep=';', decimal=',', thousands='.', dtype={'date': str}",
+        ),
+        ({"encoding": "cp1252"}, ", encoding='cp1252'"),
+        (
+            {
+                "sep": ";", "decimal": ",", "thousands": ".",
+                "encoding": "cp1252",
+            },
+            ", sep=';', decimal=',', thousands='.', encoding='cp1252', "
+            "dtype={'date': str}",
+        ),
+    ],
+    ids=["defaults", "sep", "tab", "decimal", "thousands", "encoding", "all"],
+)
+def test_emit_data_loading_output_when_exog_file_has_its_own_dialect(
+    dialect, arguments
+):
+    """
+    Test that the file of the future exogenous variables is read by its path
+    with its own dialect, each argument named only when it is not the
+    default of pandas, one by one and all together (the Excel in Spanish),
+    in the order of the data: `sep` and `decimal`, `thousands` (with the
+    date column as text), `encoding` and `dtype`. The data file, written
+    as `to_csv()` writes it, does not lend it its dialect.
+    """
+    profile = profile_single.model_copy(update={"data_path": "ventas.csv"})
+    exog_file = FutureExogFile(path="/datos/futuro.csv", **dialect)
+
+    result = _lines(
+                 profile,
+                 var       = "exog_future",
+                 exog_file = exog_file,
+                 comment   = "# Future exog",
+             )
+
+    assert result == [
+        "# Future exog",
+        f"exog_future = pd.read_csv('/datos/futuro.csv'{arguments})",
+    ]
+
+
+def test_emit_data_loading_output_when_exog_file_and_data_have_other_dialects():
+    """
+    Test that the data file is read with the dialect of the profile and the
+    file of the future exogenous variables with its own, not the one of the
+    data, with the series ids as text in both.
+    """
+    profile = profile_multi_long.model_copy(
+        update={
+            "series_id_column": "store",
+            "data_path": "ventas.csv",
+            "csv_sep": ";",
+            "csv_decimal": ",",
+            "csv_encoding": "cp1252",
+        }
+    )
+    exog_file = FutureExogFile(path="futuro.csv", sep="\t")
+
+    data = _lines(profile, long_format=True)
+    exog = _lines(profile, long_format=True, var="exog_future", exog_file=exog_file)
+
+    assert data[-1] == (
+        "data = pd.read_csv('ventas.csv', sep=';', decimal=',', "
+        "encoding='cp1252', dtype={'store': str})"
+    )
+    assert exog[-1] == (
+        "exog_future = pd.read_csv('futuro.csv', sep='\\t', decimal='.', "
+        "dtype={'store': str})"
+    )

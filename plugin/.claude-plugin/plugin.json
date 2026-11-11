@@ -1,7 +1,7 @@
 {
   "name": "skforecast-ai",
   "displayName": "skforecast-ai",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "Forecast time series in CSV files with deterministic skforecast workflows: the skforecast-ai MCP server (profile, plan, backtest, compare, forecast) and the skill that teaches the agent to use it. Needs uv.",
   "author": {
     "name": "skforecast team",

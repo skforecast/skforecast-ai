@@ -11,7 +11,7 @@ LLM full:  https://skforecast.org/latest/llms-full.txt
 Examples:  https://skforecast.org/latest/examples/examples_english.html
 """
 
-__version__ = "0.4.2"
+__version__ = "0.5.0"
 
 # Aliased so they do not show up as public names of the package.
 import importlib as _importlib
@@ -20,10 +20,13 @@ import typing as _typing
 from .exceptions import (
     AllCandidatesFailedError,
     CandidateFailedWarning,
+    CostNotConfirmedError,
     DataContentError,
     DataNotFoundError,
     DataSentToLLMWarning,
+    FoldsLeftOutWarning,
     ForecastExecutionError,
+    IntervalCoverageWarning,
     InvalidInputError,
     InvalidInputTypeError,
     LLMCallError,
@@ -107,16 +110,19 @@ __all__ = [
     "CandidateFailure",
     "CompareProgress",
     "ComparisonResult",
+    "CostNotConfirmedError",
     "CVResult",
     "DataContentError",
     "DataNotFoundError",
     "DataProfile",
     "DataSentToLLMWarning",
     "ExplainableResult",
+    "FoldsLeftOutWarning",
     "ForecastExecutionError",
     "ForecastingProfile",
     "ForecastingAssistant",
     "ForecastPlan",
+    "IntervalCoverageWarning",
     "InvalidInputError",
     "InvalidInputTypeError",
     "LLMCheckResult",

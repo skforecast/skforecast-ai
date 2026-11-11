@@ -3,13 +3,14 @@
 import pytest
 
 from skforecast_ai.rendering import render_forecast_single_series
-from skforecast_ai.schemas import RenderedScript
+from skforecast_ai.schemas import FutureExogFile, RenderedScript
 
 from .fixtures_rendering import (
     plan_single_differentiation,
     plan_single_direct,
     plan_single_feature_overrides,
     plan_single_metric_override,
+    plan_single_rmse,
     plan_single_without_exog,
     plan_single_no_end_train,
     plan_single_predict_exog,
@@ -52,7 +53,7 @@ def test_render_forecast_single_series_output_when_no_exog():
 
     expected = (
         "import pandas as pd\n"
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n"
         "from skforecast.metrics import mean_absolute_scaled_error\n"
         "from lightgbm import LGBMRegressor\n"
         "from skforecast.recursive import ForecasterRecursive\n"
@@ -96,7 +97,7 @@ def test_render_forecast_single_series_output_when_no_exog():
         "# Evaluate on test set\n"
         "actual = data_test['sales'].iloc[:steps]\n"
         "mae = mean_absolute_error(actual, predictions)\n"
-        "mse = mean_squared_error(actual, predictions)\n"
+        "rmse = root_mean_squared_error(actual, predictions)\n"
         "mase = mean_absolute_scaled_error(\n"
         "    y_true  = actual,\n"
         "    y_pred  = predictions,\n"
@@ -104,7 +105,7 @@ def test_render_forecast_single_series_output_when_no_exog():
         ")\n"
         "\n"
         'print(f"MAE  : {mae:.4f}")\n'
-        'print(f"MSE  : {mse:.4f}")\n'
+        'print(f"RMSE : {rmse:.4f}")\n'
         'print(f"MASE : {mase:.4f}")\n'
         "\n"
         "# NOTE: This script uses a train/test split for demonstration purposes.\n"
@@ -123,7 +124,7 @@ def test_render_forecast_single_series_output_when_exog():
 
     expected = (
         "import pandas as pd\n"
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n"
         "from skforecast.metrics import mean_absolute_scaled_error\n"
         "from lightgbm import LGBMRegressor\n"
         "from skforecast.recursive import ForecasterRecursive\n"
@@ -168,7 +169,7 @@ def test_render_forecast_single_series_output_when_exog():
         "# Evaluate on test set\n"
         "actual = data_test['sales'].iloc[:steps]\n"
         "mae = mean_absolute_error(actual, predictions)\n"
-        "mse = mean_squared_error(actual, predictions)\n"
+        "rmse = root_mean_squared_error(actual, predictions)\n"
         "mase = mean_absolute_scaled_error(\n"
         "    y_true  = actual,\n"
         "    y_pred  = predictions,\n"
@@ -176,7 +177,7 @@ def test_render_forecast_single_series_output_when_exog():
         ")\n"
         "\n"
         'print(f"MAE  : {mae:.4f}")\n'
-        'print(f"MSE  : {mse:.4f}")\n'
+        'print(f"RMSE : {rmse:.4f}")\n'
         'print(f"MASE : {mase:.4f}")\n'
         "\n"
         "# NOTE: This script uses a train/test split for demonstration purposes.\n"
@@ -184,6 +185,181 @@ def test_render_forecast_single_series_output_when_exog():
         "# and provide future exogenous values covering the forecast horizon.\n"
     )
     assert result.full_script == expected
+
+
+@pytest.mark.parametrize(
+    "exog_date_format, exog_format_arg",
+    [
+        (None, ""),
+        ("%d/%m/%Y", ", format='%d/%m/%Y'"),
+        ("%Y%m%d", ", format='%Y%m%d'"),
+    ],
+    ids=["exog in iso", "exog day first", "exog as whole numbers"],
+)
+def test_render_forecast_single_series_output_when_date_format(
+    exog_date_format, exog_format_arg
+):
+    """
+    Test that the dates of the data are read with the format the profile
+    records (day-first dates), those of the future exogenous variables with
+    their own format (that of `exog_file`: none for ISO 8601, as `to_csv()`
+    writes them), and that the rest of the prediction script does not
+    change.
+    """
+    profile = profile_single.model_copy(update={"date_format": "%d/%m/%Y"})
+
+    result = render_forecast_single_series(
+                 plan_single_predict_exog,
+                 profile,
+                 exog_file = FutureExogFile(date_format=exog_date_format),
+             )
+
+    expected = (
+        "import pandas as pd\n"
+        "from lightgbm import LGBMRegressor\n"
+        "from skforecast.recursive import ForecasterRecursive\n"
+        "\n"
+        "# Load data\n"
+        "data = pd.read_csv('data.csv')\n"
+        "\n"
+        "# Load future exogenous variables covering the forecast horizon\n"
+        "exog_future = pd.read_csv('exog_future.csv')\n"
+        "\n"
+        "data['date'] = pd.to_datetime(data['date'], format='%d/%m/%Y')\n"
+        "data = data.set_index('date')\n"
+        "data = data.asfreq('D')\n"
+        "data = data.sort_index()\n"
+        "\n"
+        f"exog_future['date'] = pd.to_datetime(exog_future['date']"
+        f"{exog_format_arg})\n"
+        "exog_future = exog_future.set_index('date')\n"
+        "exog_future = exog_future.asfreq('D')\n"
+        "exog_future = exog_future.sort_index()\n"
+        "\n"
+        "exog_features = ['promo']\n"
+        "\n"
+        "# Create forecaster\n"
+        "forecaster = ForecasterRecursive(\n"
+        "    estimator = LGBMRegressor(random_state=123, verbose=-1),\n"
+        "    lags      = 7,\n"
+        ")\n"
+        "\n"
+        "# Fit\n"
+        "forecaster.fit(y=data['sales'], exog=data[exog_features])\n"
+        "\n"
+        "# Predict\n"
+        "steps = 10\n"
+        "predictions = forecaster.predict(steps=steps, exog=exog_future[exog_features])\n"
+        "print(predictions)\n"
+    )
+    assert result.full_script == expected
+
+
+@pytest.mark.parametrize(
+    "exog_encoding, exog_encoding_arg",
+    [("cp1252", ", encoding='cp1252'"), ("utf-8", "")],
+    ids=["exog in cp1252", "exog in utf-8"],
+)
+def test_render_forecast_single_series_output_when_csv_encoding_cp1252(
+    exog_encoding, exog_encoding_arg
+):
+    """
+    Test that the CSV that Excel saves on Windows in Spanish (cp1252, ';',
+    ',' as decimal mark, dates day first) is read with `encoding='cp1252'`
+    after its dialect, and `exog_future.csv` in its own encoding (that of
+    `exog_file`), and that the rest of the prediction script does not
+    change.
+    """
+    profile = profile_single.model_copy(
+        update={
+            "data_path": "ventas.csv",
+            "csv_sep": ";",
+            "csv_decimal": ",",
+            "csv_encoding": "cp1252",
+            "date_format": "%d/%m/%Y",
+        }
+    )
+
+    result = render_forecast_single_series(
+                 plan_single_predict_exog,
+                 profile,
+                 exog_file = FutureExogFile(
+                                 date_format = "%d/%m/%Y",
+                                 encoding    = exog_encoding,
+                             ),
+             )
+
+    expected = (
+        "import pandas as pd\n"
+        "from lightgbm import LGBMRegressor\n"
+        "from skforecast.recursive import ForecasterRecursive\n"
+        "\n"
+        "# Load data\n"
+        "data = pd.read_csv('ventas.csv', sep=';', decimal=',', "
+        "encoding='cp1252')\n"
+        "\n"
+        "# Load future exogenous variables covering the forecast horizon\n"
+        f"exog_future = pd.read_csv('exog_future.csv'{exog_encoding_arg})\n"
+        "\n"
+        "data['date'] = pd.to_datetime(data['date'], format='%d/%m/%Y')\n"
+        "data = data.set_index('date')\n"
+        "data = data.asfreq('D')\n"
+        "data = data.sort_index()\n"
+        "\n"
+        "exog_future['date'] = pd.to_datetime(exog_future['date'], "
+        "format='%d/%m/%Y')\n"
+        "exog_future = exog_future.set_index('date')\n"
+        "exog_future = exog_future.asfreq('D')\n"
+        "exog_future = exog_future.sort_index()\n"
+        "\n"
+        "exog_features = ['promo']\n"
+        "\n"
+        "# Create forecaster\n"
+        "forecaster = ForecasterRecursive(\n"
+        "    estimator = LGBMRegressor(random_state=123, verbose=-1),\n"
+        "    lags      = 7,\n"
+        ")\n"
+        "\n"
+        "# Fit\n"
+        "forecaster.fit(y=data['sales'], exog=data[exog_features])\n"
+        "\n"
+        "# Predict\n"
+        "steps = 10\n"
+        "predictions = forecaster.predict(steps=steps, exog=exog_future[exog_features])\n"
+        "print(predictions)\n"
+    )
+    assert result.full_script == expected
+
+
+def test_render_forecast_single_series_output_when_dotted_dates_and_thousands():
+    """
+    Test that a ';' file with '.' between thousands and dates such as
+    '15.01.2020' is read with its date column as text and its dates with
+    their format: only the loading and the parse of the dates change.
+    """
+    profile = profile_single_no_exog.model_copy(
+        update={
+            "data_path": "umsatz.csv",
+            "csv_sep": ";",
+            "csv_decimal": ",",
+            "csv_thousands": ".",
+            "date_format": "%d.%m.%Y",
+        }
+    )
+
+    result = render_forecast_single_series(plan_single_recursive_no_exog, profile)
+
+    assert result.data_loading == (
+        "# Load data\n"
+        "data = pd.read_csv('umsatz.csv', sep=';', decimal=',', thousands='.', "
+        "dtype={'date': str})\n"
+    )
+    assert result.core.startswith(
+        "data['date'] = pd.to_datetime(data['date'], format='%d.%m.%Y')\n"
+        "data = data.set_index('date')\n"
+        "data = data.asfreq('D')\n"
+        "data = data.sort_index()\n"
+    )
 
 
 def test_render_forecast_single_series_output_when_intervals_requested():
@@ -195,7 +371,7 @@ def test_render_forecast_single_series_output_when_intervals_requested():
 
     expected = (
         "import pandas as pd\n"
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n"
         "from skforecast.metrics import mean_absolute_scaled_error\n"
         "from lightgbm import LGBMRegressor\n"
         "from skforecast.recursive import ForecasterRecursive\n"
@@ -246,7 +422,7 @@ def test_render_forecast_single_series_output_when_intervals_requested():
         "# Evaluate on test set\n"
         "actual = data_test['sales'].iloc[:steps]\n"
         "mae = mean_absolute_error(actual, predictions['pred'])\n"
-        "mse = mean_squared_error(actual, predictions['pred'])\n"
+        "rmse = root_mean_squared_error(actual, predictions['pred'])\n"
         "mase = mean_absolute_scaled_error(\n"
         "    y_true  = actual,\n"
         "    y_pred  = predictions['pred'],\n"
@@ -254,7 +430,7 @@ def test_render_forecast_single_series_output_when_intervals_requested():
         ")\n"
         "\n"
         'print(f"MAE  : {mae:.4f}")\n'
-        'print(f"MSE  : {mse:.4f}")\n'
+        'print(f"RMSE : {rmse:.4f}")\n'
         'print(f"MASE : {mase:.4f}")\n'
         "\n"
         "# NOTE: This script uses a train/test split for demonstration purposes.\n"
@@ -275,7 +451,7 @@ def test_render_forecast_single_series_output_when_window_features():
 
     expected = (
         "import pandas as pd\n"
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n"
         "from skforecast.metrics import mean_absolute_scaled_error\n"
         "from lightgbm import LGBMRegressor\n"
         "from skforecast.preprocessing import RollingFeatures\n"
@@ -326,7 +502,7 @@ def test_render_forecast_single_series_output_when_window_features():
         "# Evaluate on test set\n"
         "actual = data_test['sales'].iloc[:steps]\n"
         "mae = mean_absolute_error(actual, predictions)\n"
-        "mse = mean_squared_error(actual, predictions)\n"
+        "rmse = root_mean_squared_error(actual, predictions)\n"
         "mase = mean_absolute_scaled_error(\n"
         "    y_true  = actual,\n"
         "    y_pred  = predictions,\n"
@@ -334,7 +510,7 @@ def test_render_forecast_single_series_output_when_window_features():
         ")\n"
         "\n"
         'print(f"MAE  : {mae:.4f}")\n'
-        'print(f"MSE  : {mse:.4f}")\n'
+        'print(f"RMSE : {rmse:.4f}")\n'
         'print(f"MASE : {mase:.4f}")\n'
         "\n"
         "# NOTE: This script uses a train/test split for demonstration purposes.\n"
@@ -353,7 +529,7 @@ def test_render_forecast_single_series_output_when_direct_strategy():
 
     expected = (
         "import pandas as pd\n"
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n"
         "from skforecast.metrics import mean_absolute_scaled_error\n"
         "from lightgbm import LGBMRegressor\n"
         "from skforecast.direct import ForecasterDirect\n"
@@ -398,7 +574,7 @@ def test_render_forecast_single_series_output_when_direct_strategy():
         "# Evaluate on test set\n"
         "actual = data_test['sales'].iloc[:steps]\n"
         "mae = mean_absolute_error(actual, predictions)\n"
-        "mse = mean_squared_error(actual, predictions)\n"
+        "rmse = root_mean_squared_error(actual, predictions)\n"
         "mase = mean_absolute_scaled_error(\n"
         "    y_true  = actual,\n"
         "    y_pred  = predictions,\n"
@@ -406,7 +582,7 @@ def test_render_forecast_single_series_output_when_direct_strategy():
         ")\n"
         "\n"
         'print(f"MAE  : {mae:.4f}")\n'
-        'print(f"MSE  : {mse:.4f}")\n'
+        'print(f"RMSE : {rmse:.4f}")\n'
         'print(f"MASE : {mase:.4f}")\n'
         "\n"
         "# NOTE: This script uses a train/test split for demonstration purposes.\n"
@@ -526,7 +702,7 @@ def test_render_forecast_single_series_future_exog_uses_index_style_when_no_date
     "data_path, expected_read",
     [
         ("sales.csv", "data = pd.read_csv('sales.csv')\n"),
-        ("data.csv", "data = pd.read_csv('data.csv', index_col=0, parse_dates=True)\n"),
+        ("data.csv", "data = pd.read_csv('data.csv', index_col=0)\n"),
     ],
     ids=["read by path", "passed in memory"],
 )
@@ -539,7 +715,8 @@ def test_render_forecast_single_series_reads_index_only_when_stored_when_no_date
     first column into the index, while data passed in memory (the
     placeholder path) keeps the index read of the frame saved with
     `to_csv()`. The future exogenous variables keep the index read that
-    carries the positions after the data.
+    carries the positions after the data. Positions are read without
+    `parse_dates`, which pandas warns it cannot apply to them.
     """
     profile = profile_single_no_exog.model_copy(
         update={
@@ -554,7 +731,7 @@ def test_render_forecast_single_series_reads_index_only_when_stored_when_no_date
 
     assert expected_read in result.data_loading
     assert (
-        "exog_future = pd.read_csv('exog_future.csv', index_col=0, parse_dates=True)"
+        "exog_future = pd.read_csv('exog_future.csv', index_col=0)"
         in result.data_loading
     )
 
@@ -636,6 +813,69 @@ def test_render_forecast_single_series_output_when_metric_override():
     assert result.full_script == expected
 
 
+def test_render_forecast_single_series_output_when_metric_is_rmse():
+    """
+    Test that a plan with `root_mean_squared_error` imports it from
+    scikit-learn with the other metrics and computes it on the test set.
+    """
+    result = render_forecast_single_series(plan_single_rmse, profile_single_no_exog)
+
+    expected = (
+        "import pandas as pd\n"
+        "from sklearn.metrics import root_mean_squared_error, mean_absolute_error\n"
+        "from lightgbm import LGBMRegressor\n"
+        "from skforecast.recursive import ForecasterRecursive\n"
+        "\n"
+        "# Load data\n"
+        "data = pd.read_csv('data.csv')\n"
+        "\n"
+        "data['date'] = pd.to_datetime(data['date'])\n"
+        "data = data.set_index('date')\n"
+        "data = data.asfreq('D')\n"
+        "data = data.sort_index()\n"
+        "\n"
+        "# Train/test split\n"
+        "end_train = '2023-03-12'  # last training date, adjust to change the split point\n"
+        "data_train = data.loc[:end_train]\n"
+        "data_test  = data.loc[data.index > end_train]\n"
+        "\n"
+        "print(\n"
+        '    f"Train dates : {data_train.index.min()} --- {data_train.index.max()}  (n={len(data_train)})"\n'
+        ")\n"
+        "print(\n"
+        '    f"Test dates  : {data_test.index.min()} --- {data_test.index.max()}  (n={len(data_test)})"\n'
+        ")\n"
+        "\n"
+        "# Create forecaster\n"
+        "forecaster = ForecasterRecursive(\n"
+        "    estimator = LGBMRegressor(random_state=123, verbose=-1),\n"
+        "    lags      = 7,\n"
+        ")\n"
+        "\n"
+        "# Fit\n"
+        "forecaster.fit(y=data_train['sales'])\n"
+        "\n"
+        "# Predict\n"
+        "steps = 10\n"
+        "predictions = forecaster.predict(steps=steps)\n"
+        "print(predictions)\n"
+        "\n"
+        "# Evaluate on test set\n"
+        "actual = data_test['sales'].iloc[:steps]\n"
+        "rmse = root_mean_squared_error(actual, predictions)\n"
+        "mae = mean_absolute_error(actual, predictions)\n"
+        "\n"
+        'print(f"RMSE : {rmse:.4f}")\n'
+        'print(f"MAE  : {mae:.4f}")\n'
+        "\n"
+        "# NOTE: This script uses a train/test split for demonstration purposes.\n"
+        "# For production forecasting, retrain with all available data\n"
+        "# and call predict() on the desired horizon.\n"
+    )
+
+    assert result.full_script == expected
+
+
 def test_render_forecast_single_series_output_when_exog_not_used():
     """
     Test that a plan that leaves out the exogenous columns of the data
@@ -645,7 +885,7 @@ def test_render_forecast_single_series_output_when_exog_not_used():
 
     expected = (
         "import pandas as pd\n"
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n"
         "from skforecast.metrics import mean_absolute_scaled_error\n"
         "from lightgbm import LGBMRegressor\n"
         "from skforecast.recursive import ForecasterRecursive\n"
@@ -687,7 +927,7 @@ def test_render_forecast_single_series_output_when_exog_not_used():
         "# Evaluate on test set\n"
         "actual = data_test['sales'].iloc[:steps]\n"
         "mae = mean_absolute_error(actual, predictions)\n"
-        "mse = mean_squared_error(actual, predictions)\n"
+        "rmse = root_mean_squared_error(actual, predictions)\n"
         "mase = mean_absolute_scaled_error(\n"
         "    y_true  = actual,\n"
         "    y_pred  = predictions,\n"
@@ -695,7 +935,7 @@ def test_render_forecast_single_series_output_when_exog_not_used():
         ")\n"
         "\n"
         'print(f"MAE  : {mae:.4f}")\n'
-        'print(f"MSE  : {mse:.4f}")\n'
+        'print(f"RMSE : {rmse:.4f}")\n'
         'print(f"MASE : {mase:.4f}")\n'
         "\n"
         "# NOTE: This script uses a train/test split for demonstration purposes.\n"
@@ -717,7 +957,7 @@ def test_render_forecast_single_series_output_when_differentiation():
 
     expected = (
         "import pandas as pd\n"
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n"
         "from skforecast.metrics import mean_absolute_scaled_error\n"
         "from lightgbm import LGBMRegressor\n"
         "from skforecast.recursive import ForecasterRecursive\n"
@@ -760,7 +1000,7 @@ def test_render_forecast_single_series_output_when_differentiation():
         "# Evaluate on test set\n"
         "actual = data_test['sales'].iloc[:steps]\n"
         "mae = mean_absolute_error(actual, predictions)\n"
-        "mse = mean_squared_error(actual, predictions)\n"
+        "rmse = root_mean_squared_error(actual, predictions)\n"
         "mase = mean_absolute_scaled_error(\n"
         "    y_true  = actual,\n"
         "    y_pred  = predictions,\n"
@@ -768,7 +1008,7 @@ def test_render_forecast_single_series_output_when_differentiation():
         ")\n"
         "\n"
         'print(f"MAE  : {mae:.4f}")\n'
-        'print(f"MSE  : {mse:.4f}")\n'
+        'print(f"RMSE : {rmse:.4f}")\n'
         'print(f"MASE : {mase:.4f}")\n'
         "\n"
         "# NOTE: This script uses a train/test split for demonstration purposes.\n"
@@ -792,7 +1032,7 @@ def test_render_forecast_single_series_output_when_feature_overrides():
 
     expected = (
         "import pandas as pd\n"
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n"
         "from skforecast.metrics import mean_absolute_scaled_error\n"
         "from sklearn.linear_model import Ridge\n"
         "from skforecast.preprocessing import CalendarFeatures\n"
@@ -842,7 +1082,7 @@ def test_render_forecast_single_series_output_when_feature_overrides():
         "# Evaluate on test set\n"
         "actual = data_test['sales'].iloc[:steps]\n"
         "mae = mean_absolute_error(actual, predictions)\n"
-        "mse = mean_squared_error(actual, predictions)\n"
+        "rmse = root_mean_squared_error(actual, predictions)\n"
         "mase = mean_absolute_scaled_error(\n"
         "    y_true  = actual,\n"
         "    y_pred  = predictions,\n"
@@ -850,7 +1090,7 @@ def test_render_forecast_single_series_output_when_feature_overrides():
         ")\n"
         "\n"
         'print(f"MAE  : {mae:.4f}")\n'
-        'print(f"MSE  : {mse:.4f}")\n'
+        'print(f"RMSE : {rmse:.4f}")\n'
         'print(f"MASE : {mase:.4f}")\n'
         "\n"
         "# NOTE: This script uses a train/test split for demonstration purposes.\n"
@@ -859,3 +1099,241 @@ def test_render_forecast_single_series_output_when_feature_overrides():
     )
 
     assert result.full_script == expected
+
+
+def test_render_forecast_single_series_output_when_future_exog_file_is_utf8_comma():
+    """
+    Test that future exogenous variables read from a UTF-8 file with ','
+    and '.', as `to_csv()` writes it, are read from that file by its path:
+    the script is the one that reads `exog_future.csv`, byte for byte, with
+    only that path changed.
+    """
+    exog_file = FutureExogFile(path="/datos/futuro.csv", date_column="date")
+
+    result = render_forecast_single_series(
+                 plan_single_predict_exog, profile_single, exog_file=exog_file
+             )
+
+    expected = render_forecast_single_series(
+                   plan_single_predict_exog, profile_single
+               ).full_script.replace("'exog_future.csv'", "'/datos/futuro.csv'")
+    assert result.full_script == expected
+    assert "exog_future = pd.read_csv('/datos/futuro.csv')\n" in expected
+
+
+def test_render_forecast_single_series_output_when_future_exog_file_from_excel():
+    """
+    Test that data and future exogenous variables saved by Excel in Spanish
+    (cp1252, ';', ',' as decimal mark, '.' between thousands, dates day
+    first) are both read by their path with their own dialect: the data
+    with that of the profile, the future values with that of their file,
+    the date column as text with the thousands separator.
+    """
+    profile = profile_single.model_copy(
+        update={
+            "data_path": "/datos/ventas.csv",
+            "csv_sep": ";",
+            "csv_decimal": ",",
+            "csv_thousands": ".",
+            "csv_encoding": "cp1252",
+            "date_format": "%d/%m/%Y",
+        }
+    )
+    exog_file = FutureExogFile(
+                    path        = "/datos/futuro.csv",
+                    sep         = ";",
+                    decimal     = ",",
+                    thousands   = ".",
+                    encoding    = "cp1252",
+                    date_format = "%d/%m/%Y",
+                    date_column = "date",
+                )
+
+    result = render_forecast_single_series(
+                 plan_single_predict_exog, profile, exog_file=exog_file
+             )
+
+    expected = (
+        "import pandas as pd\n"
+        "from lightgbm import LGBMRegressor\n"
+        "from skforecast.recursive import ForecasterRecursive\n"
+        "\n"
+        "# Load data\n"
+        "data = pd.read_csv('/datos/ventas.csv', sep=';', decimal=',', "
+        "thousands='.', encoding='cp1252', dtype={'date': str})\n"
+        "\n"
+        "# Load future exogenous variables covering the forecast horizon\n"
+        "exog_future = pd.read_csv('/datos/futuro.csv', sep=';', decimal=',', "
+        "thousands='.', encoding='cp1252', dtype={'date': str})\n"
+        "\n"
+        "data['date'] = pd.to_datetime(data['date'], format='%d/%m/%Y')\n"
+        "data = data.set_index('date')\n"
+        "data = data.asfreq('D')\n"
+        "data = data.sort_index()\n"
+        "\n"
+        "exog_future['date'] = pd.to_datetime(exog_future['date'], "
+        "format='%d/%m/%Y')\n"
+        "exog_future = exog_future.set_index('date')\n"
+        "exog_future = exog_future.asfreq('D')\n"
+        "exog_future = exog_future.sort_index()\n"
+        "\n"
+        "exog_features = ['promo']\n"
+        "\n"
+        "# Create forecaster\n"
+        "forecaster = ForecasterRecursive(\n"
+        "    estimator = LGBMRegressor(random_state=123, verbose=-1),\n"
+        "    lags      = 7,\n"
+        ")\n"
+        "\n"
+        "# Fit\n"
+        "forecaster.fit(y=data['sales'], exog=data[exog_features])\n"
+        "\n"
+        "# Predict\n"
+        "steps = 10\n"
+        "predictions = forecaster.predict(steps=steps, exog=exog_future[exog_features])\n"
+        "print(predictions)\n"
+    )
+    assert result.full_script == expected
+
+
+def test_render_forecast_single_series_output_when_future_exog_file_has_blank_rows():
+    """
+    Test that the script drops the rows made only of separators of the file
+    of the future values, as the file was read, right after reading it; the
+    rest of the loading section does not change.
+    """
+    exog_file = FutureExogFile(
+                    path        = "futuro.csv",
+                    date_column = "date",
+                    blank_rows  = True,
+                )
+
+    result = render_forecast_single_series(
+                 plan_single_predict_exog, profile_single, exog_file=exog_file
+             )
+
+    expected = (
+        "# Load data\n"
+        "data = pd.read_csv('data.csv')\n"
+        "\n"
+        "# Load future exogenous variables covering the forecast horizon\n"
+        "exog_future = pd.read_csv('futuro.csv')\n"
+        "exog_future = exog_future.dropna(how='all')\n"
+    )
+    assert result.data_loading == expected
+
+
+@pytest.mark.parametrize(
+    "exog_file, exog_lines",
+    [
+        (
+            FutureExogFile(path="futuro.csv", by_position=True),
+            "exog_future = pd.read_csv('futuro.csv')\n"
+            "exog_future.index = pd.RangeIndex(data.index[-1] + 1, "
+            "data.index[-1] + 1 + len(exog_future))\n",
+        ),
+        (
+            FutureExogFile(
+                path="futuro.csv", sep=";", by_position=True, blank_rows=True
+            ),
+            "exog_future = pd.read_csv('futuro.csv', sep=';', decimal='.')\n"
+            "exog_future = exog_future.dropna(how='all')\n"
+            "exog_future.index = pd.RangeIndex(data.index[-1] + 1, "
+            "data.index[-1] + 1 + len(exog_future))\n",
+        ),
+        (
+            FutureExogFile(path="futuro.csv", blank_rows=True),
+            "exog_future = pd.read_csv('futuro.csv', index_col=0)\n"
+            "exog_future = exog_future.dropna(how='all')\n"
+            "exog_future.index = pd.RangeIndex(exog_future.index[0], "
+            "exog_future.index[0] + len(exog_future))\n",
+        ),
+    ],
+    ids=["by position", "by position, blank rows", "positions, blank rows"],
+)
+def test_render_forecast_single_series_output_when_future_exog_file_without_dates(
+    exog_file, exog_lines
+):
+    """
+    Test that the file of the future values of data without dates is read
+    as `load_exog` reads it: without a column of positions, as is, its rows
+    numbered from the position after the last row of the data; with one,
+    as the index, numbered from its first position. Rows made only of
+    separators are dropped before the rows are numbered.
+    """
+    profile = profile_single_no_exog.model_copy(
+        update={
+            "date_column": None,
+            "index_type": "range",
+            "frequency": None,
+            "exog_columns": ["promo"],
+            "data_path": "sales.csv",
+        }
+    )
+
+    result = render_forecast_single_series(
+                 plan_single_predict_exog, profile, exog_file=exog_file
+             )
+
+    expected = (
+        "# Load data\n"
+        "data = pd.read_csv('sales.csv')\n"
+        "\n"
+        "# Load future exogenous variables covering the forecast horizon\n"
+        f"{exog_lines}"
+    )
+    assert result.data_loading == expected
+
+
+@pytest.mark.parametrize(
+    "exog_file, exog_read",
+    [
+        (
+            FutureExogFile(path="futuro.csv", date_column="fecha"),
+            "exog_future = pd.read_csv('futuro.csv', index_col='fecha', "
+            "parse_dates=True)\n",
+        ),
+        (
+            FutureExogFile(
+                path        = "futuro.csv",
+                sep         = ";",
+                decimal     = ",",
+                thousands   = ".",
+                date_format = "%d.%m.%Y",
+                date_column = "fecha",
+            ),
+            "exog_future = pd.read_csv('futuro.csv', sep=';', decimal=',', "
+            "thousands='.', dtype={'fecha': str}, date_format='%d.%m.%Y', "
+            "index_col='fecha', parse_dates=True)\n",
+        ),
+        (
+            FutureExogFile(path="futuro.csv", date_column="Unnamed: 0"),
+            "exog_future = pd.read_csv('futuro.csv', index_col=0, "
+            "parse_dates=True)\n",
+        ),
+    ],
+    ids=["named", "format and thousands", "unnamed"],
+)
+def test_render_forecast_single_series_output_when_future_exog_file_and_dates_in_index(
+    exog_file, exog_read
+):
+    """
+    Test that the file of the future values of data dated by their index
+    (no date column) is read from the column of its dates, by name (or the
+    first one when it has none), in the format of its dates, and with that
+    column as text when the file has a thousands separator.
+    """
+    profile = profile_single.model_copy(update={"date_column": None})
+
+    result = render_forecast_single_series(
+                 plan_single_predict_exog, profile, exog_file=exog_file
+             )
+
+    expected = (
+        "# Load data\n"
+        "data = pd.read_csv('data.csv', index_col=0, parse_dates=True)\n"
+        "\n"
+        "# Load future exogenous variables covering the forecast horizon\n"
+        f"{exog_read}"
+    )
+    assert result.data_loading == expected

@@ -40,7 +40,7 @@ To try it before installing anything, open [Your first forecast](first-forecast.
     pip install "skforecast-ai[foundation]"
     ```
 
-To install a specific version, pin it (`pip install skforecast-ai==0.4.2`). The development version, which may be unstable, installs from GitHub:
+To install a specific version, pin it (`pip install skforecast-ai==0.5.0`). The development version, which may be unstable, installs from GitHub:
 
 ```bash
 pip install git+https://github.com/skforecast/skforecast-ai@main
@@ -65,8 +65,11 @@ print(result.metrics)
 If the installation works, it prints one row of metrics:
 
 ```
-  series       MAE       MSE      MASE      MAPE
-0      y  0.078442  0.008933  0.802828  0.088608
+   mean_absolute_error  root_mean_squared_error  mean_absolute_scaled_error  \
+0             0.078442                 0.094514                    0.802828
+
+   mean_absolute_percentage_error
+0                        0.088608
 ```
 
 The command line interface is installed with the package:
@@ -99,6 +102,8 @@ The same check is available in Python as `assistant.check_llm()`. [Configuring t
 The core dependencies (skforecast, pandas, pydantic, statsmodels, typer and rich) are listed with their versions on [PyPI](https://pypi.org/project/skforecast-ai/).
 
 Without the `foundation` extra, `compare()` leaves `ForecasterFoundation` out of the automatic candidates with a `MissingBackendWarning`. Other foundation models (TimesFM, Moirai, TabICL, ...) need their own backend; skforecast names the package to install when it is missing.
+
+No extra installs XGBoost or CatBoost: `plan()` accepts `XGBRegressor` and `CatBoostRegressor` and warns with a `MissingBackendWarning` when their package is missing (`pip install xgboost` or `pip install catboost`), and `compare()` with several series leaves `XGBRegressor` out of the automatic candidates in that case.
 
 !!! note "Groq"
     The `groq` extra (`pip install "skforecast-ai[groq]"`) is kept for backwards compatibility. Groq support is already included in the `llm` extra.

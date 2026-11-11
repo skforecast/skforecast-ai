@@ -10,7 +10,10 @@ import logging
 import re
 from functools import lru_cache
 from pathlib import Path
-from .._constants import MAX_SKILL_TOKENS, RESERVED_RESPONSE_TOKENS
+from .._constants import (
+    MAX_SKILL_TOKENS,
+    RESERVED_RESPONSE_TOKENS,
+)
 from .prompts import _DOCUMENTATION_PREAMBLE, _STATIC_ROLE_PROMPT
 
 logger = logging.getLogger(__name__)
@@ -100,30 +103,46 @@ _SKILL_OVERRIDES: dict[str, set[str]] = {
         "feature-engineering",
         "feature-selection",
     },
+    # ForecasterEquivalentDate fits a single series (`fit(y)` takes one
+    # pandas Series) and `compare()` adds no baseline with several series,
+    # so the baseline skill describes nothing the user can run on them. It
+    # also kept the worst selection of several series (every keyword
+    # pattern at once) above the smallest context window once the synced
+    # skills and `llms-base.txt` grew (skforecast 0.27.0).
+    "forecasting-multiple-series": {
+        "baseline-forecasting",
+    },
 }
 
 # Measured token estimates (chars / 4) for each skill (SKILL.md + references/).
 _SKILL_TOKEN_ESTIMATES: dict[str, int] = {
     "autocorrelation-and-lag-selection": 2035,
-    "backtesting-configuration": 2076,
+    "backtesting-configuration": 3089,
     "baseline-forecasting": 1929,
-    "choosing-a-forecaster": 2851,
-    "complete-api-reference": 12674,
-    "deep-learning-forecasting": 4175,
+    "choosing-a-forecaster": 3055,
+    "complete-api-reference": 12753,
+    "deep-learning-forecasting": 6211,
     "drift-detection": 1249,
     "feature-engineering": 11003,
-    "feature-selection": 1579,
-    "forecasting-multiple-series": 1869,
+    "feature-selection": 1734,
+    "forecasting-multiple-series": 2001,
     "forecasting-single-series": 1505,
-    "foundation-forecasting": 10130,
-    "hyperparameter-optimization": 5893,
-    "metric-selection": 5747,
-    "prediction-intervals": 4668,
-    "statistical-models": 4263,
-    "troubleshooting-common-errors": 2587,
+    "foundation-forecasting": 13072,
+    "hyperparameter-optimization": 6876,
+    "metric-selection": 6485,
+    "prediction-intervals": 5106,
+    "statistical-models": 4363,
+    "troubleshooting-common-errors": 3125,
 }
 
-_REFERENCE_TOKEN_ESTIMATE = 8974  # llms-base.txt measured size
+_REFERENCE_TOKEN_ESTIMATE = 10812  # llms-base.txt measured size
+
+# A skill named with this suffix (`'hyperparameter-optimization/SKILL.md'`)
+# is loaded without its `references/`. The budget trimming sends it this
+# way when the whole skill does not fit: its instructions are worth more
+# than dropping the skill the question asked for, which happened once the
+# syncs of skforecast 0.27.0 grew the skills.
+SKILL_MD_ONLY_SUFFIX = "/SKILL.md"
 
 # Derived from the prompt rather than hardcoded. A hardcoded figure has to
 # be re-measured by hand after every prompt edit, and silently understates
@@ -168,7 +187,9 @@ def load_skill(skill_name: str) -> str:
     Parameters
     ----------
     skill_name : str
-        Name of the skill directory under `skforecast_ai/skills/`.
+        Name of the skill directory under `skforecast_ai/skills/`. With the
+        suffix `'/SKILL.md'` (`'hyperparameter-optimization/SKILL.md'`),
+        only its SKILL.md is loaded, without the references.
 
     Returns
     -------
@@ -176,6 +197,9 @@ def load_skill(skill_name: str) -> str:
         Full text of the SKILL.md file concatenated with any reference
         files found in the skill's `references/` subdirectory.
     """
+    skill_md_only = skill_name.endswith(SKILL_MD_ONLY_SUFFIX)
+    if skill_md_only:
+        skill_name = skill_name.removesuffix(SKILL_MD_ONLY_SUFFIX)
     skill_dir = _SKILLS_DIR / skill_name
 
     if not skill_dir.exists():
@@ -192,6 +216,8 @@ def load_skill(skill_name: str) -> str:
         )
 
     content = skill_file.read_text(encoding="utf-8")
+    if skill_md_only:
+        return content
 
     references_dir = skill_dir / "references"
     if references_dir.exists() and references_dir.is_dir():
@@ -253,15 +279,19 @@ def select_skills(
     question : str
         The user's natural-language question.
     token_budget : int, None, default None
-        Maximum tokens available for skill content. If None, only the
-        provider-independent `MAX_SKILL_TOKENS` ceiling applies. When set,
-        the stricter of the two is used and skills are included in order
-        until it is exhausted.
+        Maximum tokens available for skill content, the room the window
+        leaves next to what else the request sends (see
+        `compute_skill_token_budget`). It is never above `MAX_SKILL_TOKENS`,
+        which alone applies if None. Skills are included in order until it
+        is exhausted; a skill that does not fit whole is included as its
+        SKILL.md alone when that fits.
 
     Returns
     -------
     skills : list of str
-        Ordered list of skill names to load.
+        Ordered list of skill names to load. A skill sent without its
+        references carries the suffix `'/SKILL.md'`
+        (`'hyperparameter-optimization/SKILL.md'`).
     """
     task_types = task_type if isinstance(task_type, list) else [task_type]
     base: list[str] = []
@@ -294,8 +324,9 @@ def select_skills(
     )
     before_trim = list(selected)
     selected = _trim_to_budget(selected, budget)
-    if len(selected) < len(before_trim):
-        dropped = [s for s in before_trim if s not in selected]
+    if selected != before_trim:
+        kept = {s.removesuffix(SKILL_MD_ONLY_SUFFIX) for s in selected}
+        dropped = [s for s in before_trim if s not in kept]
         logger.info(
             "Skills trimmed to budget (%d tokens): kept %s, dropped %s",
             budget,
@@ -315,17 +346,46 @@ def select_skills(
 
 
 def _trim_to_budget(skills: list[str], budget: int) -> list[str]:
-    """Keep skills, already ordered by priority, until the budget is exhausted."""
+    """
+    Keep skills, already ordered by priority, until the budget is exhausted.
+
+    A skill that does not fit whole is kept as its SKILL.md alone
+    (`'<name>/SKILL.md'`) when that fits; the first skill that fits in
+    neither form ends the selection, so a less foundational skill never
+    takes the room of a more foundational one.
+    """
     result: list[str] = []
     used = 0
     for skill in skills:
-        cost = _SKILL_TOKEN_ESTIMATES.get(skill, 5000)
-        if used + cost <= budget:
-            result.append(skill)
-            used += cost
+        for candidate in (skill, f"{skill}{SKILL_MD_ONLY_SUFFIX}"):
+            cost = _skill_tokens(candidate)
+            if used + cost <= budget:
+                result.append(candidate)
+                used += cost
+                break
         else:
             break
     return result
+
+
+def _skill_tokens(skill: str) -> int:
+    """
+    Estimated tokens of a skill as `load_skill` loads it. The SKILL.md alone
+    is measured from the file, as the role prompt is, so a sync cannot leave
+    the figure out of date.
+    """
+    if not skill.endswith(SKILL_MD_ONLY_SUFFIX):
+        return _SKILL_TOKEN_ESTIMATES.get(skill, 5000)
+    return _skill_md_tokens(skill.removesuffix(SKILL_MD_ONLY_SUFFIX))
+
+
+@lru_cache(maxsize=None)
+def _skill_md_tokens(skill_name: str) -> int:
+    """Estimated tokens (characters / 4) of the SKILL.md of a skill."""
+    skill_file = _SKILLS_DIR / skill_name / "SKILL.md"
+    if not skill_file.is_file():
+        return 5000
+    return len(skill_file.read_text(encoding="utf-8")) // 4
 
 
 def estimate_prompt_tokens(
@@ -349,7 +409,7 @@ def estimate_prompt_tokens(
     """
     total = _STATIC_PROMPT_TOKEN_ESTIMATE
     for skill in skills:
-        total += _SKILL_TOKEN_ESTIMATES.get(skill, 5000)
+        total += _skill_tokens(skill)
     if include_reference:
         total += _REFERENCE_TOKEN_ESTIMATE
     return total

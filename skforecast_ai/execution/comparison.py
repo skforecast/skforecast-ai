@@ -16,20 +16,32 @@ from .._constants import (
     DEFAULT_FOUNDATION_MODEL_ID,
     FORECASTER_TASK_TYPES,
     FOUNDATION_FORECASTERS,
+    N_EVALUATED_COLUMN,
 )
 from .._foundation import foundation_backend_installed, resolve_foundation_model
 from .._utils import discarded_plan_edits, long_training_message, plan_override_value
-from .._validation import is_symmetric_interval
+from .._validation import (
+    estimator_param_defaults,
+    is_symmetric_interval,
+    missing_estimator_package,
+    missing_package_message,
+)
 from ..exceptions import InvalidInputError, InvalidInputTypeError
+from .interval_coverage import interval_label
+from ..rendering._helpers import _ESTIMATOR_DEFAULTS
 from ..recommendation import (
     baseline_missing_values_note,
     count_estimator_fits,
+    count_inference_windows,
+    count_trainings,
     select_baseline_config,
 )
 from ..schemas import (
     CANDIDATE_CONFIG_KEYS,
     BacktestResult,
     CandidateConfig,
+    CandidateCost,
+    ComparisonCost,
     ForecastingProfile,
     ForecastPlan,
 )
@@ -126,6 +138,88 @@ def missing_foundation_backend(
     return frozenset(foundation), note
 
 
+def missing_estimator_candidates(
+    candidates: list[tuple[str, CandidateConfig]],
+) -> tuple[list[tuple[str, CandidateConfig]], str | None]:
+    """
+    Leave out the automatic candidates whose estimator needs a package that
+    is not installed.
+
+    With several series, the estimator candidates of the rules include
+    `XGBRegressor`, whose package skforecast-ai does not install, so the
+    candidate would fail on every call. Like a foundation model without its
+    backend (`missing_foundation_backend()`), it is left out, and the note
+    says which package to install. The profile still lists it: it does not
+    depend on where it is made.
+
+    Parameters
+    ----------
+    candidates : list of tuple of (str, CandidateConfig)
+        Automatic candidates, as returned by `resolve_compare_candidates()`.
+
+    Returns
+    -------
+    kept : list of tuple of (str, CandidateConfig)
+        Candidates whose estimator is installed or that name none (they run
+        the estimator of the rules, which skforecast-ai installs).
+    note : str, None
+        One sentence per candidate left out, or None when none is.
+    """
+
+    kept, notes = [], []
+    for name, config in candidates:
+        estimator = config.get("estimator")
+        package = missing_estimator_package(estimator)
+        if package is None:
+            kept.append((name, config))
+            continue
+        notes.append(
+            f"{name} left out: {missing_package_message(estimator, package)} "
+            f"(pip install {package})."
+        )
+
+    return kept, " ".join(notes) or None
+
+
+def stats_skip_folds_exclusion(
+    profile: ForecastingProfile,
+    skip_folds: object,
+) -> tuple[frozenset[str], str | None]:
+    """
+    Find the `ForecasterStats` candidate that a strategy with `skip_folds`
+    cannot run.
+
+    skforecast refits `ForecasterStats` in every fold and rejects any
+    `skip_folds` for it, so `compare()` without `candidates` would run it
+    only for it to fail, after counting its cost. It is left out instead,
+    and the note says why.
+
+    Parameters
+    ----------
+    profile : ForecastingProfile
+        Profile whose forecaster candidates feed the automatic comparison.
+    skip_folds : int, list, None
+        `skip_folds` of the shared strategy.
+
+    Returns
+    -------
+    excluded : frozenset of str
+        `ForecasterStats` when the strategy skips folds and the profile
+        recommends it as a candidate, else empty.
+    note : str, None
+        Sentence explaining the exclusion, or None when nothing is left out.
+    """
+
+    if skip_folds is None or "ForecasterStats" not in profile.forecaster_candidates:
+        return frozenset(), None
+    note = (
+        f"ForecasterStats left out: the strategy has `skip_folds={skip_folds!r}`, "
+        f"which skforecast does not allow for it (it refits ForecasterStats "
+        f"in every fold)."
+    )
+    return frozenset({"ForecasterStats"}), note
+
+
 def resolve_compare_candidates(
     candidates: list[tuple[str, CandidateConfig]] | None,
     profile: ForecastingProfile,
@@ -207,6 +301,15 @@ def resolve_compare_candidates(
                 raise InvalidInputTypeError(
                     f"Configuration for '{name}' must be a dict, got "
                     f"{type(config).__name__}.",
+                    field = "candidates",
+                )
+            if str(name) == STRATEGY_PLAN_NAME:
+                # The row of the plan the strategy was created for, which
+                # the summary names as that plan.
+                raise InvalidInputError(
+                    f"The candidate name '{STRATEGY_PLAN_NAME}' is reserved for "
+                    f"the plan the strategy was created for. Rename the "
+                    f"candidate.",
                     field = "candidates",
                 )
             invalid_keys = set(config) - allowed_keys
@@ -297,12 +400,58 @@ def strategy_candidate_config(plan: ForecastPlan) -> CandidateConfig:
     return config
 
 
+def _is_default_value(value: object, default: object) -> bool:
+    """
+    Whether an estimator keyword argument holds its default value. `1` is
+    the default `1.0`, but `True` is not `1`: a bool only equals a bool.
+    """
+
+    if isinstance(value, bool) != isinstance(default, bool):
+        return False
+    try:
+        return bool(value == default)
+    except Exception:
+        return False
+
+
+def _without_default_estimator_kwargs(plan: ForecastPlan) -> ForecastPlan:
+    """
+    Plan whose `estimator_kwargs` leave out the keys that hold the default
+    of a machine-learning estimator, so `Ridge(alpha=1)` makes the same
+    decision as `Ridge()`.
+
+    The default of a key is the value the script writes for it when the key
+    is not given (`_ESTIMATOR_DEFAULTS`, such as `random_state=123`), and
+    otherwise the default of the constructor. Other estimators (the ARIMA
+    model, whose script writes its own defaults, and the foundation models)
+    keep their keyword arguments as they are.
+    """
+
+    if not plan.estimator_kwargs or plan.estimator not in _ESTIMATOR_DEFAULTS:
+        return plan
+    defaults = {
+        **estimator_param_defaults(plan.estimator),
+        **_ESTIMATOR_DEFAULTS[plan.estimator],
+    }
+    kwargs = {
+        key: value
+        for key, value in plan.estimator_kwargs.items()
+        if key not in defaults or not _is_default_value(value, defaults[key])
+    }
+
+    return plan.model_copy(update={"estimator_kwargs": kwargs})
+
+
 def _same_plan_decisions(first: ForecastPlan, second: ForecastPlan) -> bool:
     """
     Whether two plans make the same decisions, so they render the same
     script: the explanation, the warnings and the marks of who made each
-    decision are not compared.
+    decision are not compared. An estimator keyword argument that holds its
+    default makes the same decision as leaving it out.
     """
+
+    first = _without_default_estimator_kwargs(first)
+    second = _without_default_estimator_kwargs(second)
 
     return (
         not discarded_plan_edits(first, second, set())
@@ -407,6 +556,85 @@ def add_strategy_candidate(
     return [*candidates, (STRATEGY_PLAN_NAME, config)], STRATEGY_PLAN_NAME, None
 
 
+def match_strategy_plan(
+    strategy_plan: ForecastPlan,
+    plans: dict[str, ForecastPlan],
+    profile: ForecastingProfile,
+    build_plan: Callable[[CandidateConfig], ForecastPlan],
+) -> tuple[str | None, str | None]:
+    """
+    Find the explicit candidate of `compare()` that runs the plan a strategy
+    was created for.
+
+    Explicit `candidates` are the configurations the user chose, and they
+    run as given: the plan of the strategy is not added as one more row.
+    When a candidate makes the same decisions as that plan (as
+    `add_strategy_candidate()` rebuilds it), the text of the strategy names
+    its row; when none does, the note says that the plan was not compared,
+    so the summary is not read as its result.
+
+    Parameters
+    ----------
+    strategy_plan : ForecastPlan
+        Plan the strategy was created for (`CVResult.plan`).
+    plans : dict
+        Plans of the candidates, by name, the baseline left out.
+    profile : ForecastingProfile
+        Shared profile used for every candidate.
+    build_plan : Callable
+        Function that builds the plan of a candidate configuration as the
+        comparison does (same profile, steps, interval and metric). Its
+        warnings are the caller's to silence.
+
+    Returns
+    -------
+    name : str, None
+        Name of the candidate that runs the plan of the strategy, or None.
+    note : str, None
+        Sentence saying that the plan of the strategy was not compared, when
+        no candidate runs it. None otherwise, and when no plan of a
+        candidate could be built.
+    """
+
+    if not plans:
+        # No candidate could be built: nothing was compared at all.
+        return None, None
+    estimator = f" + {strategy_plan.estimator}" if strategy_plan.estimator else ""
+    label = f"{strategy_plan.forecaster}{estimator}"
+    n_series = profile.data_profile.n_series
+    family = _comparison_family(strategy_plan.forecaster, n_series)
+    families = {_comparison_family(plan.forecaster, n_series) for plan in plans.values()}
+    if family not in families:
+        note = (
+            f"The plan the strategy was created for ({label}) was not "
+            f"compared: `candidates` runs only the configurations given, and "
+            f"its metrics are not comparable with theirs (a multivariate "
+            f"forecaster is scored on the single series it predicts, a "
+            f"multi-series forecaster on the average across all series). "
+            f"Backtest it, or compare it with `candidates` of its family."
+        )
+        return None, note
+
+    try:
+        rebuilt = build_plan(strategy_candidate_config(strategy_plan))
+    except Exception:
+        rebuilt = None
+    if rebuilt is not None:
+        for name, plan in plans.items():
+            if _same_plan_decisions(rebuilt, plan):
+                return name, None
+
+    note = (
+        f"The plan the strategy was created for ({label}) makes other "
+        f"decisions than every candidate, so it was not compared: "
+        f"`candidates` runs only the configurations given. Add it to "
+        f"`candidates` with its decisions, or leave `candidates` out to run "
+        f"it in the row '{STRATEGY_PLAN_NAME}' next to the configurations the "
+        f"profile recommends."
+    )
+    return None, note
+
+
 class DefaultCandidates(NamedTuple):
     """
     Candidates that `compare()` without `candidates` runs, before the
@@ -420,14 +648,19 @@ class DefaultCandidates(NamedTuple):
         Name of the row that runs the plan the strategy was created for,
         or None when no row runs it.
     backend_note : str, None
-        Why a foundation candidate was left out, see
-        `missing_foundation_backend()`.
+        Why candidates whose package is not installed were left out: a
+        foundation model without its backend, see
+        `missing_foundation_backend()`, and an estimator, see
+        `missing_estimator_candidates()`.
     strategy_note : str, None
         Why the plan of the strategy was left out, or which of its values
         its row does not run, see `add_strategy_candidate()`.
     budget_note : str, None
         Which candidates were left out for exceeding the fit budget, see
         `exclude_costly_candidates()`.
+    skip_folds_note : str, None
+        Why `ForecasterStats` was left out of a strategy with `skip_folds`,
+        see `stats_skip_folds_exclusion()`.
     """
 
     candidates: list[tuple[str, CandidateConfig]]
@@ -435,6 +668,7 @@ class DefaultCandidates(NamedTuple):
     backend_note: str | None
     strategy_note: str | None
     budget_note: str | None
+    skip_folds_note: str | None = None
 
 
 def resolve_default_candidates(
@@ -444,6 +678,7 @@ def resolve_default_candidates(
     n_fits: int,
     steps: int,
     n_folds: int,
+    skip_folds: object = None,
 ) -> DefaultCandidates:
     """
     Resolve the candidates of `compare()` without `candidates`.
@@ -451,10 +686,15 @@ def resolve_default_candidates(
     The one sequence that decides what such a comparison runs, shared by
     `compare()` and by the cost the MCP server announces in `create_cv`, so
     the two never disagree: the candidates of the profile without a
-    foundation model whose backend is not installed, the plan of the
+    foundation model whose backend is not installed, an estimator whose
+    package is not installed (nor `ForecasterStats` when the strategy skips
+    folds), the plan of the
     strategy when it is none of them, and without the alternatives above
     the fit budget (the recommended forecaster and the plan of the strategy
-    always run). The baseline is added afterwards.
+    always run). The baseline is added afterwards. When the user left the
+    exogenous variables out of the plan of the strategy (`use_exog=False`),
+    every candidate of the profile leaves them out too, so the winner never
+    needs their future values.
 
     Parameters
     ----------
@@ -473,6 +713,8 @@ def resolve_default_candidates(
         Forecast horizon of each fold.
     n_folds : int
         Number of folds of the shared strategy.
+    skip_folds : int, list, default None
+        `skip_folds` of the shared strategy.
 
     Returns
     -------
@@ -482,7 +724,28 @@ def resolve_default_candidates(
     """
 
     excluded, backend_note = missing_foundation_backend(profile)
-    candidates = resolve_compare_candidates(None, profile, exclude=excluded)
+    skipped, skip_folds_note = stats_skip_folds_exclusion(profile, skip_folds)
+    candidates = resolve_compare_candidates(
+                     candidates = None,
+                     profile    = profile,
+                     exclude    = excluded | skipped,
+                 )
+    # A choice of the user about the data, not about the forecaster, so it
+    # applies to every candidate (as `refine_plan()` carries it over).
+    if (
+        strategy_plan is not None
+        and "use_exog" in strategy_plan.overridden_fields
+        and not strategy_plan.use_exog
+    ):
+        candidates = [
+            (name, {**config, "use_exog": False}) for name, config in candidates
+        ]
+    # Before the plan of the strategy is added: that one is the choice of
+    # the user, who was warned when it was made, and runs as it is.
+    candidates, estimator_note = missing_estimator_candidates(candidates)
+    backend_note = " ".join(
+        note for note in (backend_note, estimator_note) if note is not None
+    ) or None
     strategy_name = None
     strategy_note = None
     if strategy_plan is not None:
@@ -502,11 +765,12 @@ def resolve_default_candidates(
     )
 
     return DefaultCandidates(
-        candidates    = candidates,
-        strategy_name = strategy_name,
-        backend_note  = backend_note,
-        strategy_note = strategy_note,
-        budget_note   = budget_note,
+        candidates      = candidates,
+        strategy_name   = strategy_name,
+        backend_note    = backend_note,
+        strategy_note   = strategy_note,
+        budget_note     = budget_note,
+        skip_folds_note = skip_folds_note,
     )
 
 
@@ -676,7 +940,9 @@ def build_comparison_table(
     rows : list of tuple of (dict, float)
         Per-candidate `(row, ranking_value)` pairs.
     metric_columns : list of str
-        Metric column names, in display order.
+        Metric column names, in display order, followed by the columns
+        that do not rank (`coverage`, `interval_width`, `n_evaluated`).
+        `n_evaluated` is cast to a nullable integer.
     any_error : bool
         Whether at least one candidate failed (controls the `'error'`
         column).
@@ -705,7 +971,12 @@ def build_comparison_table(
     ordered = ["rank", "name", "forecaster", "estimator", *metric_columns]
     if any_error:
         ordered.append("error")
-    return results[ordered]
+    results = results[ordered]
+    # A count, not a metric: integers, empty for a candidate that failed.
+    if N_EVALUATED_COLUMN in results.columns:
+        results = results.astype({N_EVALUATED_COLUMN: "Int64"})
+
+    return results
 
 def exclude_costly_candidates(
     candidate_configs: list[tuple[str, CandidateConfig]],
@@ -787,6 +1058,116 @@ def exclude_costly_candidates(
     return kept, note
 
 
+def buildable_candidates(
+    candidate_configs: list[tuple[str, CandidateConfig]],
+    build_plan: Callable[[CandidateConfig], ForecastPlan],
+) -> list[tuple[str, CandidateConfig]]:
+    """
+    Keep the candidates whose plan can be built.
+
+    `compare()` builds the plan of every candidate before any of them runs,
+    and one whose plan cannot be built fails there and runs nothing, so it
+    is not counted in the cost. This is that filter for a count made
+    without `compare()` (the cost the MCP server announces in `create_cv`),
+    so the two counts agree.
+
+    Parameters
+    ----------
+    candidate_configs : list of tuple of (str, CandidateConfig)
+        Candidates as `(name, config)` pairs.
+    build_plan : Callable
+        Function that builds the plan of a candidate configuration as the
+        comparison does, see `add_strategy_candidate()`. Its warnings are
+        the caller's to silence.
+
+    Returns
+    -------
+    candidates : list of tuple of (str, CandidateConfig)
+        The candidates whose plan can be built, in input order.
+    """
+
+    kept = []
+    for name, config in candidate_configs:
+        try:
+            build_plan(config)
+        except Exception:
+            continue
+        kept.append((name, config))
+
+    return kept
+
+
+def count_comparison_cost(
+    candidate_configs: list[tuple[str, CandidateConfig]],
+    preferred: str,
+    steps: int,
+    n_fits: int,
+    n_folds: int,
+    n_series: int,
+) -> ComparisonCost:
+    """
+    Count the cost of a comparison before it runs.
+
+    The one count of what `compare()` runs on a shared strategy, the
+    baseline included, shared by `compare()` (which applies the
+    thresholds of an expensive run to its totals) and by the cost the MCP
+    server announces in `create_cv` for a `compare` without candidates.
+    It comes from the forecaster of each candidate and the strategy, so it
+    is the same with automatic and with explicit candidates, and nothing
+    runs to get it.
+
+    Parameters
+    ----------
+    candidate_configs : list of tuple of (str, CandidateConfig)
+        Candidates whose plan can be built, as `(name, config)` pairs,
+        the baseline included when the comparison runs it, in the order
+        they run. A candidate whose plan cannot be built runs nothing, so
+        it is left out (see `buildable_candidates()`).
+    preferred : str
+        Recommended forecaster of the profile, the one of a candidate
+        whose config does not name one.
+    steps : int
+        Forecast horizon of each fold.
+    n_fits : int
+        Number of folds in which a forecaster is trained under the shared
+        strategy, see `count_cv_fits`.
+    n_folds : int
+        Number of folds of the shared strategy.
+    n_series : int
+        Number of series of the data.
+
+    Returns
+    -------
+    cost : ComparisonCost
+        Cost of each candidate and the totals.
+    """
+
+    candidates = {}
+    for name, config in candidate_configs:
+        forecaster = config.get("forecaster") or preferred
+        candidates[name] = CandidateCost(
+            forecaster        = forecaster,
+            n_fits            = count_trainings(
+                                    n_fits     = n_fits,
+                                    forecaster = forecaster,
+                                    n_folds    = n_folds,
+                                ),
+            estimator_fits    = count_estimator_fits(
+                                    n_fits     = n_fits,
+                                    forecaster = forecaster,
+                                    steps      = steps,
+                                    n_folds    = n_folds,
+                                ),
+            inference_windows = count_inference_windows(
+                                    n_folds    = n_folds,
+                                    n_series   = n_series,
+                                    forecaster = forecaster,
+                                ),
+        )
+
+    return ComparisonCost(n_folds=n_folds, candidates=candidates)
+
+
 def build_comparison_explanation(
     n_candidates: int,
     ranked: list[tuple[str, BacktestResult, float]],
@@ -797,9 +1178,11 @@ def build_comparison_explanation(
     baseline_note: str | None = None,
     backend_note: str | None = None,
     budget_note: str | None = None,
-    differentiation_note: str | None = None,
     strategy_row: str | None = None,
     strategy_note: str | None = None,
+    interval: list[float] | None = None,
+    skip_folds_note: str | None = None,
+    left_out_note: str | None = None,
 ) -> str:
     """
     Build the deterministic `compare()` summary explanation.
@@ -824,14 +1207,11 @@ def build_comparison_explanation(
     baseline_note : str, default None
         Sentence explaining why no baseline was added, appended as is.
     backend_note : str, default None
-        Sentence explaining why a foundation candidate was left out,
-        appended as is.
+        Sentences explaining why candidates whose package is not installed
+        were left out, appended as is.
     budget_note : str, default None
         Sentence explaining which candidates were left out for exceeding
         the fit budget, appended as is.
-    differentiation_note : str, default None
-        Sentence naming the candidates that ran on a copy of the strategy
-        with their own differentiation order, appended as is.
     strategy_row : str, default None
         Name of the row added to run the plan the strategy was created for
         (`STRATEGY_PLAN_NAME`). When given, the summary says that this row
@@ -841,11 +1221,25 @@ def build_comparison_explanation(
         Sentence explaining why the plan the strategy was created for is
         not in the comparison, or which of its values its row does not
         run, appended as is.
+    interval : list of float, default None
+        Prediction interval of the comparison. When given, the summary says
+        that the table carries its measured coverage and width next to its
+        nominal coverage, and that they do not rank.
+    skip_folds_note : str, default None
+        Sentence explaining why `ForecasterStats` was left out of a
+        strategy with `skip_folds`, appended as is.
+    left_out_note : str, default None
+        Sentences naming the candidates whose backtest left series out of
+        some test folds where they have values, appended as is.
 
     Returns
     -------
     explanation : str
-        Human-readable summary of the comparison.
+        Human-readable summary of the comparison. When the metrics of the
+        candidates have `n_evaluated` (skforecast 0.27.0 or later), it gives
+        the number of points each one is measured on (their range when they
+        differ), and says that the column of the table is a count, not a
+        metric, and does not rank.
     """
 
     best_name, best_result, best_value = ranked[0]
@@ -943,19 +1337,55 @@ def build_comparison_explanation(
             f"({stats_cv['n_fits']} trainings): skforecast requires it for "
             f"ARIMA models."
         )
+    # The count is a column of the table next to the metrics, so it is named
+    # and given: without it, a column of figures next to the errors reads as
+    # one. Counts that differ mean the metrics do not cover the same points.
+    counts = [
+        aggregate_metrics(result.metrics).get(N_EVALUATED_COLUMN)
+        for _, result, _ in ranked
+    ]
+    counts = [int(count) for count in counts if count is not None and not pd.isna(count)]
+    if counts:
+        summed = ", summed across series," if averaged else ""
+        column = (
+            "(n_evaluated in the table: a count, not a metric, and it does "
+            "not change the ranking)"
+        )
+        if min(counts) == max(counts):
+            parts.append(
+                f"Each configuration is measured on {counts[0]} predictions "
+                f"with an observed value{summed} {column}."
+            )
+        else:
+            parts.append(
+                f"The configurations are measured on {min(counts)} to "
+                f"{max(counts)} predictions with an observed value{summed} "
+                f"{column}, so their metrics do not cover the same points."
+            )
     parts.append(best_sentence)
     if baseline_name is not None:
         parts.append(_baseline_sentence(ranked, baseline_name, ranking_metric))
+    if interval is not None:
+        across = " (averaged across series)" if averaged else ""
+        parts.append(
+            f"The table also gives, for the prediction interval "
+            f"{interval_label(interval)}, the share of the actual values "
+            f"inside it (coverage) and its mean width in the units of the "
+            f"target (interval_width){across}; they do not change the "
+            f"ranking."
+        )
     if baseline_note is not None:
         parts.append(baseline_note)
     if strategy_note is not None:
         parts.append(strategy_note)
     if backend_note is not None:
         parts.append(backend_note)
+    if skip_folds_note is not None:
+        parts.append(skip_folds_note)
     if budget_note is not None:
         parts.append(budget_note)
-    if differentiation_note is not None:
-        parts.append(differentiation_note)
+    if left_out_note is not None:
+        parts.append(left_out_note)
     if any_error:
         n_failed = n_candidates - len(ranked)
         if n_failed == 1:

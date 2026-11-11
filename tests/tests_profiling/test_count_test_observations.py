@@ -31,6 +31,21 @@ def test_count_test_observations_output(
     assert result == expected
 
 
+def test_count_test_observations_output_when_time_zone_of_the_profile():
+    """
+    Test that, with the time zone of the profile, the observations are
+    counted on the local times of the data, as `resolve_end_train` places
+    the boundary: 2023-03-26 has no 02:00 in Madrid.
+    """
+    with_zone = count_test_observations(
+        "2023-03-26", "h", 6, "2023-03-26 03:00:00", time_zone="Europe/Madrid"
+    )
+    without_zone = count_test_observations("2023-03-26", "h", 6, "2023-03-26 03:00:00")
+
+    assert with_zone == 3
+    assert without_zone == 2
+
+
 @pytest.mark.parametrize(
     "start_date, frequency",
     [(None, "D"), ("2023-01-01", None)],

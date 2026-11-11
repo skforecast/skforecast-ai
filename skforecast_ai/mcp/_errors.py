@@ -29,6 +29,7 @@ ServerErrorCode = Literal[
     "data_changed",
     "model_not_allowed",
     "file_too_large",
+    "cost_not_confirmed",
 ]
 """Codes of the errors that only the server raises."""
 

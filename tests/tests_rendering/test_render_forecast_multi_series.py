@@ -3,7 +3,7 @@
 import pytest
 
 from skforecast_ai.rendering import render_forecast_multi_series, render_forecast_multivariate
-from skforecast_ai.schemas import RenderedScript
+from skforecast_ai.schemas import FutureExogFile, RenderedScript
 
 from .fixtures_rendering import (
     plan_multi_series,
@@ -31,7 +31,7 @@ def test_render_forecast_multi_series_output_when_wide_format():
 
     expected = (
         "import pandas as pd\n"
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n"
         "from skforecast.metrics import mean_absolute_scaled_error\n"
         "from lightgbm import LGBMRegressor\n"
         "from skforecast.recursive import ForecasterRecursiveMultiSeries\n"
@@ -74,10 +74,10 @@ def test_render_forecast_multi_series_output_when_wide_format():
         "    mask = predictions['level'] == series_name\n"
         "    pred = predictions.loc[mask, 'pred'].values\n"
         "    metrics_list.append({\n"
-        '        "series": series_name,\n'
-        '        "MAE": mean_absolute_error(actual, pred),\n'
-        '        "MSE": mean_squared_error(actual, pred),\n'
-        '        "MASE": mean_absolute_scaled_error(\n'
+        '        "levels": series_name,\n'
+        '        "mean_absolute_error": mean_absolute_error(actual, pred),\n'
+        '        "root_mean_squared_error": root_mean_squared_error(actual, pred),\n'
+        '        "mean_absolute_scaled_error": mean_absolute_scaled_error(\n'
         "            actual, pred, y_train=series_dict_train[series_name]\n"
         "        ),\n"
         "    })\n"
@@ -102,15 +102,16 @@ def test_render_forecast_multi_series_output_when_long_format():
 
     expected = (
         "import pandas as pd\n"
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n"
         "from skforecast.metrics import mean_absolute_scaled_error\n"
         "from lightgbm import LGBMRegressor\n"
         "from skforecast.preprocessing import reshape_series_long_to_dict\n"
         "from skforecast.recursive import ForecasterRecursiveMultiSeries\n"
         "\n"
         "# Load data\n"
-        "data = pd.read_csv('data.csv')\n"
+        "data = pd.read_csv('data.csv', dtype={'series_id': str})\n"
         "\n"
+        "data['series_id'] = data['series_id'].map(str, na_action='ignore')\n"
         "data['date'] = pd.to_datetime(data['date'])\n"
         "data = data.sort_values('date')\n"
         "\n"
@@ -150,10 +151,10 @@ def test_render_forecast_multi_series_output_when_long_format():
         "    mask = predictions['level'] == series_name\n"
         "    pred = predictions.loc[mask, 'pred'].values\n"
         "    metrics_list.append({\n"
-        '        "series": series_name,\n'
-        '        "MAE": mean_absolute_error(actual, pred),\n'
-        '        "MSE": mean_squared_error(actual, pred),\n'
-        '        "MASE": mean_absolute_scaled_error(\n'
+        '        "levels": series_name,\n'
+        '        "mean_absolute_error": mean_absolute_error(actual, pred),\n'
+        '        "root_mean_squared_error": root_mean_squared_error(actual, pred),\n'
+        '        "mean_absolute_scaled_error": mean_absolute_scaled_error(\n'
         "            actual, pred, y_train=series_dict_train[series_name]\n"
         "        ),\n"
         "    })\n"
@@ -181,7 +182,7 @@ def test_render_forecast_multivariate_output_when_wide_format():
 
     expected = (
         "import pandas as pd\n"
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n"
         "from skforecast.metrics import mean_absolute_scaled_error\n"
         "from lightgbm import LGBMRegressor\n"
         "from skforecast.direct import ForecasterDirectMultiVariate\n"
@@ -218,7 +219,7 @@ def test_render_forecast_multivariate_output_when_wide_format():
         "# Evaluate on test set\n"
         "actual = data_test['series_a'].iloc[:steps]\n"
         "mae = mean_absolute_error(actual, predictions['pred'])\n"
-        "mse = mean_squared_error(actual, predictions['pred'])\n"
+        "rmse = root_mean_squared_error(actual, predictions['pred'])\n"
         "mase = mean_absolute_scaled_error(\n"
         "    y_true  = actual,\n"
         "    y_pred  = predictions['pred'],\n"
@@ -226,7 +227,7 @@ def test_render_forecast_multivariate_output_when_wide_format():
         ")\n"
         "\n"
         'print(f"MAE  : {mae:.4f}")\n'
-        'print(f"MSE  : {mse:.4f}")\n'
+        'print(f"RMSE : {rmse:.4f}")\n'
         'print(f"MASE : {mase:.4f}")\n'
         "\n"
         "# NOTE: This script uses a train/test split for demonstration purposes.\n"
@@ -248,7 +249,7 @@ def test_render_forecast_multi_series_output_when_wide_format_with_exog():
 
     expected = (
         "import pandas as pd\n"
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n"
         "from skforecast.metrics import mean_absolute_scaled_error\n"
         "from lightgbm import LGBMRegressor\n"
         "from skforecast.recursive import ForecasterRecursiveMultiSeries\n"
@@ -295,10 +296,10 @@ def test_render_forecast_multi_series_output_when_wide_format_with_exog():
         "    mask = predictions['level'] == series_name\n"
         "    pred = predictions.loc[mask, 'pred'].values\n"
         "    metrics_list.append({\n"
-        '        "series": series_name,\n'
-        '        "MAE": mean_absolute_error(actual, pred),\n'
-        '        "MSE": mean_squared_error(actual, pred),\n'
-        '        "MASE": mean_absolute_scaled_error(\n'
+        '        "levels": series_name,\n'
+        '        "mean_absolute_error": mean_absolute_error(actual, pred),\n'
+        '        "root_mean_squared_error": root_mean_squared_error(actual, pred),\n'
+        '        "mean_absolute_scaled_error": mean_absolute_scaled_error(\n'
         "            actual, pred, y_train=series_dict_train[series_name]\n"
         "        ),\n"
         "    })\n"
@@ -321,15 +322,16 @@ def test_render_forecast_multi_series_output_when_long_format_with_exog():
 
     expected = (
         "import pandas as pd\n"
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n"
         "from skforecast.metrics import mean_absolute_scaled_error\n"
         "from lightgbm import LGBMRegressor\n"
         "from skforecast.preprocessing import reshape_series_long_to_dict, reshape_exog_long_to_dict\n"
         "from skforecast.recursive import ForecasterRecursiveMultiSeries\n"
         "\n"
         "# Load data\n"
-        "data = pd.read_csv('data.csv')\n"
+        "data = pd.read_csv('data.csv', dtype={'series_id': str})\n"
         "\n"
+        "data['series_id'] = data['series_id'].map(str, na_action='ignore')\n"
         "data['date'] = pd.to_datetime(data['date'])\n"
         "data = data.sort_values('date')\n"
         "\n"
@@ -378,10 +380,10 @@ def test_render_forecast_multi_series_output_when_long_format_with_exog():
         "    mask = predictions['level'] == series_name\n"
         "    pred = predictions.loc[mask, 'pred'].values\n"
         "    metrics_list.append({\n"
-        '        "series": series_name,\n'
-        '        "MAE": mean_absolute_error(actual, pred),\n'
-        '        "MSE": mean_squared_error(actual, pred),\n'
-        '        "MASE": mean_absolute_scaled_error(\n'
+        '        "levels": series_name,\n'
+        '        "mean_absolute_error": mean_absolute_error(actual, pred),\n'
+        '        "root_mean_squared_error": root_mean_squared_error(actual, pred),\n'
+        '        "mean_absolute_scaled_error": mean_absolute_scaled_error(\n'
         "            actual, pred, y_train=series_dict_train[series_name]\n"
         "        ),\n"
         "    })\n"
@@ -411,15 +413,100 @@ def test_render_forecast_multi_series_output_when_long_format_with_exog_predicti
         "from skforecast.recursive import ForecasterRecursiveMultiSeries\n"
         "\n"
         "# Load data\n"
-        "data = pd.read_csv('data.csv')\n"
+        "data = pd.read_csv('data.csv', dtype={'series_id': str})\n"
         "\n"
         "# Load future exogenous variables covering the forecast horizon\n"
-        "exog_future = pd.read_csv('exog_future.csv')\n"
+        "exog_future = pd.read_csv('exog_future.csv', dtype={'series_id': str})\n"
         "\n"
+        "data['series_id'] = data['series_id'].map(str, na_action='ignore')\n"
         "data['date'] = pd.to_datetime(data['date'])\n"
         "data = data.sort_values('date')\n"
         "\n"
+        "exog_future['series_id'] = exog_future['series_id'].map(str, na_action='ignore')\n"
         "exog_future['date'] = pd.to_datetime(exog_future['date'])\n"
+        "exog_future = exog_future.sort_values('date')\n"
+        "\n"
+        "# Reshape to dict format (optimal for ForecasterRecursiveMultiSeries)\n"
+        "series_dict = reshape_series_long_to_dict(\n"
+        "    data      = data,\n"
+        "    series_id = 'series_id',\n"
+        "    index     = 'date',\n"
+        "    values    = 'value',\n"
+        "    freq      = 'D',\n"
+        ")\n"
+        "\n"
+        "exog_dict = reshape_exog_long_to_dict(\n"
+        "    data      = data[['series_id', 'date', 'promo']],\n"
+        "    series_id = 'series_id',\n"
+        "    index     = 'date',\n"
+        "    freq      = 'D',\n"
+        ")\n"
+        "\n"
+        "# Reshape future exogenous variables to dict format\n"
+        "exog_future_dict = reshape_exog_long_to_dict(\n"
+        "    data      = exog_future[['series_id', 'date', 'promo']],\n"
+        "    series_id = 'series_id',\n"
+        "    index     = 'date',\n"
+        "    freq      = 'D',\n"
+        ")\n"
+        "\n"
+        "# Create forecaster\n"
+        "forecaster = ForecasterRecursiveMultiSeries(\n"
+        "    estimator = LGBMRegressor(random_state=123, verbose=-1),\n"
+        "    lags      = 7,\n"
+        "    encoding  = 'ordinal',\n"
+        ")\n"
+        "\n"
+        "# Fit\n"
+        "forecaster.fit(series=series_dict, exog=exog_dict)\n"
+        "\n"
+        "# Predict\n"
+        "steps = 10\n"
+        "predictions = forecaster.predict(steps=steps, exog=exog_future_dict)\n"
+        "print(predictions)\n"
+    )
+    assert result.full_script == expected
+
+
+@pytest.mark.parametrize(
+    "exog_date_format, exog_format_arg",
+    [(None, ""), ("%m/%d/%Y", ", format='%m/%d/%Y'")],
+    ids=["exog in iso", "exog month first"],
+)
+def test_render_forecast_multi_series_output_when_long_format_with_date_format(
+    exog_date_format, exog_format_arg
+):
+    """
+    Test that in prediction mode with long-format data whose dates are
+    written day first the dates of the data are read with the format the
+    profile records, those of `exog_future.csv` with their own format
+    (that of `exog_file`), and that nothing else of the script changes.
+    """
+    plan = plan_multi_series_exog.model_copy(update={"end_train": None})
+    profile = profile_multi_long_exog.model_copy(update={"date_format": "%d/%m/%Y"})
+    result = render_forecast_multi_series(
+                 plan, profile, exog_file=FutureExogFile(date_format=exog_date_format)
+             )
+
+    expected = (
+        "import pandas as pd\n"
+        "from lightgbm import LGBMRegressor\n"
+        "from skforecast.preprocessing import reshape_series_long_to_dict, reshape_exog_long_to_dict\n"
+        "from skforecast.recursive import ForecasterRecursiveMultiSeries\n"
+        "\n"
+        "# Load data\n"
+        "data = pd.read_csv('data.csv', dtype={'series_id': str})\n"
+        "\n"
+        "# Load future exogenous variables covering the forecast horizon\n"
+        "exog_future = pd.read_csv('exog_future.csv', dtype={'series_id': str})\n"
+        "\n"
+        "data['series_id'] = data['series_id'].map(str, na_action='ignore')\n"
+        "data['date'] = pd.to_datetime(data['date'], format='%d/%m/%Y')\n"
+        "data = data.sort_values('date')\n"
+        "\n"
+        "exog_future['series_id'] = exog_future['series_id'].map(str, na_action='ignore')\n"
+        f"exog_future['date'] = pd.to_datetime(exog_future['date']"
+        f"{exog_format_arg})\n"
         "exog_future = exog_future.sort_values('date')\n"
         "\n"
         "# Reshape to dict format (optimal for ForecasterRecursiveMultiSeries)\n"
@@ -484,7 +571,7 @@ def test_render_forecast_multivariate_output_when_exog_not_used(profile):
 
     expected_evaluation = (
         "import pandas as pd\n"
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n"
         "from skforecast.metrics import mean_absolute_scaled_error\n"
         "from lightgbm import LGBMRegressor\n"
         "from skforecast.direct import ForecasterDirectMultiVariate\n"
@@ -522,7 +609,7 @@ def test_render_forecast_multivariate_output_when_exog_not_used(profile):
         "# Evaluate on test set\n"
         "actual = data_test['series_a'].iloc[:steps]\n"
         "mae = mean_absolute_error(actual, predictions['pred'])\n"
-        "mse = mean_squared_error(actual, predictions['pred'])\n"
+        "rmse = root_mean_squared_error(actual, predictions['pred'])\n"
         "mase = mean_absolute_scaled_error(\n"
         "    y_true  = actual,\n"
         "    y_pred  = predictions['pred'],\n"
@@ -530,7 +617,7 @@ def test_render_forecast_multivariate_output_when_exog_not_used(profile):
         ")\n"
         "\n"
         'print(f"MAE  : {mae:.4f}")\n'
-        'print(f"MSE  : {mse:.4f}")\n'
+        'print(f"RMSE : {rmse:.4f}")\n'
         'print(f"MASE : {mase:.4f}")\n'
         "\n"
         "# NOTE: This script uses a train/test split for demonstration purposes.\n"

@@ -12,6 +12,8 @@ from skforecast.exceptions import MissingValuesWarning
 
 from skforecast_ai import ForecastingAssistant, ForecastResult
 from skforecast_ai.exceptions import (
+    DataContentError,
+    DataNotFoundError,
     ForecastExecutionError,
     InvalidInputError,
     InvalidInputTypeError,
@@ -19,7 +21,14 @@ from skforecast_ai.exceptions import (
 from skforecast_ai import _validation as validation_module
 from skforecast_ai._constants import ALLOWED_METRICS
 
-from tests.fixtures_csv_dialect import df_dialect, write_dialect
+from tests.fixtures_csv_dialect import (
+    df_dialect,
+    df_dialect_monthly,
+    df_dialect_monthly_exog,
+    df_dialect_monthly_exog_future,
+    write_dialect,
+)
+from tests.fixtures_future_exog import data_long, exog_long
 from tests.fixtures_datasets import (
     df_h2o,
     df_h2o_changed_value,
@@ -27,12 +36,15 @@ from tests.fixtures_datasets import (
     df_h2o_text,
     df_h2o_with_exog,
     df_h2o_with_nan,
+    df_hourly_madrid_spring,
     df_items_sales_long,
     df_items_sales_wide,
 )
 from tests.fixtures_assistant import (
     df_calendar_named_exog,
     df_categorical_exog,
+    df_day_first,
+    df_day_first_exog,
     df_multi_wide,
     df_range_index,
     df_single,
@@ -69,9 +81,11 @@ def test_forecast_output_when_single_series():
     assert result.plan is not None
     assert result.code is not None
     assert isinstance(result.metrics, pd.DataFrame)
-    assert list(result.metrics.columns) == ["series", "MAE", "MSE", "MASE"]
+    assert list(result.metrics.columns) == [
+        "mean_absolute_error", "root_mean_squared_error", "mean_absolute_scaled_error"
+    ]
     assert len(result.metrics) == 1
-    assert result.metrics["MAE"].iloc[0] > 0
+    assert result.metrics["mean_absolute_error"].iloc[0] > 0
     assert result.predictions is not None
 
 
@@ -204,7 +218,7 @@ def test_forecast_output_when_exog_columns_named_like_calendar_features():
         "features": ["day_of_week"], "encoding": None
     }
     assert len(result.predictions) == 5
-    assert list(result.metrics["series"]) == ["sales"]
+    assert len(result.metrics) == 1
 
 
 @pytest.mark.slow
@@ -226,6 +240,111 @@ def test_forecast_output_when_multi_series_long_format():
     assert result.plan.task_type == "multi_series"
     assert result.predictions is not None
     assert len(result.predictions) > 0
+
+
+@pytest.mark.parametrize(
+    "ids",
+    [None, {"item_1": 1, "item_2": 2, "item_3": 10}],
+    ids=["text_ids", "integer_ids"],
+)
+@pytest.mark.parametrize("with_profile", [True, False], ids=["profile", "no_profile"])
+def test_forecast_output_when_long_format_multiindex(with_profile, ids):
+    """
+    Test that long-format data indexed by a (series, date) MultiIndex, with
+    its future exogenous variables indexed the same way, is forecast as the
+    same data with the levels as columns, which is how the script reads the
+    frame saved with `to_csv()`: same script, same predictions, also with
+    integer ids, which become text in the level as in a column (otherwise
+    `exog` named none of the series of the data). Before, the profile read
+    the levels as columns but the executed script did not find them
+    (KeyError: 'date').
+    """
+    data_flat, exog_flat = data_long, exog_long
+    if ids is not None:
+        data_flat = data_flat.assign(series=data_flat["series"].map(ids))
+        exog_flat = exog_flat.assign(series=exog_flat["series"].map(ids))
+    assistant = ForecastingAssistant()
+    expected = assistant.forecast(
+        data             = data_flat,
+        target           = "value",
+        date_column      = "date",
+        series_id_column = "series",
+        steps            = 7,
+        estimator        = "Ridge",
+        exog             = exog_flat,
+    )
+    data = data_flat.set_index(["series", "date"])
+    if with_profile:
+        profile = assistant.profile(data=data, target="value")
+        plan = assistant.plan(profile, steps=7, estimator="Ridge")
+        kwargs = {"profile": profile, "plan": plan}
+    else:
+        kwargs = {"target": "value", "steps": 7, "estimator": "Ridge"}
+
+    result = assistant.forecast(
+        data=data, exog=exog_flat.set_index(["series", "date"]), **kwargs
+    )
+
+    assert result.plan.use_exog is True
+    assert result.code == expected.code
+    pd.testing.assert_frame_equal(result.predictions, expected.predictions)
+
+
+@pytest.mark.parametrize("with_profile", [True, False], ids=["profile", "no_profile"])
+def test_forecast_InvalidInputError_when_multiindex_level_unnamed(with_profile):
+    """
+    Test that forecast() rejects long-format data indexed by a MultiIndex with
+    a level without a name, also with a profile of the same data with named
+    levels: the script reads the levels by name from the frame saved with
+    `to_csv()`, which writes an empty header for them. Before, it ran on
+    columns 'series_id' and 'datetime' that the script did not have.
+    """
+    assistant = ForecastingAssistant()
+    data = data_long.set_index(["series", "date"])
+    kwargs = {"target": "value", "steps": 7, "estimator": "Ridge"}
+    if with_profile:
+        kwargs = {"profile": assistant.profile(data=data, target="value"), "steps": 7}
+    err_msg = re.escape(
+        "`data` is indexed by a MultiIndex with levels without a name "
+        "(names [None, None])."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.forecast(
+            data = data.rename_axis([None, None]),
+            exog = exog_long,
+            **kwargs,
+        )
+
+    assert exc_info.value.field == "data"
+
+
+def test_forecast_InvalidInputError_when_exog_multiindex_level_unnamed():
+    """
+    Test that forecast() rejects future exogenous variables indexed by a
+    MultiIndex with a level without a name, with a hint to name the levels
+    as the series id and date columns of the data. Before, it failed with a
+    DataContentError saying that `exog` had no column 'series', 'date'.
+    """
+    exog = exog_long.set_index(["series", "date"]).rename_axis(["series", None])
+    err_msg = re.escape(
+        "`exog` is indexed by a MultiIndex with levels without a name "
+        "(names ['series', None])."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        ForecastingAssistant().forecast(
+            data      = data_long.set_index(["series", "date"]),
+            target    = "value",
+            steps     = 7,
+            estimator = "Ridge",
+            exog      = exog,
+        )
+
+    assert exc_info.value.field == "exog"
+    assert exc_info.value.hint == (
+        "Name the levels as the series id and date columns of the data, as in "
+        "`exog.rename_axis(['series_id', 'date'])`, and pass it as it is or "
+        "with `reset_index()`."
+    )
 
 
 # =============================================================================
@@ -261,10 +380,10 @@ def test_forecast_metrics_are_finite():
         test_size=5,
     )
 
-    assert np.isfinite(result.metrics["MAE"].iloc[0])
-    assert np.isfinite(result.metrics["MSE"].iloc[0])
-    assert result.metrics["MAE"].iloc[0] > 0
-    assert result.metrics["MSE"].iloc[0] > 0
+    assert np.isfinite(result.metrics["mean_absolute_error"].iloc[0])
+    assert np.isfinite(result.metrics["root_mean_squared_error"].iloc[0])
+    assert result.metrics["mean_absolute_error"].iloc[0] > 0
+    assert result.metrics["root_mean_squared_error"].iloc[0] > 0
 
 
 # =============================================================================
@@ -413,7 +532,9 @@ def test_forecast_evaluation_mode_returns_metrics():
     )
 
     assert isinstance(result.metrics, pd.DataFrame)
-    assert list(result.metrics.columns) == ["series", "MAE", "MSE", "MASE"]
+    assert list(result.metrics.columns) == [
+        "mean_absolute_error", "root_mean_squared_error", "mean_absolute_scaled_error"
+    ]
     assert result.plan.end_train is not None
 
 
@@ -478,21 +599,144 @@ def test_forecast_InvalidInputError_when_future_exog_has_gap():
     assert exc_info.value.field == "exog"
 
 
-def test_forecast_InvalidInputTypeError_when_exog_is_path():
+def test_forecast_InvalidInputTypeError_when_exog_is_not_a_frame_nor_a_path():
     """
-    Test that forecast() with `exog` given as a path raises a type error
-    that says what it expects, instead of a message about the number of
-    rows (the length of the str).
+    Test that forecast() with `exog` given as another type than a frame, a
+    Series or a path raises a type error that says what it expects.
     """
     err_msg = re.escape(
         "`exog` must be a pandas DataFrame with the future values of the "
-        "exogenous variables, not str."
+        "exogenous variables, or the path of a CSV file with them, not dict."
     )
     with pytest.raises(InvalidInputTypeError, match=err_msg):
         ForecastingAssistant().forecast(
             data=df_single, target="sales", date_column="date", steps=5,
-            exog="future_exog.csv",
+            exog={"promo": [0.0] * 5},
         )
+
+
+def test_forecast_DataNotFoundError_when_exog_path_not_found(tmp_path):
+    """
+    Test that forecast() with `exog` given as the path of a file that does
+    not exist raises `DataNotFoundError` on `exog`.
+    """
+    path = tmp_path / "future_exog.csv"
+
+    err_msg = re.escape(f"Exog CSV not found: '{path}'.")
+    with pytest.raises(DataNotFoundError, match=err_msg) as exc_info:
+        ForecastingAssistant().forecast(
+            data=df_single, target="sales", date_column="date", steps=5,
+            exog=path,
+        )
+    assert exc_info.value.field == "exog"
+
+
+@pytest.mark.parametrize("as_str", [False, True], ids=["Path", "str"])
+def test_forecast_output_when_exog_is_path(tmp_path, as_str):
+    """
+    Test that forecast() with `exog` given as the path of a CSV file, a str
+    or a Path, reads it with the profile of the data (its date column, the
+    order of its dates) and gives the predictions of the same values read
+    by hand and passed as a frame, while the script reads that file by its
+    path instead of `exog_future.csv`.
+    """
+    future = pd.DataFrame(
+        {
+            "date": pd.date_range("2023-04-11", periods=5, freq="D").strftime(
+                "%d/%m/%Y"
+            ),
+            "promo": [0.0, 1.0, 0.0, 1.0, 0.0],
+        }
+    )
+    path = tmp_path / "futuro.csv"
+    future.to_csv(path, sep=";", index=False)
+    by_hand = future.assign(
+        date=pd.to_datetime(future["date"], format="%d/%m/%Y")
+    ).set_index("date")
+    assistant = ForecastingAssistant()
+    inputs = {"data": df_single, "target": "sales", "date_column": "date", "steps": 5}
+
+    result = assistant.forecast(**inputs, exog=str(path) if as_str else path)
+    expected = assistant.forecast(**inputs, exog=by_hand)
+
+    pd.testing.assert_frame_equal(result.predictions, expected.predictions)
+    assert f"exog_future = pd.read_csv({str(path)!r}, sep=';', decimal='.')\n" in (
+        result.code
+    )
+    assert "exog_future.csv" not in result.code
+
+
+def test_forecast_output_when_data_without_dates_and_exog_path(tmp_path):
+    """
+    Test that data without dates (a RangeIndex) forecast the future with
+    the path of a file of future values without a column of positions: its
+    rows are the steps of the horizon in order, numbered from the position
+    after the last row of the data, as the script numbers them. Before,
+    `load_exog` took the first column as the index.
+    """
+    data = df_single[["sales", "promo"]].reset_index(drop=True)
+    path = tmp_path / "futuro.csv"
+    pd.DataFrame({"promo": [0.0, 1.0, 0.0, 1.0, 0.0]}).to_csv(path, index=False)
+    assistant = ForecastingAssistant()
+
+    result = assistant.forecast(data=data, target="sales", steps=5, exog=path)
+    expected = assistant.forecast(
+        data   = data,
+        target = "sales",
+        steps  = 5,
+        exog   = pd.DataFrame(
+                     {"promo": [0.0, 1.0, 0.0, 1.0, 0.0]},
+                     index=pd.RangeIndex(len(data), len(data) + 5),
+                 ),
+    )
+
+    pd.testing.assert_frame_equal(result.predictions, expected.predictions)
+    assert list(result.predictions.index) == list(range(len(data), len(data) + 5))
+    assert (
+        f"exog_future = pd.read_csv({str(path)!r})\n"
+        f"exog_future.index = pd.RangeIndex(data.index[-1] + 1, "
+        f"data.index[-1] + 1 + len(exog_future))\n" in result.code
+    )
+
+
+@pytest.mark.parametrize(
+    "text, error, err_msg",
+    [
+        (
+            "promo\n0.0\n1.0\n",
+            InvalidInputError,
+            "`exog` must cover the forecast horizon: 5 rows are required but "
+            "only 2 were provided.",
+        ),
+        (
+            ",promo\n0,0.0\n1,1.0\n2,0.0\n3,1.0\n4,0.0\n",
+            DataContentError,
+            "`exog` must be indexed by the positions that follow the last row "
+            "of the data (a RangeIndex), 100 to 104 for the 5 steps of the "
+            "horizon; its first rows are at 0, 1, 2, 3, 4. The data have no "
+            "dates: the future values are one row per step of the horizon, in "
+            "order.",
+        ),
+    ],
+    ids=["rows missing", "positions not after the data"],
+)
+def test_forecast_error_when_data_without_dates_and_exog_path_does_not_fit(
+    tmp_path, text, error, err_msg
+):
+    """
+    Test that a file of future values of data without dates that does not
+    fit the horizon raises a clear error on `exog` before running, instead
+    of failing inside skforecast: fewer rows than steps, or a column of
+    positions (the index that `to_csv()` writes) that does not follow the
+    last row of the data.
+    """
+    data = df_single[["sales", "promo"]].reset_index(drop=True)
+    path = tmp_path / "futuro.csv"
+    path.write_text(text)
+
+    with pytest.raises(error, match=re.escape(err_msg)) as exc_info:
+        ForecastingAssistant().forecast(data=data, target="sales", steps=5, exog=path)
+    assert exc_info.value.field == "exog"
 
 
 def test_forecast_output_when_exog_is_named_series():
@@ -780,15 +1024,55 @@ def test_forecast_output_when_baseline_plan():
         {"pred": [88.0, 89.0, 90.0, 91.0, 92.0]},
         index=pd.date_range("2023-04-06", periods=5, freq="D"),
     )
-    expected_metrics = pd.DataFrame(
-        {"series": ["sales"], "MAE": [7.0], "MSE": [49.0], "MASE": [7.0]}
-    )
+    expected_metrics = pd.DataFrame({
+        "mean_absolute_error":        [7.0],
+        "root_mean_squared_error":    [7.0],
+        "mean_absolute_scaled_error": [7.0],
+    })
     pd.testing.assert_frame_equal(
         result.predictions, expected_predictions, check_names=False, check_freq=False
     )
     pd.testing.assert_frame_equal(result.metrics, expected_metrics)
     assert "ForecasterEquivalentDate(" in result.code
     assert "promo" not in result.code
+
+
+def test_forecast_and_backtest_output_when_baseline_plan_and_metric_is_rmse():
+    """
+    Test that `root_mean_squared_error` is computed in the units of the
+    target by forecast() and by backtest(), whose script passes it to
+    skforecast by name: every prediction of the seasonal naive baseline on a
+    linear series is off by exactly 7, so the RMSE is 7 and the MSE 49, in
+    columns named as the metrics.
+    """
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=df_single, target="sales", date_column="date")
+    plan = assistant.plan(
+        profile,
+        steps      = 5,
+        forecaster = "ForecasterEquivalentDate",
+        metric     = ["root_mean_squared_error", "mean_squared_error"],
+    )
+    cv = assistant.create_cv(profile, plan, initial_train_size=60)
+
+    forecast = assistant.forecast(
+        data=df_single, profile=profile, plan=plan, test_size=5
+    )
+    backtest = assistant.backtest(
+        data=df_single, profile=profile, plan=plan, cv=cv, show_progress=False
+    )
+
+    expected_metrics = pd.DataFrame(
+        {"root_mean_squared_error": [7.0], "mean_squared_error": [49.0]}
+    )
+    pd.testing.assert_frame_equal(forecast.metrics, expected_metrics)
+    pd.testing.assert_frame_equal(
+        backtest.metrics, expected_metrics.assign(n_evaluated=[40])
+    )
+    assert (
+        "metric            = ['root_mean_squared_error', 'mean_squared_error'],"
+        in backtest.code
+    )
 
 
 def test_forecast_output_when_baseline_prediction_mode_with_exog_in_data():
@@ -858,9 +1142,12 @@ def test_forecast_output_when_data_has_missing_timestamps():
         {"date": dates, "sales": np.arange(100, dtype=float)}
     ).drop(index=[40, 41, 70]).reset_index(drop=True)
 
-    # skforecast reports the rows it drops (from `y_train` and `X_train`)
-    # because of the restored gaps.
-    with pytest.warns(MissingValuesWarning, match="NaNs detected in"):
+    # skforecast reports the rows it drops because of the restored gaps.
+    warn_msg = re.escape(
+        "Some rows of the training matrix have missing values. 45 of 79 rows "
+        "are dropped: 3 with a NaN target and 42 with NaN predictors"
+    )
+    with pytest.warns(MissingValuesWarning, match=warn_msg):
         result = assistant.forecast(
             data        = data,
             target      = "sales",
@@ -931,7 +1218,9 @@ def test_forecast_output_when_every_supported_metric_requested():
     """
     Test that forecast() computes every supported regression metric in
     evaluation mode, the same set backtesting accepts, instead of leaving
-    out the ones it did not know.
+    out the ones it did not know, in columns named as the metrics, and that
+    `root_mean_squared_error` is the square root of `mean_squared_error`
+    (in the units of the target).
     """
     assistant = ForecastingAssistant()
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
@@ -944,9 +1233,21 @@ def test_forecast_output_when_every_supported_metric_requested():
     )
 
     assert list(result.metrics.columns) == [
-        "series", "MSE", "MAE", "MAPE", "MSLE", "MASE", "RMSSE", "MedAE", "SMAPE"
+        "mean_squared_error",
+        "root_mean_squared_error",
+        "mean_absolute_error",
+        "mean_absolute_percentage_error",
+        "mean_squared_log_error",
+        "mean_absolute_scaled_error",
+        "root_mean_squared_scaled_error",
+        "median_absolute_error",
+        "symmetric_mean_absolute_percentage_error",
     ]
-    assert np.isfinite(result.metrics.drop(columns="series").to_numpy()).all()
+    assert np.isfinite(result.metrics.to_numpy()).all()
+    np.testing.assert_almost_equal(
+        result.metrics["root_mean_squared_error"].iloc[0],
+        np.sqrt(result.metrics["mean_squared_error"].iloc[0]),
+    )
 
 
 def test_forecast_ValueError_when_estimator_package_not_installed(monkeypatch):
@@ -1035,6 +1336,56 @@ def test_forecast_error_code_and_field_when_test_size_invalid(
 
     assert isinstance(exc_info.value, InvalidInputError)
     assert exc_info.value.code == "invalid_argument"
+    assert exc_info.value.field == "test_size"
+
+
+@pytest.mark.parametrize(
+    "test_size",
+    ["2023-03-27T22:00:00Z", "2023-03-28T00:00:00+02:00", "2023-03-28 00:00:00", 19],
+    ids=["Z", "offset", "without_zone", "count"],
+)
+def test_forecast_output_when_test_size_is_a_date_with_time_zone(test_size):
+    """
+    Test that a `test_size` date with a time zone, on data in a time zone,
+    is placed on the dates in their zone (G04: it raised TypeError): the
+    same instant written in UTC, with the offset of the data or as a local
+    time without zone, and the count of its observations, give the same
+    hold-out, with the 19 observations from 2023-03-28 00:00 in Madrid as
+    test set. After the spring change, a count or a date without zone was
+    placed an hour early (the test set was 20 or 18 observations).
+    """
+    result = ForecastingAssistant().forecast(
+        data      = df_hourly_madrid_spring,
+        target    = "y",
+        steps     = 19,
+        test_size = test_size,
+    )
+
+    assert result.plan.end_train == "2023-03-27 23:00:00"
+    assert result.predictions.index[0] == pd.Timestamp(
+        "2023-03-28 00:00:00", tz="Europe/Madrid"
+    )
+    assert len(result.predictions) == 19
+
+
+def test_forecast_InvalidInputError_when_test_size_has_time_zone_and_data_has_none():
+    """
+    Test that a `test_size` date with a time zone on data without one is
+    `InvalidInputError` on `test_size` saying to drop the zone (G04).
+    """
+    err_msg = re.escape(
+        "`test_size` ('2005-01-01T00:00:00Z') has a time zone, and the dates "
+        "of the data have none. Pass the first date of the test set without "
+        "the time zone, such as '2005-01-01'."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        ForecastingAssistant().forecast(
+            data      = df_h2o,
+            target    = "x",
+            steps     = 12,
+            test_size = "2005-01-01T00:00:00Z",
+        )
+
     assert exc_info.value.field == "test_size"
 
 
@@ -1219,11 +1570,13 @@ def test_forecast_InvalidInputError_when_last_window_missing_value_and_ridge():
     data.iloc[-13, 0] = np.nan
 
     err_msg = re.escape(
-        "The forecaster reads missing values of the target to predict ('x': 1 "
+        "The last window of the target, the values the forecast starts from (the "
+        "last ones before the dates it predicts), has missing values ('x': 1 "
         "value(s), such as '2007-06-01'). ForecasterRecursive with Ridge cannot "
-        "use them, so its predictions would be missing. "
+        "use them, so the forecast cannot run: "
+        "its predictions would be missing. "
         "Either they are filled in, or the plan uses an estimator that "
-        "accepts missing values (for example 'LGBMRegressor')."
+        "accepts missing values (such as 'RandomForestRegressor')."
     )
     with pytest.warns(MissingValuesWarning):
         with pytest.raises(InvalidInputError, match=err_msg):
@@ -1242,7 +1595,8 @@ def test_forecast_UserWarning_when_last_window_missing_value_and_lightgbm():
     data.iloc[-13, 0] = np.nan
 
     warn_msg = re.escape(
-        "The forecaster reads missing values of the target to predict ('x': 1 "
+        "The last window of the target, the values the forecast starts from (the "
+        "last ones before the dates it predicts), has missing values ('x': 1 "
         "value(s), such as '2007-06-01'). LGBMRegressor treats them as missing "
         "values; check that they are meant to be missing."
     )
@@ -1261,7 +1615,7 @@ def test_forecast_UserWarning_when_last_window_missing_value_and_lightgbm():
     # The warning points at the call of the user.
     filenames = [
         warning.filename for warning in record
-        if "reads missing values of the target" in str(warning.message)
+        if "The last window of the target" in str(warning.message)
     ]
     assert filenames == [__file__]
 
@@ -1278,7 +1632,7 @@ def test_forecast_output_when_evaluation_mode_and_last_window_missing_value():
 
     # skforecast warns about the missing value, when profiling and fitting.
     with (
-        pytest.warns(UserWarning, match="reads missing values of the target") as record,
+        pytest.warns(UserWarning, match="The last window of the target") as record,
         pytest.warns(MissingValuesWarning),
     ):
         result = ForecastingAssistant().forecast(
@@ -1287,10 +1641,11 @@ def test_forecast_output_when_evaluation_mode_and_last_window_missing_value():
 
     messages = [
         str(warning.message) for warning in record
-        if "reads missing values of the target" in str(warning.message)
+        if "The last window of the target" in str(warning.message)
     ]
     assert messages == [
-        "The forecaster reads missing values of the target to predict ('x': 1 "
+        "The last window of the target, the values the forecast starts from (the "
+        "last ones before the dates it predicts), has missing values ('x': 1 "
         "value(s), such as '2007-03-01'). LGBMRegressor treats them as missing "
         "values; check that they are meant to be missing."
     ]
@@ -1298,7 +1653,8 @@ def test_forecast_output_when_evaluation_mode_and_last_window_missing_value():
 
 
 _H2O_LAST_TRAINING_READ = (
-    "The forecaster reads missing values of the target to predict ('x': 1 "
+    "The last window of the target, the values the forecast starts from (the "
+    "last ones before the dates it predicts), has missing values ('x': 1 "
     "value(s), such as '2007-06-01'). "
 )
 _H2O_LGBM_PREDICTIONS = [
@@ -1327,11 +1683,13 @@ def test_forecast_InvalidInputError_when_evaluation_training_ends_with_missing_a
         data.iloc[position, 0] = np.nan
 
         err_msg = re.escape(
-            "The forecaster reads missing values of the target to predict ('x': "
+            "The last window of the target, the values the forecast starts from (the "
+            "last ones before the dates it predicts), has missing values ('x': "
             f"1 value(s), such as '{date}'). ForecasterRecursive with Ridge "
-            "cannot use them, so its predictions would be missing. "
+            "cannot use them, so the forecast cannot run: "
+            "its predictions would be missing. "
             "Either they are filled in, or the plan uses an estimator that "
-            "accepts missing values (for example 'LGBMRegressor')."
+            "accepts missing values (such as 'RandomForestRegressor')."
         )
         with pytest.warns(MissingValuesWarning):
             with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
@@ -1389,7 +1747,7 @@ def test_forecast_output_when_evaluation_missing_value_not_read_by_lags():
 
     assert not [
         warning for warning in record
-        if "reads missing values of the target" in str(warning.message)
+        if "The last window of the target" in str(warning.message)
     ]
     expected = pd.DataFrame(
         {"pred": _H2O_RIDGE_FAR_PREDICTIONS},
@@ -1484,9 +1842,9 @@ def test_forecast_InvalidInputError_when_evaluation_series_has_missing_test_valu
     """
     err_msg = re.escape(
         "The target has missing values in the test split ('item_2': 1 value(s), "
-        "such as '2012-04-25'). skforecast cannot compute the metrics on them, "
-        "whatever the estimator. Impute the target, or evaluate on dates "
-        "without missing values."
+        "such as '2012-04-25'). The metrics of the evaluation cannot be "
+        "computed on them, whatever the estimator. Impute the target, or "
+        "evaluate on dates without missing values."
     )
     with pytest.warns(MissingValuesWarning):
         with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
@@ -1553,8 +1911,9 @@ def test_forecast_InvalidInputError_when_foundation_evaluation_series_ends_early
     err_msg = re.escape(
         "The target has missing values in the test split ('item_2': 7 value(s), "
         "such as '2012-04-23', '2012-04-24', '2012-04-25', '2012-04-26', "
-        "'2012-04-27' and 2 more). skforecast cannot compute the metrics on "
-        "them, whatever the estimator. Impute the target, or evaluate on dates "
+        "'2012-04-27' and 2 more). The metrics of the evaluation cannot be "
+        "computed on them, whatever the estimator. Impute the target, or "
+        "evaluate on dates "
         "without missing values. Series without any value in the test split "
         "('item_2') end before it: remove them from the data, or evaluate on "
         "dates they reach."
@@ -1650,9 +2009,10 @@ def test_forecast_evaluation_mode_with_time_zone(tz):
     err_msg = re.escape(
         "The target has 1 missing value(s) in the test split "
         f"(2008-02-01 00:00:00{offset}), counting the missing timestamps that "
-        "asfreq() restores. skforecast cannot compute the metrics on them, "
-        "whatever the estimator. Impute the target, or evaluate on dates "
-        "without missing values."
+        "asfreq() restores. The metrics of the evaluation cannot be computed "
+        "on them, whatever the estimator. Impute the target, or evaluate on "
+        "dates without missing values. `backtest()` leaves the dates without "
+        "a value out of its metrics."
     )
     with pytest.warns(MissingValuesWarning):
         with pytest.raises(InvalidInputError, match=err_msg):
@@ -1689,9 +2049,10 @@ def test_forecast_evaluation_mode_when_last_training_date_absent():
 
     err_msg = re.escape(
         _H2O_LAST_TRAINING_READ + "ForecasterRecursive with Ridge cannot use "
-        "them, so its predictions would be missing. "
+        "them, so the forecast cannot run: "
+        "its predictions would be missing. "
         "Either they are filled in, or the plan uses an estimator that "
-        "accepts missing values (for example 'LGBMRegressor')."
+        "accepts missing values (such as 'RandomForestRegressor')."
     )
     with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
         ForecastingAssistant().forecast(
@@ -1732,9 +2093,9 @@ def test_forecast_evaluation_mode_with_direct_multivariate_checks_the_level():
     err_msg = re.escape(
         "The target has 1 missing value(s) in the test split "
         "(2012-04-25 00:00:00), counting the missing timestamps that asfreq() "
-        "restores. skforecast cannot compute the metrics on them, whatever the "
-        "estimator. Impute the target, or evaluate on dates without missing "
-        "values."
+        "restores. The metrics of the evaluation cannot be computed on them, "
+        "whatever the estimator. Impute the target, or evaluate on dates "
+        "without missing values."
     )
     with pytest.warns(MissingValuesWarning):
         with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
@@ -1753,8 +2114,51 @@ def test_forecast_evaluation_mode_with_direct_multivariate_checks_the_level():
         )
     np.testing.assert_array_almost_equal(
         result.predictions["pred"].to_numpy()[:3],
-        np.array([19.11669360058141, 19.389706633268087, 23.034484246415076]),
+        np.array([18.47304654365721, 20.96043690461582, 23.442394072172423]),
     )
+
+
+@pytest.mark.parametrize(
+    "forecaster, levels",
+    [
+        ("ForecasterRecursive", None),
+        ("ForecasterRecursiveMultiSeries", ["series_a", "series_b"]),
+        ("ForecasterDirectMultiVariate", ["series_a"]),
+    ],
+    ids=lambda dt: f"{dt}",
+)
+def test_forecast_metrics_have_the_columns_of_the_backtest(forecaster, levels):
+    """
+    Test that the metrics of forecast() in evaluation mode have the columns
+    of those of backtest() of the same plan: one per metric, named as the
+    metric, and `levels` when skforecast gives it, which is with several
+    series and with ForecasterDirectMultiVariate (its one level, the first
+    target column), not with a single series. The backtest ends with
+    `n_evaluated` (skforecast 0.27), a count of points that the hold-out
+    metrics of forecast() do not have.
+    """
+    assistant = ForecastingAssistant()
+    if levels is None:
+        data, target = df_single, "sales"
+    else:
+        data, target = df_multi_wide, ["series_a", "series_b"]
+    profile = assistant.profile(data=data, target=target, date_column="date")
+    plan = assistant.plan(profile, steps=5, forecaster=forecaster)
+    cv = assistant.create_cv(profile, plan, initial_train_size=60)
+
+    forecast = assistant.forecast(data=data, profile=profile, plan=plan, test_size=5)
+    backtest = assistant.backtest(
+        data=data, profile=profile, plan=plan, cv=cv, show_progress=False
+    )
+
+    metric_columns = [
+        "mean_absolute_error", "root_mean_squared_error", "mean_absolute_scaled_error"
+    ]
+    columns = metric_columns if levels is None else ["levels", *metric_columns]
+    assert list(forecast.metrics.columns) == columns
+    assert list(backtest.metrics.columns) == [*columns, "n_evaluated"]
+    if levels is not None:
+        assert list(forecast.metrics["levels"]) == levels
 
 
 @pytest.mark.parametrize("tz", [None, "Europe/Madrid"])
@@ -2199,7 +2603,8 @@ def test_forecast_does_not_check_series_lengths_when_forecaster_is_not_multiseri
     missing values it trains on.
     """
     err_msg = re.escape(
-        "MissingValuesWarning: NaNs detected in `X_train`."
+        "MissingValuesWarning: Some rows of the training matrix have missing "
+        "values. 95 of 95 rows are dropped per step, with NaN predictors"
     )
     with pytest.raises(ForecastExecutionError, match=err_msg):
         ForecastingAssistant().forecast(
@@ -2373,7 +2778,13 @@ def test_forecast_does_not_warn_again_when_data_equal_to_profile():
         result = assistant.forecast(data=df_h2o_with_nan, profile=profile, steps=3)
 
     messages = [str(warning.message) for warning in record]
-    assert any("NaNs detected in `y_train`" in message for message in messages)
+    assert any(
+        message.startswith(
+            "Some rows of the training matrix have missing values. 37 of 168 "
+            "rows are dropped: 1 with a NaN target and 36 with NaN predictors"
+        )
+        for message in messages
+    )
     assert not any("Interleaved NaN/inf detected" in message for message in messages)
     assert result.profile.data_profile.warnings == profile.data_profile.warnings
     assert result.profile.data_profile.n_total_observations == 204
@@ -2488,7 +2899,7 @@ def test_forecast_output_when_data_have_more_rows_than_profile_in_evaluation_mod
         np.array([0.6252326, 0.75429064, 0.85657171]),
     )
     np.testing.assert_almost_equal(
-        result.metrics["MAE"].iloc[0], 0.11968448815913664
+        result.metrics["mean_absolute_error"].iloc[0], 0.11968448815913664
     )
 
 
@@ -2915,7 +3326,7 @@ def test_forecast_output_when_metric_given_in_evaluation_mode():
 
     assert result.plan.metric == "median_absolute_error"
     assert result.plan.overridden_fields == ["metric"]
-    assert list(result.metrics.columns) == ["series", "MedAE"]
+    assert list(result.metrics.columns) == ["median_absolute_error"]
     with pytest.raises(InvalidInputError, match=re.escape("['metric']")):
         assistant.forecast(
             **inputs, test_size=5, plan=result.plan.model_copy(
@@ -2995,3 +3406,302 @@ def test_forecast_output_when_csv_has_semicolon_and_decimal_comma(tmp_path):
     assert result.profile.data_profile.csv_decimal == ","
     pd.testing.assert_frame_equal(result.predictions, expected.predictions)
     assert result.predictions.index.min() == pd.Timestamp("2023-02-27")
+
+
+# =============================================================================
+# Tests: dates written day first
+# =============================================================================
+def test_forecast_output_when_profile_built_with_dayfirst_on_ambiguous_monthly_csv(
+    tmp_path,
+):
+    """
+    Test that forecast() with a profile built with `dayfirst=True` on a CSV
+    whose dates all read in both orders (the first of every month) predicts
+    the months after the last one (January to March 2022, not days of
+    January), and returns a script that reads the dates with
+    `format='%d/%m/%Y'`.
+    """
+    csv_path = tmp_path / "monthly.csv"
+    df_dialect_monthly.to_csv(csv_path, index=False)
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=csv_path, target="y", dayfirst=True)
+
+    result = assistant.forecast(data=csv_path, profile=profile, steps=3)
+
+    expected = pd.DataFrame(
+        {"pred": [2.266952923672391, 2.117850996070447, 2.8283510902589377]},
+        index=pd.date_range("2022-01-01", periods=3, freq="MS"),
+    )
+    pd.testing.assert_frame_equal(result.predictions, expected)
+    assert profile.data_profile.date_format == "%d/%m/%Y"
+    assert result.profile.data_profile.date_format == "%d/%m/%Y"
+    assert result.profile.data_profile.data_path == str(csv_path)
+    assert f"data = pd.read_csv({str(csv_path)!r})\n" in result.code
+    assert (
+        "data['date'] = pd.to_datetime(data['date'], format='%d/%m/%Y')\n"
+        in result.code
+    )
+
+
+@pytest.mark.parametrize(
+    "rows", [48, 47], ids=["same data", "one row less (profiled again)"]
+)
+def test_forecast_output_when_dataframe_of_ambiguous_text_dates_and_saved_profile(
+    tmp_path, rows
+):
+    """
+    Test that a DataFrame read with `pd.read_csv` from such a file, with its
+    dates still text, is read in the order of the profile built with
+    `dayfirst=True` from the whole file, also when its values differ and it
+    is profiled again: the predictions are those of the file of the same
+    rows, and the script reads the frame with the format of the profile.
+    """
+    saved_path = tmp_path / "monthly.csv"
+    df_dialect_monthly.to_csv(saved_path, index=False)
+    path = tmp_path / f"monthly_{rows}.csv"
+    df_dialect_monthly.iloc[:rows].to_csv(path, index=False)
+    assistant = ForecastingAssistant()
+    saved = assistant.profile(data=saved_path, target="y", dayfirst=True)
+    own = assistant.profile(data=path, target="y", dayfirst=True)
+
+    result = assistant.forecast(data=pd.read_csv(path), profile=saved, steps=3)
+    expected = assistant.forecast(data=path, profile=own, steps=3)
+
+    pd.testing.assert_frame_equal(result.predictions, expected.predictions)
+    assert result.profile.data_profile.date_format == "%d/%m/%Y"
+    assert (
+        "data['date'] = pd.to_datetime(data['date'], format='%d/%m/%Y')\n"
+        in result.code
+    )
+
+
+def test_forecast_output_when_ambiguous_monthly_csv_without_dayfirst(tmp_path):
+    """
+    Test that forecast() on a CSV whose dates all read in both orders (the
+    first of every month, written day first) and that has no profile reads
+    them in the only order in which they are regular, day first: it
+    predicts the same months as with a profile built with `dayfirst=True`,
+    the script reads them with `format='%d/%m/%Y'`, and the profile it
+    returns carries the note that says the order was told from the
+    regularity.
+    """
+    csv_path = tmp_path / "monthly.csv"
+    df_dialect_monthly.to_csv(csv_path, index=False)
+
+    result = ForecastingAssistant().forecast(data=csv_path, target="y", steps=3)
+
+    expected = pd.DataFrame(
+        {"pred": [2.266952923672391, 2.117850996070447, 2.8283510902589377]},
+        index=pd.date_range("2022-01-01", periods=3, freq="MS"),
+    )
+    pd.testing.assert_frame_equal(result.predictions, expected)
+    dp = result.profile.data_profile
+    assert dp.date_format == "%d/%m/%Y"
+    assert dp.warnings[0].startswith(
+        "The dates of column 'date' read both day first and month first (no "
+        "day is after the 12th): they were read day first, the only order in "
+        "which they have a regular frequency ('MS')"
+    )
+    assert (
+        "data['date'] = pd.to_datetime(data['date'], format='%d/%m/%Y')\n"
+        in result.code
+    )
+
+
+def test_forecast_InvalidInputError_when_ambiguous_csv_regular_in_both_orders(
+    tmp_path,
+):
+    """
+    Test that forecast() on a CSV whose dates all read in both orders and are
+    regular in both (three months: monthly day first, daily month first)
+    raises, with the code 'data_unreadable' and the field 'data', instead of
+    guessing the order: it needs a profile built with `dayfirst`.
+    """
+    csv_path = tmp_path / "monthly.csv"
+    df_dialect_monthly.head(3).to_csv(csv_path, index=False)
+
+    err_msg = re.escape(
+        "The dates of column 'date' read both day first and month first: no "
+        "day is after the 12th, so '01/02/2018' may be '2018-02-01' or "
+        "'2018-01-02', and both readings have a regular frequency ('MS' day "
+        "first and 'D' month first), so the order is not guessed."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        ForecastingAssistant().forecast(data=csv_path, target="y", steps=3)
+
+    assert exc_info.value.code == "data_unreadable"
+    assert exc_info.value.field == "data"
+
+
+@pytest.mark.parametrize(
+    "exog_source", ["datetime index", "iso csv"], ids=lambda dt: dt
+)
+def test_forecast_output_when_exog_dates_in_iso_and_data_day_first(
+    tmp_path, exog_source
+):
+    """
+    Test that the future values of data written day first can have their
+    dates in ISO 8601, as `to_csv()` of a frame indexed by its dates writes
+    them: given as that frame, or as the path of that file, they predict the
+    same months as the same values written day first, and the script reads
+    the future values without a format, the one of the data being only
+    theirs.
+    """
+    csv_path = tmp_path / "monthly.csv"
+    df_dialect_monthly_exog.to_csv(csv_path, index=False)
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=csv_path, target="y", dayfirst=True)
+    exog = df_dialect_monthly_exog_future.assign(
+        date=pd.to_datetime(df_dialect_monthly_exog_future["date"], dayfirst=True)
+    ).set_index("date")
+    if exog_source == "iso csv":
+        exog.to_csv(tmp_path / "exog_future.csv")
+        exog = tmp_path / "exog_future.csv"
+
+    result = assistant.forecast(
+        data    = csv_path,
+        profile = profile,
+        steps   = 3,
+        exog    = exog,
+    )
+
+    expected = pd.DataFrame(
+        {"pred": [2.266116491307465, 2.1181644732103, 2.8276735764988548]},
+        index=pd.date_range("2022-01-01", periods=3, freq="MS"),
+    )
+    pd.testing.assert_frame_equal(result.predictions, expected)
+    assert (
+        "data['date'] = pd.to_datetime(data['date'], format='%d/%m/%Y')\n"
+        in result.code
+    )
+    assert "exog_future['date'] = pd.to_datetime(exog_future['date'])\n" in (
+        result.code
+    )
+
+
+def test_forecast_output_when_wide_exog_has_text_dates_day_first_and_profile_dayfirst(
+    tmp_path,
+):
+    """
+    Test that forecast() of wide-format data with a profile built with
+    `dayfirst=True` reads a DataFrame `exog` whose date column is text
+    written day first ('01/01/2022', '01/02/2022', '01/03/2022', which pandas
+    reads month first as three days of January) with the format of the
+    data: it predicts the three months after the last one, and the script
+    reads the dates of the data and of the future values with the format.
+    """
+    csv_path = tmp_path / "monthly.csv"
+    df_dialect_monthly_exog.to_csv(csv_path, index=False)
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(data=csv_path, target="y", dayfirst=True)
+
+    result = assistant.forecast(
+        data    = csv_path,
+        profile = profile,
+        steps   = 3,
+        exog    = df_dialect_monthly_exog_future,
+    )
+
+    expected = pd.DataFrame(
+        {"pred": [2.266116491307465, 2.1181644732103, 2.8276735764988548]},
+        index=pd.date_range("2022-01-01", periods=3, freq="MS"),
+    )
+    pd.testing.assert_frame_equal(result.predictions, expected)
+    assert result.metrics is None
+    assert result.code.count("format='%d/%m/%Y'") == 2
+    assert (
+        "exog_future['date'] = pd.to_datetime(exog_future['date'], "
+        "format='%d/%m/%Y')\n"
+    ) in result.code
+
+
+@pytest.mark.parametrize(
+    "exog",
+    [df_day_first_exog, df_day_first_exog.set_index("date")],
+    ids=["dates in a column", "dates in the index"],
+)
+def test_forecast_output_when_data_and_exog_are_text_dates_day_first(exog):
+    """
+    Test that forecast() of a DataFrame with text dates written day first
+    and a short horizon that reads both ways ('01/02/2021' to '07/02/2021'),
+    in a column of `exog` or in its index, predicts the seven days after the
+    last date (2021-01-31), the dates of the data and of `exog` both read
+    day first in the returned script.
+    """
+    result = ForecastingAssistant().forecast(
+        data        = df_day_first,
+        target      = "y",
+        date_column = "date",
+        steps       = 7,
+        exog        = exog,
+    )
+
+    expected = pd.DataFrame(
+        {
+            "pred": [
+                17.757746408435324, 17.997458443344815, 18.007362026504243,
+                17.80723891613638, 17.430903079968857, 16.9653885887927,
+                16.427784848251246,
+            ]
+        },
+        index=pd.date_range("2021-02-01", periods=7, freq="D"),
+    )
+    pd.testing.assert_frame_equal(result.predictions, expected)
+    assert result.profile.data_profile.date_format == "%d/%m/%Y"
+    assert result.profile.data_profile.data_path == "data.csv"
+    assert (
+        "data['date'] = pd.to_datetime(data['date'], format='%d/%m/%Y')\n"
+        in result.code
+    )
+    assert (
+        "exog_future['date'] = pd.to_datetime(exog_future['date'], "
+        "format='%d/%m/%Y')\n"
+    ) in result.code
+
+
+def test_forecast_InvalidInputError_when_target_list_and_multiindex():
+    """
+    Test that forecast() without a profile, of data indexed by a
+    `(series_id, date)` MultiIndex with a list of targets, raises with the
+    field 'target' before the first level fills `series_id_column`.
+    """
+    data = df_items_sales_long.set_index(["series", "date"])
+    err_msg = re.escape(
+        "`target` is a list of columns (['value']), but `data` is indexed by "
+        "a MultiIndex (levels ['series', 'date']), which is long format: the "
+        "series are stacked in rows, told apart by the first level. Pass "
+        "`target` as the name of the column of values, not as a list."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        ForecastingAssistant().forecast(data=data, target=["value"], steps=3)
+
+    assert exc_info.value.field == "target"
+
+
+def test_forecast_output_when_stats_interval_80_is_narrower_than_95():
+    """
+    Test that the interval [0.1, 0.9] of ForecasterStats is the 80 % one,
+    narrower than the 95 % one. Before skforecast 0.27, `predict_interval`
+    ignored `interval` and always returned the 95 % interval (skforecast
+    #1416), so both had the same width. The intervals of the ARIMA model are
+    Gaussian: each 80 % width is the 95 % width times z(0.9) / z(0.975).
+    """
+    assistant = ForecastingAssistant()
+    widths = {}
+    for interval in ([0.1, 0.9], [0.025, 0.975]):
+        result = assistant.forecast(
+            data       = df_h2o,
+            target     = "x",
+            steps      = 12,
+            forecaster = "ForecasterStats",
+            interval   = interval,
+        )
+        predictions = result.predictions
+        widths[interval[0]] = (
+            predictions["upper_bound"] - predictions["lower_bound"]
+        ).to_numpy()
+
+    assert np.all(widths[0.1] < widths[0.025])
+    np.testing.assert_allclose(
+        widths[0.1], widths[0.025] * 1.2815516 / 1.9599640, rtol=1e-4
+    )

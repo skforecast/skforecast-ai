@@ -8,7 +8,7 @@
 from __future__ import annotations
 import sys
 from typing import Annotated, Any, Literal, get_args
-from pydantic import BaseModel, ConfigDict, Field, with_config
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, with_config
 
 if sys.version_info >= (3, 12):
     from typing import TypedDict
@@ -22,7 +22,7 @@ from .._constants import (
     SUPPORTED_TRANSFORMERS,
     WindowStat,
 )
-from .._validation import _CALENDAR_FEATURES
+from .._validation import _CALENDAR_FEATURES, _validate_window_features
 
 ObjectKind = Literal["profile", "plan", "cv", "backtest", "comparison", "forecast"]
 """Kinds of the objects the server registers, the first part of their id."""
@@ -114,7 +114,51 @@ METRIC_DESCRIPTION = (
 )
 
 Interval = Annotated[list[float], Field(min_length=2, max_length=2)]
-WindowFeatures = list[dict[str, list[str] | int]]
+
+
+@with_config(ConfigDict(
+    extra             = "forbid",
+    strict            = True,
+    title             = "WindowFeatureArgs",
+    json_schema_extra = {
+        "description": (
+            "One window size and the statistics computed over it; no other "
+            "key is accepted."
+        ),
+    },
+))
+class WindowFeatureArgs(TypedDict):
+    """
+    One entry of `window_features` of the tools, with unknown keys
+    rejected and no type coercion.
+    """
+
+    stats: Annotated[list[WindowStat], Field(
+        min_length  = 1,
+        description = "Statistics computed over the window.",
+    )]
+    window_size: Annotated[int, Field(
+        ge          = 1,
+        description = "Number of observations of the window.",
+    )]
+
+
+def _check_window_features(value: Any) -> Any:
+    """
+    Apply the checks of `plan()` to `window_features` before the schema,
+    so an unknown key, a missing one or a repeated (stat, window_size)
+    pair is reported with the message of the core, which names the key
+    and the valid ones, instead of a bare "Extra inputs are not permitted".
+    """
+
+    _validate_window_features(value)
+
+    return value
+
+
+WindowFeatures = Annotated[
+    list[WindowFeatureArgs] | None, BeforeValidator(_check_window_features)
+]
 MetricName = Literal[ALLOWED_METRICS]
 """Regression metrics of skforecast (`ALLOWED_METRICS`)."""
 Metric = MetricName | Annotated[list[MetricName], Field(min_length=1)]
@@ -153,7 +197,10 @@ class RefinePlanArgs(TypedDict, total=False):
         dict[str, Any] | None,
         Field(description=(
             f"{ESTIMATOR_KWARGS_DESCRIPTION} Null for the defaults of the "
-            f"estimator."
+            f"estimator. Omitted while the estimator changes (passed, or "
+            f"chosen again for another forecaster), those of the plan are "
+            f"left out, since they were written for the previous estimator, "
+            f"and a notice names them."
         )),
     ]
     steps: Annotated[int, Field(ge=1, description=STEPS_DESCRIPTION)]
@@ -169,7 +216,7 @@ class RefinePlanArgs(TypedDict, total=False):
         )),
     ]
     window_features: Annotated[
-        WindowFeatures | None,
+        WindowFeatures,
         Field(description=(
             f"{WINDOW_FEATURES_DESCRIPTION} Null selects them again with the "
             f"deterministic rules."
@@ -253,7 +300,7 @@ class CandidateArgs(TypedDict, total=False):
         )),
     ]
     window_features: Annotated[
-        WindowFeatures | None,
+        WindowFeatures,
         Field(description=(
             f"{WINDOW_FEATURES_DESCRIPTION} Null selects them with the "
             f"deterministic rules."
@@ -269,8 +316,8 @@ class CandidateArgs(TypedDict, total=False):
     differentiation: Annotated[
         Annotated[int, Field(ge=1)] | None,
         Field(description=(
-            f"{DIFFERENTIATION_DESCRIPTION} The candidate runs on a copy of "
-            f"the strategy with this order."
+            f"{DIFFERENTIATION_DESCRIPTION} Candidates with different orders "
+            f"share the strategy."
         )),
     ]
     calendar_features: Annotated[
@@ -315,7 +362,8 @@ class CandidateArg(BaseModel):
     name: str = Field(description=(
         "Unique name of the candidate, which labels its row of the "
         "leaderboard. 'Baseline (seasonal naive)' and 'Baseline (naive)' are "
-        "reserved for the baseline."
+        "reserved for the baseline, and 'Strategy plan' for the plan of the "
+        "strategy."
     ))
     config: CandidateArgs = Field(
         default_factory = dict,
@@ -395,15 +443,22 @@ class ToolResult(BaseModel):
         `files`.
     cost : dict, None
         Cost of a cross-validation strategy, a backtest or a comparison:
-        `n_folds`, `n_fits` (trainings of the forecaster in the shared
-        strategy), `estimator_fits` (fits of an estimator, which a direct
-        forecaster multiplies by `steps`) and `inference_windows` (the
-        cost of a foundation model, never trained: one forecast per series
-        and fold; 0 for the other forecasters); for a comparison, the last
-        two are sums over its candidates. A cross-validation strategy also
-        has `compare_estimator_fits` and `compare_inference_windows`, those
-        of a comparison without candidates with it. None for the other
-        kinds.
+        `n_folds`, `n_fits` (trainings of the forecaster),
+        `estimator_fits` (fits of an estimator, which a direct forecaster
+        multiplies by `steps`) and `inference_windows` (the cost of a
+        foundation model, never trained: one forecast per series and fold;
+        0 for the other forecasters). For a comparison, `n_folds` is that
+        of the shared strategy and the other three are totals over all its
+        candidates, the baseline included, counted before they run (a
+        candidate that fails while it runs counts too; one whose plan
+        cannot be built, or that fails the checks of `backtest`, runs
+        nothing and does not). A cross-validation
+        strategy also has `compare_estimator_fits` and
+        `compare_inference_windows`, those of a comparison without
+        candidates with it. Above 50 estimator fits, or 2000 inference
+        windows, `backtest` and `compare` run only with `confirm_cost` set
+        to the estimator fits (the inference windows, when only those are
+        above). None for the other kinds.
     changeable : list of str
         Arguments of `refine_plan` (for a plan) or of `create_cv` (for a
         cross-validation strategy) that build a variant of the object.
@@ -445,7 +500,7 @@ class CodeResult(BaseModel):
         Packages to install to run the script outside the server: those of
         the modules it imports and the backend of its foundation model,
         each with the version installed where the server runs
-        (`'skforecast==0.26.0'`).
+        (`'skforecast==0.27.0'`).
     files : dict
         Absolute path of the file with the full code, when it was cut.
     """

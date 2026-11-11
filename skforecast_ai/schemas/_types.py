@@ -20,7 +20,6 @@ _FOLD_PARAMS = (
     "fold_stride",
     "skip_folds",
     "allow_incomplete_fold",
-    "differentiation",
 )
 
 

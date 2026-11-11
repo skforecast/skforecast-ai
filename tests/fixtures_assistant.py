@@ -2,7 +2,16 @@
 
 import numpy as np
 import pandas as pd
+import sklearn
 
+
+# The types that the parameter validation of scikit-learn names for the
+# `alpha` of Ridge: "an array-like" since 1.9, a NumPy array before.
+RIDGE_ALPHA_TYPES = (
+    "a float in the range [0.0, inf) or an array-like"
+    if tuple(int(part) for part in sklearn.__version__.split(".")[:2]) >= (1, 9)
+    else "a float in the range [0.0, inf) or an instance of 'numpy.ndarray'"
+)
 
 # Seed for reproducibility
 _rng = np.random.default_rng(42)
@@ -106,12 +115,67 @@ df_multi_long_staggered = pd.concat([
     df_multi_long[df_multi_long["series_id"] == "store_b"].iloc[60:],
 ])
 
+# Long data whose series ids are numbers written as text, as store or SKU
+# codes are: '001' and '1' are two series (one series 1 if read as integers),
+# and '10' sorts before '2' as text. Three series of 100 days.
+df_multi_long_numeric_ids = pd.DataFrame(
+    {
+        "date": np.tile(_dates_multi, 3),
+        "series_id": np.repeat(["001", "1", "10"], _n_obs_per_series),
+        "value": np.concatenate([
+            10 + np.sin(np.arange(_n_obs_per_series) / 3),
+            20 + 2 * np.cos(np.arange(_n_obs_per_series) / 4),
+            30 + np.arange(_n_obs_per_series) % 7,
+        ]),
+    }
+)
+
+# The same data with the series ids as integers (1, 2 and 10), as a
+# DataFrame may hold them.
+df_multi_long_integer_ids = df_multi_long_numeric_ids.assign(
+    series_id=df_multi_long_numeric_ids["series_id"].map({"001": 2, "1": 1, "10": 10})
+)
+
 # --- Multi-series wide format (2 series as columns) ---
 df_multi_wide = pd.DataFrame(
     {
         "date": _dates,
         "series_a": np.arange(_n_obs, dtype=float),
         "series_b": np.arange(_n_obs, dtype=float) + 50.0,
+    }
+)
+
+# --- Multi-series wide format, 300 observations pooled over 150 dates ---
+# The pooled count reaches the threshold of the estimator rule (250), the
+# 150 dates that ForecasterDirectMultiVariate trains on do not.
+_n_obs_pooled = 150
+_t_pooled = np.arange(_n_obs_pooled, dtype=float)
+df_multi_wide_pooled = pd.DataFrame(
+    {
+        "date": pd.date_range("2023-01-01", periods=_n_obs_pooled, freq="D"),
+        "series_a": 50.0 + 0.2 * _t_pooled + 5.0 * np.sin(2 * np.pi * _t_pooled / 7),
+        "series_b": 80.0 + 0.1 * _t_pooled + 3.0 * np.cos(2 * np.pi * _t_pooled / 7),
+    }
+)
+
+# --- Single series away from zero (MAPE is meaningful) ---
+df_single_positive = df_single.assign(sales=df_single["sales"] + 1.0)
+
+# --- Targets that cross zero (profits, temperatures, net flows) ---
+# MAPE divides by the actual value: the default panel leaves it out. The
+# wide frame has one series away from zero and one that crosses it.
+_t_single = np.arange(_n_obs, dtype=float)
+df_crossing_zero = pd.DataFrame(
+    {
+        "date": _dates,
+        "profit": np.round(10.0 * np.sin(2 * np.pi * _t_single / 12), 2),
+    }
+)
+df_multi_wide_crossing_zero = pd.DataFrame(
+    {
+        "date": _dates,
+        "series_a": np.arange(_n_obs, dtype=float) + 50.0,
+        "series_b": np.round(10.0 * np.sin(2 * np.pi * _t_single / 12), 2),
     }
 )
 
@@ -163,6 +227,53 @@ df_irregular = pd.DataFrame(
     {"date": _irregular_minutes, "sales": np.arange(100, dtype=float)}
 )
 
+# --- Daily series written day first as text, 60 days ending 2021-01-31 ---
+# The dates after the 12th ('13/12/2020') settle that they are day first. The
+# 7 days to forecast (`df_day_first_exog`, '01/02/2021' to '07/02/2021') read
+# both day first and month first, and pandas reads them month first.
+df_day_first = pd.DataFrame(
+    {
+        "date": pd.date_range(end="2021-01-31", periods=60, freq="D").strftime(
+            "%d/%m/%Y"
+        ),
+        "y": np.round(10 + 0.1 * np.arange(60) + 2 * np.sin(np.arange(60) / 3), 3),
+        "promo": np.tile([0.0, 1.0], 30),
+    }
+)
+df_day_first_exog = pd.DataFrame(
+    {
+        "date": [
+            "01/02/2021", "02/02/2021", "03/02/2021", "04/02/2021", "05/02/2021",
+            "06/02/2021", "07/02/2021",
+        ],
+        "promo": [0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0],
+    }
+)
+
+# --- A year of daily sales of a shop closed on Sundays (312 days) ---
+# No ten days are in a row: the frequency is 'D', inferred on windows of three
+# days, with the 51 Sundays from 2023-01-02 to 2023-12-30 missing.
+_dates_no_sundays = pd.date_range("2023-01-02", periods=364, freq="D")
+_dates_no_sundays = _dates_no_sundays[_dates_no_sundays.dayofweek != 6]
+df_no_sundays = pd.DataFrame(
+    {
+        "date": _dates_no_sundays,
+        "sales": np.round(
+            100 + 8 * _dates_no_sundays.dayofweek + 0.05 * np.arange(312)
+            + 3 * np.sin(np.arange(312) / 5),
+            2,
+        ),
+    }
+)
+# The same sales in long format, for two shops closed on Sundays.
+df_no_sundays_long = pd.concat(
+    [
+        df_no_sundays.assign(shop="north"),
+        df_no_sundays.assign(shop="south", sales=df_no_sundays["sales"] * 2),
+    ],
+    ignore_index=True,
+)
+
 
 def patch_agent(monkeypatch, assistant, *, output=None, error=None, capture=None):
     """
@@ -212,6 +323,37 @@ def patch_agent(monkeypatch, assistant, *, output=None, error=None, capture=None
         return _FakeAgent()
 
     monkeypatch.setattr(agent_mod, "create_forecasting_agent", _mock_create_agent)
+
+
+def patch_find_spec(monkeypatch, *, missing=(), installed=()):
+    """
+    Patch `importlib.util.find_spec`, which the checks of an installed
+    estimator use, so a package is missing or installed whatever the
+    environment has.
+
+    Parameters
+    ----------
+    monkeypatch : pytest.MonkeyPatch
+        The pytest monkeypatch fixture.
+    missing : iterable of str, default ()
+        Top-level modules taken as not installed (`'xgboost'`).
+    installed : iterable of str, default ()
+        Top-level modules taken as installed, without importing them.
+    """
+    import importlib.machinery
+    import importlib.util
+
+    find_spec = importlib.util.find_spec
+    missing, installed = frozenset(missing), frozenset(installed)
+
+    def _find_spec(name, *args, **kwargs):
+        if name in missing:
+            return None
+        if name in installed:
+            return importlib.machinery.ModuleSpec(name, None)
+        return find_spec(name, *args, **kwargs)
+
+    monkeypatch.setattr(importlib.util, "find_spec", _find_spec)
 
 
 def make_comparison_result(assistant, *, with_failure=False):

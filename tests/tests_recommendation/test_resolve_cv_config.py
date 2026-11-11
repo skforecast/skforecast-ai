@@ -32,7 +32,6 @@ def test_resolve_cv_config_output_when_integer_initial_train_size():
         "fold_stride": 10,
         "skip_folds": None,
         "allow_incomplete_fold": True,
-        "differentiation": None,
         "n_folds": 4,
         "n_fits": 1,
     }
@@ -215,7 +214,6 @@ def test_resolve_cv_config_output_when_stats_does_not_refit():
         "fold_stride": 10,
         "skip_folds": None,
         "allow_incomplete_fold": True,
-        "differentiation": None,
         "n_folds": 4,
         "n_fits": 4,
     }
@@ -264,3 +262,52 @@ def test_resolve_cv_config_output_when_timestamp_initial_train_size(
         f"10-step horizon, 4 folds."
     )
     assert cv.initial_train_size == initial_train_size
+
+
+@pytest.mark.parametrize(
+    "gap, expected",
+    [
+        (
+            0,
+            "Using 60% of data (60 observations) for initial training, trained "
+            "once (no refit), 6-step horizon, 7 folds (the last one has only 4 "
+            "steps).",
+        ),
+        (
+            2,
+            "Using 60% of data (60 observations) for initial training, trained "
+            "once (no refit), 6-step horizon, 7 folds (the last one has only 2 "
+            "steps), gap of 2 observations.",
+        ),
+    ],
+    ids=["no_gap", "gap"],
+)
+def test_resolve_cv_config_output_when_last_fold_is_incomplete(gap, expected):
+    """
+    Test that the explanation says how many steps the last fold has when it
+    is shorter than the horizon: 100 observations from 60 with 6 steps
+    leave 6 full folds and a last one of 4 (finding of the 0.5.0 agent
+    check: agents described every fold as a full horizon). With a gap of 2,
+    the last fold predicts the 2 positions left after the gap.
+    """
+    cv = TimeSeriesFold(steps=6, initial_train_size=60, refit=False, gap=gap)
+
+    cv_config, explanation = resolve_cv_config(cv, profile_single_daily_100)
+
+    assert cv_config["n_folds"] == 7
+    assert cv_config["last_fold_steps"] == (4 if gap == 0 else 2)
+    assert explanation == expected
+
+
+def test_resolve_cv_config_output_has_no_last_fold_steps_when_folds_are_full():
+    """
+    Test that `last_fold_steps` is left out of the configuration when every
+    fold is a full horizon: 100 observations from 60 with 5 steps leave 8
+    folds of 5.
+    """
+    cv = TimeSeriesFold(steps=5, initial_train_size=60, refit=False)
+
+    cv_config, _ = resolve_cv_config(cv, profile_single_daily_100)
+
+    assert cv_config["n_folds"] == 8
+    assert "last_fold_steps" not in cv_config

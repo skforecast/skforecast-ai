@@ -215,7 +215,7 @@ skforecast-ai check-llm --test-call --format json
 
 ## Skills and the API reference
 
-`ask()` briefs the model with skill documents chosen for the question: skforecast know-how synced from the skforecast repository. With `skills=None`, the default, the selection starts from the task type of the context and adds the skills matched by keywords in the question; pass a list to choose them yourself, or `skills=[]` to send none. `include_reference=True` adds the skforecast API reference (about 8500 tokens) on top; it is off by default. The skill content of one request is capped at 20 000 tokens for every provider, and additionally budgeted against the 32768 token window for Ollama. `AskResult.skills` records what was actually sent. The names, the selection rules and examples are in [Skills: how the LLM is briefed](skills.md).
+`ask()` briefs the model with skill documents chosen for the question: skforecast know-how synced from the skforecast repository. With `skills=None`, the default, the selection starts from the task type of the context and adds the skills matched by keywords in the question; pass a list to choose them yourself, or `skills=[]` to send none. `include_reference=True` adds the skforecast API reference (about 10,000 tokens) on top; it is off by default. The skill content of one request gets, for every provider, what a 32,768 token window leaves next to the role prompt, the rendered context, the API reference when it is sent and the answer, at most 20,000 tokens; a skill that does not fit whole goes as its `SKILL.md` alone. `AskResult.skills` records what was actually sent. The names, the selection rules and examples are in [Skills: how the LLM is briefed](skills.md).
 
 ---
 
@@ -237,9 +237,13 @@ skforecast-ai check-llm --test-call --format json
 
 - The values the result owns. For a forecast or a backtest, its predictions: in full when there are 30 rows or fewer, otherwise the first and last five plus per-column statistics. For a comparison, only the metrics of its leaderboard: no predictions of any candidate. A question about a result cannot be answered from summary statistics alone, so these are sent even with `send_data_to_llm=False`; in that case `ask()` emits `DataSentToLLMWarning` to make it visible. Setting `send_data_to_llm=True` acknowledges it and silences the warning. A profile, a `CodeGenerationResult` or a `CVResult` never trigger it.
 
+**Sent only with `send_data_to_llm=True`**:
+
+- The observed values that the predictions of a backtest carry (`y_true`, from skforecast 0.27), which are values of your dataset: in the rows and the statistics of the predictions. With `send_data_to_llm=False` the context says that the column exists and gives none of its values, and `describe()` and the summaries of the MCP server never give them.
+
 **Never sent**:
 
-- The raw observations of your dataset, in any mode. A profile holds summary statistics only, and a result holds the model's output, not the data it was fitted on.
+- Any other observation of your dataset, in any mode. A profile holds summary statistics only, and a result holds the model's output and, in a backtest, the observed value of each prediction (`y_true`, above), not the data it was fitted on.
 - The contents or path of your files.
 - Credentials.
 - The generated code.

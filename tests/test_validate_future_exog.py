@@ -3,6 +3,7 @@
 import re
 import warnings
 
+import dateutil
 import numpy as np
 import pandas as pd
 import pytest
@@ -12,6 +13,7 @@ from skforecast.preprocessing import reshape_exog_long_to_dict
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai._future_exog import used_exog_columns, validate_future_exog
 from skforecast_ai.exceptions import DataContentError, InvalidInputError
+from skforecast_ai.schemas import FutureExogFile
 from skforecast_ai.execution.forecast_runner import (
     exog_as_injected,
     render_forecast_script,
@@ -21,6 +23,8 @@ from tests.fixtures_future_exog import (
     data_bh,
     data_business,
     data_daily,
+    data_day_first,
+    data_day_first_parsed,
     data_dst,
     data_long,
     data_long_early,
@@ -32,6 +36,7 @@ from tests.fixtures_future_exog import (
     exog_bh,
     exog_calendar_days,
     exog_daily,
+    exog_day_first,
     exog_dst,
     exog_long,
     exog_long_early,
@@ -43,6 +48,7 @@ from tests.fixtures_future_exog import (
     plan_daily_lgbm,
     plan_daily_promo_foundation,
     plan_daily_ridge,
+    plan_day_first,
     plan_dst,
     plan_long_early_foundation,
     plan_long_early_ridge,
@@ -56,6 +62,7 @@ from tests.fixtures_future_exog import (
     profile_business,
     profile_daily,
     profile_daily_promo,
+    profile_day_first,
     profile_dst,
     profile_long,
     profile_long_early,
@@ -398,27 +405,34 @@ def test_validate_future_exog_InvalidInputError_when_long_history_across_dst():
         validate_future_exog(exog, data, profile, plan_long_ridge)
 
 
-def test_validate_future_exog_InvalidInputError_when_foundation_ids_of_another_type():
+@pytest.mark.parametrize(
+    "data, exog, plan",
+    [
+        (data_long, exog_long, plan_long_ridge),
+        (data_long_early, exog_long_early, plan_long_early_foundation),
+    ],
+    ids=["multiseries", "foundation"],
+)
+def test_validate_future_exog_output_when_long_ids_are_integers(data, exog, plan):
     """
-    Test that, for a ForecasterFoundation model, which takes a series without
-    future values, series ids of another type than those of the data still
-    raise with the hint, instead of leaving every series without its future
-    values.
+    Test that long-format future exogenous variables whose series ids are
+    integers, where the data has them as text ('1'), pass and give each
+    series its future values once the generated script has prepared them:
+    the ids of both are text, as the script turns them (skforecast issue
+    #1357).
     """
-    data = data_long_early.assign(series=data_long_early["series"].str[-1])
+    data = data.assign(series=data["series"].str[-1])
     profile = ForecastingAssistant().profile(
         data, target="value", date_column="date", series_id_column="series"
     ).data_profile
-    exog = exog_long_early.assign(
-        series=exog_long_early["series"].str[-1].astype(int)
-    )
+    exog = exog.assign(series=exog["series"].str[-1].astype(int))
 
-    err_msg = re.escape(
-        "The ids of `exog` are of another type (int64) than those of the data: "
-        "use the same type."
-    )
-    with pytest.raises(InvalidInputError, match=err_msg):
-        validate_future_exog(exog, data, profile, plan_long_early_foundation)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        validate_future_exog(exog, data, profile, plan)
+    prepared = _prepared_by_script(exog, profile, plan)
+
+    assert sorted(prepared) == ["1", "2", "3"]
 
 
 def test_validate_future_exog_InvalidInputError_when_pd_na_and_column_of_objects():
@@ -497,7 +511,7 @@ def test_validate_future_exog_InvalidInputError_when_index_not_dates():
             "value(s), such as '2023-04-11'). ForecasterRecursive with Ridge "
             "cannot use them, so its predictions would be missing. "
             "Either they are filled in, or the plan uses an estimator that "
-            "accepts missing values (for example 'LGBMRegressor').",
+            "accepts missing values (such as 'RandomForestRegressor').",
         ),
         (
             exog_daily.assign(weekday=np.nan),
@@ -535,7 +549,7 @@ def test_validate_future_exog_InvalidInputError_when_column_not_in_data():
         "value(s), such as '2023-04-11'). ForecasterRecursive with Ridge "
         "cannot use them, so its predictions would be missing. "
         "Either they are filled in, or the plan uses an estimator that "
-        "accepts missing values (for example 'LGBMRegressor')."
+        "accepts missing values (such as 'RandomForestRegressor')."
     )
     with pytest.raises(InvalidInputError, match=err_msg):
         validate_future_exog(
@@ -557,10 +571,43 @@ def test_validate_future_exog_InvalidInputError_when_data_without_dates():
         "at index 61). ForecasterRecursive with Ridge cannot use them, so its "
         "predictions would be missing. "
         "Either they are filled in, or the plan uses an estimator that "
-        "accepts missing values (for example 'LGBMRegressor')."
+        "accepts missing values (such as 'RandomForestRegressor')."
     )
     with pytest.raises(InvalidInputError, match=err_msg):
         validate_future_exog(exog, data_range, profile_range, plan_range_ridge)
+
+
+@pytest.mark.parametrize(
+    "exog, found",
+    [
+        (exog_range.set_axis(pd.RangeIndex(0, 7)), "0, 1, 2, 3, 4 and 2 more"),
+        (exog_range.set_axis(pd.RangeIndex(61, 68)), "61, 62, 63, 64, 65 and 2 more"),
+        (
+            exog_range.set_axis(pd.Index([60, 61, 62, 63, 64, 65, 66])),
+            "60, 61, 62, 63, 64 and 2 more",
+        ),
+    ],
+    ids=["from zero", "one after", "not a RangeIndex"],
+)
+def test_validate_future_exog_DataContentError_when_data_without_dates_and_positions_do_not_follow(
+    exog, found
+):
+    """
+    Test that, for data without dates (RangeIndex), future values whose
+    first `steps` rows are not at the positions that follow the last row of
+    the data, in a RangeIndex, raise a clear error before running, instead
+    of the error of skforecast when it predicts (an `exog` that does not
+    start one step ahead of the last window, or an unsupported index type).
+    """
+    err_msg = re.escape(
+        f"`exog` must be indexed by the positions that follow the last row of "
+        f"the data (a RangeIndex), 60 to 66 for the 7 steps of the horizon; its "
+        f"first rows are at {found}. The data have no dates: the future values "
+        f"are one row per step of the horizon, in order."
+    )
+    with pytest.raises(DataContentError, match=err_msg) as exc_info:
+        validate_future_exog(exog, data_range, profile_range, plan_range_ridge)
+    assert exc_info.value.field == "exog"
 
 
 @pytest.mark.parametrize(
@@ -613,24 +660,52 @@ def test_validate_future_exog_InvalidInputError_when_long_exog_wrong(exog, err_m
         validate_future_exog(exog, data_long, profile_long, plan_long_ridge)
 
 
-def test_validate_future_exog_InvalidInputError_when_long_ids_of_another_type():
+@pytest.mark.parametrize(
+    "data, exog, plan, ids, exog_ids, err_msg",
+    [
+        (
+            data_long, exog_long, plan_long_ridge, ["001", "002", "003"], [1, 2, 3],
+            "`exog` has no rows for 3 series of the data: '001', '002', '003'. "
+            "The ids of `exog` write the same numbers otherwise than the data "
+            "('1' for '001'): write them as the data does.",
+        ),
+        (
+            data_long_early, exog_long_early, plan_long_early_foundation,
+            ["001", "002", "003"], [1, 2, 3],
+            "`exog` has no rows for 3 series of the data: '001', '002', '003'. "
+            "The ids of `exog` write the same numbers otherwise than the data "
+            "('1' for '001'): write them as the data does.",
+        ),
+        (
+            data_long, exog_long, plan_long_ridge, ["1", "2", "3"], [1.0, 2.0, 3.0],
+            "`exog` has no rows for 3 series of the data: '1', '2', '3'. The ids "
+            "of `exog` write the same numbers otherwise than the data ('1.0' for "
+            "'1'): write them as the data does.",
+        ),
+    ],
+    ids=["multiseries zeros", "foundation zeros", "multiseries floats"],
+)
+def test_validate_future_exog_InvalidInputError_when_long_ids_differ_as_text(
+    data, exog, plan, ids, exog_ids, err_msg
+):
     """
-    Test that long-format future exogenous variables whose series ids are
-    numbers, where the data has them as text, raise with a hint on the type.
+    Test that long-format future exogenous variables whose ids write the
+    numbers of the ids of the data otherwise (1 for '001', 1.0 for '1')
+    raise naming the series without rows, with a hint: the ids are compared
+    as text, as the generated script reads them. A ForecasterFoundation
+    model, which takes a series without future values, raises too, instead
+    of leaving every series without its future values.
     """
-    data = data_long.assign(series=data_long["series"].str[-1])
+    as_id = dict(zip(["1", "2", "3"], ids))
+    data = data.assign(series=data["series"].str[-1].map(as_id))
     profile = ForecastingAssistant().profile(
         data, target="value", date_column="date", series_id_column="series"
     ).data_profile
-    exog = exog_long.assign(series=exog_long["series"].str[-1].astype(int))
+    as_exog_id = dict(zip(["1", "2", "3"], exog_ids))
+    exog = exog.assign(series=exog["series"].str[-1].map(as_exog_id))
 
-    err_msg = re.escape(
-        "`exog` has no rows for 3 series of the data: '1', '2', '3'. The ids of "
-        "`exog` are of another type (int64) than those of the data: use the same "
-        "type."
-    )
-    with pytest.raises(InvalidInputError, match=err_msg):
-        validate_future_exog(exog, data, profile, plan_long_ridge)
+    with pytest.raises(InvalidInputError, match=re.escape(err_msg)):
+        validate_future_exog(exog, data, profile, plan)
 
 
 @pytest.mark.parametrize(
@@ -813,6 +888,12 @@ def test_validate_future_exog_UserWarning_when_infinite_values_and_lightgbm():
             exog_dst.tz_convert("dateutil/Europe/Madrid"),
             data_dst, profile_dst, plan_dst,
             id="same_time_zone_other_name",
+            # pandas 2.3 cannot localize the time zones of python-dateutil
+            # 3.0 (pandas#71459, fixed only in pandas 3).
+            marks=pytest.mark.skipif(
+                int(dateutil.__version__.split(".")[0]) >= 3,
+                reason="pandas 2.3 does not support the time zones of dateutil 3",
+            ),
         ),
         pytest.param(
             pd.DataFrame(
@@ -844,9 +925,7 @@ def test_validate_future_exog_UserWarning_when_infinite_values_and_lightgbm():
             id="calendar_hours_for_business_hours",
         ),
         pytest.param(
-            pd.concat([exog_range, exog_range.iloc[[0]].set_axis([90]).assign(
-                x=np.nan
-            )]),
+            exog_range.reindex(pd.RangeIndex(60, 68)),
             data_range, profile_range, plan_range_ridge,
             id="data_without_dates_more_rows",
         ),
@@ -1222,3 +1301,135 @@ def test_validate_future_exog_DataContentError_when_column_missing():
     assert (exc_info.value.code, exc_info.value.field) == (
         "invalid_argument", "exog"
     )
+
+
+@pytest.mark.parametrize(
+    "exog",
+    [exog_day_first, exog_day_first.iloc[::-1]],
+    ids=["in_order", "reversed"],
+)
+def test_validate_future_exog_output_when_text_dates_follow_date_format(exog):
+    """
+    Test that text dates of the future exog that read both day first and
+    month first ('01/02/2021' to '07/02/2021') are read with their format
+    (the `date_format` of `exog_file`, the one `exog_date_format` gives
+    them from the order of the data), as the generated code reads them, whatever the order of the
+    rows: they are the seven days after the last date of the data,
+    2021-01-31.
+    """
+    assert profile_day_first.date_format == "%d/%m/%Y"
+
+    result = validate_future_exog(
+        exog, data_day_first, profile_day_first, plan_day_first,
+        FutureExogFile(date_format="%d/%m/%Y"),
+    )
+
+    assert result is None
+
+
+def test_validate_future_exog_output_when_iso_dates_and_day_first_data():
+    """
+    Test that text dates of the future exog in ISO 8601, as `to_csv()` writes
+    them, are read without a format (`date_format` None, their own) for data
+    whose dates are day first: the format of the data is not theirs.
+    """
+    exog = exog_day_first.assign(
+        date=["2021-02-01", "2021-02-02", "2021-02-03", "2021-02-04",
+              "2021-02-05", "2021-02-06", "2021-02-07"]
+    )
+
+    result = validate_future_exog(
+        exog, data_day_first, profile_day_first, plan_day_first
+    )
+
+    assert result is None
+
+
+@pytest.mark.parametrize(
+    "exog",
+    [exog_day_first, exog_day_first.iloc[::-1]],
+    ids=["in_order", "reversed"],
+)
+def test_validate_future_exog_DataContentError_when_text_dates_and_no_date_format(
+    exog,
+):
+    """
+    Test that the same dates of the future exog, without their
+    `date_format`, are read with the format pandas guesses from the first
+    one, month first, so they start before the first date to forecast.
+    """
+    profile = profile_day_first.model_copy(update={"date_format": None})
+
+    err_msg = re.escape(
+        "`exog` starts at 2021-01-02, before the first date to forecast, "
+        "2021-02-01 (the date after the last date of the data). Drop the rows "
+        "before it."
+    )
+    with pytest.raises(DataContentError, match=err_msg) as exc_info:
+        validate_future_exog(exog, data_day_first_parsed, profile, plan_day_first)
+
+    assert exc_info.value.field == "exog"
+
+
+@pytest.mark.parametrize(
+    "frequency",
+    ["D", None],
+    ids=["frequency_known", "no_frequency"],
+)
+@pytest.mark.parametrize(
+    "rows",
+    [slice(None), slice(None, None, -1)],
+    ids=["in_order", "reversed"],
+)
+def test_validate_future_exog_DataContentError_when_missing_value_in_day_first_dates(
+    frequency, rows
+):
+    """
+    Test that the missing value of a row is dated as the generated code
+    reads the text dates (day first, their `date_format`): '03/02/2021' is
+    the third of February and not the second of March, whether the dates are
+    checked against the grid of the data or, without a frequency, in the
+    order of the dates, and whatever the order of the rows.
+    """
+    exog = exog_day_first.assign(
+        promo=[0.0, 1.0, np.nan, 1.0, 0.0, 1.0, 0.0]
+    ).iloc[rows]
+    profile = profile_day_first.model_copy(update={"frequency": frequency})
+
+    err_msg = re.escape(
+        "`exog` has missing values in the rows to forecast ('promo': 1 "
+        "value(s), such as '2021-02-03')."
+    )
+    with pytest.raises(DataContentError, match=err_msg) as exc_info:
+        validate_future_exog(
+            exog, data_day_first, profile, plan_day_first,
+            FutureExogFile(date_format="%d/%m/%Y"),
+        )
+
+    assert exc_info.value.field == "exog"
+
+
+def test_validate_future_exog_DataContentError_when_text_dates_not_in_date_format():
+    """
+    Test that text dates of the future exog that do not follow the format
+    given (ISO 8601 against '%d/%m/%Y') raise a DataContentError that says
+    they cannot be read as the generated code reads them, instead of being
+    read on their own.
+    """
+    exog = exog_day_first.assign(
+        date=["2021-02-01", "2021-02-02", "2021-02-03", "2021-02-04",
+              "2021-02-05", "2021-02-06", "2021-02-07"]
+    )
+
+    err_msg = re.escape(
+        "The dates of `exog` (column or index 'date') cannot be read as the "
+        "generated code reads them: time data \"2021-02-01\" doesn't match "
+        "format \"%d/%m/%Y\", at position 0."
+    )
+    with pytest.raises(DataContentError, match=err_msg) as exc_info:
+        validate_future_exog(
+            exog, data_day_first, profile_day_first, plan_day_first,
+            FutureExogFile(date_format="%d/%m/%Y"),
+        )
+
+    assert exc_info.value.field == "exog"

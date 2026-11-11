@@ -22,7 +22,7 @@ from rich.rule import Rule
 from rich.syntax import Syntax
 from rich.table import Table
 
-from ._constants import ML_TASK_TYPES, PLACEHOLDER_DATA_PATH
+from ._constants import ML_TASK_TYPES, N_EVALUATED_COLUMN, PLACEHOLDER_DATA_PATH
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -81,6 +81,13 @@ def _format_metric(value: Any) -> str:
     if isinstance(value, Number) and not isinstance(value, bool):
         return f"{value:.4f}"
     return escape(str(value))
+
+
+def _format_count(value: Any) -> str:
+    """Format a count cell (`n_evaluated`) as an integer, `"N/A"` if missing."""
+    if pd.isna(value):
+        return "N/A"
+    return f"{int(value):,}"
 
 
 def _format_missing(missing: dict[str, int]) -> str | None:
@@ -330,9 +337,10 @@ def render_metrics(metrics: DataFrame, title: str = "Metrics") -> Table:
     """
     Render a metrics DataFrame as a Rich table.
 
-    Handles both the `forecast()` layout (a `'series'` column plus metric
-    columns) and the skforecast backtesting layout (metric columns only,
-    optionally with a `'levels'` column).
+    Handles the layout of skforecast's backtesting, which `forecast()`
+    follows too: metric columns only, plus a `'levels'` column with several
+    series. The `'n_evaluated'` column of a backtest, a count of points
+    and not a metric, is shown as an integer.
 
     Parameters
     ----------
@@ -348,7 +356,7 @@ def render_metrics(metrics: DataFrame, title: str = "Metrics") -> Table:
     """
     table = Table(title=title, **_TABLE_KWARGS)
 
-    series_col = next((c for c in ("series", "levels") if c in metrics.columns), None)
+    series_col = "levels" if "levels" in metrics.columns else None
     metric_cols = [c for c in metrics.columns if c != series_col]
 
     if series_col is not None:
@@ -358,7 +366,11 @@ def render_metrics(metrics: DataFrame, title: str = "Metrics") -> Table:
 
     for _, row in metrics.iterrows():
         values = [escape(str(row[series_col]))] if series_col is not None else []
-        values.extend(_format_metric(row[col]) for col in metric_cols)
+        values.extend(
+            _format_count(row[col]) if col == N_EVALUATED_COLUMN
+            else _format_metric(row[col])
+            for col in metric_cols
+        )
         table.add_row(*values)
 
     return table
@@ -523,13 +535,29 @@ def render_profile(profile: ForecastingProfile) -> RenderableType:
     # How the file is written, when it is not the default of
     # `pandas.read_csv`: detected, so shown where the user reads the profile.
     if dp.data_path != PLACEHOLDER_DATA_PATH and (
-        (dp.csv_sep, dp.csv_decimal) != (",", ".")
+        (dp.csv_sep, dp.csv_decimal, dp.csv_encoding) != (",", ".", "utf-8")
     ):
         sep_name = "tabulator" if dp.csv_sep == "\t" else repr(dp.csv_sep)
+        thousands = (
+            "" if dp.csv_thousands is None
+            else f", thousands {dp.csv_thousands!r}"
+        )
+        encoding = (
+            "" if dp.csv_encoding == "utf-8"
+            else f", encoding {dp.csv_encoding!r}"
+        )
         table.add_row(
             "CSV format",
-            escape(f"separator {sep_name}, decimal {dp.csv_decimal!r}"),
+            escape(
+                f"separator {sep_name}, decimal {dp.csv_decimal!r}{thousands}"
+                f"{encoding}"
+            ),
         )
+    # The format the script reads the dates with, when it names one (day
+    # first, or the order given): it is told from the dates, as the CSV
+    # format is, so the user sees what was decided.
+    if dp.date_format is not None:
+        table.add_row("Date format", escape(repr(dp.date_format)))
 
     renderables: list[RenderableType] = [table]
     if dp.warnings:

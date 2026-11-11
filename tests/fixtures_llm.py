@@ -105,6 +105,9 @@ plan_foundation_without_covariates = assistant.plan(
     forecaster = "ForecasterFoundation",
     estimator  = "Salesforce/moirai-2.0-R-small",
 )
+# The plan of `forecast(test_size=5)` on `df_no_exog` (100 days up to
+# 2023-04-10): `forecast()` stamps `end_train` onto the plan it was given.
+plan_holdout = plan_single.model_copy(update={"end_train": "2023-04-05"})
 
 
 # ---------------------------------------------------------------------------
@@ -121,6 +124,12 @@ _forecast_index = pd.date_range("2023-04-11", periods=5, freq="D")
 predictions_single = pd.DataFrame(
     {"pred": [1000.0, 1111.1111, 1250.0, 1375.0, 2000.0]},
     index=_forecast_index,
+)
+
+# Predictions of the last 5 days of the data, those of `plan_holdout`.
+predictions_holdout = pd.DataFrame(
+    {"pred": [1000.0, 1111.1111, 1250.0, 1375.0, 2000.0]},
+    index=pd.date_range("2023-04-06", periods=5, freq="D"),
 )
 
 predictions_interval = pd.DataFrame(
@@ -150,9 +159,11 @@ predictions_multi = pd.DataFrame(
 # captures the per-level summary of the median.
 predictions_quantiles_multi = pd.DataFrame(
     {
-        "level": ["store_a", "store_b"] * 20,
-        "fold":  np.repeat(np.arange(4), 10),
-        "q_0.1": np.arange(40, dtype=float) * 2.5 + 900.0,
+        "level":  ["store_a", "store_b"] * 20,
+        "fold":   np.repeat(np.arange(4), 10),
+        "step":   np.tile(np.repeat(np.arange(1, 6), 2), 4),
+        "y_true": np.arange(40, dtype=float) * 2.5 + 1003.125,
+        "q_0.1":  np.arange(40, dtype=float) * 2.5 + 900.0,
         "q_0.5": np.arange(40, dtype=float) * 2.5 + 1000.0,
         "q_0.9": np.arange(40, dtype=float) * 2.5 + 1100.0,
     },
@@ -161,15 +172,27 @@ predictions_quantiles_multi = pd.DataFrame(
 
 # 40 rows, above `MAX_CONTEXT_DATAFRAME_ROWS`, so the golden captures the
 # truncation notice as well as the head, tail, and per-column summary.
+# skforecast 0.27 gives the backtest predictions the columns `fold`, `step`
+# and `y_true` (the observed value) before `pred`. The observed values end
+# in .125 or .625, so none of them (nor their minimum, maximum or mean)
+# equals another figure of the context: the privacy tests search for them.
 predictions_backtest = pd.DataFrame(
-    {"pred": np.arange(40, dtype=float) * 2.5 + 1000.0},
+    {
+        "fold":   np.repeat(np.arange(8), 5),
+        "step":   np.tile(np.arange(1, 6), 8),
+        "y_true": np.arange(40, dtype=float) * 2.5 + 1003.125,
+        "pred":   np.arange(40, dtype=float) * 2.5 + 1000.0,
+    },
     index=pd.date_range("2023-03-02", periods=40, freq="D"),
 )
 
 predictions_backtest_multi = pd.DataFrame(
     {
-        "level": ["store_a"] * 20 + ["store_b"] * 20,
-        "pred":  np.arange(40, dtype=float) * 2.5 + 1000.0,
+        "level":  ["store_a"] * 20 + ["store_b"] * 20,
+        "fold":   np.repeat(np.arange(4), 10),
+        "step":   np.tile(np.repeat(np.arange(1, 6), 2), 4),
+        "y_true": np.arange(40, dtype=float) * 2.5 + 1003.125,
+        "pred":   np.arange(40, dtype=float) * 2.5 + 1000.0,
     },
     index=pd.date_range("2023-03-22", periods=20, freq="D").repeat(2),
 )
@@ -178,18 +201,31 @@ predictions_backtest_multi = pd.DataFrame(
 # ---------------------------------------------------------------------------
 # Metrics, cross-validation, and deterministic summaries
 # ---------------------------------------------------------------------------
+# The columns of the metrics of a backtest and of a forecast with
+# `test_size`: one per metric, named as the metric, and `levels` with
+# several series.
 metrics_single = pd.DataFrame(
-    {"series": ["sales"], "MAE": [2.5], "MSE": [9.25], "MASE": [0.8]}
+    {
+        "mean_absolute_error":        [2.5],
+        "root_mean_squared_error":    [3.0414],
+        "mean_absolute_scaled_error": [0.8],
+    }
 )
 
 metrics_multi = pd.DataFrame(
     {
-        "series": ["store_a", "store_b"],
-        "MAE":    [2.5, 3.5],
-        "MSE":    [9.25, 16.5],
-        "MASE":   [0.8, 1.2],
+        "levels":                     ["store_a", "store_b"],
+        "mean_absolute_error":        [2.5, 3.5],
+        "root_mean_squared_error":    [3.0414, 4.062],
+        "mean_absolute_scaled_error": [0.8, 1.2],
     }
 )
+
+# The metrics of a backtest end with `n_evaluated` (skforecast 0.27): the
+# number of points each row is measured on, summed in the aggregated rows.
+# The metrics of a forecast with `test_size` do not have it.
+metrics_backtest_single = metrics_single.assign(n_evaluated=[40])
+metrics_backtest_multi = metrics_multi.assign(n_evaluated=[20, 20])
 
 # 500 series in wide format with 20 exogenous columns, missing values in
 # 30 series and a plan with 30 lags: every list `describe()` cuts
@@ -215,13 +251,16 @@ metrics_many_series = pd.DataFrame(
         "mean_absolute_error": [
             round(5 + i / 100, 2) for i in range(500)
         ] + [7.5, 7.5, 7.4],
+        "n_evaluated": [3] * 500 + [1500, 1500, 1500],
     }
 )
 predictions_many_series = pd.DataFrame(
     {
-        "level": np.repeat(_many_series[:2], 3),
-        "fold":  [0, 0, 0, 0, 0, 0],
-        "pred":  [100.5, 101.5, 102.5, 99.5, 98.5, 97.5],
+        "level":  np.repeat(_many_series[:2], 3),
+        "fold":   [0, 0, 0, 0, 0, 0],
+        "step":   [1, 2, 3, 1, 2, 3],
+        "y_true": [100.125, 101.625, 102.125, 99.625, 98.125, 97.625],
+        "pred":   [100.5, 101.5, 102.5, 99.5, 98.5, 97.5],
     },
     index=np.tile(pd.date_range("2023-04-21", periods=3, freq="D"), 2),
 )
@@ -262,17 +301,65 @@ code_stats_backtest = assistant.backtest_code(
 # last one incomplete), as the strategy splits the data.
 predictions_stats = pd.DataFrame(
     {
-        "fold": np.repeat(np.arange(6), 12)[:62],
-        "pred": np.round(0.6 + np.arange(62) * 0.005, 4),
+        "fold":   np.repeat(np.arange(6), 12)[:62],
+        "step":   np.tile(np.arange(1, 13), 6)[:62],
+        "y_true": np.round(0.60125 + np.arange(62) * 0.005, 5),
+        "pred":   np.round(0.6 + np.arange(62) * 0.005, 4),
     },
     index=pd.date_range("2003-05-01", periods=62, freq="MS"),
 )
 metrics_stats = pd.DataFrame({
     "mean_absolute_error":        [0.0612],
-    "mean_squared_error":         [0.0061],
+    "root_mean_squared_error":    [0.0781],
     "mean_absolute_scaled_error": [0.8514],
+    "n_evaluated":                [62],
 })
 explanation_stats = _build_backtest_explanation(cv_stats.explanation, metrics_stats)
+
+# Backtests with an interval: skforecast 0.27 appends `coverage` and
+# `interval_width` after the requested metrics (by series and in the
+# aggregated rows), and the summary states them next to the nominal
+# coverage of the plan. `store_b` covers far less than 80 %.
+plan_interval_single = assistant.plan(profile_single, steps=5, interval=[0.1, 0.9])
+plan_interval_multi = assistant.plan(profile_multi, steps=3, interval=[0.1, 0.9])
+predictions_backtest_interval = predictions_backtest.assign(
+    lower_bound = predictions_backtest["pred"] - 20.0,
+    upper_bound = predictions_backtest["pred"] + 20.0,
+)
+metrics_interval_single = pd.DataFrame({
+    "mean_absolute_error":        [12.5],
+    "root_mean_squared_error":    [15.2069],
+    "mean_absolute_scaled_error": [0.8],
+    "coverage":                   [0.775],
+    "interval_width":             [40.0],
+    "n_evaluated":                [40],
+})
+explanation_interval_single = _build_backtest_explanation(
+    cv_explanation = explanation_backtest,
+    metrics        = metrics_interval_single,
+    predictions    = predictions_backtest_interval,
+    interval       = plan_interval_single.interval,
+)
+_half_widths = np.repeat([20.0, 30.0], 20)
+predictions_backtest_multi_interval = predictions_backtest_multi.assign(
+    lower_bound = predictions_backtest_multi["pred"] - _half_widths,
+    upper_bound = predictions_backtest_multi["pred"] + _half_widths,
+)
+metrics_interval_multi = pd.DataFrame({
+    "levels": ["store_a", "store_b", "average", "weighted_average", "pooling"],
+    "mean_absolute_error":        [10.5, 25.5, 18.0, 18.0, 18.0],
+    "root_mean_squared_error":    [12.2577, 30.0083, 21.133, 21.133, 22.9211],
+    "mean_absolute_scaled_error": [0.7, 1.4, 1.05, 1.05, 1.05],
+    "coverage":                   [0.8, 0.45, 0.625, 0.625, 0.625],
+    "interval_width":             [40.0, 60.0, 50.0, 50.0, 50.0],
+    "n_evaluated":                [20, 20, 40, 40, 40],
+})
+explanation_interval_multi = _build_backtest_explanation(
+    cv_explanation = explanation_backtest,
+    metrics        = metrics_interval_multi,
+    predictions    = predictions_backtest_multi_interval,
+    interval       = plan_interval_multi.interval,
+)
 
 # Long-format data of 3 series with a numeric and a categorical exogenous
 # column, one series ending 6 days before the others (a note in the data
@@ -320,22 +407,29 @@ _long_levels = [
 ]
 predictions_multi_long_exog = pd.DataFrame(
     {
-        "level": [level for _, level in _long_levels],
-        "fold":  [int(date > pd.Timestamp("2023-03-24")) for date, _ in _long_levels],
-        "pred":  np.round(100 + np.arange(len(_long_levels)) * 0.5, 2),
+        "level":  [level for _, level in _long_levels],
+        "fold":   [int(date > pd.Timestamp("2023-03-24")) for date, _ in _long_levels],
+        "step":   [
+                      (date - pd.Timestamp("2023-03-18")).days % 7 + 1
+                      for date, _ in _long_levels
+                  ],
+        "y_true": np.round(100.125 + np.arange(len(_long_levels)) * 0.5, 3),
+        "pred":   np.round(100 + np.arange(len(_long_levels)) * 0.5, 2),
     },
     index=pd.DatetimeIndex([date for date, _ in _long_levels]),
 )
 # The three metrics of the plan. The weighted averages weigh each series
-# by its 14, 14 and 8 rows; the pooled MAE and MSE equal them.
+# by its 14, 14 and 8 rows; the pooled MAE equals them, and the pooled RMSE
+# is the root of the pooled squared errors.
 metrics_multi_long_exog = pd.DataFrame({
     "levels": [
         "store_a", "store_b", "store_c", "average", "weighted_average",
         "pooling",
     ],
     "mean_absolute_error":        [1.21, 1.35, 1.48, 1.3467, 1.3244, 1.3244],
-    "mean_squared_error":         [2.31, 2.86, 3.12, 2.7633, 2.7039, 2.7039],
+    "root_mean_squared_error":    [1.5199, 1.6912, 1.7664, 1.6592, 1.6413, 1.6444],
     "mean_absolute_scaled_error": [0.62, 0.68, 0.74, 0.6800, 0.6700, 0.6650],
+    "n_evaluated":                [14, 14, 8, 36, 36, 36],
 })
 code_multi_long_exog = assistant.forecast_code(
     profile = profile_multi_long_exog,
@@ -475,7 +569,7 @@ def make_backtest_result(
     profile      = profile_single,
     plan         = plan_single,
     predictions  = predictions_backtest,
-    metrics      = metrics_single,
+    metrics      = metrics_backtest_single,
     cv_config    = cv_config,
     explanation  = explanation_backtest,
 ) -> BacktestResult:
@@ -490,7 +584,7 @@ def make_backtest_result(
         Plan carried by the result.
     predictions : pandas DataFrame, default `predictions_backtest`
         Backtest predictions carried by the result.
-    metrics : pandas DataFrame, default `metrics_single`
+    metrics : pandas DataFrame, default `metrics_backtest_single`
         Backtest metrics carried by the result.
     cv_config : dict, default `cv_config`
         Resolved strategy carried by the result.
@@ -521,6 +615,7 @@ def make_comparison_result(
     with_baseline: bool = False,
     with_stats: bool = False,
     with_strategy_plan: bool = False,
+    with_interval: bool = False,
 ):
     """
     Build a `ComparisonResult` without backtesting any candidate.
@@ -549,6 +644,11 @@ def make_comparison_result(
         ranked after the other successful candidates, set
         `strategy_plan_name` and write the explanation with
         `build_comparison_explanation`, as `compare()` does.
+    with_interval : bool, default False
+        Whether the candidates ran with the interval `[0.1, 0.9]`: their
+        metrics and the leaderboard carry `coverage` and `interval_width`
+        after MAE, and the explanation is written with
+        `build_comparison_explanation`, as `compare()` does.
 
     Returns
     -------
@@ -561,12 +661,19 @@ def make_comparison_result(
     for i in range(n_candidates):
         name = f"candidate_{i + 1:02d}"
         mae = 1.5 + i
+        interval_metrics = (
+            {"coverage": 0.8 - 0.3 * i, "interval_width": 4.0 - i}
+            if with_interval else {}
+        )
         candidates[name] = BacktestResult(
             profile     = profile_single,
-            plan        = plan_single,
+            plan        = plan_interval_single if with_interval else plan_single,
             code        = f"# {name} code",
             predictions = pd.DataFrame({"pred": [1.0, 2.0, 3.0, 4.0, 5.0]}),
-            metrics     = pd.DataFrame({"MAE": [mae]}),
+            metrics     = pd.DataFrame({"MAE": [mae], **{
+                              key: [value]
+                              for key, value in interval_metrics.items()
+                          }, "n_evaluated": [30]}),
             cv_config   = cv_config,
             explanation = f"Backtest of {name}.",
         )
@@ -576,6 +683,8 @@ def make_comparison_result(
             "forecaster": "ForecasterRecursive",
             "estimator":  "Ridge",
             "MAE":        mae,
+            **interval_metrics,
+            "n_evaluated": 30,
         })
 
     baseline_name = None
@@ -587,16 +696,17 @@ def make_comparison_result(
             plan        = plan_baseline,
             code        = "# baseline code",
             predictions = pd.DataFrame({"pred": [1.0, 2.0, 3.0, 4.0, 5.0]}),
-            metrics     = pd.DataFrame({"MAE": [mae]}),
+            metrics     = pd.DataFrame({"MAE": [mae], "n_evaluated": [30]}),
             cv_config   = cv_config,
             explanation = "Backtest of the baseline.",
         )
         rows.append({
-            "rank":       n_candidates + 1,
-            "name":       baseline_name,
-            "forecaster": "ForecasterEquivalentDate",
-            "estimator":  None,
-            "MAE":        mae,
+            "rank":        n_candidates + 1,
+            "name":        baseline_name,
+            "forecaster":  "ForecasterEquivalentDate",
+            "estimator":   None,
+            "MAE":         mae,
+            "n_evaluated": 30,
         })
         n_candidates += 1
 
@@ -607,16 +717,17 @@ def make_comparison_result(
             plan        = plan_single.model_copy(update={"estimator": "LGBMRegressor"}),
             code        = "# strategy plan code",
             predictions = pd.DataFrame({"pred": [1.0, 2.0, 3.0, 4.0, 5.0]}),
-            metrics     = pd.DataFrame({"MAE": [mae]}),
+            metrics     = pd.DataFrame({"MAE": [mae], "n_evaluated": [30]}),
             cv_config   = cv_config,
             explanation = "Backtest of the plan of the strategy.",
         )
         rows.append({
-            "rank":       n_candidates + 1,
-            "name":       STRATEGY_PLAN_NAME,
-            "forecaster": "ForecasterRecursive",
-            "estimator":  "LGBMRegressor",
-            "MAE":        mae,
+            "rank":        n_candidates + 1,
+            "name":        STRATEGY_PLAN_NAME,
+            "forecaster":  "ForecasterRecursive",
+            "estimator":   "LGBMRegressor",
+            "MAE":         mae,
+            "n_evaluated": 30,
         })
         n_candidates += 1
 
@@ -627,18 +738,19 @@ def make_comparison_result(
             plan        = plan_stats_single,
             code        = "# arima code",
             predictions = pd.DataFrame({"pred": [1.0, 2.0, 3.0, 4.0, 5.0]}),
-            metrics     = pd.DataFrame({"MAE": [mae]}),
+            metrics     = pd.DataFrame({"MAE": [mae], "n_evaluated": [30]}),
             cv_config   = {
                 **cv_config, "refit": True, "fixed_train_size": True, "n_fits": 6
             },
             explanation = "Backtest of arima.",
         )
         rows.append({
-            "rank":       n_candidates + 1,
-            "name":       "arima",
-            "forecaster": "ForecasterStats",
-            "estimator":  "Arima",
-            "MAE":        mae,
+            "rank":        n_candidates + 1,
+            "name":        "arima",
+            "forecaster":  "ForecasterStats",
+            "estimator":   "Arima",
+            "MAE":         mae,
+            "n_evaluated": 30,
         })
         n_candidates += 1
 
@@ -660,11 +772,14 @@ def make_comparison_result(
             "MAE":        float("nan"),
             "error":      "ImportError: No module named 'lightgbm'",
         })
+    # As `build_comparison_table`: the count is a nullable integer, empty
+    # for the candidate that failed, between the metrics and `error`.
+    results = pd.DataFrame(rows).astype({"n_evaluated": "Int64"})
 
     explanation = (
         f"Compared {n_candidates} configurations, ranked ascending by MAE."
     )
-    if with_strategy_plan:
+    if with_strategy_plan or with_interval:
         explanation = build_comparison_explanation(
             n_candidates   = n_candidates + len(failures),
             ranked         = [
@@ -675,13 +790,14 @@ def make_comparison_result(
             any_error      = bool(failures),
             cv_explanation = "Initial training of 70 observations, 6 folds.",
             baseline_name  = baseline_name,
-            strategy_row   = STRATEGY_PLAN_NAME,
+            strategy_row   = STRATEGY_PLAN_NAME if with_strategy_plan else None,
+            interval       = [0.1, 0.9] if with_interval else None,
         )
 
     return ComparisonResult(
         profile            = profile_single,
         cv_config          = cv_config,
-        results            = pd.DataFrame(rows),
+        results            = results,
         candidates         = candidates,
         failures           = failures,
         ranking_metric     = "MAE",
@@ -729,6 +845,10 @@ GOLDEN_SCENARIOS = {
     "forecast_prediction_mode_no_metrics": lambda: make_forecast_result(
         metrics=None
     ),
+    "forecast_holdout_evaluation": lambda: make_forecast_result(
+        plan        = plan_holdout,
+        predictions = predictions_holdout,
+    ),
     "forecast_multi_series": lambda: make_forecast_result(
         profile     = profile_multi,
         plan        = plan_multi,
@@ -742,14 +862,27 @@ GOLDEN_SCENARIOS = {
         profile     = profile_multi,
         plan        = plan_foundation_multi,
         predictions = predictions_quantiles_multi,
-        metrics     = metrics_multi,
+        metrics     = metrics_backtest_multi,
         cv_config   = {**cv_config, "inference_windows": 12},
     ),
     "backtest_multi_series": lambda: make_backtest_result(
         profile     = profile_multi,
         plan        = plan_multi,
         predictions = predictions_backtest_multi,
-        metrics     = metrics_multi,
+        metrics     = metrics_backtest_multi,
+    ),
+    "backtest_single_series_interval": lambda: make_backtest_result(
+        plan        = plan_interval_single,
+        predictions = predictions_backtest_interval,
+        metrics     = metrics_interval_single,
+        explanation = explanation_interval_single,
+    ),
+    "backtest_multi_series_interval": lambda: make_backtest_result(
+        profile     = profile_multi,
+        plan        = plan_interval_multi,
+        predictions = predictions_backtest_multi_interval,
+        metrics     = metrics_interval_multi,
+        explanation = explanation_interval_multi,
     ),
     "comparison_all_succeeded": lambda: make_comparison_result(),
     "comparison_with_failures": lambda: make_comparison_result(
@@ -759,6 +892,7 @@ GOLDEN_SCENARIOS = {
         with_baseline=True
     ),
     "comparison_with_stats": lambda: make_comparison_result(with_stats=True),
+    "comparison_with_interval": lambda: make_comparison_result(with_interval=True),
     # The row of the plan the strategy was created for, ranked below the
     # baseline, so the summary counts the configurations that beat it.
     "comparison_with_strategy_plan": lambda: make_comparison_result(

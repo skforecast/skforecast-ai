@@ -27,7 +27,11 @@ class ExplainableResult:
     """
 
     def _build_llm_context(
-        self, *, send_data: bool, for_describe: bool = False
+        self,
+        *,
+        send_data: bool,
+        for_describe: bool = False,
+        send_observed: bool = False,
     ) -> LLMContext:  # pragma: no cover - overridden by subclasses
         raise NotImplementedError(
             f"{type(self).__name__} must implement _build_llm_context"
@@ -73,15 +77,20 @@ class ExplainableResult:
         The summary of the predictions is computed over all their rows,
         and with several series the point forecast is also summarized for
         each of the first 5 series, while `ask()` sends their rows. The
-        `fold` column of a backtest is an
-        identifier: only the number of folds is given. The script of
+        `fold` and `step` columns of a backtest are
+        identifiers: only the number of folds and the range of the steps
+        are given. The observed values of a backtest (`y_true`) are values
+        of the dataset: the description says that the column exists and
+        gives none of them. The script of
         `backtest_code()` is described as a backtest, with its
         cross-validation strategy, number of folds and trainings.
         """
 
         return self._build_llm_context(send_data=False, for_describe=True).text
 
-    def to_llm_context(self, *, send_data: bool = False) -> LLMContext:
+    def to_llm_context(
+        self, *, send_data: bool = False, send_observed: bool = False
+    ) -> LLMContext:
         """
         Build the LLM context for this result.
 
@@ -92,6 +101,11 @@ class ExplainableResult:
             aggregate statistics are shown for row-level data. The
             decision belongs to the caller, so the privacy policy stays
             owned by `ForecastingAssistant`.
+        send_observed : bool, default False
+            Whether values of the dataset that the result carries may be
+            included: the observed values of a backtest (`y_true` of its
+            predictions). When False, the context says that the column
+            exists and is not shown. `ask()` passes `send_data_to_llm`.
 
         Returns
         -------
@@ -99,4 +113,6 @@ class ExplainableResult:
             Rendered context block plus the artifacts `ask()` echoes back.
         """
 
-        return self._build_llm_context(send_data=send_data)
+        return self._build_llm_context(
+            send_data=send_data, send_observed=send_observed
+        )

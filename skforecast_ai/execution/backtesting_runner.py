@@ -20,9 +20,11 @@ from ..rendering.backtesting import (
     render_backtesting_single_series,
     render_backtesting_statistical,
 )
+from .._constants import N_EVALUATED_COLUMN, OBSERVED_COLUMN
 from ..schemas import DataProfile, ForecastPlan, RenderedScript
 from ..exceptions import InvalidInputError
 from .comparison import aggregate_metrics
+from .interval_coverage import INTERVAL_METRICS, describe_interval_coverage
 from ._exec import exec_rendered
 
 _RENDER_DISPATCH: dict[
@@ -71,7 +73,10 @@ def run_backtest(
     -------
     result : dict
         Dictionary with keys `'metrics'`, `'predictions'`, `'rendered_code'`,
-        and `'explanation'`.
+        `'explanation'` and `'left_out_of_folds'`: the text about the series
+        that the backtest did not forecast in some test fold where they have
+        a value (see `series_left_out_of_folds`), also at the end of the
+        explanation, or None.
     """
 
     # Render backtesting code
@@ -84,17 +89,39 @@ def run_backtest(
     metrics = namespace.get("metrics")
     predictions = namespace.get("predictions")
 
+    # Imported here: `_last_window` imports the execution package.
+    from .._last_window import describe_left_out_of_folds, series_left_out_of_folds
+
+    # The series a fold left out are read from the predictions, which
+    # carry the level and the fold of each one: skforecast does not warn
+    # about them when the script runs with `suppress_warnings=True`.
+    left_out = describe_left_out_of_folds(
+        left_out = series_left_out_of_folds(
+                       data        = data,
+                       profile     = profile,
+                       plan        = plan,
+                       cv          = cv,
+                       predictions = predictions,
+                   ),
+        plan     = plan,
+    )
+
     # Build explanation
     explanation = _build_backtest_explanation(
-        cv_explanation=cv_explanation,
-        metrics=metrics,
+        cv_explanation = cv_explanation,
+        metrics        = metrics,
+        predictions    = predictions,
+        interval       = plan.interval,
     )
+    if left_out is not None:
+        explanation = f"{explanation} {left_out}"
 
     return {
         "metrics": metrics,
         "predictions": predictions,
         "rendered_code": rendered,
         "explanation": explanation,
+        "left_out_of_folds": left_out,
     }
 
 
@@ -174,14 +201,42 @@ def _exec_rendered_code(
     return exec_rendered(code_to_exec, {"data": data.copy()}, "<backtesting>")
 
 
+def _dates_without_value(predictions: pd.DataFrame | None) -> int:
+    """
+    Count the test dates of a backtest of a single series whose target has
+    no observed value (`y_true` missing), which skforecast leaves out of the
+    metrics. A date that overlapping folds predict twice counts once, as in
+    `n_evaluated`. Zero for several series (a `level` column), whose
+    backtest drops them per series, and for predictions without `y_true`.
+    """
+    if (
+        predictions is None
+        or OBSERVED_COLUMN not in predictions.columns
+        or "level" in predictions.columns
+    ):
+        return 0
+
+    return int(predictions.index[predictions[OBSERVED_COLUMN].isna()].nunique())
+
+
 def _build_backtest_explanation(
     cv_explanation: str,
     metrics: pd.DataFrame,
+    predictions: pd.DataFrame | None = None,
+    interval: list[float] | None = None,
 ) -> str:
     """
     Build the full backtesting explanation.
 
-    Concatenates the CV explanation with a post-execution summary.
+    Concatenates the CV explanation with a post-execution summary. With a
+    prediction interval, the coverage and the width that skforecast
+    measured (`coverage` and `interval_width` of the metrics) are not
+    listed with the other metrics: a sentence of their own states them by
+    series next to the nominal coverage of the interval. Neither is the
+    number of points evaluated (`n_evaluated`), which is not a metric: a
+    sentence after the results states it, and with a single series another
+    one counts the test dates without an observed value, which skforecast
+    leaves out of the metrics.
 
     Parameters
     ----------
@@ -189,6 +244,11 @@ def _build_backtest_explanation(
         Explanation from `create_cv`.
     metrics : pandas DataFrame
         Backtesting metrics result.
+    predictions : pandas DataFrame, default None
+        Backtesting predictions, which give the number of predictions the
+        coverage of each series is measured on.
+    interval : list of float, default None
+        Prediction interval of the plan.
 
     Returns
     -------
@@ -200,16 +260,39 @@ def _build_backtest_explanation(
     # aggregate rows (`average`, `weighted_average`, `pooling`); averaging
     # the whole column would blend them with the per-series rows into a
     # number that matches no row, so the `average` row is used instead.
+    aggregated = aggregate_metrics(metrics)
     summary_parts = [
         f"{name}: {value:.4f}"
-        for name, value in aggregate_metrics(metrics).items()
+        for name, value in aggregated.items()
         if isinstance(value, float)
+        and name not in (*INTERVAL_METRICS, N_EVALUATED_COLUMN)
     ]
 
+    explanation = cv_explanation
     if summary_parts:
         metrics_str = ", ".join(summary_parts)
         multi_series = metrics is not None and "levels" in metrics.columns
         label = "Results (average across series)" if multi_series else "Results"
-        return f"{cv_explanation} {label}: {metrics_str}."
+        explanation = f"{cv_explanation} {label}: {metrics_str}."
+        # The count of points is stated apart from the metrics, so it is
+        # never read as an error figure. In the `average` row of several
+        # series skforecast sums it, it does not average it.
+        n_evaluated = aggregated.get(N_EVALUATED_COLUMN)
+        if n_evaluated is not None and not pd.isna(n_evaluated):
+            across = " across the series" if multi_series else ""
+            explanation = (
+                f"{explanation} They are measured on {int(n_evaluated)} "
+                f"predictions with an observed value{across} (n_evaluated)."
+            )
+        without_value = _dates_without_value(predictions)
+        if without_value:
+            dates = "test date" if without_value == 1 else "test dates"
+            explanation = (
+                f"{explanation} The metrics leave out {without_value} {dates} "
+                f"without an observed value of the target."
+            )
+    coverage = describe_interval_coverage(metrics, predictions, interval)
+    if coverage is not None:
+        explanation = f"{explanation} {coverage}"
 
-    return cv_explanation
+    return explanation

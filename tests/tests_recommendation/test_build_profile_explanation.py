@@ -126,3 +126,36 @@ def test_build_profile_explanation_states_pooled_count_when_multi_series():
     )
 
     assert "Data: 200 observations pooled across 2 series, 'D' frequency." in explanation
+
+
+def test_build_profile_explanation_sizes_multivariate_estimator_on_the_dates_shared():
+    """
+    Test that the estimator of a multivariate profile is justified with the
+    dates the series share, the rows ForecasterDirectMultiVariate trains
+    on, and that the explanation says why it is not the pooled count of
+    the data line.
+    """
+    explanation = _build_profile_explanation(
+        task_type             = "multivariate",
+        forecaster            = "ForecasterDirectMultiVariate",
+        forecaster_candidates = ["ForecasterDirectMultiVariate"],
+        estimator             = "Ridge",
+        estimator_candidates  = ["Ridge"],
+        data_profile          = _make_profile(
+            n_series=3,
+            series_lengths={
+                name: {"start": "2023-01-01", "end": "2023-04-10", "length": 100}
+                for name in ("a", "b", "c")
+            },
+            target=["a", "b", "c"],
+        ),
+    )
+
+    assert (
+        "Data: 300 observations pooled across 3 series, 'D' frequency. "
+        "Estimator: Ridge. A linear model is preferred because the dataset is "
+        "small (100 observations < 250); gradient boosting is offered as an "
+        "alternative once more data is available. ForecasterDirectMultiVariate "
+        "trains on one row per date, so the size is the 100 dates the series "
+        "share, not the 300 observations pooled across them."
+    ) in explanation

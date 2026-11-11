@@ -3,6 +3,7 @@
 import ast
 import json
 import re
+import warnings
 from types import SimpleNamespace
 
 import numpy as np
@@ -35,8 +36,11 @@ from skforecast_ai import (
     CandidateFailure,
     CompareProgress,
     ComparisonResult,
+    CostNotConfirmedError,
     DataNotFoundError,
+    FoldsLeftOutWarning,
     ForecastingAssistant,
+    IntervalCoverageWarning,
     InvalidInputError,
     InvalidInputTypeError,
     MissingBackendWarning,
@@ -44,9 +48,11 @@ from skforecast_ai import (
 )
 
 from tests.fixtures_csv_dialect import df_dialect, write_dialect
+from tests.fixtures_last_window import long_starting_late
 from tests.fixtures_compare import (
     cv_h2o_refined,
     cv_multivariate,
+    cv_promo_no_exog,
     cv_sales,
     cv_sales_direct,
     cv_sales_direct_default_refit,
@@ -57,14 +63,17 @@ from tests.fixtures_compare import (
     plan_sales_edited,
     profile_h2o,
     profile_multi,
+    profile_promo,
     profile_sales,
     profile_sales_one_forecaster,
 )
 from tests.fixtures_datasets import (
     df_h2o,
     df_h2o_daily,
+    df_items_sales_long,
 )
 from tests.fixtures_assistant import (
+    df_crossing_zero,
     df_multi_wide,
     df_no_exog,
     df_single,
@@ -364,8 +373,9 @@ def test_compare_output_when_single_series():
         "forecaster",
         "estimator",
         "mean_absolute_error",
-        "mean_squared_error",
+        "root_mean_squared_error",
         "mean_absolute_scaled_error",
+        "n_evaluated",
     ]
     assert list(result.results.columns) == expected_cols
     # No "error" column when every candidate succeeds
@@ -535,6 +545,7 @@ def test_compare_output_when_metric_str_override():
         "forecaster",
         "estimator",
         "mean_absolute_scaled_error",
+        "n_evaluated",
     ]
 
 
@@ -561,6 +572,7 @@ def test_compare_output_when_metric_list_ranks_by_first():
         "estimator",
         "mean_squared_error",
         "mean_absolute_error",
+        "n_evaluated",
     ]
     ranking_values = result.results["mean_squared_error"].to_numpy()
     assert np.all(np.diff(ranking_values) >= 0)
@@ -572,12 +584,10 @@ def test_compare_output_when_metric_list_ranks_by_first():
     assert "metric" in result.best_candidate.plan.overridden_fields
 
 
-# =============================================================================
-# Tests: interval and multi-series
-# =============================================================================
-def test_compare_propagates_interval_to_candidates():
+def test_compare_output_when_metric_is_rmse():
     """
-    Test that the `interval` argument flows into each candidate's plan.
+    Test that `root_mean_squared_error` ranks the table and is the square
+    root of the MSE of every candidate.
     """
     result = assistant.compare(
         data=df_single,
@@ -585,10 +595,121 @@ def test_compare_propagates_interval_to_candidates():
         target="sales",
         date_column="date",
         candidates=_LIGHT_CANDIDATES,
-        interval=[0.1, 0.9],
+        metric=["root_mean_squared_error", "mean_squared_error"],
         show_progress=False,
-        baseline=False,
     )
+
+    assert result.ranking_metric == "root_mean_squared_error"
+    assert list(result.results.columns) == [
+        "rank",
+        "name",
+        "forecaster",
+        "estimator",
+        "root_mean_squared_error",
+        "mean_squared_error",
+        "n_evaluated",
+    ]
+    ranking_values = result.results["root_mean_squared_error"].to_numpy()
+    assert np.all(np.diff(ranking_values) >= 0)
+    np.testing.assert_allclose(
+        ranking_values, np.sqrt(result.results["mean_squared_error"].to_numpy())
+    )
+
+
+@pytest.mark.parametrize(
+    "candidates",
+    [None, _LIGHT_CANDIDATES],
+    ids=["default candidates", "explicit candidates"],
+)
+def test_compare_UserWarning_once_when_mape_requested_and_target_crosses_zero(
+    candidates,
+):
+    """
+    Test that MAPE requested on a target that crosses zero gives one
+    UserWarning for the comparison, not one per candidate, with default and
+    explicit candidates; the plan of each candidate keeps its text.
+    """
+    profile = assistant.profile(
+        data=df_crossing_zero, target="profit", date_column="date"
+    ).model_copy(update={
+        "forecaster_candidates": ["ForecasterRecursive", "ForecasterDirect"],
+        "estimator_candidates": ["Ridge"],
+    })
+
+    warn_msg = (
+        "`mean_absolute_percentage_error` has no meaning on this data: it "
+        "divides each error by the actual value, and the target takes values "
+        "at or around zero (from -10 to 10), so its value can reach the "
+        "trillions. It is computed as requested; judge the model by a metric "
+        "that does not divide by the actual value, such as "
+        "`mean_absolute_error`."
+    )
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = assistant.compare(
+            data=df_crossing_zero,
+            cv=_single_cv(),
+            target="profit",
+            date_column="date",
+            profile=profile,
+            candidates=candidates,
+            metric=["mean_absolute_error", "mean_absolute_percentage_error"],
+            show_progress=False,
+        )
+
+    mape_warnings = [
+        str(w.message) for w in caught
+        if "`mean_absolute_percentage_error`" in str(w.message)
+    ]
+    assert mape_warnings == [warn_msg]
+    assert len(result.results) == 3
+    assert result.best_candidate.plan.warnings == [warn_msg]
+
+
+def test_compare_ValueError_when_msle_requested_and_target_below_minus_one():
+    """
+    Test that MSLE on a target with values at or below -1 is rejected once,
+    before any candidate is planned, instead of failing every candidate.
+    """
+    err_msg = re.escape(
+        "`mean_squared_log_error` cannot be computed on this data: it takes "
+        "the logarithm of 1 plus each value, so it needs values above -1, "
+        "and the target has values down to -10."
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", category=CandidateFailedWarning)
+        with pytest.raises(ValueError, match=err_msg) as info:
+            assistant.compare(
+                data=df_crossing_zero,
+                cv=_single_cv(),
+                target="profit",
+                date_column="date",
+                candidates=_LIGHT_CANDIDATES,
+                metric="mean_squared_log_error",
+                show_progress=False,
+            )
+
+    assert info.value.field == "metric"
+
+
+# =============================================================================
+# Tests: interval and multi-series
+# =============================================================================
+def test_compare_propagates_interval_to_candidates():
+    """
+    Test that the `interval` argument flows into each candidate's plan.
+    """
+    with pytest.warns(IntervalCoverageWarning, match="in these candidates"):
+        result = assistant.compare(
+            data=df_single,
+            cv=_single_cv(),
+            target="sales",
+            date_column="date",
+            candidates=_LIGHT_CANDIDATES,
+            interval=[0.1, 0.9],
+            show_progress=False,
+            baseline=False,
+        )
 
     for bt in result.candidates.values():
         assert bt.plan.interval == [0.1, 0.9]
@@ -618,6 +739,77 @@ def test_compare_output_when_multi_series_wide():
     # finite even though the raw metrics frame has multiple level rows.
     ranking_value = result.results[result.ranking_metric].iloc[0]
     assert np.isfinite(ranking_value)
+
+
+@pytest.mark.parametrize("with_profile", [True, False], ids=["profile", "no_profile"])
+def test_compare_output_when_long_format_multiindex(with_profile):
+    """
+    Test that compare() ranks the candidates of long-format data indexed by
+    a (series, date) MultiIndex as those of the same data with the levels as
+    columns, which is how their scripts read the frame saved with
+    `to_csv()`. Before, every candidate failed in the executed script
+    (KeyError: 'date') and compare() raised AllCandidatesFailedError.
+    """
+    candidates = [
+        (
+            "multiseries_ridge",
+            {"forecaster": "ForecasterRecursiveMultiSeries", "estimator": "Ridge"},
+        )
+    ]
+    cv = TimeSeriesFold(steps=5, initial_train_size=80, verbose=False)
+    expected = assistant.compare(
+        data             = df_items_sales_long,
+        target           = "value",
+        date_column      = "date",
+        series_id_column = "series",
+        cv               = cv,
+        candidates       = candidates,
+        show_progress    = False,
+    )
+    data = df_items_sales_long.set_index(["series", "date"])
+    if with_profile:
+        kwargs = {"profile": assistant.profile(data=data, target="value")}
+    else:
+        kwargs = {"target": "value"}
+
+    result = assistant.compare(
+        data=data, cv=cv, candidates=candidates, show_progress=False, **kwargs
+    )
+
+    pd.testing.assert_frame_equal(result.results, expected.results)
+    assert (
+        result.candidates["multiseries_ridge"].code
+        == expected.candidates["multiseries_ridge"].code
+    )
+
+
+@pytest.mark.parametrize("with_profile", [True, False], ids=["profile", "no_profile"])
+def test_compare_InvalidInputError_when_multiindex_level_unnamed(with_profile):
+    """
+    Test that compare() rejects long-format data indexed by a MultiIndex with
+    a level without a name, also with a profile of the same data with named
+    levels, before any candidate runs: their scripts read the levels by name
+    from the frame saved with `to_csv()`, which writes an empty header for
+    them.
+    """
+    data = df_items_sales_long.set_index(["series", "date"])
+    kwargs = {"target": "value"}
+    if with_profile:
+        kwargs = {"profile": assistant.profile(data=data, target="value")}
+    cv = TimeSeriesFold(steps=5, initial_train_size=80, verbose=False)
+    err_msg = re.escape(
+        "`data` is indexed by a MultiIndex with levels without a name "
+        "(names [None, 'date'])."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        assistant.compare(
+            data          = data.rename_axis([None, "date"]),
+            cv            = cv,
+            show_progress = False,
+            **kwargs,
+        )
+
+    assert exc_info.value.field == "data"
 
 
 # =============================================================================
@@ -668,6 +860,12 @@ def test_compare_records_error_and_sorts_failed_candidate_last():
     assert result.best_name == "good"
     assert result.best_candidate.plan.forecaster == "ForecasterRecursive"
     assert "1 configuration failed to run and is ranked last." in result.explanation
+    # The count of points does not rank: a nullable integer, empty for the
+    # candidate that failed, between the metrics and `error`.
+    assert list(result.results.columns)[-2:] == ["n_evaluated", "error"]
+    assert result.results["n_evaluated"].dtype == "Int64"
+    assert good_row["n_evaluated"] == 30
+    assert pd.isna(bad_row["n_evaluated"])
 
 
 def test_compare_keeps_failure_snapshot_in_failures():
@@ -683,7 +881,8 @@ def test_compare_keeps_failure_snapshot_in_failures():
             {
                 "forecaster": "ForecasterRecursive",
                 "estimator": "Ridge",
-                "estimator_kwargs": {"alpha": "not-a-number"},
+                # Valid alone, rejected by Ridge when it fits.
+                "estimator_kwargs": {"solver": "lbfgs"},
             },
         ),
     ]
@@ -701,7 +900,8 @@ def test_compare_keeps_failure_snapshot_in_failures():
     assert list(result.failures) == ["bad"]
     failure = result.failures["bad"]
     assert isinstance(failure, CandidateFailure)
-    assert "alpha" in failure.message
+    assert failure.error_type == "ValueError"
+    assert "'lbfgs' solver can be used only when positive=True" in failure.message
     assert "Traceback (most recent call last)" in failure.traceback
     assert failure.generated_code is not None
     # The recorded summary matches the 'error' column of the results table.
@@ -1202,6 +1402,42 @@ def test_compare_LongTrainingWarning_when_automatic_candidate_exceeds_fit_budget
     assert result.explanation.endswith(budget_note)
 
 
+def test_compare_UserWarning_when_automatic_stats_and_strategy_skips_folds():
+    """
+    Test that compare() without candidates leaves ForecasterStats out when
+    the strategy has `skip_folds`, which skforecast does not allow for it,
+    warns with UserWarning and records the reason in the explanation, instead
+    of failing the candidate. ForecasterRecursive runs with the skipped
+    folds.
+    """
+    profile = assistant.profile(data=df_no_exog, target="sales", date_column="date")
+    profile.forecaster_candidates = ["ForecasterRecursive", "ForecasterStats"]
+    profile.estimator_candidates = ["Ridge"]
+    cv = TimeSeriesFold(
+        steps=5, initial_train_size=70, skip_folds=[1], verbose=False
+    )
+
+    skip_folds_note = (
+        "ForecasterStats left out: the strategy has `skip_folds=[1]`, which "
+        "skforecast does not allow for it (it refits ForecasterStats in every "
+        "fold)."
+    )
+    with pytest.warns(UserWarning, match=re.escape(skip_folds_note)):
+        result = assistant.compare(
+            data          = df_no_exog,
+            cv            = cv,
+            target        = "sales",
+            date_column   = "date",
+            profile       = profile,
+            show_progress = False,
+            baseline      = False,
+        )
+
+    assert list(result.results["name"]) == ["ForecasterRecursive"]
+    assert result.failures == {}
+    assert result.explanation.endswith(skip_folds_note)
+
+
 def test_compare_LongTrainingWarning_when_automatic_stats_exceeds_fit_budget(
     monkeypatch,
 ):
@@ -1241,39 +1477,520 @@ def test_compare_LongTrainingWarning_when_automatic_stats_exceeds_fit_budget(
     assert result.explanation.endswith(budget_note)
 
 
-def test_compare_LongTrainingWarning_once_when_explicit_candidate_is_costly(
+def test_compare_CostNotConfirmedError_when_explicit_candidate_is_costly(
     monkeypatch,
 ):
     """
     Test that an explicit candidate is never left out for its cost, even
-    above the budget, and that compare() warns once before running it
-    instead of once more from its backtest.
+    above the budget: compare() raises CostNotConfirmedError before running
+    it, and runs it, without a LongTrainingWarning from its backtest, once
+    `confirm_cost` is the figure of the cost.
     """
     monkeypatch.setattr(comparison_module, "COMPARE_FIT_BUDGET", 10)
     cv = TimeSeriesFold(steps=10, initial_train_size=40, refit=True, verbose=False)
-
-    with pytest.warns(LongTrainingWarning) as record:
-        result = assistant.compare(
-            data          = df_no_exog,
-            cv            = cv,
-            target        = "sales",
-            date_column   = "date",
-            candidates    = [
-                ("direct", {"forecaster": "ForecasterDirect", "lags": [1, 2, 3]})
-            ],
-            show_progress = False,
-            baseline      = False,
-        )
-
-    messages = [
-        str(w.message) for w in record if w.category is LongTrainingWarning
-    ]
-    assert len(messages) == 1
-    assert messages[0].startswith(
-        "ForecasterDirect will be fit 60 times (6 trainings x 10 estimators)."
+    kwargs = dict(
+        data          = df_no_exog,
+        cv            = cv,
+        target        = "sales",
+        date_column   = "date",
+        candidates    = [
+            ("direct", {"forecaster": "ForecasterDirect", "lags": [1, 2, 3]})
+        ],
+        show_progress = False,
+        baseline      = False,
     )
+
+    err_msg = re.escape(
+        "The comparison will fit 60 estimators in all ('direct': 60 "
+        "(6 trainings x 10 estimators))."
+    )
+    with pytest.raises(CostNotConfirmedError, match=err_msg) as exc_info:
+        assistant.compare(**kwargs)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", category=LongTrainingWarning)
+        result = assistant.compare(**kwargs, confirm_cost=60)
+
+    assert exc_info.value.figure == 60
     assert list(result.results["name"]) == ["direct"]
     assert result.failures == {}
+
+
+def test_compare_CostNotConfirmedError_when_candidates_add_up_above_threshold():
+    """
+    Test that explicit candidates that fit fewer than 50 estimators each
+    (36, 36 and 6) but 78 together make compare() raise
+    CostNotConfirmedError before running, with the total, what each
+    candidate adds and the changes that lower it, and that the error and
+    `result.cost` of the run confirmed with that figure have the same
+    values.
+    """
+    cv = TimeSeriesFold(steps=6, initial_train_size=64, refit=True, verbose=False)
+    kwargs = dict(
+        data          = df_no_exog,
+        cv            = cv,
+        target        = "sales",
+        date_column   = "date",
+        candidates    = [
+            ("direct_a", {"forecaster": "ForecasterDirect", "lags": [1, 2, 3]}),
+            (
+                "direct_b",
+                {"forecaster": "ForecasterDirect", "lags": [1, 2],
+                 "estimator": "Ridge"},
+            ),
+            ("recursive", {"forecaster": "ForecasterRecursive"}),
+        ],
+        show_progress = False,
+        baseline      = False,
+    )
+
+    err_msg = re.escape(
+        "This comparison is above the threshold of an expensive run (50 "
+        "estimator fits or 2000 inference windows), so it needs a confirmation "
+        "and nothing ran. The comparison will fit 78 estimators in all "
+        "('direct_a': 36 (6 trainings x 6 estimators), 'direct_b': 36 (6 "
+        "trainings x 6 estimators), 'recursive': 6). It can take substantial "
+        "amounts of time. If not feasible, compare fewer candidates or use an "
+        "integer `refit` (retrain every n folds), fewer folds (a later "
+        "`initial_train_size`, a larger `fold_stride` or `skip_folds`) or "
+        "`refit=False` (train once)."
+    )
+    with pytest.raises(CostNotConfirmedError, match=f"^{err_msg}$") as exc_info:
+        assistant.compare(**kwargs)
+    result = assistant.compare(**kwargs, confirm_cost=78)
+
+    error = exc_info.value
+    assert error.figure == 78
+    assert error.cost == {
+        "n_folds": 6, "n_fits": 18, "estimator_fits": 78, "inference_windows": 0
+    }
+    assert error.comparison_cost == result.cost
+    assert result.failures == {}
+    assert result.cost.model_dump() == {
+        "n_folds": 6,
+        "candidates": {
+            "direct_a": {
+                "forecaster": "ForecasterDirect", "n_fits": 6,
+                "estimator_fits": 36, "inference_windows": 0,
+            },
+            "direct_b": {
+                "forecaster": "ForecasterDirect", "n_fits": 6,
+                "estimator_fits": 36, "inference_windows": 0,
+            },
+            "recursive": {
+                "forecaster": "ForecasterRecursive", "n_fits": 6,
+                "estimator_fits": 6, "inference_windows": 0,
+            },
+        },
+        "n_fits": 18,
+        "estimator_fits": 78,
+        "inference_windows": 0,
+    }
+
+
+@pytest.mark.parametrize("confirm_cost", [False, 77], ids=["false", "another"])
+def test_compare_CostNotConfirmedError_when_confirm_cost_is_not_the_figure(
+    confirm_cost,
+):
+    """
+    Test that compare() above the threshold does not run with
+    `confirm_cost=False` nor with a figure other than that of its cost (77
+    for 78 estimator fits), and that the second error says the strategy or
+    the candidates changed.
+    """
+    cv = TimeSeriesFold(steps=6, initial_train_size=64, refit=True, verbose=False)
+    events = []
+
+    with pytest.raises(CostNotConfirmedError) as exc_info:
+        assistant.compare(
+            data              = df_no_exog,
+            cv                = cv,
+            target            = "sales",
+            date_column       = "date",
+            candidates        = [
+                ("direct_a", {"forecaster": "ForecasterDirect", "lags": 3}),
+                ("direct_b", {"forecaster": "ForecasterDirect", "lags": 2}),
+                ("recursive", {"forecaster": "ForecasterRecursive"}),
+            ],
+            show_progress     = False,
+            baseline          = False,
+            progress_callback = events.append,
+            confirm_cost      = confirm_cost,
+        )
+
+    mismatch = (
+        "`confirm_cost=77` does not confirm it: the figure of this cost is 78, "
+        "so the strategy or the candidates changed since that number was given."
+    )
+    assert exc_info.value.figure == 78
+    assert str(exc_info.value).endswith(mismatch) == (confirm_cost == 77)
+    assert events == []
+
+
+def test_compare_ignores_confirm_cost_below_threshold():
+    """
+    Test that compare() whose candidates together fit 50 estimators or fewer
+    runs whatever `confirm_cost` says, also a figure that is not its cost.
+    """
+    result = assistant.compare(
+        data          = df_single,
+        cv            = _single_cv(),
+        target        = "sales",
+        date_column   = "date",
+        candidates    = _LIGHT_CANDIDATES,
+        show_progress = False,
+        confirm_cost  = 3,
+    )
+
+    assert result.cost.estimator_fits == 6
+    assert result.failures == {}
+
+
+@pytest.mark.parametrize(
+    "confirm_cost, error",
+    [("yes", InvalidInputTypeError), (-5, InvalidInputError)],
+    ids=["text", "negative"],
+)
+def test_compare_InvalidInputError_when_confirm_cost_is_not_valid(
+    confirm_cost, error
+):
+    """
+    Test that compare() rejects a `confirm_cost` that is neither a bool nor
+    an integer of at least 0 before anything runs, also below the
+    threshold.
+    """
+    with pytest.raises(error, match=re.escape("`confirm_cost` must be")) as exc_info:
+        assistant.compare(
+            data          = df_single,
+            cv            = _single_cv(),
+            target        = "sales",
+            date_column   = "date",
+            candidates    = _LIGHT_CANDIDATES,
+            show_progress = False,
+            confirm_cost  = confirm_cost,
+        )
+
+    assert exc_info.value.field == "confirm_cost"
+
+
+def test_compare_builds_every_plan_before_counting_and_running():
+    """
+    Test that compare() builds the plan of every candidate before it counts
+    the cost: a candidate whose plan cannot be built fails then, with its
+    CandidateFailedWarning before the cost is checked, is not counted, and
+    nothing runs (no progress event) when the others are above the
+    threshold, as the error says.
+    """
+    cv = TimeSeriesFold(steps=6, initial_train_size=64, refit=True, verbose=False)
+    events = []
+
+    with pytest.warns(
+        CandidateFailedWarning, match=re.escape("Candidate 'bad' failed")
+    ):
+        with pytest.raises(CostNotConfirmedError) as exc_info:
+            assistant.compare(
+                data              = df_no_exog,
+                cv                = cv,
+                target            = "sales",
+                date_column       = "date",
+                candidates        = [
+                    ("direct_a", {"forecaster": "ForecasterDirect", "lags": 3}),
+                    ("bad", {"estimator": "NoSuchEstimator"}),
+                    ("direct_b", {"forecaster": "ForecasterDirect", "lags": 2}),
+                ],
+                show_progress     = False,
+                baseline          = False,
+                progress_callback = events.append,
+            )
+
+    assert exc_info.value.figure == 72
+    assert list(exc_info.value.comparison_cost.candidates) == [
+        "direct_a", "direct_b"
+    ]
+    assert str(exc_info.value.description).endswith(
+        "'bad' is not counted: its plan cannot be built, so it runs nothing."
+    )
+    assert events == []
+
+
+def test_compare_candidate_with_invalid_plan_fails_before_any_candidate_runs():
+    """
+    Test that the CandidateFailedWarning of a candidate whose plan cannot be
+    built, and that of a candidate that fails a check of `backtest()` (a
+    direct forecaster with a gap), come before the first candidate runs,
+    in the order of the candidates, that their two progress events still
+    come at their turn, that they are not in `cost` and that `failures`
+    keeps the order of the candidates. Before, the direct candidate failed
+    at its turn, after the candidates before it ran, and was counted.
+    """
+    candidates = [
+        ("direct", {"forecaster": "ForecasterDirect", "estimator": "Ridge"}),
+        ("recursive", {"forecaster": "ForecasterRecursive", "estimator": "Ridge"}),
+        ("bad", {"forecaster": "ForecasterRecursive", "estimator": "NotAReal"}),
+    ]
+    cv = TimeSeriesFold(steps=5, initial_train_size=70, gap=2, verbose=False)
+    events = []
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+
+        def record(event):
+            failed = [
+                str(w.message).split(":")[0] for w in caught
+                if issubclass(w.category, CandidateFailedWarning)
+            ]
+            events.append((event.candidate, event.status, failed))
+
+        result = assistant.compare(
+            data              = df_single,
+            cv                = cv,
+            target            = "sales",
+            date_column       = "date",
+            candidates        = candidates,
+            show_progress     = False,
+            baseline          = False,
+            progress_callback = record,
+        )
+
+    direct = "Candidate 'direct' failed and is ranked last"
+    bad = "Candidate 'bad' failed and is ranked last"
+    assert events == [
+        ("direct", "started", [direct, bad]),
+        ("direct", "failed", [direct, bad]),
+        ("recursive", "started", [direct, bad]),
+        ("recursive", "succeeded", [direct, bad]),
+        ("bad", "started", [direct, bad]),
+        ("bad", "failed", [direct, bad]),
+    ]
+    assert list(result.cost.candidates) == ["recursive"]
+    assert list(result.failures) == ["direct", "bad"]
+    assert result.failures["direct"].generated_code is None
+    assert result.failures["bad"].generated_code is None
+    assert list(result.results["name"]) == ["recursive", "direct", "bad"]
+
+
+def test_compare_candidate_that_forecasts_a_series_in_no_fold_fails_before_running():
+    """
+    Test that a ForecasterRecursiveMultiSeries candidate whose backtest
+    forecasts a series in no fold (item_2 has 20 values in the first
+    training window, no more than the 21 the default window features read,
+    and no refit) fails with the error of `backtest()` before any candidate
+    runs, is ranked last with that error and is not counted in `cost`,
+    while a candidate with a shorter window runs and forecasts every series.
+    skforecast would leave item_2 out of the average across series of that
+    candidate without a warning.
+    """
+    candidates = [
+        ("default", {"estimator": "Ridge"}),
+        ("short", {"estimator": "Ridge", "lags": 3, "window_features": []}),
+    ]
+    events = []
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+
+        def record(event):
+            failed = [
+                str(w.message).split(":")[0] for w in caught
+                if issubclass(w.category, CandidateFailedWarning)
+            ]
+            events.append((event.candidate, event.status, failed))
+
+        result = assistant.compare(
+            data              = long_starting_late(df_items_sales_long, "item_2", 60),
+            cv                = TimeSeriesFold(
+                                    steps=5, initial_train_size=80, verbose=False
+                                ),
+            target            = "value",
+            date_column       = "date",
+            series_id_column  = "series",
+            candidates        = candidates,
+            show_progress     = False,
+            progress_callback = record,
+        )
+
+    failed = "Candidate 'default' failed and is ranked last"
+    assert events == [
+        ("default", "started", [failed]),
+        ("default", "failed", [failed]),
+        ("short", "started", [failed]),
+        ("short", "succeeded", [failed]),
+    ]
+    assert list(result.cost.candidates) == ["short"]
+    assert list(result.results["name"]) == ["short", "default"]
+    failure = result.failures["default"]
+    assert failure.error_type == "InvalidInputError"
+    assert failure.generated_code is None
+    assert failure.message.startswith(
+        "Some series cannot be forecast in any fold of the backtest ('item_2': "
+        "60 observations, from their first to their last value)."
+    )
+    assert result.results.loc[1, "error"].startswith(
+        "InvalidInputError: Some series cannot be forecast in any fold"
+    )
+    assert sorted(result.candidates["short"].predictions["level"].unique()) == [
+        "item_1", "item_2", "item_3"
+    ]
+
+
+def test_compare_FoldsLeftOutWarning_once_names_candidates_that_left_series_out_of_some_folds():
+    """
+    Test that a comparison gives one FoldsLeftOutWarning, also in its
+    explanation,
+    naming the candidates whose backtest did not forecast a series in some
+    test fold where it has values: with refit, the first fold trains
+    'ridge' on 20 values of item_2, no more than its window (21), so its
+    metrics use 7 of its 8 folds, while 'short' (a window of 3) forecasts it
+    in every fold. The warning of the backtest of each candidate, which
+    would not say which candidate it is about, is not given.
+    """
+    candidates = [
+        ("ridge", {"estimator": "Ridge"}),
+        ("short", {"estimator": "Ridge", "lags": 3, "window_features": []}),
+    ]
+    warn_msg = (
+        "Some series were not forecast in every test fold where they have "
+        "values to evaluate in the backtest of the candidate 'ridge' "
+        "('item_2': in 7 of its 8 folds with values): their metrics, and the "
+        "average across series that ranks the candidate, leave the other "
+        "folds out."
+    )
+
+    with pytest.warns(
+        FoldsLeftOutWarning, match=f"^{re.escape(warn_msg)}$"
+    ) as caught:
+        result = assistant.compare(
+            data             = long_starting_late(df_items_sales_long, "item_2", 60),
+            cv               = TimeSeriesFold(
+                                   steps=5, initial_train_size=80, refit=True,
+                                   verbose=False,
+                               ),
+            target           = "value",
+            date_column      = "date",
+            series_id_column = "series",
+            candidates       = candidates,
+            show_progress    = False,
+        )
+
+    left_out = [
+        str(w.message) for w in caught if issubclass(w.category, FoldsLeftOutWarning)
+    ]
+    assert left_out == [warn_msg]
+    assert result.explanation.endswith(f" {warn_msg}")
+
+
+def test_compare_AllCandidatesFailedError_when_every_candidate_forecasts_a_series_in_no_fold():
+    """
+    Test that a comparison whose candidates all forecast a series in no fold
+    raises AllCandidatesFailedError before running any, with the error of
+    `backtest()` of each candidate in its failures.
+    """
+    candidates = [
+        ("ridge", {"estimator": "Ridge"}),
+        ("forest", {"estimator": "RandomForestRegressor"}),
+    ]
+
+    with pytest.warns(CandidateFailedWarning):
+        with pytest.raises(AllCandidatesFailedError) as exc_info:
+            assistant.compare(
+                data             = long_starting_late(df_items_sales_long, "item_2", 60),
+                cv               = TimeSeriesFold(
+                                       steps=5, initial_train_size=80,
+                                       verbose=False,
+                                   ),
+                target           = "value",
+                date_column      = "date",
+                series_id_column = "series",
+                candidates       = candidates,
+                show_progress    = False,
+            )
+
+    failures = exc_info.value.failures
+    assert list(failures) == ["ridge", "forest"]
+    for failure in failures.values():
+        assert failure.error_type == "InvalidInputError"
+        assert failure.generated_code is None
+        assert failure.message.startswith(
+            "Some series cannot be forecast in any fold of the backtest"
+        )
+
+
+def test_compare_cost_counts_the_baseline_and_matches_what_ran():
+    """
+    Test that `result.cost` counts the baseline with 0 estimator fits, that
+    the totals are the sum of the candidates, and that the trainings counted
+    before running equal the `n_fits` of the `cv_config` of each candidate
+    that ran: one per fold for ForecasterStats (6), one for the others
+    (`refit=False`), including a candidate with its own differentiation.
+    """
+    cv = TimeSeriesFold(steps=6, initial_train_size=64, refit=False, verbose=False)
+
+    result = assistant.compare(
+        data          = df_no_exog,
+        cv            = cv,
+        target        = "sales",
+        date_column   = "date",
+        candidates    = [
+            ("stats", {"forecaster": "ForecasterStats"}),
+            (
+                "diff",
+                {"forecaster": "ForecasterDirect", "differentiation": 1,
+                 "lags": [1, 2]},
+            ),
+            ("recursive", {"forecaster": "ForecasterRecursive"}),
+        ],
+        show_progress = False,
+    )
+
+    assert result.failures == {}
+    assert result.cost.model_dump() == {
+        "n_folds": 6,
+        "candidates": {
+            "stats": {
+                "forecaster": "ForecasterStats", "n_fits": 6,
+                "estimator_fits": 6, "inference_windows": 0,
+            },
+            "diff": {
+                "forecaster": "ForecasterDirect", "n_fits": 1,
+                "estimator_fits": 6, "inference_windows": 0,
+            },
+            "recursive": {
+                "forecaster": "ForecasterRecursive", "n_fits": 1,
+                "estimator_fits": 1, "inference_windows": 0,
+            },
+            "Baseline (seasonal naive)": {
+                "forecaster": "ForecasterEquivalentDate", "n_fits": 1,
+                "estimator_fits": 0, "inference_windows": 0,
+            },
+        },
+        "n_fits": 9,
+        "estimator_fits": 13,
+        "inference_windows": 0,
+    }
+    assert result.candidates["diff"].plan.forecaster_kwargs["differentiation"] == 1
+    assert set(result.cost.candidates) == set(result.candidates)
+    for name, candidate in result.candidates.items():
+        assert result.cost.candidates[name].n_fits == candidate.cv_config["n_fits"]
+
+
+def test_compare_cost_leaves_out_the_baseline_when_baseline_is_false():
+    """
+    Test that `result.cost` has only the candidates given when
+    `baseline=False`.
+    """
+    result = assistant.compare(
+        data          = df_single,
+        cv            = _single_cv(),
+        target        = "sales",
+        date_column   = "date",
+        candidates    = _LIGHT_CANDIDATES,
+        show_progress = False,
+        baseline      = False,
+    )
+
+    assert list(result.cost.candidates) == ["recursive_default", "direct_ridge"]
+    assert result.cost.n_folds == 6
+    assert result.cost.n_fits == 2
+    assert result.cost.estimator_fits == 6
 
 
 def test_build_comparison_explanation_notes_foundation_is_not_trained():
@@ -1340,6 +2057,35 @@ def test_build_comparison_explanation_notes_stats_is_refitted_in_every_fold(
     ) in explanation
 
 
+def test_build_comparison_explanation_notes_stats_left_out_for_skip_folds():
+    """
+    Test that the explanation ends with the note of the `skip_folds` that
+    left ForecasterStats out of the automatic candidates, after the sentence
+    of the best configuration.
+    """
+    ranked = [
+        _ranked_entry("recursive", "ForecasterRecursive", 1.0),
+        _ranked_entry("direct", "ForecasterDirect", 2.0),
+    ]
+    skip_folds_note = (
+        "ForecasterStats left out: the strategy has `skip_folds=[1]`, which "
+        "skforecast does not allow for it (it refits ForecasterStats in every "
+        "fold)."
+    )
+
+    explanation = build_comparison_explanation(
+        n_candidates    = 2,
+        ranked          = ranked,
+        ranking_metric  = "mean_absolute_error",
+        any_error       = False,
+        cv_explanation  = "Folds.",
+        skip_folds_note = skip_folds_note,
+    )
+
+    assert explanation.endswith(skip_folds_note)
+    assert explanation.count(skip_folds_note) == 1
+
+
 # =============================================================================
 # Tests: baseline
 # =============================================================================
@@ -1374,7 +2120,7 @@ def test_compare_output_when_baseline_added_by_default():
     assert baseline_row["forecaster"] == "ForecasterEquivalentDate"
     assert baseline_row["estimator"] is None
     assert baseline_row["mean_absolute_error"] == 7.0
-    assert baseline_row["mean_squared_error"] == 49.0
+    assert baseline_row["root_mean_squared_error"] == 7.0
     assert baseline_row["mean_absolute_scaled_error"] == 7.0
 
     baseline_plan = result.candidates["Baseline (seasonal naive)"].plan
@@ -1382,7 +2128,10 @@ def test_compare_output_when_baseline_added_by_default():
 
     assert result.explanation == (
         f"Compared 3 configurations, ranked ascending by mean_absolute_error. "
-        f"Shared cross-validation strategy: {_CV_EXPLANATION} Best: "
+        f"Shared cross-validation strategy: {_CV_EXPLANATION} Each "
+        f"configuration is measured on 30 predictions with an observed value "
+        f"(n_evaluated in the table: a count, not a metric, and it does not "
+        f"change the ranking). Best: "
         f"'recursive_default' (ForecasterRecursive / Ridge) = 0.3652, 22.5% "
         f"ahead of 'direct_ridge' (0.4711). Both configurations beat the "
         f"baseline 'Baseline (seasonal naive)' (7.0000). The best, "
@@ -1508,15 +2257,16 @@ def test_compare_baseline_uses_conformal_intervals():
     Test that the requested interval reaches the baseline with the conformal
     method while the ML candidates keep bootstrapping.
     """
-    result = assistant.compare(
-        data=df_single,
-        cv=_single_cv(),
-        target="sales",
-        date_column="date",
-        candidates=_LIGHT_CANDIDATES,
-        interval=[0.1, 0.9],
-        show_progress=False,
-    )
+    with pytest.warns(IntervalCoverageWarning, match="in these candidates"):
+        result = assistant.compare(
+            data=df_single,
+            cv=_single_cv(),
+            target="sales",
+            date_column="date",
+            candidates=_LIGHT_CANDIDATES,
+            interval=[0.1, 0.9],
+            show_progress=False,
+        )
 
     methods = {name: bt.plan.interval_method for name, bt in result.candidates.items()}
     assert methods == {
@@ -1623,6 +2373,51 @@ def test_build_comparison_explanation_when_baseline_failed():
         "failed to run, so the candidates cannot be checked against it. "
         "1 configuration failed to run and is ranked last."
     )
+
+
+def test_build_comparison_explanation_when_candidates_measured_on_other_points():
+    """
+    Test that the explanation gives the range of `n_evaluated` when the
+    candidates are measured on different numbers of points, summed across
+    series with several, and says that their metrics do not cover the same
+    points; candidates without the column (before skforecast 0.27) give no
+    sentence.
+    """
+    def entry(name, value, counts):
+        metrics = pd.DataFrame({
+            "levels": ["a", "b", "average"],
+            "mean_absolute_error": [value, value, value],
+            "n_evaluated": [*counts, sum(counts)],
+        })
+        backtest = SimpleNamespace(
+            plan=SimpleNamespace(forecaster="ForecasterRecursiveMultiSeries", estimator=None),
+            metrics=metrics,
+        )
+        return (name, backtest, value)
+
+    explanation = build_comparison_explanation(
+        n_candidates   = 2,
+        ranked         = [entry("full", 1.0, [20, 20]), entry("short", 2.0, [20, 12])],
+        ranking_metric = "mean_absolute_error",
+        any_error      = False,
+        cv_explanation = "Folds.",
+    )
+    without = build_comparison_explanation(
+        n_candidates   = 1,
+        ranked         = [_ranked_entry("model", "ForecasterRecursive", 1.0)],
+        ranking_metric = "mean_absolute_error",
+        any_error      = False,
+        cv_explanation = "Folds.",
+    )
+
+    assert (
+        "Shared cross-validation strategy: Folds. The configurations are "
+        "measured on 32 to 40 predictions with an observed value, summed "
+        "across series, (n_evaluated in the table: a count, not a metric, and "
+        "it does not change the ranking), so their metrics do not cover the "
+        "same points. Best: 'full'"
+    ) in explanation
+    assert "n_evaluated" not in without
 
 
 def test_build_comparison_explanation_when_only_baseline_ran():
@@ -1839,19 +2634,20 @@ def test_compare_sort_key_ranks_baseline_first_on_tie():
     ]
 
 
-def test_compare_ValueError_when_target_missing_in_test_folds():
+def test_compare_ValueError_when_test_folds_have_no_value():
     """
-    Test that compare() stops before running any candidate when a test fold
-    contains a missing timestamp, instead of failing every candidate with
-    "Input contains NaN".
+    Test that compare() stops before running any candidate when the test
+    folds have no value of the target, instead of failing every candidate:
+    no metric can be computed on them.
     """
     dates = pd.date_range("2023-01-01", periods=100, freq="D")
-    data = pd.DataFrame(
-        {"date": dates, "sales": np.arange(100, dtype=float)}
-    ).drop(index=[85]).reset_index(drop=True)
+    sales = np.arange(100, dtype=float)
+    sales[70:] = np.nan
+    data = pd.DataFrame({"date": dates, "sales": sales})
 
     err_msg = re.escape(
-        "The target has 1 missing value(s) in the test folds (2023-03-27 00:00:00)"
+        "The target has no value on the 30 dates of the test folds (2023-03-12 "
+        "00:00:00"
     )
     with pytest.raises(ValueError, match=err_msg):
         assistant.compare(
@@ -1864,17 +2660,52 @@ def test_compare_ValueError_when_target_missing_in_test_folds():
         )
 
 
+def test_compare_output_when_target_missing_in_test_folds():
+    """
+    Test that compare() runs a candidate when a test fold contains a missing
+    timestamp that no lag reads: skforecast leaves that date out of the
+    metrics, so they are measured on 29 of the 30 test dates.
+    """
+    dates = pd.date_range("2023-01-01", periods=100, freq="D")
+    data = pd.DataFrame(
+        {"date": dates, "sales": np.arange(100, dtype=float)}
+    ).drop(index=[85]).reset_index(drop=True)
+
+    result = assistant.compare(
+        data=data,
+        cv=_single_cv(),
+        target="sales",
+        date_column="date",
+        candidates=[_LIGHT_CANDIDATES[1]],
+        show_progress=False,
+    )
+
+    assert list(result.results["name"]) == ["direct_ridge"]
+    assert list(result.results["n_evaluated"]) == [29]
+    assert not result.failures
+    assert "is measured on 29 predictions with an observed value" in (
+        result.explanation
+    )
+
+
 @pytest.mark.parametrize(
     "kwargs, match",
     [
         ({"metric": "f1_score"}, "Unknown metric 'f1_score'."),
         ({"metric": ["mean_absolute_error", "foo"]}, "Unknown metric 'foo'."),
         (
+            {"metric": ["mean_absolute_error", "n_evaluated"]},
+            "'n_evaluated' is not a metric",
+        ),
+        (
             {"interval": [5, 95]},
             "`interval` must be `[lower, upper]` with 0 < lower < upper < 1",
         ),
     ],
-    ids=["classification score", "unknown metric", "percentile interval"],
+    ids=[
+        "classification score", "unknown metric", "n_evaluated",
+        "percentile interval",
+    ],
 )
 def test_compare_ValueError_when_metric_or_interval_invalid(kwargs, match):
     """
@@ -1943,19 +2774,20 @@ def test_compare_error_code_and_field_when_candidates_invalid(
 @pytest.mark.parametrize(
     "error, expected_type",
     [
-        (InvalidInputError("bad value"), "ValueError"),
-        (InvalidInputTypeError("bad value"), "TypeError"),
-        (DataNotFoundError("bad value"), "FileNotFoundError"),
+        (InvalidInputError("bad value"), "InvalidInputError"),
+        (InvalidInputTypeError("bad value"), "InvalidInputTypeError"),
+        (DataNotFoundError("bad value"), "DataNotFoundError"),
     ],
     ids=["InvalidInputError", "InvalidInputTypeError", "DataNotFoundError"],
 )
-def test_candidate_failure_reports_input_errors_under_builtin_name(
+def test_candidate_failure_reports_input_errors_under_their_own_class(
     error, expected_type
 ):
     """
-    Test that an input error of skforecast-ai is recorded under the built-in
-    class it derives from, so the summaries of compare() keep the text they
-    had before these errors had their own classes.
+    Test that an input error of skforecast-ai is recorded under its own
+    class, so the server of MCP recognizes it as an error whose message
+    skforecast-ai wrote and sends that message (V32: it was recorded as the
+    built-in class it derives from, and the message was left out).
     """
     failure = CandidateFailure.from_exception(error)
 
@@ -1963,11 +2795,11 @@ def test_candidate_failure_reports_input_errors_under_builtin_name(
     assert failure.summary() == f"{expected_type}: bad value"
 
 
-def test_compare_AllCandidatesFailedError_message_names_builtin_classes():
+def test_compare_AllCandidatesFailedError_message_names_the_classes_of_skforecast_ai():
     """
     Test that the message of AllCandidatesFailedError, when the candidates
-    are rejected by the input checks, names the built-in classes as before
-    (`ValueError`), not the classes of skforecast-ai.
+    are rejected by the input checks, names the classes of skforecast-ai
+    (`InvalidInputError`) with their messages.
     """
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
     plan = assistant.plan(profile, steps=10)
@@ -1976,9 +2808,10 @@ def test_compare_AllCandidatesFailedError_message_names_builtin_classes():
     err_msg = re.escape(
         "All 2 candidate configuration(s) failed to run, so there is no "
         "ranking to report.\n\n"
-        "  - bad_lags: ValueError: `lags` must be positive integers (>= 1), "
-        "got 0.\n"
-        "  - bad_estimator: ValueError: 'Nope' is not a supported estimator."
+        "  - bad_lags: InvalidInputError: `lags` must be positive integers "
+        "(>= 1), got 0.\n"
+        "  - bad_estimator: InvalidInputError: 'Nope' is not a supported "
+        "estimator."
     )
     with pytest.warns(CandidateFailedWarning):
         with pytest.raises(AllCandidatesFailedError, match=err_msg):
@@ -2254,15 +3087,16 @@ def test_compare_output_when_interval_asymmetric_and_baseline_requested():
     since ForecasterEquivalentDate predicts symmetric intervals only, and
     says so in the explanation, without any candidate failing.
     """
-    result = assistant.compare(
-        data          = df_single,
-        cv            = _single_cv(),
-        target        = "sales",
-        date_column   = "date",
-        candidates    = [("ridge", {"forecaster": "ForecasterRecursive"})],
-        interval      = [0.1, 0.8],
-        show_progress = False,
-    )
+    with pytest.warns(IntervalCoverageWarning, match="in these candidates"):
+        result = assistant.compare(
+            data          = df_single,
+            cv            = _single_cv(),
+            target        = "sales",
+            date_column   = "date",
+            candidates    = [("ridge", {"forecaster": "ForecasterRecursive"})],
+            interval      = [0.1, 0.8],
+            show_progress = False,
+        )
 
     assert result.baseline_name is None
     assert list(result.results["name"]) == ["ridge"]
@@ -2279,15 +3113,16 @@ def test_compare_output_when_interval_symmetric_adds_baseline():
     """
     Test that compare() with a symmetric interval still adds the baseline.
     """
-    result = assistant.compare(
-        data          = df_single,
-        cv            = _single_cv(),
-        target        = "sales",
-        date_column   = "date",
-        candidates    = [("ridge", {"forecaster": "ForecasterRecursive"})],
-        interval      = [0.1, 0.9],
-        show_progress = False,
-    )
+    with pytest.warns(IntervalCoverageWarning, match="in these candidates"):
+        result = assistant.compare(
+            data          = df_single,
+            cv            = _single_cv(),
+            target        = "sales",
+            date_column   = "date",
+            candidates    = [("ridge", {"forecaster": "ForecasterRecursive"})],
+            interval      = [0.1, 0.9],
+            show_progress = False,
+        )
 
     assert result.baseline_name == "Baseline (seasonal naive)"
     assert list(result.results["name"]) == ["ridge", "Baseline (seasonal naive)"]
@@ -2343,7 +3178,8 @@ def test_compare_CandidateFailedWarning_when_foundation_backend_not_installed(
     """
     Test that an explicit ForecasterFoundation candidate whose backend is not
     installed fails with the install message (CandidateFailedWarning) and is
-    ranked last, while the other candidates are ranked.
+    ranked last, while the other candidates are ranked. It fails before any
+    candidate runs, so it is not counted in `cost`.
     """
     monkeypatch.setattr(
         "skforecast_ai._foundation.foundation_backend_installed", lambda info: False
@@ -2354,7 +3190,7 @@ def test_compare_CandidateFailedWarning_when_foundation_backend_not_installed(
     ]
 
     warn_msg = re.escape(
-        "Candidate 'foundation' failed and is ranked last: ValueError: "
+        "Candidate 'foundation' failed and is ranked last: InvalidInputError: "
         "'autogluon/chronos-2-small' needs the 'chronos-forecasting' package, "
         "which is not installed (pip install \"chronos-forecasting\")."
     )
@@ -2372,66 +3208,65 @@ def test_compare_CandidateFailedWarning_when_foundation_backend_not_installed(
     assert list(result.results["name"]) == ["ridge", "foundation"]
     assert list(result.candidates) == ["ridge"]
     assert list(result.failures) == ["foundation"]
+    assert list(result.cost.candidates) == ["ridge"]
     assert result.best_name == "ridge"
 
 
-def test_compare_LongTrainingWarning_when_foundation_candidate_inference_windows_exceed_threshold(
+def test_compare_CostNotConfirmedError_when_foundation_candidate_inference_windows_exceed_threshold(
     monkeypatch,
 ):
     """
-    Test that compare() warns once, before running, about a
-    ForecasterFoundation candidate whose inference windows (series times
-    folds of the shared strategy) exceed the threshold (lowered to 3 here),
-    and not about the other candidates, which fit their estimator once.
+    Test that compare() raises CostNotConfirmedError before running when a
+    ForecasterFoundation candidate forecasts more inference windows (series
+    times folds of the shared strategy) than the threshold (lowered to 3
+    here), with the windows as the figure, since the other candidates fit
+    their estimator once. The backend is reported installed: a candidate
+    whose backend is missing fails before the cost is counted.
     """
     monkeypatch.setattr("skforecast_ai._utils.LONG_INFERENCE_WINDOWS", 3)
     monkeypatch.setattr(
-        "skforecast_ai._foundation.foundation_backend_installed", lambda info: False
+        "skforecast_ai._foundation.foundation_backend_installed", lambda info: True
     )
     candidates = [
         ("ridge", {"forecaster": "ForecasterRecursive", "estimator": "Ridge"}),
         ("foundation", {"forecaster": "ForecasterFoundation"}),
     ]
 
-    # The foundation candidate then fails: its backend is not installed.
-    with pytest.warns(
-        CandidateFailedWarning, match=re.escape("Candidate 'foundation' failed")
-    ):
-        with pytest.warns(LongTrainingWarning) as caught:
-            assistant.compare(
-                data          = df_single,
-                cv            = _single_cv(),
-                target        = "sales",
-                date_column   = "date",
-                candidates    = candidates,
-                show_progress = False,
-                baseline      = False,
-            )
+    err_msg = re.escape(
+        "This comparison is above the threshold of an expensive run (50 "
+        "estimator fits or 3 inference windows), so it needs a confirmation "
+        "and nothing ran. ForecasterFoundation will forecast up to 6 inference "
+        "windows (1 series x 6 folds). It can take substantial amounts of "
+        "time. If not feasible, compare fewer candidates or use fewer folds (a "
+        "later `initial_train_size`, a larger `fold_stride` or `skip_folds`) "
+        "or fewer series."
+    )
+    with pytest.raises(CostNotConfirmedError, match=f"^{err_msg}$") as exc_info:
+        assistant.compare(
+            data          = df_single,
+            cv            = _single_cv(),
+            target        = "sales",
+            date_column   = "date",
+            candidates    = candidates,
+            show_progress = False,
+            baseline      = False,
+        )
 
-    # skforecast's warnings append a line on how to silence them.
-    long_training = [
-        str(w.message).split("\n")[0]
-        for w in caught if issubclass(w.category, LongTrainingWarning)
-    ]
-    assert long_training == [
-        "ForecasterFoundation will forecast up to 6 inference windows (1 series x 6 "
-        "folds), more than 3. This can take minutes on a CPU. If not feasible, "
-        "use a cross-validation strategy with fewer folds (a later "
-        "`initial_train_size` or a larger `fold_stride`) or forecast fewer "
-        "series."
-    ]
+    assert exc_info.value.figure == 6
 
 
-def test_compare_LongTrainingWarning_adds_up_the_foundation_candidates(monkeypatch):
+def test_compare_CostNotConfirmedError_adds_up_the_foundation_candidates(
+    monkeypatch,
+):
     """
     Test that the inference windows of several ForecasterFoundation
-    candidates add up into one warning that states the total: two candidates
+    candidates add up into one figure that states the total: two candidates
     of 6 windows (1 series x 6 folds) exceed a threshold of 10 that neither
-    exceeds alone.
+    exceeds alone. The backend is reported installed.
     """
     monkeypatch.setattr("skforecast_ai._utils.LONG_INFERENCE_WINDOWS", 10)
     monkeypatch.setattr(
-        "skforecast_ai._foundation.foundation_backend_installed", lambda info: False
+        "skforecast_ai._foundation.foundation_backend_installed", lambda info: True
     )
     candidates = [
         ("ridge", {"forecaster": "ForecasterRecursive", "estimator": "Ridge"}),
@@ -2442,30 +3277,23 @@ def test_compare_LongTrainingWarning_adds_up_the_foundation_candidates(monkeypat
         ),
     ]
 
-    # The foundation candidates then fail: their backend is not installed.
-    with pytest.warns(CandidateFailedWarning):
-        with pytest.warns(LongTrainingWarning) as caught:
-            assistant.compare(
-                data          = df_single,
-                cv            = _single_cv(),
-                target        = "sales",
-                date_column   = "date",
-                candidates    = candidates,
-                show_progress = False,
-                baseline      = False,
-            )
-
-    long_training = [
-        str(w.message).split("\n")[0]
-        for w in caught if issubclass(w.category, LongTrainingWarning)
-    ]
-    assert long_training == [
+    err_msg = re.escape(
         "ForecasterFoundation will forecast up to 12 inference windows (1 series "
-        "x 6 folds x 2 candidates), more than 10. This can take minutes on a "
-        "CPU. If not feasible, use a cross-validation strategy with fewer folds "
-        "(a later `initial_train_size` or a larger `fold_stride`) or forecast "
-        "fewer series."
-    ]
+        "x 6 folds x 2 candidates)."
+    )
+    with pytest.raises(CostNotConfirmedError, match=err_msg) as exc_info:
+        assistant.compare(
+            data          = df_single,
+            cv            = _single_cv(),
+            target        = "sales",
+            date_column   = "date",
+            candidates    = candidates,
+            show_progress = False,
+            baseline      = False,
+        )
+
+    assert exc_info.value.figure == 12
+    assert exc_info.value.cost["inference_windows"] == 12
 
 
 def test_compare_CandidateFailedWarning_when_direct_candidate_and_cv_with_gap():
@@ -2482,7 +3310,7 @@ def test_compare_CandidateFailedWarning_when_direct_candidate_and_cv_with_gap():
 
     # The warning truncates the error message of the candidate.
     warn_msg = re.escape(
-        "Candidate 'direct' failed and is ranked last: ValueError: "
+        "Candidate 'direct' failed and is ranked last: InvalidInputError: "
         "ForecasterDirect is trained to predict 5 steps, and with `gap=2` "
         "each fold needs steps + gap = 7 steps ahead"
     )
@@ -2717,11 +3545,13 @@ def test_compare_overridden_fields_of_automatic_candidates_and_baseline(monkeypa
     assert all("forecaster" in fields for fields in explicit)
 
 
-def test_compare_candidate_differentiation_runs_on_a_copy_of_the_strategy():
+def test_compare_candidates_with_different_differentiation_share_the_strategy():
     """
-    Test that a candidate with its own differentiation order runs on a copy
-    of the shared strategy with that order (the strategy is not changed),
-    and that the explanation says so.
+    Test that candidates with different differentiation orders, and the
+    baseline, run on the same strategy: skforecast 0.27 takes the order
+    from the window of each forecaster. Each candidate has the
+    metrics of a backtest of its plan on that strategy, and the explanation
+    says nothing about the order.
     """
     cv = _single_cv()
     result = assistant.compare(
@@ -2732,46 +3562,13 @@ def test_compare_candidate_differentiation_runs_on_a_copy_of_the_strategy():
         candidates=[
             ("plain", {"forecaster": "ForecasterRecursive"}),
             ("diff", {"forecaster": "ForecasterRecursive", "differentiation": 1}),
-        ],
-        show_progress=False,
-        baseline=False,
-    )
-
-    assert cv.differentiation is None
-    assert result.candidates["diff"].cv_config["differentiation"] == 1
-    assert result.candidates["plain"].cv_config["differentiation"] is None
-    assert result.explanation.endswith(
-        "These candidates ran on a copy of the strategy with their own "
-        "differentiation order (the strategy has None): {'diff': 1}."
-    )
-
-
-def test_compare_explanation_without_differentiation_note_when_only_baseline_differs():
-    """
-    Test that when every candidate uses the order of the strategy, the
-    baseline (which runs on a copy of the strategy without order) is not
-    named in a note about candidates with their own differentiation order.
-    """
-    cv = TimeSeriesFold(
-        steps=5, initial_train_size=70, differentiation=1, verbose=False
-    )
-    result = assistant.compare(
-        data=df_single,
-        cv=cv,
-        target="sales",
-        date_column="date",
-        candidates=[
-            (
-                "recursive_diff",
-                {"forecaster": "ForecasterRecursive", "differentiation": 1},
-            ),
             (
                 "direct_diff",
                 {
                     "forecaster": "ForecasterDirect",
                     "estimator": "Ridge",
                     "lags": [1, 2, 3],
-                    "differentiation": 1,
+                    "differentiation": 2,
                 },
             ),
         ],
@@ -2779,14 +3576,36 @@ def test_compare_explanation_without_differentiation_note_when_only_baseline_dif
         baseline=True,
     )
 
-    assert result.baseline_name == "Baseline (seasonal naive)"
-    assert "Baseline (seasonal naive)" in list(result.results["name"])
-    assert result.candidates["Baseline (seasonal naive)"].cv_config[
-        "differentiation"
-    ] is None
-    assert result.candidates["recursive_diff"].cv_config["differentiation"] == 1
-    assert "own differentiation order" not in result.explanation
-    assert "copy of the strategy" not in result.explanation
+    assert result.failures == {}
+    assert set(result.candidates) == {
+        "plain", "diff", "direct_diff", "Baseline (seasonal naive)"
+    }
+    orders = {
+        name: candidate.plan.forecaster_kwargs.get("differentiation")
+        for name, candidate in result.candidates.items()
+    }
+    assert orders == {
+        "plain": None, "diff": 1, "direct_diff": 2,
+        "Baseline (seasonal naive)": None,
+    }
+    assert all(
+        candidate.cv_config == result.cv_config
+        for candidate in result.candidates.values()
+    )
+    assert "differentiation" not in result.cv_config
+    assert "differentiation" not in result.explanation
+    for name in ("diff", "direct_diff"):
+        alone = assistant.backtest(
+            data=df_single,
+            cv=cv,
+            target="sales",
+            date_column="date",
+            plan=result.candidates[name].plan,
+            show_progress=False,
+        )
+        pd.testing.assert_frame_equal(
+            result.candidates[name].metrics, alone.metrics
+        )
 
 
 def test_compare_candidate_feature_overrides():
@@ -2826,8 +3645,11 @@ def test_compare_candidate_feature_overrides():
 # =============================================================================
 # Tests: provenance of the strategy
 # =============================================================================
+# The light candidate 'recursive_default' makes the decisions of the plan of
+# the strategy, so the text names its row.
 _COMPARISON_INITIAL_TRAIN_SIZE_DEFAULT = (
-    "The strategy was created for the plan (ForecasterRecursive + Ridge). "
+    "The strategy was created for the plan of row 'recursive_default' "
+    "(ForecasterRecursive + Ridge). "
     "Initial training size by default: 70% of the 100 observations (70), up "
     "to 2023-03-11."
 )
@@ -2850,7 +3672,8 @@ def test_compare_cv_provenance_when_cv_result_with_defaults():
     """
     Test that compare() with the CVResult of create_cv() without arguments
     records that nothing was passed and, as a comparison has no plan of its
-    own, says the strategy was created for the plan of the CVResult.
+    own, says the strategy was created for the plan of the CVResult, naming
+    the row of the candidate that makes its decisions.
     """
     profile = assistant.profile(data=df_single, target="sales", date_column="date")
     cv_result = assistant.create_cv(profile, assistant.plan(profile, steps=5))
@@ -2941,13 +3764,14 @@ def test_compare_cv_provenance_when_candidates_include_forecaster_stats():
     assert [r.cv_fields_without_effect for r in results] == [[], []]
     assert results[0].cv_overridden_fields == []
     assert results[1].cv_overridden_fields == ["refit", "fixed_train_size"]
+    initial_train_size = _COMPARISON_INITIAL_TRAIN_SIZE_DEFAULT.replace(
+        "'recursive_default'", "'recursive'"
+    )
     assert results[0].cv_defaults_explanation == (
-        f"{_COMPARISON_INITIAL_TRAIN_SIZE_DEFAULT} "
-        f"{_COMPARISON_TRAINED_ONCE_DEFAULT}"
+        f"{initial_train_size} {_COMPARISON_TRAINED_ONCE_DEFAULT}"
     )
     assert results[1].cv_defaults_explanation == (
-        f"{_COMPARISON_INITIAL_TRAIN_SIZE_DEFAULT} `refit` and "
-        "`fixed_train_size` as requested."
+        f"{initial_train_size} `refit` and `fixed_train_size` as requested."
     )
     for result in results:
         assert "Trained once by default" not in result.cv_defaults_explanation
@@ -2968,8 +3792,8 @@ def test_compare_cv_provenance_when_cv_result_llm_configured():
 
     assert result.cv_llm_configured is True
     assert result.cv_defaults_explanation == (
-        "The strategy was created for the plan (ForecasterRecursive + "
-        "Ridge). `refit` as requested."
+        "The strategy was created for the plan of row 'recursive_default' "
+        "(ForecasterRecursive + Ridge). `refit` as requested."
     )
 
 
@@ -3036,25 +3860,26 @@ def test_compare_strategy_plan_row_when_plan_was_refined(monkeypatch):
     )
 
     assert list(result.results["name"]) == [
-        "ForecasterRecursive",
         "ForecasterStats",
+        "ForecasterRecursive",
         "Baseline (seasonal naive)",
         "ForecasterDirect",
         "Strategy plan",
     ]
     assert list(result.results["estimator"]) == [
-        "Ridge", "Arima", None, "Ridge", "LGBMRegressor"
+        "Arima", "Ridge", None, "Ridge", "LGBMRegressor"
     ]
     # The Arima fit of ForecasterStats ends where its optimizer stops, which
-    # moves in the fifth decimal from one CI runner to another (0.063813 and
-    # 0.063819); the other rows are exact to six decimals.
+    # moves in the fifth decimal from one machine to another; the other rows
+    # are exact to six decimals. Since skforecast 0.27, `freeze_params=True`
+    # keeps the model selected in the first fit, so Arima ranks first.
     maes = result.results["mean_absolute_error"].to_numpy()
     np.testing.assert_array_almost_equal(
-        maes[[0, 2, 3, 4]],
+        maes[[1, 2, 3, 4]],
         np.array([0.061982, 0.066072, 0.076281, 0.082949]),
         decimal=6,
     )
-    assert np.isclose(maes[1], 0.063817, atol=1e-5)
+    assert np.isclose(maes[0], 0.060668, atol=1e-5)
     assert result.strategy_plan_name == "Strategy plan"
     strategy_row = result.candidates["Strategy plan"]
     assert np.isclose(
@@ -3079,13 +3904,17 @@ def test_compare_strategy_plan_row_when_plan_was_refined(monkeypatch):
         "rows named after a forecaster run the configurations the profile "
         "recommends, not that plan. Shared cross-validation strategy: Initial "
         "training up to 2003-04-01, trained once (no refit), 12-step horizon, "
-        "6 folds. ForecasterStats is refitted in every fold on a fixed window "
-        "(6 trainings): skforecast requires it for ARIMA models. Best: "
-        "'ForecasterRecursive' (ForecasterRecursive / Ridge) = 0.0620, 2.9% "
-        "ahead of 'ForecasterStats' (0.0638). 2 of 4 configurations beat the "
-        "baseline 'Baseline (seasonal naive)' (0.0661): 'ForecasterRecursive' "
-        "and 'ForecasterStats'. The best, 'ForecasterRecursive', beats it by "
-        "6.2%. " + _MISSING_BACKEND_NOTE
+        "6 folds (the last one has only 2 steps). ForecasterStats is refitted "
+        "in every fold on a fixed window "
+        "(6 trainings): skforecast requires it for ARIMA models. Each "
+        "configuration is measured on 62 predictions with an observed value "
+        "(n_evaluated in the table: a count, not a metric, and it does not "
+        "change the ranking). Best: "
+        "'ForecasterStats' (ForecasterStats / Arima) = 0.0607, 2.1% ahead of "
+        "'ForecasterRecursive' (0.0620). 2 of 4 configurations beat the "
+        "baseline 'Baseline (seasonal naive)' (0.0661): 'ForecasterStats' and "
+        "'ForecasterRecursive'. The best, 'ForecasterStats', beats it by "
+        "8.2%. " + _MISSING_BACKEND_NOTE
     )
     assert result.cv_defaults_explanation == (
         "The strategy was created for the plan of row 'Strategy plan' "
@@ -3234,7 +4063,10 @@ def test_compare_strategy_plan_row_is_in_the_explanation_when_it_ran_last():
         "(16.2383); the rows named after a forecaster run the configurations "
         "the profile recommends, not that plan. Shared cross-validation "
         "strategy: Initial training up to 2023-03-11, trained once (no "
-        "refit), 5-step horizon, 6 folds. Best: 'ForecasterDirect' "
+        "refit), 5-step horizon, 6 folds. Each configuration is measured on 30 "
+        "predictions with an observed value (n_evaluated in the table: a "
+        "count, not a metric, and it does not change the ranking). Best: "
+        "'ForecasterDirect' "
         "(ForecasterDirect / Ridge) = 0.3163, 13.4% ahead of "
         "'ForecasterRecursive' (0.3652). 2 of 3 configurations beat the "
         "baseline 'Baseline (seasonal naive)' (7.0000); 'Strategy plan' does "
@@ -3242,36 +4074,115 @@ def test_compare_strategy_plan_row_is_in_the_explanation_when_it_ran_last():
     )
 
 
-def test_compare_candidates_explicit_ignore_the_plan_of_the_strategy():
+def test_compare_UserWarning_when_explicit_candidates_leave_out_the_plan_of_the_strategy():
     """
     Test that with explicit `candidates` and the CVResult of a refined plan
-    the rows are the candidates and the baseline, no row is added for the
-    plan of the strategy (`strategy_plan_name` is None) and the text of the
-    strategy keeps the sentence "created for the plan".
+    (RandomForestRegressor with lags 1 to 3) that no candidate runs, the
+    rows are the candidates and the baseline, no row is added for the plan
+    of the strategy (`strategy_plan_name` is None), and a UserWarning and
+    the explanation say that the plan was not compared (V24). Before,
+    nothing said it, and the text of the strategy, which names the model of
+    that plan, could be read as the result of a candidate with that model.
     """
-    result = assistant.compare(
-        data          = df_no_exog,
-        cv            = cv_sales_refined,
-        profile       = profile_sales,
-        target        = "sales",
-        date_column   = "date",
-        candidates    = [
-            ("ridge", {"forecaster": "ForecasterRecursive"}),
-            ("direct", {"forecaster": "ForecasterDirect", "lags": [1, 2, 3]}),
-        ],
-        show_progress = False,
+    warn_msg = (
+        "The plan the strategy was created for (ForecasterRecursive + "
+        "RandomForestRegressor) makes other decisions than every candidate, "
+        "so it was not compared: `candidates` runs only the configurations "
+        "given. Add it to `candidates` with its decisions, or leave "
+        "`candidates` out to run it in the row 'Strategy plan' next to the "
+        "configurations the profile recommends."
     )
+    with pytest.warns(UserWarning, match=f"^{re.escape(warn_msg)}$"):
+        result = assistant.compare(
+            data          = df_no_exog,
+            cv            = cv_sales_refined,
+            profile       = profile_sales,
+            target        = "sales",
+            date_column   = "date",
+            candidates    = [
+                ("ridge", {"forecaster": "ForecasterRecursive"}),
+                (
+                    "forest",
+                    {"estimator": "RandomForestRegressor", "lags": [1, 2]},
+                ),
+            ],
+            show_progress = False,
+        )
 
-    assert list(result.results["name"]) == [
-        "ridge", "direct", "Baseline (seasonal naive)"
+    assert sorted(result.results["name"]) == [
+        "Baseline (seasonal naive)", "forest", "ridge"
     ]
     assert result.strategy_plan_name is None
-    assert "Strategy plan" not in result.explanation
+    assert warn_msg in result.explanation
     assert "runs the plan the strategy was created for" not in result.explanation
     assert result.cv_defaults_explanation == (
         "The strategy was created for the plan (ForecasterRecursive + "
         f"RandomForestRegressor). {_STRATEGY_TAIL}"
     )
+
+
+def test_compare_names_the_explicit_candidate_that_runs_the_plan_of_the_strategy():
+    """
+    Test that with explicit `candidates` and the CVResult of a refined plan,
+    a candidate that makes the same decisions as that plan (lags 1 to 3 and
+    RandomForestRegressor) is named as its row in the text of the strategy,
+    without a warning and without an added row; `strategy_plan_name` stays
+    None, since no row was added for it.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        result = assistant.compare(
+            data          = df_no_exog,
+            cv            = cv_sales_refined,
+            profile       = profile_sales,
+            target        = "sales",
+            date_column   = "date",
+            candidates    = [
+                ("ridge", {"forecaster": "ForecasterRecursive"}),
+                (
+                    "forest",
+                    {"estimator": "RandomForestRegressor", "lags": [1, 2, 3]},
+                ),
+            ],
+            show_progress = False,
+        )
+
+    assert sorted(result.results["name"]) == [
+        "Baseline (seasonal naive)", "forest", "ridge"
+    ]
+    assert result.strategy_plan_name is None
+    assert "was not compared" not in result.explanation
+    assert result.cv_defaults_explanation == (
+        "The strategy was created for the plan of row 'forest' "
+        f"(ForecasterRecursive + RandomForestRegressor). {_STRATEGY_TAIL}"
+    )
+
+
+def test_compare_InvalidInputError_when_candidate_uses_strategy_plan_name():
+    """
+    Test that compare() rejects a candidate named 'Strategy plan', the name
+    of the row that runs the plan the strategy was created for, with or
+    without a CVResult (V24). Before, a candidate of any configuration took
+    it and was reported as the plan of the user.
+    """
+    err_msg = re.escape(
+        "The candidate name 'Strategy plan' is reserved for the plan the "
+        "strategy was created for. Rename the candidate."
+    )
+    for cv in (cv_sales_refined, cv_sales_refined.cv):
+        with pytest.raises(InvalidInputError, match=f"^{err_msg}$") as exc_info:
+            assistant.compare(
+                data          = df_no_exog,
+                cv            = cv,
+                profile       = profile_sales,
+                candidates    = [
+                    ("Strategy plan", {"estimator": "RandomForestRegressor"}),
+                    ("ridge", {"forecaster": "ForecasterRecursive"}),
+                ],
+                show_progress = False,
+            )
+
+        assert exc_info.value.field == "candidates"
 
 
 def test_compare_strategy_plan_name_is_none_when_cv_is_a_time_series_fold():
@@ -3664,3 +4575,85 @@ def test_compare_candidate_scripts_keep_the_dialect_when_saved_profile_is_stale(
     assert result.profile.data_profile.csv_sep == ";"
     for backtest in result.candidates.values():
         assert f"data = pd.read_csv({path!r}, sep=';', decimal=',')\n" in backtest.code
+
+
+def test_compare_output_when_interval_adds_coverage_columns_without_changing_ranking():
+    """
+    Test that compare() with an interval puts the `coverage` and the
+    `interval_width` that skforecast measured after the metrics of the
+    table, from the metrics of each candidate, ranks the candidates as
+    without an interval, and warns once, naming the candidates whose
+    interval covers clearly less than 80 % (h2o, 6 folds of 12 months).
+    """
+    cv = TimeSeriesFold(steps=12, initial_train_size=142)
+    candidates = [
+        ("ridge", {"forecaster": "ForecasterRecursive", "estimator": "Ridge"}),
+        ("direct", {"forecaster": "ForecasterDirect", "lags": 3}),
+    ]
+    plain = assistant.compare(
+        data=df_h2o, cv=cv, target="x", candidates=candidates,
+        baseline=False, show_progress=False,
+    )
+    warn_msg = re.escape(
+        "The prediction interval [0.1, 0.9] has a nominal coverage of 80 %, "
+        "but it covered clearly less (more than 2 binomial standard errors for "
+        "the number of predictions, and at least 5 percentage points, below "
+        "80 %) in these candidates: 'ridge' (64.5 % of 62 actual values), "
+        "'direct' (59.7 % of 62 actual values). Do not present their interval "
+        "as covering 80 %: report the coverage measured in the backtest (the "
+        "`coverage` column of the table, and of the metrics of each candidate "
+        "by series)."
+    )
+    with pytest.warns(IntervalCoverageWarning, match=f"^{warn_msg}$") as records:
+        result = assistant.compare(
+            data=df_h2o, cv=cv, target="x", candidates=candidates,
+            interval=[0.1, 0.9], baseline=False, show_progress=False,
+        )
+
+    assert len(records) == 1
+    assert list(result.results.columns) == [
+        "rank", "name", "forecaster", "estimator", "mean_absolute_error",
+        "root_mean_squared_error", "mean_absolute_scaled_error",
+        "mean_absolute_percentage_error", "coverage", "interval_width",
+        "n_evaluated",
+    ]
+    assert list(result.results["name"]) == list(plain.results["name"])
+    for _, row in result.results.iterrows():
+        metrics = result.candidates[row["name"]].metrics
+        assert row["coverage"] == metrics.loc[0, "coverage"]
+        assert row["interval_width"] == metrics.loc[0, "interval_width"]
+    np.testing.assert_allclose(
+        result.results[["coverage"]].to_numpy(),
+        [[0.6451612903225806], [0.5967741935483871]],
+    )
+
+
+def test_compare_default_candidates_leave_out_exog_when_the_user_did(monkeypatch):
+    """
+    Test that compare() without candidates, on a strategy created for a plan
+    that leaves the exogenous variables out by choice of the user
+    (`use_exog=False`), runs every candidate without them, so the winner
+    needs no future values; the recommended forecaster is the row of that
+    plan and no 'Strategy plan' row is added.
+    """
+    monkeypatch.setattr(
+        comparison_module, "foundation_backend_installed", lambda info: False
+    )
+
+    with pytest.warns(MissingBackendWarning, match="ForecasterFoundation left out"):
+        result = assistant.compare(
+            data          = df_single,
+            cv            = cv_promo_no_exog,
+            profile       = profile_promo,
+            show_progress = False,
+        )
+
+    assert {
+        name: candidate.plan.use_exog for name, candidate in result.candidates.items()
+    } == {
+        "ForecasterRecursive": False,
+        "ForecasterDirect": False,
+        "ForecasterStats": False,
+        "Baseline (seasonal naive)": False,
+    }
+    assert result.strategy_plan_name == "ForecasterRecursive"

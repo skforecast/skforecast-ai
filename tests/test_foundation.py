@@ -113,13 +113,21 @@ def test_resolve_foundation_model_TypeError_when_model_id_not_str():
         ("pandas[performance]", True),
         ("package-that-is-not-installed-abc", False),
         ("package-that-is-not-installed-abc[torch]", False),
+        ("pandas>=1.0", True),
+        ("pandas @ git+https://github.com/pandas-dev/pandas.git", True),
+        (
+            "package-that-is-not-installed-abc @ git+https://example.com/abc.git",
+            False,
+        ),
     ],
     ids=lambda dt: f"backend_package, expected: {dt}",
 )
 def test_foundation_backend_installed_output(backend_package, expected):
     """
     Test that the backend check reads the installed distribution named by
-    `backend_package`, ignoring the extras.
+    `backend_package`, ignoring the extras, a version specifier and the
+    source of a direct reference (the backend of Timestral is
+    `timestral @ git+https://github.com/mistralai/timestral.git`).
     """
     info = dataclasses.replace(
         get_model_info("autogluon/chronos-2-small"),
@@ -250,6 +258,7 @@ def test_validate_foundation_estimator_kwargs_ValueError_when_model_id():
         ("google/timesfm-3.0-pytorch", [0.1, 0.9]),
         ("google/timesfm-3.0-pytorch", [0.2, 0.7]),
         ("taharnbl/TS-ICL", [0.05, 0.95]),
+        ("NX-AI/TiRex-2", [0.1, 0.9]),
     ],
     ids=lambda dt: f"model_id, interval: {dt}",
 )
@@ -259,7 +268,7 @@ def test_validate_foundation_interval_no_error_when_interval_supported(
     """
     Test that an interval is accepted when the model predicts any quantile
     level, or when both bounds are in its quantile grid (0.1 steps for
-    TimesFM, 0.01 steps for TS-ICL).
+    TimesFM and TiRex-2, 0.01 steps for TS-ICL).
     """
     validate_foundation_interval(get_model_info(model_id), interval)
 

@@ -18,7 +18,7 @@ A single-series ML forecaster (ForecasterRecursive) is recommended. Data: 204 ob
 </profile_decision>
 <forecast_plan>
 - Forecaster: ForecasterStats
-- Steps: 12
+- Steps: 12 (forecast horizon, given by the user)
 - Estimator: Arima
 - Primary metric: mean_absolute_error
 - Chosen by the user instead of the rules: forecaster
@@ -35,14 +35,14 @@ Note: A validated Python script implementing this plan is generated separately. 
 - fold_stride: 12
 - skip_folds: None
 - allow_incomplete_fold: True
-- differentiation: None
 - n_folds: 6
 - n_fits: 6
+- last_fold_steps: 2
 </backtesting_strategy>
 <script>
-- Mode: backtesting: predicts 6 folds of 12 steps, training the forecaster 6 times, and scores the predictions of every fold against the held-out observations
+- Mode: backtesting: predicts 6 folds of 12 steps (the last one has only 2 steps), training the forecaster 6 times, and scores the predictions of every fold against the held-out observations
 - Files read: data.csv
-- Variables defined: metrics (one column per metric, one row per series when there are several), and predictions of every fold with a `fold` column
+- Variables defined: metrics (one column per metric: mean_absolute_error, root_mean_squared_error, mean_absolute_scaled_error, mean_absolute_percentage_error; one row per series when there are several; then `n_evaluated`, the number of points each row is measured on, which is not a metric), and predictions of every fold with the columns `fold`, `step` (the step of the horizon), `y_true` (the observed value) and the point forecast `pred`
 - Packages imported: pandas, skforecast
 - Length: 39 lines
 The script is available to the user as `result.code`; describe it from this summary and the plan, do not reproduce it. It has not been run: for its metrics, the user runs it or calls `assistant.backtest()`.

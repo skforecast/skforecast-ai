@@ -1,0 +1,67 @@
+{
+  "name": "0.5.0-dayfirst",
+  "started": "2026-10-30 12:35",
+  "model": "sonnet",
+  "commit": "f033f50-dirty",
+  "versions": {
+    "skforecast_ai": "0.5.0",
+    "skforecast": "0.27.0",
+    "mcp": "2.3.0",
+    "python": "3.13.13"
+  },
+  "context": {
+    "instructions_chars": 4066,
+    "tools": {
+      "profile": {
+        "description_chars": 160,
+        "schema_chars": 2592
+      },
+      "plan": {
+        "description_chars": 233,
+        "schema_chars": 6235
+      },
+      "refine_plan": {
+        "description_chars": 186,
+        "schema_chars": 6939
+      },
+      "create_cv": {
+        "description_chars": 184,
+        "schema_chars": 2499
+      },
+      "backtest": {
+        "description_chars": 237,
+        "schema_chars": 876
+      },
+      "compare": {
+        "description_chars": 299,
+        "schema_chars": 8132
+      },
+      "forecast": {
+        "description_chars": 223,
+        "schema_chars": 1043
+      },
+      "get_code": {
+        "description_chars": 175,
+        "schema_chars": 477
+      },
+      "get_failure": {
+        "description_chars": 244,
+        "schema_chars": 420
+      },
+      "list_objects": {
+        "description_chars": 219,
+        "schema_chars": 284
+      },
+      "describe_object": {
+        "description_chars": 131,
+        "schema_chars": 170
+      }
+    },
+    "n_tools": 11,
+    "tools_chars": 31958,
+    "skill_chars": 25344,
+    "skill_frontmatter_chars": 446,
+    "always_deferred_chars": 4832,
+    "always_full_chars": 36024
+  }
+}

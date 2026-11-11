@@ -141,13 +141,13 @@ ForecasterEquivalentDate(
 
 ```python
 ForecasterRnn(
-    estimator=None,                    # Keras model (use create_and_compile_model)
+    estimator,                         # Keras model (required), use create_and_compile_model
     levels,                            # str | list[str] (required), target series names
     lags,                              # int | list[int] | np.ndarray | range (required)
     transformer_series=MinMaxScaler(feature_range=(0, 1)),  # transformer | dict | None
     transformer_exog=MinMaxScaler(feature_range=(0, 1)),    # transformer | None
-    fit_kwargs=None,                   # dict, extra kwargs passed to model.fit()
-    binner_kwargs=None,                # dict, kwargs for KBinsDiscretizer (binned residuals)
+    fit_kwargs=None,                   # dict, extra kwargs passed to model.fit() (plus series_val / exog_val)
+    binner_kwargs=None,                # dict, kwargs for QuantileBinner (binned residuals)
     forecaster_id=None,                # str | int, optional identifier
 )
 ```
@@ -163,12 +163,14 @@ FoundationModel(
                                #   torch_dtype : object (Chronos-2, T0)
                                #   cross_learning : bool (Chronos-2 only)
                                #   max_horizon, forecast_config_kwargs (TimesFM 2.5 only)
-                               #   predict_kwargs (TimesFM 3.0 only)
+                               #   predict_kwargs (Chronos-2, TimesFM 3.0, Timestral, TiRex-2)
                                #   point_estimate, tabicl_config, temporal_features, show_progress (TabICL)
                                #   mode, point_estimate, tabpfn_model_config, temporal_features, show_progress (TabPFN-TS)
                                #   (T0 uses only context_length, device_map, torch_dtype)
                                #   point_estimate, add_calendar_features, n_fourier_terms, nori_config (Nori)
                                #   checkpoint_version, allow_auto_download (TS-ICL)
+                               #   (Timestral uses only context_length, device, predict_kwargs)
+                               #   (TiRex-2 uses only context_length, device, predict_kwargs)
 )
 
 ForecasterFoundation(

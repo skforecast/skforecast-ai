@@ -7,13 +7,14 @@
 
 from __future__ import annotations
 import traceback
-from typing import TYPE_CHECKING, ClassVar, Literal, get_args
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, get_args
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
     computed_field,
     field_validator,
+    model_validator,
 )
 from .._display import (
     DisplayMixin,
@@ -25,7 +26,7 @@ from .._display import (
     render_plan,
     render_profile,
 )
-from ..exceptions import InvalidInputTypeError
+from ..exceptions import InvalidInputError, InvalidInputTypeError
 from ._compat import PickleDefaultsMixin
 from ._types import JSONFrame, JSONTimeSeriesFold, OptionalJSONFrame
 from .explainable import ExplainableResult
@@ -36,8 +37,8 @@ if TYPE_CHECKING:
     from rich.console import Console, ConsoleOptions, RenderResult
 
 # Parameters of a cross-validation strategy that the user can pass to
-# `create_cv()`, in the order of its signature. `steps` and
-# `differentiation` are not among them: they always come from the plan.
+# `create_cv()`, in the order of its signature. `steps` is not among them:
+# it always comes from the plan.
 CVOverrideName = Literal[
     "initial_train_size",
     "fold_stride",
@@ -170,7 +171,11 @@ class CodeGenerationResult(
     code: str
 
     def _build_llm_context(
-        self, *, send_data: bool, for_describe: bool = False
+        self,
+        *,
+        send_data: bool,
+        for_describe: bool = False,
+        send_observed: bool = False,
     ) -> LLMContext:
         """
         Describe the generated script to the LLM.
@@ -185,6 +190,10 @@ class CodeGenerationResult(
         for_describe : bool, default False
             Whether the context is built for `describe()`, which leaves out
             the sentences addressed to the LLM of `ask()`.
+        send_observed : bool, default False
+            Whether values of the dataset that the result carries may be
+            included. Has no effect here: the result carries none. The
+            parameter is part of the `ExplainableResult` interface.
 
         Returns
         -------
@@ -237,7 +246,9 @@ class CodeGenerationResult(
         return LLMContext(
             text                = join_sections([
                                       render_dataset_section(
-                                          self.profile, for_describe=for_describe
+                                          self.profile,
+                                          for_describe = for_describe,
+                                          plan         = self.plan,
                                       ),
                                       render_profile_decision_section(
                                           self.profile, for_describe=for_describe
@@ -309,7 +320,11 @@ class SingleRunResult(
     metrics: OptionalJSONFrame
 
     def _build_llm_context(
-        self, *, send_data: bool, for_describe: bool = False
+        self,
+        *,
+        send_data: bool,
+        for_describe: bool = False,
+        send_observed: bool = False,
     ) -> LLMContext:
         """
         Describe a single run to the LLM.
@@ -321,6 +336,11 @@ class SingleRunResult(
         for_describe : bool, default False
             Whether the context is built for `describe()`, which leaves out
             the sentences addressed to the LLM of `ask()`.
+        send_observed : bool, default False
+            Whether the observed values of a backtest (`y_true` of the
+            predictions), values of the dataset, may be included. `ask()`
+            passes `send_data_to_llm`; when False the context says that
+            the column exists and is not shown.
 
         Returns
         -------
@@ -357,7 +377,9 @@ class SingleRunResult(
         return LLMContext(
             text    = join_sections([
                           render_dataset_section(
-                              self.profile, for_describe=for_describe
+                              self.profile,
+                              for_describe = for_describe,
+                              plan         = self.plan,
                           ),
                           render_profile_decision_section(
                               self.profile, for_describe=for_describe
@@ -383,9 +405,14 @@ class SingleRunResult(
                               self.metrics,
                               has_predictions = self.predictions is not None,
                               for_describe    = for_describe,
+                              plan            = (
+                                  self.plan if cv_config is None else None
+                              ),
                           ),
                           render_predictions_section(
-                              self.predictions, send_data=send_data
+                              self.predictions,
+                              send_data     = send_data,
+                              send_observed = send_observed,
                           ),
                       ]),
             profile = self.profile,
@@ -407,13 +434,17 @@ class ForecastResult(SingleRunResult):
     code : str
         Generated Python script equivalent to the execution.
     metrics : pandas DataFrame, None
-        Evaluation metrics. DataFrame with a `series` column and one
-        column per metric of `plan.metrics_to_compute` (by default `MAE`,
-        `MSE` and `MASE`, plus `MAPE` when the target has no values near
-        zero). For single-series tasks
-        this contains one row; for multi-series tasks one row per level.
-        None in prediction mode (`test_size=None`), where there is no
-        ground truth to evaluate against.
+        Evaluation metrics, with the metric columns of a backtest of the
+        same plan (without its `n_evaluated`): one column per metric of
+        `plan.metrics_to_compute`, named as the metric (by default
+        `mean_absolute_error`, `root_mean_squared_error` and
+        `mean_absolute_scaled_error`, plus `mean_absolute_percentage_error`
+        when the target of no series takes values at or around zero). For
+        single-series tasks this contains one row; for multi-series tasks
+        one row per series, named in a `levels` column, which
+        ForecasterDirectMultiVariate also has for its one row. None in
+        prediction mode (`test_size=None`), where there is no ground truth
+        to evaluate against.
     predictions : pandas DataFrame
         Forecasted values for the requested steps. When prediction
         intervals (or quantiles) are requested, the corresponding
@@ -444,11 +475,19 @@ class BacktestResult(SingleRunResult):
         Resolved `TimeSeriesFold` parameters plus the resulting `n_folds`
         and `n_fits` (trainings), for traceability. For a
         `ForecasterFoundation` plan, also `inference_windows`, its cost:
-        one forecast per series and fold.
+        one forecast per series and fold. When the last fold predicts
+        fewer steps than the horizon, also `last_fold_steps`.
     metrics : pandas DataFrame
-        Backtesting metric values returned by skforecast.
+        Backtesting metric values returned by skforecast. The last column,
+        `n_evaluated`, is not a metric: it is the number of points each row
+        is measured on (predictions with an observed value), summed in the
+        aggregated rows of several series.
     predictions : pandas DataFrame
-        Full backtest predictions across all folds.
+        Full backtest predictions across all folds, with the columns of
+        skforecast: `level` (several series), `fold`, `step` (the step of
+        the horizon of each prediction), `y_true` (the observed value, from
+        the data), `pred` and the interval bounds. `y_true` reaches the
+        LLM of `ask()` only with `send_data_to_llm=True`.
     code : str
         Generated Python script reproducing the backtesting workflow.
     explanation : str
@@ -522,7 +561,8 @@ class CVResult(PickleDefaultsMixin, DisplayMixin, ExplainableResult, BaseModel):
         Resolved `TimeSeriesFold` parameters plus the resulting `n_folds`
         and `n_fits` (trainings). For a `ForecasterFoundation` plan, also
         `inference_windows`, its cost: one forecast per series and fold.
-        For a `ForecasterStats` plan, the strategy skforecast runs:
+        When the last fold predicts fewer steps than the horizon, also
+        `last_fold_steps`. For a `ForecasterStats` plan, the strategy skforecast runs:
         `refit=True` (it refits ARIMA in every fold) and, when `cv` does
         not refit, `fixed_train_size=True`.
     code : str
@@ -593,7 +633,11 @@ class CVResult(PickleDefaultsMixin, DisplayMixin, ExplainableResult, BaseModel):
         )
 
     def _build_llm_context(
-        self, *, send_data: bool, for_describe: bool = False
+        self,
+        *,
+        send_data: bool,
+        for_describe: bool = False,
+        send_observed: bool = False,
     ) -> LLMContext:
         """
         Describe the cross-validation strategy to the LLM.
@@ -607,6 +651,10 @@ class CVResult(PickleDefaultsMixin, DisplayMixin, ExplainableResult, BaseModel):
         for_describe : bool, default False
             Whether the context is built for `describe()`, which leaves out
             the sentences addressed to the LLM of `ask()`.
+        send_observed : bool, default False
+            Whether values of the dataset that the result carries may be
+            included. Has no effect here: the result carries none. The
+            parameter is part of the `ExplainableResult` interface.
 
         Returns
         -------
@@ -667,7 +715,8 @@ class AskResult(DisplayMixin, BaseModel):
         LLM-generated explanation or response.
     skills : list of str, default []
         Names of the skill documents sent to the model, after any
-        trimming to fit the context budget. Recorded because the budget
+        trimming to fit the context budget; a skill sent without its
+        references ends with `'/SKILL.md'`. Recorded because the budget
         depends on the profile and context size at call time, so the
         selection cannot be re-derived from the question alone.
     """
@@ -792,10 +841,8 @@ class CandidateFailure(BaseModel):
     Attributes
     ----------
     error_type : str
-        Class name of the root-cause exception, for example
-        `'ImportError'`. An input error of skforecast-ai is named after the
-        built-in class it derives from (`'ValueError'` for an
-        `InvalidInputError`), as before these errors had their own classes.
+        Class name of the root-cause exception, for example `'ImportError'`
+        or `'InvalidInputError'`.
     message : str
         Message of the root-cause exception.
     traceback : str
@@ -832,7 +879,7 @@ class CandidateFailure(BaseModel):
             Plain-data snapshot of the failure.
         """
 
-        from ..exceptions import ForecastExecutionError, _reported_type_name
+        from ..exceptions import ForecastExecutionError
 
         if isinstance(exc, ForecastExecutionError):
             root = exc.original_error
@@ -846,7 +893,7 @@ class CandidateFailure(BaseModel):
             generated_code = None
 
         return cls(
-            error_type     = _reported_type_name(root),
+            error_type     = type(root).__name__,
             message        = str(root),
             traceback      = formatted,
             generated_code = generated_code,
@@ -906,6 +953,129 @@ class CompareProgress(BaseModel):
     error: str | None = None
 
 
+class CandidateCost(BaseModel):
+    """
+    Cost of one candidate of `compare()` on the shared strategy, counted
+    before it runs.
+
+    Attributes
+    ----------
+    forecaster : str
+        Name of the forecaster of the candidate.
+    n_fits : int
+        Trainings of the forecaster, as skforecast runs them: 0 for
+        `ForecasterFoundation`, one per fold for `ForecasterStats`.
+    estimator_fits : int
+        Fits of an estimator: a direct forecaster fits one per step in
+        every training; 0 for `ForecasterFoundation` and
+        `ForecasterEquivalentDate`.
+    inference_windows : int
+        Cost of `ForecasterFoundation`, never trained: up to one forecast
+        per series and fold. 0 for the other forecasters.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    forecaster: str
+    n_fits: int = Field(ge=0)
+    estimator_fits: int = Field(ge=0)
+    inference_windows: int = Field(ge=0)
+
+
+# Totals of `ComparisonCost`, computed from its candidates.
+_COST_TOTALS = ("n_fits", "estimator_fits", "inference_windows")
+
+
+class ComparisonCost(BaseModel):
+    """
+    Cost of a comparison: every candidate on the shared strategy, the
+    baseline included, counted from the plan and the strategy before
+    anything runs (`count_comparison_cost`).
+
+    `compare()` applies the thresholds of an expensive run to these totals
+    (`confirm_cost`). The count is made once the plans of the candidates
+    are built and before any of them runs: a candidate whose plan cannot be
+    built runs nothing and is not counted, and one that fails while it runs
+    is counted all the same.
+
+    Attributes
+    ----------
+    n_folds : int
+        Folds of the shared strategy, the same for every candidate.
+    candidates : dict
+        Mapping of candidate name to its `CandidateCost`, in the order the
+        candidates run.
+    n_fits : int
+        Trainings of all the candidates together.
+    estimator_fits : int
+        Estimator fits of all the candidates together.
+    inference_windows : int
+        Inference windows of all the candidates together.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    n_folds: int = Field(ge=0)
+    candidates: dict[str, CandidateCost]
+
+    @model_validator(mode="before")
+    @classmethod
+    def _check_totals(cls, data: Any) -> Any:
+        """
+        Accept the totals that `model_dump()` writes, so a dumped cost
+        validates again, when they are the sums of the candidates; other
+        totals raise instead of being dropped.
+        """
+
+        if not isinstance(data, dict):
+            return data
+        totals = {key: data[key] for key in _COST_TOTALS if key in data}
+        if not totals:
+            return data
+        data = {key: value for key, value in data.items() if key not in totals}
+        try:
+            candidates = list(data["candidates"].values())
+            sums = {
+                key: sum(
+                    candidate[key] if isinstance(candidate, dict)
+                    else getattr(candidate, key)
+                    for candidate in candidates
+                )
+                for key in totals
+            }
+        except (AttributeError, KeyError, TypeError):
+            # The candidates themselves are invalid: their validation says
+            # why.
+            return data
+        wrong = [key for key, value in totals.items() if value != sums[key]]
+        if wrong:
+            raise InvalidInputError(
+                f"{', '.join(wrong)} must be the sum of the candidates "
+                f"({', '.join(f'{key}={sums[key]}' for key in wrong)}).",
+                field = wrong[0],
+            )
+
+        return data
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def n_fits(self) -> int:
+        """Return the trainings of all the candidates together."""
+        return sum(cost.n_fits for cost in self.candidates.values())
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def estimator_fits(self) -> int:
+        """Return the estimator fits of all the candidates together."""
+        return sum(cost.estimator_fits for cost in self.candidates.values())
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def inference_windows(self) -> int:
+        """Return the inference windows of all the candidates together."""
+        return sum(cost.inference_windows for cost in self.candidates.values())
+
+
 def _one_line_summary(error_type: str, message: str, max_length: int = 200) -> str:
     """
     Summarize an error as `'ErrorType: first non-empty line of the message'`,
@@ -938,14 +1108,21 @@ class ComparisonResult(
     profile : ForecastingProfile
         Shared profile used for every candidate.
     cv_config : dict
-        Resolved `TimeSeriesFold` parameters plus the resulting `n_folds`,
-        applied identically to
-        every candidate.
+        Resolved `TimeSeriesFold` parameters plus the resulting `n_folds`
+        and `n_fits`, applied identically to every candidate: `n_fits` is
+        the number of folds in which the strategy trains a forecaster, not
+        the trainings of the comparison, which `cost` adds up.
     results : pandas DataFrame
         Ranked comparison table, one row per candidate sorted best to
         worst by `ranking_metric`. Columns are
         `['rank', 'name', 'forecaster', 'estimator', <metric columns...>]`,
-        plus an `'error'` column when at least one candidate failed.
+        plus `'coverage'` and `'interval_width'` after the metrics when the
+        comparison has an interval (measured by skforecast, averaged
+        across series with several; they do not rank), then
+        `'n_evaluated'`, the number of points each candidate was measured
+        on (a nullable integer, summed across series with several; it is
+        not a metric and does not rank), and an `'error'` column when at
+        least one candidate failed.
     candidates : dict
         Mapping of candidate name to the full `BacktestResult` of every
         candidate that ran successfully, ordered best to worst. Never
@@ -990,6 +1167,10 @@ class ComparisonResult(
         received a `TimeSeriesFold` or explicit `candidates`, or when the
         plan belongs to a forecaster family that cannot be ranked with the
         candidates.
+    cost : ComparisonCost, default None
+        Cost of every candidate on the shared strategy and the totals,
+        counted before anything runs. None for a result built by hand or
+        saved by a version without it.
     best_name : str
         Name of the top-ranked candidate.
     best_candidate : BacktestResult
@@ -1028,6 +1209,7 @@ class ComparisonResult(
     cv_llm_configured: bool = False
     cv_defaults_explanation: str = ""
     strategy_plan_name: str | None = None
+    cost: ComparisonCost | None = None
 
     _explanation_title: ClassVar[str] = "Comparison Explanation"
 
@@ -1047,7 +1229,11 @@ class ComparisonResult(
         return self.candidates[self.best_name]
 
     def _build_llm_context(
-        self, *, send_data: bool, for_describe: bool = False
+        self,
+        *,
+        send_data: bool,
+        for_describe: bool = False,
+        send_observed: bool = False,
     ) -> LLMContext:
         """
         Describe the comparison to the LLM.
@@ -1070,6 +1256,10 @@ class ComparisonResult(
         for_describe : bool, default False
             Whether the context is built for `describe()`, which leaves out
             the sentences addressed to the LLM of `ask()`.
+        send_observed : bool, default False
+            Whether values of the dataset that the result carries may be
+            included. Has no effect here: the result carries none. The
+            parameter is part of the `ExplainableResult` interface.
 
         Returns
         -------

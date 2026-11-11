@@ -132,6 +132,42 @@ def select_task_type_from_forecaster(
     return FORECASTER_TASK_TYPES[forecaster]
 
 
+def estimator_n_observations(
+    task_type: str,
+    data_profile: DataProfile,
+) -> int:
+    """
+    Number of observations that sizes the estimator of a task type.
+
+    Parameters
+    ----------
+    task_type : str
+        Forecasting task category.
+    data_profile : DataProfile
+        Profiled dataset metadata.
+
+    Returns
+    -------
+    n_observations : int
+        `span_index_length` for the `'multivariate'` task,
+        `n_total_observations` otherwise.
+
+    Notes
+    -----
+    `ForecasterDirectMultiVariate` trains one model per step on one row
+    per date that the series share, so the observations pooled across the
+    series overstate its training data: a gradient boosting model chosen
+    for them finds no split and predicts a constant.
+    `ForecasterRecursiveMultiSeries` trains one model on the series
+    pooled, and a single series has both counts equal.
+    """
+
+    if task_type == "multivariate":
+        return data_profile.span_index_length
+
+    return data_profile.n_total_observations
+
+
 def select_estimator_and_candidates(
     task_type: str,
     n_observations: int,
@@ -144,7 +180,8 @@ def select_estimator_and_candidates(
     task_type : str
         Forecasting task category.
     n_observations : int
-        Number of observations in the dataset.
+        Number of observations that sizes the estimator, see
+        `estimator_n_observations`.
 
     Returns
     -------

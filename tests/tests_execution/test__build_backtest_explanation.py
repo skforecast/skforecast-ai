@@ -4,6 +4,15 @@ import pandas as pd
 
 from skforecast_ai.execution.backtesting_runner import _build_backtest_explanation
 
+# Fixtures
+from .fixtures_interval_coverage import (
+    interval,
+    predictions_single_200,
+    metrics_single_06,
+    predictions_multi_2,
+    metrics_multi_2,
+)
+
 
 # Tests: _build_backtest_explanation: metric formatting
 
@@ -91,3 +100,138 @@ def test_build_backtest_explanation_uses_average_row_when_multi_series():
     result = _build_backtest_explanation(cv_explanation="CV.", metrics=metrics)
 
     assert result == "CV. Results (average across series): mean_absolute_error: 2.0000."
+
+
+def test_build_backtest_explanation_states_n_evaluated_apart_from_the_metrics():
+    """
+    Test that `n_evaluated` (skforecast 0.27), a count of points and not a
+    metric, is left out of the results and stated in a sentence of its own,
+    for a single series (where pandas reads the row as floats) and for
+    several, where the `average` row holds the sum across the series.
+    """
+    single = pd.DataFrame({
+        "mean_absolute_error": [1.5], "n_evaluated": [40],
+    })
+    multi = pd.DataFrame({
+        "levels": ["a", "b", "average", "weighted_average", "pooling"],
+        "mean_absolute_error": [1.0, 3.0, 2.0, 2.0, 2.1],
+        "n_evaluated": [20, 18, 38, 38, 38],
+    })
+
+    result_single = _build_backtest_explanation(cv_explanation="CV.", metrics=single)
+    result_multi = _build_backtest_explanation(cv_explanation="CV.", metrics=multi)
+
+    assert result_single == (
+        "CV. Results: mean_absolute_error: 1.5000. They are measured on 40 "
+        "predictions with an observed value (n_evaluated)."
+    )
+    assert result_multi == (
+        "CV. Results (average across series): mean_absolute_error: 2.0000. "
+        "They are measured on 38 predictions with an observed value across "
+        "the series (n_evaluated)."
+    )
+
+
+def test_build_backtest_explanation_counts_test_dates_without_value():
+    """
+    Test that a single series whose predictions have test dates without an
+    observed value (`y_true` missing, left out of the metrics by skforecast
+    0.27) gets a sentence that counts them, a date predicted by two
+    overlapping folds once and a single date in the singular; several
+    series (a `level` column), whose backtest drops them per series, and
+    predictions without missing `y_true` get none.
+    """
+    metrics = pd.DataFrame({"mean_absolute_error": [1.5], "n_evaluated": [3]})
+    dates = pd.to_datetime(
+        ["2020-01-01", "2020-01-02", "2020-01-02", "2020-01-03", "2020-01-04",
+         "2020-01-05"]
+    )
+    predictions = pd.DataFrame(
+        {
+            "fold": [0, 0, 1, 1, 1, 1],
+            "y_true": [1.0, None, None, 2.0, None, 3.0],
+            "pred": [1.1, 1.2, 1.2, 2.1, 2.2, 3.1],
+        },
+        index=dates,
+    )
+    one_missing = predictions.assign(y_true=[1.0, 2.0, 2.0, None, 2.5, 3.0])
+    several = predictions.assign(level="a")
+
+    result = _build_backtest_explanation(
+        cv_explanation="CV.", metrics=metrics, predictions=predictions
+    )
+    result_one = _build_backtest_explanation(
+        cv_explanation="CV.", metrics=metrics, predictions=one_missing
+    )
+    result_several = _build_backtest_explanation(
+        cv_explanation="CV.", metrics=metrics, predictions=several
+    )
+    result_complete = _build_backtest_explanation(
+        cv_explanation="CV.",
+        metrics=metrics,
+        predictions=predictions.assign(y_true=1.0),
+    )
+
+    measured = (
+        "CV. Results: mean_absolute_error: 1.5000. They are measured on 3 "
+        "predictions with an observed value (n_evaluated)."
+    )
+    assert result == (
+        f"{measured} The metrics leave out 2 test dates without an observed "
+        f"value of the target."
+    )
+    assert result_one == (
+        f"{measured} The metrics leave out 1 test date without an observed "
+        f"value of the target."
+    )
+    assert result_several == measured
+    assert result_complete == measured
+
+
+# Tests: _build_backtest_explanation: prediction interval coverage
+
+
+def test_build_backtest_explanation_single_series_with_interval():
+    """
+    Test that with a prediction interval the `coverage` and `interval_width`
+    metrics are not listed in the "Results" part and a sentence of their own
+    is appended to the explanation.
+    """
+    result = _build_backtest_explanation(
+        cv_explanation = "CV.",
+        metrics        = metrics_single_06,
+        predictions    = predictions_single_200,
+        interval       = interval,
+    )
+
+    expected = (
+        "CV. Results: mean_absolute_error: 1.5000. Prediction interval "
+        "[0.1, 0.9] (nominal coverage 80 %): 60 % of the 200 actual values "
+        "fell inside it (coverage: 0.6000), with a mean width of 4.0000 in "
+        "the units of the target (interval_width)."
+    )
+    assert result == expected
+
+
+def test_build_backtest_explanation_multi_series_with_interval():
+    """
+    Test that a multi-series backtest with a prediction interval keeps the
+    average row in the "Results" part, without the interval metrics, and
+    appends the sentence by series.
+    """
+    result = _build_backtest_explanation(
+        cv_explanation = "CV.",
+        metrics        = metrics_multi_2,
+        predictions    = predictions_multi_2,
+        interval       = interval,
+    )
+
+    expected = (
+        "CV. Results (average across series): mean_absolute_error: 1.5000. "
+        "Prediction interval [0.1, 0.9] (nominal coverage 80 %), share of "
+        "the actual values inside it (coverage) and mean width in the units "
+        "of each series (interval_width), by series: 'a' 80 % of 100 "
+        "predictions, width 4.0000; 'b' 50 % of 100 predictions, width "
+        "3.0000; average across series 65 %, width 3.5000."
+    )
+    assert result == expected

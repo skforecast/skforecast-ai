@@ -12,14 +12,22 @@ from .plans import (
     PreprocessingStep,
     RefinePlanOverrides,
 )
-from .profiles import DataProfile, ForecastingProfile, SeriesLengthInfo, SeriesPacf
+from .profiles import (
+    DataProfile,
+    ForecastingProfile,
+    FutureExogFile,
+    SeriesLengthInfo,
+    SeriesPacf,
+)
 from .results import (
     CV_OVERRIDE_NAMES,
     AskResult,
     BacktestResult,
+    CandidateCost,
     CandidateFailure,
     CodeGenerationResult,
     CompareProgress,
+    ComparisonCost,
     ComparisonResult,
     CVResult,
     ExplainableResult,
@@ -38,9 +46,11 @@ __all__ = [
     "AskResult",
     "BacktestResult",
     "CandidateConfig",
+    "CandidateCost",
     "CandidateFailure",
     "CodeGenerationResult",
     "CompareProgress",
+    "ComparisonCost",
     "ComparisonResult",
     "CVParams",
     "CVResult",
@@ -50,6 +60,7 @@ __all__ = [
     "ForecastingProfile",
     "ForecastPlan",
     "ForecastResult",
+    "FutureExogFile",
     "LLMCheckResult",
     "LLMContext",
     "PlanOverrides",

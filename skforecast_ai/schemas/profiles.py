@@ -6,7 +6,7 @@
 ################################################################################
 
 from __future__ import annotations
-from typing import ClassVar, Literal
+from typing import Annotated, ClassVar, Literal
 import pandas as pd
 from pydantic import BaseModel, Field, field_validator, model_validator
 from .._display import DisplayMixin, render_profile
@@ -22,13 +22,16 @@ class SeriesLengthInfo(BaseModel):
     Attributes
     ----------
     start : str, default None
-        First timestamp of the series as a string (e.g. `'2020-01-01'`).
-        None when the index is not datetime.
+        First timestamp of the series as a string (e.g. `'2020-01-01'`):
+        its first row in long format, its first value in wide format. None
+        when the index is not datetime.
     end : str, default None
-        Last timestamp of the series as a string. None when the index is
-        not datetime.
+        Last timestamp of the series as a string: its last row in long
+        format, its last value in wide format. None when the index is not
+        datetime.
     length : int
-        Number of observations in the series.
+        Number of observations in the series: its rows in long format, the
+        rows from its first to its last value in wide format.
     """
 
     start: str | None = None
@@ -98,7 +101,10 @@ class DataProfile(PickleDefaultsMixin, BaseModel):
     series_lengths : dict
         Mapping of series name to its `SeriesLengthInfo` (start, end,
         and length). Always populated, including single series (keyed by
-        the target name). The task-aware effective number of
+        the target name). A series of long format spans its own rows, and
+        one of wide format the rows from its first to its last value (the
+        missing values at both ends are dates it has not started or has
+        ended on). The task-aware effective number of
         observations is derived from this mapping (span for
         `multi_series`, common length for `multivariate`, single length
         otherwise).
@@ -107,7 +113,9 @@ class DataProfile(PickleDefaultsMixin, BaseModel):
         the earliest start to the latest end at `frequency`. Falls back
         to the longest individual series when datetime bounds or
         frequency are unavailable. Computed automatically from
-        `series_lengths`.
+        `series_lengths`, except for wide format when given: there it is
+        the dates of the frame, from its first row to its last one, which
+        every series shares.
     n_total_observations : int
         Pooled total number of observations across all series (the sum of
         every series length). Computed automatically from
@@ -160,6 +168,13 @@ class DataProfile(PickleDefaultsMixin, BaseModel):
     has_gaps : bool, default False
         Whether the datetime index has missing timestamps within its range
         (in long format, whether any series has them within its own range).
+    closed_weekdays : list, default []
+        Days of the week (0 for Monday) that every missing timestamp falls
+        on, when the data (each series, in long format) never has a date on
+        them, as a shop closed on Sundays: the days the note on missing
+        timestamps names. Empty when no timestamp is missing, when one of
+        them falls on a day of the week that has dates, or when the
+        frequency is coarser than a day.
     has_duplicate_timestamps : bool, default False
         Whether some timestamps appear in several identical rows, which the
         generated code drops. Timestamps repeated with different values
@@ -187,8 +202,30 @@ class DataProfile(PickleDefaultsMixin, BaseModel):
         data passed in memory.
     csv_decimal : str, default '.'
         Decimal mark of the CSV file of `data_path`: `'.'` or `','`, the
-        latter only when `csv_sep` is not `','`. Detected or given as
-        `csv_sep`.
+        latter only when `csv_sep` is not `','`. Detected when the file is
+        profiled, or given with `decimal`; the generated script reads the
+        file with it.
+    csv_thousands : str, None, default None
+        Thousands separator of the CSV file of `data_path`: `'.'`, only
+        with `','` as `csv_decimal`, or None when its numbers have none.
+        Detected when the file is profiled, or given with `thousands`; the
+        generated script reads the file with it.
+    csv_encoding : str, default 'utf-8'
+        Encoding of the CSV file of `data_path`: `'utf-8'`, with or without
+        a byte order mark, or `'cp1252'` (Windows-1252, the "CSV" that
+        Excel saves on Windows) for a file that is not UTF-8, with a note
+        in `warnings`, as that encoding cannot be checked. Detected every
+        time the file is read; the generated script reads the file with
+        `encoding='cp1252'`. `'utf-8'` for data passed in memory.
+    date_format : str, None, default None
+        Format the generated script reads the dates of `date_column` with
+        (`pandas.to_datetime(..., format=date_format)`), or None when it
+        reads them without one, as pandas guesses it from the first date:
+        `'%d/%m/%Y'` and the like for dates written day first (which pandas
+        reads month first unless told, whatever the first date), the order
+        given with `dayfirst` for dates that read both day first and month
+        first, and `'%Y%m%d'` for dates written as whole numbers
+        (`20200131`).
     warnings : list
         Human-readable warnings generated during profiling.
     """
@@ -214,6 +251,9 @@ class DataProfile(PickleDefaultsMixin, BaseModel):
     frequency_is_set: bool = False
     index_is_monotonic: bool = True
     has_gaps: bool = False
+    closed_weekdays: list[Annotated[int, Field(ge=0, le=6)]] = Field(
+        default_factory=list
+    )
     has_duplicate_timestamps: bool = False
 
     # -- Exogenous --
@@ -226,6 +266,9 @@ class DataProfile(PickleDefaultsMixin, BaseModel):
     data_path: str = "data.csv"
     csv_sep: Literal[",", ";", "\t"] = ","
     csv_decimal: Literal[".", ","] = "."
+    csv_thousands: Literal["."] | None = None
+    csv_encoding: Literal["utf-8", "cp1252"] = "utf-8"
+    date_format: str | None = None
 
     # -- Train/test split --
     start_date: str | None = None
@@ -255,27 +298,55 @@ class DataProfile(PickleDefaultsMixin, BaseModel):
         validate_frequency(value)
         return value
 
+    @field_validator("date_format")
+    @classmethod
+    def _check_date_format(cls, value: str | None) -> str | None:
+        """
+        Check that `date_format` is a format of dates: it is written into the
+        generated script, also from a profile loaded from JSON.
+        """
+        if value is not None and "%" not in value:
+            raise InvalidInputError(
+                f"`date_format` must be a format of dates such as '%d/%m/%Y', "
+                f"got {value!r}.",
+                field = "date_format",
+            )
+        return value
+
     @model_validator(mode="after")
     def _check_csv_dialect(self) -> "DataProfile":
         """
-        Check that the decimal mark is not the separator: the script would
-        read every number with decimals as two fields.
+        Check that the decimal mark is not the separator, and that a
+        thousands separator goes with `','` as decimal mark: the script would
+        read every number with decimals as two fields, or drop the decimal
+        mark of every number.
         """
         if self.csv_decimal == "," and self.csv_sep == ",":
             raise InvalidInputError(
                 "`csv_decimal` cannot be ',' when `csv_sep` is ','.",
                 field = "csv_decimal",
             )
+        if self.csv_thousands is not None and self.csv_decimal != ",":
+            raise InvalidInputError(
+                f"`csv_thousands` cannot be {self.csv_thousands!r} when "
+                f"`csv_decimal` is {self.csv_decimal!r}.",
+                field = "csv_thousands",
+            )
         return self
 
     @model_validator(mode="after")
     def _populate_observation_counts(self) -> "DataProfile":
-        """Derive `span_index_length` and `n_total_observations`."""
+        """
+        Derive `span_index_length` and `n_total_observations`. The span of
+        wide-format data is kept when given: its series, which can start
+        and end on other rows, share the dates of the frame.
+        """
         if self.series_lengths:
             span, total = _resolve_observation_counts(
                 self.series_lengths, self.frequency
             )
-            self.span_index_length = span
+            if not (self.data_format == "wide" and self.span_index_length):
+                self.span_index_length = span
             self.n_total_observations = total
         return self
 
@@ -342,6 +413,102 @@ class DataProfile(PickleDefaultsMixin, BaseModel):
         if len(self.series_lengths) == 1:
             return next(iter(self.series_lengths.values())).length
         return self.span_index_length
+
+
+class FutureExogFile(BaseModel):
+    """
+    CSV file the generated script reads the future exogenous variables from,
+    and how it is written.
+
+    Future values read from a file (`exog_path` of the MCP server, `--exog`
+    of the CLI) are read by the script from that same path, with the
+    dialect detected when they were read, as the data are read with the
+    one of the profile (`csv_sep`, `csv_decimal`, `csv_thousands`,
+    `csv_encoding`). Future values passed in memory are read from
+    `exog_future.csv`, the frame saved with `to_csv()`: `','`, `'.'`, no
+    thousands separator and UTF-8. The script names each argument only when
+    it is not the default of pandas.
+
+    Attributes
+    ----------
+    path : str, default 'exog_future.csv'
+        Path of the CSV file the script reads.
+    sep : str, default ','
+        Separator of the fields: `','`, `';'` or a tabulator.
+    decimal : str, default '.'
+        Decimal mark: `'.'` or `','`, the latter only when `sep` is not
+        `','`.
+    thousands : str, None, default None
+        Thousands separator: `'.'`, only with `','` as `decimal`, or None
+        when the numbers have none.
+    encoding : str, default 'utf-8'
+        Encoding of the file: `'utf-8'` or `'cp1252'`.
+    date_format : str, None, default None
+        Format the script reads the dates with (see
+        `DataProfile.date_format`), the one of the future values and not
+        the one of the data, or None when it reads them without one.
+    date_column : str, None, default None
+        Column of the file that holds the dates, the date column of the
+        data when it has one, or None for `exog_future.csv` and for a file
+        of data without dates. For data dated by their index, the script
+        reads the dates from it.
+    blank_rows : bool, default False
+        Whether the file has rows made only of separators (a spreadsheet
+        saved as CSV), which hold no date and no value: the script drops
+        them, as they were dropped when the file was read.
+    by_position : bool, default False
+        Whether the rows of the file are the steps of the horizon in order,
+        without a column of positions: future values of data without dates
+        whose file has no index. The script numbers them from the position
+        that follows the last row of the data. False reads the first column
+        as the index (the dates, or the positions of data without dates).
+    """
+
+    model_config = {"frozen": True}
+
+    path: str = "exog_future.csv"
+    sep: Literal[",", ";", "\t"] = ","
+    decimal: Literal[".", ","] = "."
+    thousands: Literal["."] | None = None
+    encoding: Literal["utf-8", "cp1252"] = "utf-8"
+    date_format: str | None = None
+    date_column: str | None = None
+    blank_rows: bool = False
+    by_position: bool = False
+
+    @field_validator("date_format")
+    @classmethod
+    def _check_date_format(cls, value: str | None) -> str | None:
+        """
+        Check that `date_format` is a format of dates: it is written into the
+        generated script.
+        """
+        if value is not None and "%" not in value:
+            raise InvalidInputError(
+                f"`date_format` must be a format of dates such as '%d/%m/%Y', "
+                f"got {value!r}.",
+                field = "exog",
+            )
+        return value
+
+    @model_validator(mode="after")
+    def _check_csv_dialect(self) -> "FutureExogFile":
+        """
+        Check that the decimal mark is not the separator, and that a
+        thousands separator goes with `','` as decimal mark, as for the data.
+        """
+        if self.decimal == "," and self.sep == ",":
+            raise InvalidInputError(
+                "`decimal` cannot be ',' when `sep` is ','.",
+                field = "exog",
+            )
+        if self.thousands is not None and self.decimal != ",":
+            raise InvalidInputError(
+                f"`thousands` cannot be {self.thousands!r} when `decimal` is "
+                f"{self.decimal!r}.",
+                field = "exog",
+            )
+        return self
 
 
 class SeriesPacf(BaseModel):
@@ -451,7 +618,13 @@ class ForecastingProfile(
     def _rich_body(self, console, options):
         yield render_profile(self)
 
-    def _build_llm_context(self, *, send_data: bool, for_describe: bool = False):
+    def _build_llm_context(
+        self,
+        *,
+        send_data: bool,
+        for_describe: bool = False,
+        send_observed: bool = False,
+    ):
         """
         Describe the profile to the LLM.
 
@@ -467,6 +640,10 @@ class ForecastingProfile(
         for_describe : bool, default False
             Whether the context is built for `describe()`, which leaves out
             the sentences addressed to the LLM of `ask()`.
+        send_observed : bool, default False
+            Whether values of the dataset may be included. Has no effect
+            here, for the same reason. The parameter is part of the
+            `ExplainableResult` interface.
 
         Returns
         -------

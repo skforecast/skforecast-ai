@@ -24,7 +24,14 @@ from skforecast_ai.llm.context import (
 )
 
 from tests.fixtures_assistant import df_single, make_comparison_result
-from tests.fixtures_llm import plan_single, profile_single
+from tests.fixtures_llm import (
+    metrics_backtest_single,
+    metrics_interval_multi,
+    plan_single,
+    predictions_backtest,
+    predictions_backtest_multi,
+    profile_single,
+)
 
 assistant = ForecastingAssistant()
 
@@ -38,11 +45,26 @@ profile_categorical = assistant.profile(
     date_column="date",
 )
 plan_categorical = assistant.plan(profile_categorical, steps=5)
+# Data whose exogenous column has missing values, so the profile holds a
+# warning about it; the plan without exogenous variables does not read it.
+profile_exog_missing = assistant.profile(
+    data=df_single.assign(
+        promo=np.where(np.arange(len(df_single)) < 5, np.nan, df_single["promo"])
+    ),
+    target="sales",
+    date_column="date",
+)
+plan_exog_missing = assistant.plan(profile_exog_missing, steps=5)
+plan_exog_missing_no_exog = plan_exog_missing.model_copy(update={"use_exog": False})
+_EXOG_MISSING_WARNING = (
+    "- Data warning: Missing values in exogenous columns: 'promo': 5. An "
+    "estimator that does not accept missing values fails when it reads them."
+)
 
 # `11.5` is an interior value: not the minimum, the maximum, or the mean,
 # so it can only reach the context through a row-level rendering.
 predictions = pd.DataFrame({"pred": [10.0, 11.5, 15.0]})
-metrics = pd.DataFrame({"series": ["sales"], "MAE": [1.5]})
+metrics = pd.DataFrame({"mean_absolute_error": [1.5]})
 cv_config = {"steps": 5, "initial_train_size": 80, "n_folds": 4}
 
 
@@ -155,6 +177,32 @@ def test_render_dataset_section_unsorted_rows_are_said_to_be_sorted_by_the_code(
     ) in section
 
 
+def test_render_dataset_section_irregular_spacing_when_no_frequency():
+    """
+    Test that a datetime index without a frequency is listed as an
+    irregularity, next to the warning of the profiler, instead of "none
+    detected" (finding V14 of the MCP audit).
+    """
+    data_profile = profile.data_profile.model_copy(
+        update={
+            "frequency": None,
+            "warnings": [
+                "Could not infer frequency from the datetime index: the "
+                "spacing is irregular, or there are too few timestamps."
+            ],
+        }
+    )
+    profile_irregular = profile.model_copy(update={"data_profile": data_profile})
+
+    section = render_dataset_section(profile_irregular)
+
+    assert (
+        "- Index irregularities: no regular frequency (irregular spacing or "
+        "too few timestamps)\n"
+    ) in section
+    assert "none detected" not in section
+
+
 def test_render_dataset_section_unsorted_index_without_the_note_of_the_profiler():
     """
     Test that an index flagged as not sorted in a profile without the note
@@ -199,6 +247,58 @@ def test_render_dataset_section_reports_categorical_exog():
     section = render_dataset_section(profile_categorical)
 
     assert "- Categorical exogenous columns: weather" in section
+
+
+def test_render_dataset_section_data_warning_of_exog_without_plan():
+    """
+    Test that the warnings about the exogenous columns are rendered when no
+    plan is given.
+    """
+    section = render_dataset_section(profile_exog_missing)
+
+    assert _EXOG_MISSING_WARNING in section
+
+
+def test_render_dataset_section_data_warning_of_exog_when_plan_uses_exog():
+    """
+    Test that the warnings about the exogenous columns are rendered for a
+    plan that uses the exogenous variables.
+    """
+    assert plan_exog_missing.use_exog is True
+
+    section = render_dataset_section(profile_exog_missing, plan=plan_exog_missing)
+
+    assert _EXOG_MISSING_WARNING in section
+
+
+def test_render_dataset_section_data_warning_of_exog_left_out_when_plan_has_no_exog():
+    """
+    Test that the warnings about the exogenous columns are not rendered for
+    a plan with `use_exog` False, which never reads them.
+    """
+    section = render_dataset_section(
+        profile_exog_missing, plan=plan_exog_missing_no_exog
+    )
+
+    assert "- Data warning:" not in section
+    assert "Missing values in exogenous columns" not in section
+
+
+def test_build_context_message_data_warning_of_exog_follows_the_plan():
+    """
+    Test that build_context_message passes the plan to the dataset section:
+    the warning about the exogenous columns is rendered with a plan that
+    uses them and left out with one that does not.
+    """
+    with_exog = build_context_message(
+        profile=profile_exog_missing, plan=plan_exog_missing
+    )
+    without_exog = build_context_message(
+        profile=profile_exog_missing, plan=plan_exog_missing_no_exog
+    )
+
+    assert _EXOG_MISSING_WARNING in with_exog
+    assert "- Data warning:" not in without_exog
 
 
 def test_render_profile_decision_section_reports_temporal_structure():
@@ -290,7 +390,8 @@ def test_render_script_section_describes_backtesting_script(
     """
     Test that a script that calls a backtesting function is described as a
     backtest, with the folds and trainings of its strategy when they are
-    known, and never as a prediction.
+    known and the metrics of the plan it computes, and never as a
+    prediction.
     """
     backtest_plan = plan.model_copy(update={"task_type": task_type})
 
@@ -298,11 +399,58 @@ def test_render_script_section_describes_backtesting_script(
 
     assert f"- Mode: {expected_mode}\n" in section
     assert (
-        "- Variables defined: metrics (one column per metric, one row per "
-        "series when there are several), and predictions of every fold with "
-        "a `fold` column\n"
+        "- Variables defined: metrics (one column per metric: "
+        "mean_absolute_error, root_mean_squared_error, "
+        "mean_absolute_scaled_error; one row per series when there are "
+        "several; then `n_evaluated`, the number of points each row is "
+        "measured on, which is not a metric), and predictions of every fold "
+        "with the columns `fold`, `step` (the step of the horizon), "
+        "`y_true` (the observed value) and the point forecast `pred`\n"
     ) in section
     assert "prediction: trains on all the data" not in section
+
+
+@pytest.mark.parametrize(
+    "task_type, interval, interval_method, expected",
+    [
+        ("single_series", None, None, "the point forecast `pred`"),
+        (
+            "single_series",
+            [0.1, 0.9],
+            "bootstrapping",
+            "the point forecast `pred` and the bounds of the interval "
+            "(`lower_bound`, `upper_bound`)",
+        ),
+        (
+            "foundation",
+            [0.1, 0.9],
+            "native",
+            "the quantiles of the forecast (`q_0.1`, `q_0.5`, `q_0.9`; `q_0.5` "
+            "is the point forecast)",
+        ),
+    ],
+    ids=["no interval", "interval", "foundation quantiles"],
+)
+def test_render_script_section_names_the_prediction_columns_of_a_backtest(
+    task_type, interval, interval_method, expected
+):
+    """
+    Test that the outputs of a backtesting script name the columns of the
+    forecast after the identifiers and `y_true`: the point forecast, the
+    bounds of the interval of the plan, or the quantiles of a foundation
+    model. With the identifiers alone, the point forecast and the interval
+    were taken as absent.
+    """
+    backtest_plan = plan.model_copy(update={
+        "task_type"       : task_type,
+        "interval"        : interval,
+        "interval_method" : interval_method,
+    })
+    cv_config = {"steps": 5, "n_folds": 3, "n_fits": 1}
+
+    section = render_script_section(backtest_plan, _BACKTEST_CODE, cv_config=cv_config)
+
+    assert f"`y_true` (the observed value) and {expected}\n" in section
 
 
 def test_render_script_section_backtesting_script_says_how_to_get_its_metrics():
@@ -473,6 +621,58 @@ def test_render_metrics_section_states_that_none_were_computed():
     assert "No evaluation metrics were computed" in section
 
 
+@pytest.mark.parametrize(
+    "for_describe", [False, True], ids=lambda dt: f"for_describe: {dt}"
+)
+def test_render_metrics_section_output_when_plan_is_a_holdout_evaluation(
+    for_describe,
+):
+    """
+    Test that the metrics of a forecast whose plan has `end_train` (run with
+    `test_size`) are introduced, in the context of `ask()` and in
+    `describe()`, as a hold-out evaluation on dates already in the data and
+    not a forecast of the future, with the end of training and the steps.
+    """
+    metrics = pd.DataFrame({"mean_absolute_error": [2.5]})
+    holdout = plan.model_copy(update={"end_train": "2023-04-05"})
+    one_step = plan.model_copy(update={"end_train": "2023-04-09", "steps": 1})
+
+    section = render_metrics_section(
+        metrics, has_predictions=True, for_describe=for_describe, plan=holdout
+    )
+
+    assert section == (
+        "<evaluation_metrics>\n"
+        "Hold-out evaluation, not a forecast of the future: the model was "
+        "trained on the data up to 2023-04-05 and predicted the next 5 steps, "
+        "whose dates are already in the data. These metrics score those "
+        "predictions against the observed values.\n"
+        " mean_absolute_error\n"
+        "                 2.5\n"
+        "</evaluation_metrics>"
+    )
+    assert "predicted the next 1 step, whose" in render_metrics_section(
+        metrics, plan=one_step
+    )
+
+
+def test_render_metrics_section_output_without_holdout_text_when_no_end_train():
+    """
+    Test that a plan without `end_train` (a backtest, or a forecast of the
+    future) adds nothing to the metrics, and that without metrics the
+    hold-out text is never given.
+    """
+    metrics = pd.DataFrame({"mean_absolute_error": [2.5]})
+    holdout = plan.model_copy(update={"end_train": "2023-04-05"})
+
+    assert render_metrics_section(metrics, plan=plan) == (
+        render_metrics_section(metrics)
+    )
+    assert "Hold-out" not in render_metrics_section(
+        None, has_predictions=True, plan=holdout
+    )
+
+
 def test_render_predictions_section_withholds_values_when_send_data_false():
     """
     Test that row-level values are replaced by aggregate statistics when
@@ -482,6 +682,155 @@ def test_render_predictions_section_withholds_values_when_send_data_false():
 
     assert "Shape: 3 rows x 1 columns" in section
     assert "11.5" not in section
+
+
+@pytest.mark.parametrize("send_data", [True, False], ids=lambda v: f"send_data={v}")
+def test_render_predictions_section_withholds_y_true_when_send_observed_false(
+    send_data,
+):
+    """
+    Test that no observed value of a backtest (`y_true`, values of the
+    dataset), nor any statistic of them, reaches the context without
+    `send_observed`, in the rows (`send_data=True`) or in the summary
+    (`send_data=False`), and that the section says the column exists. Only
+    the rows, the path of `ask()`, name `send_data_to_llm`: the summary is
+    that of `describe()`, which the MCP server returns without such an
+    argument.
+    """
+    section = render_predictions_section(
+        predictions_backtest, send_data=send_data, send_observed=False
+    )
+    observed = predictions_backtest["y_true"]
+    how = ", sent only with `send_data_to_llm=True`" if send_data else ""
+
+    for value in [*observed, observed.min(), observed.max(), observed.mean()]:
+        assert str(value) not in section
+    assert "y_true:" not in section
+    assert (
+        f"The predictions also have a `y_true` column with the observed value "
+        f"of each prediction; it is not shown: its values are those of the "
+        f"dataset{how}."
+    ) in section
+
+
+def test_render_predictions_section_includes_y_true_when_send_observed_true():
+    """
+    Test that the observed values of a backtest reach the context with
+    `send_observed`: the rows of the head carry them, and the per-column
+    summary gives their statistics, without the withholding sentence.
+    """
+    rows = render_predictions_section(
+        predictions_backtest, send_data=True, send_observed=True
+    )
+    summary = render_predictions_section(
+        predictions_backtest, send_data=False, send_observed=True
+    )
+
+    assert "1003.125" in rows
+    assert "y_true: min=1003.125, max=1100.625, mean=1051.875" in rows
+    assert "y_true: min=1003.125, max=1100.625, mean=1051.875, std=" in summary
+    assert "it is not shown" not in rows + summary
+
+
+@pytest.mark.parametrize("send_data", [True, False], ids=lambda v: f"send_data={v}")
+def test_render_predictions_section_treats_step_as_identifier(send_data):
+    """
+    Test that the `step` column of the backtest predictions, like `fold`,
+    gets no statistics (its mean would be read as a measurement), while the
+    summary without rows states the folds and the range of the steps.
+    """
+    section = render_predictions_section(
+        predictions_backtest_multi, send_data=send_data
+    )
+
+    assert "step:" not in section
+    assert "fold:" not in section
+    if not send_data:
+        assert "Folds: 4\nSteps of the horizon: 1 to 5" in section
+
+
+def test_render_predictions_section_counts_rows_without_prediction():
+    """
+    Test that the rows of a backtest of several series without an observed
+    value, where skforecast 0.27 leaves every prediction column missing, are
+    counted and explained, since the statistics skip them; and that missing
+    predictions at dates with an observed value are counted without that
+    explanation.
+    """
+    without_observed = predictions_backtest_multi.copy()
+    without_observed.iloc[[3, 4], [3, 4]] = np.nan
+    with_observed = predictions_backtest_multi.copy()
+    with_observed.iloc[3, 4] = np.nan
+
+    assert (
+        "2 rows have no prediction (missing in every prediction column): the "
+        "dates without an observed value of the series, which the metrics do "
+        "not evaluate."
+    ) in render_predictions_section(without_observed, send_data=False)
+    assert "1 row has no prediction (missing value in `pred`)." in (
+        render_predictions_section(with_observed, send_data=True)
+    )
+    assert "no prediction" not in render_predictions_section(
+        predictions_backtest_multi, send_data=True
+    )
+
+
+@pytest.mark.parametrize(
+    "metrics, expected",
+    [
+        (
+            metrics_backtest_single,
+            "`n_evaluated` is not a metric: it is the number of predictions "
+            "with an observed value each row is measured on.",
+        ),
+        (
+            metrics_interval_multi,
+            "`n_evaluated` is not a metric: it is the number of predictions "
+            "with an observed value each row is measured on (summed in the "
+            "aggregated rows).",
+        ),
+    ],
+    ids=["single series", "several series with aggregated rows"],
+)
+def test_render_metrics_section_says_n_evaluated_is_not_a_metric(metrics, expected):
+    """
+    Test that the metrics of a backtest with `n_evaluated` (skforecast 0.27)
+    say that the column counts the points each row is measured on and is
+    not a metric, summed in the aggregated rows of several series, and that
+    metrics without it say nothing about it.
+    """
+    section = render_metrics_section(metrics)
+
+    assert section.endswith(f"{expected}\n</evaluation_metrics>")
+    assert "n_evaluated" not in render_metrics_section(
+        metrics_backtest_single.drop(columns="n_evaluated")
+    )
+
+
+def test_render_leaderboard_section_writes_missing_count_as_nan():
+    """
+    Test that the `n_evaluated` of a failed candidate, a missing value of a
+    nullable integer column, is written as NaN like its metrics, not as
+    `<NA>`, which the tag escaping would turn into a broken tag.
+    """
+    results = pd.DataFrame({
+        "rank":        [1, 2],
+        "name":        ["winner", "broken"],
+        "MAE":         [1.5, np.nan],
+        "n_evaluated": pd.array([30, None], dtype="Int64"),
+    })
+
+    section = render_leaderboard_section(results)
+
+    assert "NA>" not in section
+    assert section == (
+        "<leaderboard>\n"
+        "Candidates listed: 2 (all shown below).\n"
+        "   rank    name  MAE n_evaluated\n"
+        "0     1  winner  1.5          30\n"
+        "1     2  broken  NaN         NaN\n"
+        "</leaderboard>"
+    )
 
 
 def test_render_winning_candidate_section_nests_the_plan():
@@ -687,12 +1036,12 @@ def _profile_with(**fields):
 def test_render_metrics_section_output_when_for_describe_and_forecast_metrics():
     """
     Test that with `for_describe=True` the per-series metrics of a forecast
-    (a `series` column, no aggregated rows) keep the rows of the first 5
+    (a `levels` column, no aggregated rows) keep the rows of the first 5
     series and say so without mentioning aggregated rows.
     """
     metrics = pd.DataFrame({
-        "series": [f"s{i}" for i in range(8)],
-        "MAE":    [float(i) for i in range(8)],
+        "levels":              [f"s{i}" for i in range(8)],
+        "mean_absolute_error": [float(i) for i in range(8)],
     })
 
     section = render_metrics_section(metrics, for_describe=True)
@@ -700,12 +1049,12 @@ def test_render_metrics_section_output_when_for_describe_and_forecast_metrics():
     expected = (
         "<evaluation_metrics>\n"
         "Rows shown (first 5 of 8 series).\n"
-        "series  MAE\n"
-        "    s0  0.0\n"
-        "    s1  1.0\n"
-        "    s2  2.0\n"
-        "    s3  3.0\n"
-        "    s4  4.0\n"
+        "levels  mean_absolute_error\n"
+        "    s0                  0.0\n"
+        "    s1                  1.0\n"
+        "    s2                  2.0\n"
+        "    s3                  3.0\n"
+        "    s4                  4.0\n"
         "</evaluation_metrics>"
     )
     assert section == expected
@@ -731,7 +1080,7 @@ def test_render_metrics_section_output_when_for_describe_keeps_whole_table(
 ):
     """
     Test that with `for_describe=True` a table of at most 5 series, or one
-    without a `levels` or `series` column, is rendered whole.
+    without a `levels` column, is rendered whole.
     """
     section = render_metrics_section(metrics, for_describe=True)
 

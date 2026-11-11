@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal, get_args
 
 if TYPE_CHECKING:
-    from .schemas.results import CandidateFailure
+    from .schemas.results import CandidateFailure, ComparisonCost
 
 
 ErrorCode = Literal[
@@ -125,6 +125,67 @@ class DataContentError(InvalidInputError):
     """
 
 
+class CostNotConfirmedError(InvalidInputError):
+    """
+    Raised by `backtest()` and `compare()` before anything runs when the
+    run is above the thresholds of an expensive run (50 estimator fits or
+    2000 inference windows of a foundation model; for a comparison, all
+    its candidates together) and `confirm_cost` does not confirm it.
+
+    The message states the cost, what makes it and the changes that lower
+    it; `hint` says how to run it as it is. A subclass of
+    `InvalidInputError`, with the code `'invalid_argument'` and the field
+    `'confirm_cost'`.
+
+    Parameters
+    ----------
+    message : str
+        Error message, returned by `str(exc)`.
+    figure : int
+        Number that confirms the run, see the attribute.
+    cost : dict
+        Cost of the run, see the attribute.
+    description : str
+        Sentence stating the cost, see the attribute.
+    comparison_cost : ComparisonCost, default None
+        Cost of each candidate of a comparison.
+    hint : str, default None
+        How to run it as it is.
+
+    Attributes
+    ----------
+    figure : int
+        Number that confirms the run as `confirm_cost`: its estimator
+        fits, or its inference windows when only those are above their
+        threshold.
+    cost : dict
+        `n_folds`, `n_fits` (trainings), `estimator_fits` and
+        `inference_windows` of the run; for a comparison, the folds of
+        the shared strategy and the totals of its candidates.
+    description : str
+        Sentence stating the cost and what makes it, without how to lower
+        it or how to confirm it.
+    comparison_cost : ComparisonCost, None
+        Cost of each candidate of a comparison, None for a backtest.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        figure: int,
+        cost: dict[str, int],
+        description: str,
+        comparison_cost: ComparisonCost | None = None,
+        hint: str | None = None,
+    ) -> None:
+        super().__init__(message, field="confirm_cost", hint=hint)
+        self.figure = figure
+        self.cost = cost
+        self.description = description
+        self.comparison_cost = comparison_cost
+
+
 class DataNotFoundError(SkforecastAIError, FileNotFoundError):
     """
     Raised when a file to read cannot be found: the data (a CSV path or
@@ -136,39 +197,6 @@ class DataNotFoundError(SkforecastAIError, FileNotFoundError):
     """
 
     default_code: ErrorCode = "data_not_found"
-
-
-def _reported_type_name(exc: BaseException) -> str:
-    """
-    Class name under which an exception is reported in failure summaries.
-
-    The input errors of skforecast-ai are reported under the built-in class
-    they derive from (`ValueError`, `TypeError`, `FileNotFoundError`), the
-    one raised for them before the hierarchy existed, so the summaries of
-    `compare()` (and the message of `AllCandidatesFailedError` built from
-    them) keep their text. Any other exception keeps its own name.
-
-    Parameters
-    ----------
-    exc : BaseException
-        Exception to name.
-
-    Returns
-    -------
-    name : str
-        Class name to report.
-    """
-
-    # InvalidInputTypeError first: it is also an InvalidInputError.
-    for error_class, name in (
-        (InvalidInputTypeError, "TypeError"),
-        (InvalidInputError, "ValueError"),
-        (DataNotFoundError, "FileNotFoundError"),
-    ):
-        if isinstance(exc, error_class):
-            return name
-
-    return type(exc).__name__
 
 
 class LLMRequiredError(SkforecastAIError):
@@ -385,21 +413,62 @@ class DataSentToLLMWarning(UserWarning):
     off the machine without being told. A result that carries no such
     values (for example a `CodeGenerationResult`) does not trigger it.
 
-    The input data is not sent: a result holds only the model's output,
-    never the data it was fitted on.
+    The input data is not sent: the observed values that the predictions
+    of a backtest carry (`y_true`) are left out of the context unless
+    `send_data_to_llm` is True, and a result holds no other value of the
+    data it was fitted on.
+    """
+
+
+class FoldsLeftOutWarning(UserWarning):
+    """
+    Warned by `backtest()` and `compare()` when the backtest of several
+    series did not forecast a series in some test folds where it has
+    values to evaluate.
+
+    `ForecasterRecursiveMultiSeries` and a `ForecasterFoundation` model
+    leave a series out of a fold they cannot forecast (one that starts
+    late, say) without a warning of skforecast. The folds that forecast
+    each series are read from the `level` and `fold` of the predictions:
+    the metrics of a series left out of some folds, and the average across
+    series, are computed on fewer folds than those of the others. The
+    warning names the series (in `compare()`, the candidates) with those
+    folds, as the explanation does. A series that no fold forecasts raises
+    before running instead.
+    """
+
+
+class IntervalCoverageWarning(UserWarning):
+    """
+    Warned by `backtest()` and `compare()` when the prediction interval
+    covers clearly less than its nominal level.
+
+    The backtesting of skforecast measures the share of the actual values
+    that fall inside the interval (`coverage` in the metrics). The warning
+    is emitted when, in any series, that share is below the nominal coverage
+    (`upper - lower` of `interval`) by more than two binomial standard
+    errors for the number of predictions, and by at least 5 percentage
+    points. It names the series (or, in `compare()`, the candidates) and
+    their coverage: such an interval must not be read at its nominal level.
     """
 
 
 class MissingBackendWarning(UserWarning):
     """
-    Warned by `compare()` when a foundation model candidate is left out.
+    Warned when a model needs a package that is not installed: by
+    `compare()` when it leaves a candidate out, and by `plan()` when the
+    estimator of the plan is one of them.
 
     `compare()` without `candidates` includes `ForecasterFoundation`, whose
     default model needs a backend package (for Chronos-2,
-    `chronos-forecasting`) that skforecast-ai does not install by default.
-    When that package is missing, the candidate is dropped instead of
-    failing on every call, and this warning says which package to install.
-    The comparison explanation records it as well.
+    `chronos-forecasting`) that skforecast-ai does not install by default,
+    and, with several series, `XGBRegressor`, whose package no extra of
+    skforecast-ai installs. When that package is missing, the candidate is
+    dropped instead of failing on every call, and this warning says which
+    package to install. The comparison explanation records it as well.
+    `plan()` still makes a plan whose estimator is not installed (XGBoost,
+    CatBoost), since its script may run on another machine, and warns that
+    running it here fails.
     """
 
 
@@ -414,6 +483,16 @@ class PlanEditsDiscardedWarning(UserWarning):
     preprocessing steps...) that `plan()` would not build is therefore
     lost. The warning names those fields; its text is also kept in the
     `warnings` of the refined plan.
+
+    It is warned too when the refined plan leaves out decisions of the plan
+    that its forecaster or its estimator cannot take: the `estimator_kwargs`
+    written for another estimator, or the differentiation, the calendar
+    features, the target transformer, the lags refined by the LLM and the
+    `transformer_exog` and `categorical_features` of an autoregressive plan
+    switched to `ForecasterStats`, `ForecasterFoundation` or the baseline.
+    The warning names each value and whether the user, the LLM or the rules
+    chose it. Edits by hand and decisions left out are named in a single
+    warning.
 
     `compare()` without `candidates` warns it too when the plan of its
     `CVResult` runs as the row `'Strategy plan'`, which `plan()` rebuilds

@@ -195,13 +195,13 @@ You ask, for example, *"Forecast the next 12 months of `/path/to/data/h2o.csv` a
 
 1. `profile(data_path="/path/to/data/h2o.csv", target="x")`: the frequency, the series, the exogenous columns and the recommended forecaster, as a profile id. Every column other than the target, the date and the series ids is an exogenous variable, unless `exog_columns` names the ones to use.
 2. `plan(profile_id=..., steps=12)`: lags, window features, metric and preprocessing, as a plan id.
-3. `create_cv(plan_id=...)`: the cross-validation strategy, with its cost (estimator fits, or inference windows for a foundation model, which is never trained). A notice warns when the backtest will be long.
+3. `create_cv(plan_id=...)`: the cross-validation strategy, with its cost (estimator fits, or inference windows for a foundation model, which is never trained). A notice warns when the backtest will be long: the agent then tells you the cost and the cheaper strategies, and `backtest` and `compare` run such a strategy only with `confirm_cost`, the number of its cost, which the agent passes once you chose it.
 4. `backtest(cv_id=...)` and, to compare configurations, `compare(cv_id=...)`. Without `candidates`, `compare` ranks the configurations the profile recommends, a seasonal naive baseline and, when the strategy was created for another plan (one from `refine_plan`), that plan as the row `Strategy plan`.
 5. `forecast(plan_id=...)`: the forecast of the next 12 months.
 
 Each of these tools returns an id for the next ones, a plain-text summary (the one `describe()` gives in Python) and the warnings of the call. The summary of a backtest or a forecast carries its metrics and statistics of the predictions, and that of a comparison its leaderboard; the predictions themselves, row by row, go to CSV files in the output directory, listed in `files`. `get_code` returns the script that ran, which you can run yourself without the server. The [API reference](../api/mcp.md) lists every tool, its arguments and its errors.
 
-To see it with a real agent, watch [a recorded session](../img/agent-session.gif) of the agent check of skforecast-ai 0.4.0: Claude Code with the server and its skill, asked to compare models for the next 12 months of a monthly series and to hand over the script of the best one. It is the session `compare_code__r2` of the run `0.4.0-final2`, in [`tools/mcp/agent_reports/`](https://github.com/skforecast/skforecast-ai/tree/main/tools/mcp/agent_reports); the responses of the server and the script are trimmed where an ellipsis marks it, and nothing else is edited.
+To see it with a real agent, watch [a recorded session](../img/agent-session.gif) of the agent check of skforecast-ai 0.5.0: Claude Code with the server and its skill, asked to compare models for the next 12 months of a monthly series and to hand over the script of the best one. It is the session `compare_code__r2` of the run `0.5.0-fix1`, in [`tools/mcp/agent_reports/`](https://github.com/skforecast/skforecast-ai/tree/main/tools/mcp/agent_reports); the responses of the server and the script are trimmed where an ellipsis marks it, and nothing else is edited.
 
 **Long calls.** `compare` sends a progress notification when each candidate starts and ends. Any long call (a backtest, a forecast, a candidate of `compare`) also sends one every 5 seconds while it runs, naming what runs and for how long ("ForecasterStats: running (35 s)"), so a client does not give up on a request that is still working, as long as it asked for progress. Cancelling a call waits for the candidate or the backtest in progress to end: a cancelled `compare` skips its remaining candidates, and a cancelled call registers nothing. Until it ends, only the read tools (`get_code`, `get_failure`, `list_objects`, `describe_object`) answer; the others wait their turn.
 
@@ -283,6 +283,7 @@ The server reads the license of each foundation model from skforecast. By defaul
 |:--|:--|:--|:--|
 | Chronos-2 (the default model) | `autogluon/chronos-2`, `amazon/chronos-2` | Yes | |
 | TimesFM 2.5 | `google/timesfm-2.5` | Yes | |
+| TiRex-2 | `NX-AI/TiRex-2` | Yes | |
 | TabICL | `soda-inria/tabicl` | Yes | |
 | Nori | `Synthefy/Nori` | Yes | |
 | t0 | `theforecastingcompany/t0` | Yes | |
@@ -290,6 +291,7 @@ The server reads the license of each foundation model from skforecast. By defaul
 | Moirai | `Salesforce/moirai-2` | With `--allow-model` | CC-BY-NC-4.0 |
 | TabPFN | `priorlabs/tabpfn` | With `--allow-model` | Non-commercial; Prior Labs requires an account and accepting its license |
 | TS-ICL | `taharnbl/TS-ICL` | With `--allow-model` | Non-commercial |
+| Timestral | `mistralai/Timestral` | With `--allow-model` | Modified MIT: no rights for companies above USD 20 million of monthly revenue |
 
 Without the option, `plan`, `refine_plan` and `compare` reject those models with `model_not_allowed`, whose hint tells the agent which option to ask you for.
 
@@ -316,7 +318,7 @@ In the checks of this release a small model tried to copy a file from outside th
 | `path_not_allowed` | The file is outside `--allow-dir` | Copy the file there yourself, or restart the server with another `--allow-dir` |
 | `invalid_path` or `url_not_allowed` | The path is relative, does not end in `.csv`, `.tsv`, `.csv.gz` or `.tsv.gz`, or is a URL | Give the absolute path of a CSV file; download a URL first |
 | `model_not_allowed` | The license of the foundation model restricts its use | Read its license and add `--allow-model` with its prefix |
-| `missing_dependency` | The backend of a foundation model is not installed where the server runs | Install the package the hint names, or add it with `--with` to `uvx` |
+| `missing_dependency` | The package of the estimator (XGBoost, CatBoost) or the backend of a foundation model is not installed where the server runs | Install the package the hint names, or add it with `--with` to `uvx`, and restart the server |
 | `unknown_id` | The server restarted, or removed the object to stay within its limits | Ask the agent to profile the data again |
 | A tool times out in Codex | A comparison takes longer than the default 60 seconds | Set `tool_timeout_sec` |
 | Two skforecast-ai servers in `/mcp` of Claude Code | The plugin and a server added by hand both run | Disable one of them |
@@ -328,19 +330,19 @@ To see why a server does not start, run its command in a terminal: it prints the
 
 ## Errors
 
-A failed call returns an error whose text is `Error executing tool <name>: ` followed by a JSON object with `code`, `message`, `field`, `hint` and `details`. `code` is stable, so the agent can act on it: the [error codes](../api/mcp.md#errors) are those of the Python API plus the ones of the server (`unknown_id`, `inconsistent_ids`, `invalid_path`, `path_not_allowed`, `url_not_allowed`, `data_changed`, `model_not_allowed`, `file_too_large`). When a script fails, `details.failure_id` names its traceback and code, which `get_failure` returns.
+A failed call returns an error whose text is `Error executing tool <name>: ` followed by a JSON object with `code`, `message`, `field`, `hint` and `details`. `code` is stable, so the agent can act on it: the [error codes](../api/mcp.md#errors) are those of the Python API plus the ones of the server (`unknown_id`, `inconsistent_ids`, `invalid_path`, `path_not_allowed`, `url_not_allowed`, `data_changed`, `model_not_allowed`, `file_too_large`, `cost_not_confirmed`). When a script fails, `details.failure_id` names its traceback and code, which `get_failure` returns.
 
 ---
 
 ## Limits
 
 - Calls run one at a time; a call waits for the previous one to end.
-- The server reads `.csv`, `.tsv`, `.csv.gz` and `.tsv.gz` files, separated by `,`, `;` or tabulators and with `.` or `,` as decimal mark (what a spreadsheet exports in most of Europe). `profile` detects the separator and the decimal mark, and takes them as `sep` and `decimal` when a file reads in more than one way. Parquet and Excel files are not read. The file must be UTF-8 (in Excel, "CSV UTF-8"), and dates written day first (`31/01/2024`) are read month first or rejected: write them in ISO 8601 (`2024-01-31`).
+- The server reads `.csv`, `.tsv`, `.csv.gz` and `.tsv.gz` files, separated by `,`, `;` or tabulators and with `.` or `,` as decimal mark, and with `.` between the thousands when `,` is the decimal mark (`1.705,11`, what a spreadsheet exports in most of Europe). `profile` detects the separator, the decimal mark and the thousands separator, and takes them as `sep`, `decimal` and `thousands` when a file reads in more than one way. Dates written day first (`31/01/2024`) are read day first when a day after the 12th says so; when no date tells the order (monthly data on the first of each month), they are read in the only order in which they have a regular frequency, with a `DataProfileWarning` notice, and `profile` takes `dayfirst` when that does not tell it either (a year or less of monthly data). Dates written as whole numbers (`20240131`) are read as dates. The file of `exog_path` is read in its own format, in the order of the data when its dates read both ways. Parquet and Excel files are not read. A file that is not UTF-8 is read as cp1252, the "CSV" that Excel saves on Windows, with a `DataProfileWarning` notice, since that encoding cannot be checked; files in UTF-16 are not read (in Excel, save as "CSV UTF-8").
 - The server reads files of at most `--max-file-mb` (256 MB by default), counted also on the content of a `.gz` file, and a horizon (`steps`) longer than the longest series is rejected when the plan is built.
 - Ids live while the server runs. An id of a previous run, or of an object removed to stay within `--max-objects` and `--max-memory-mb`, gives `unknown_id` saying which.
 - A summary, a script or a failure longer than 20,000 characters is cut in the response; the full text is written to the output directory.
 - Foundation models (`ForecasterFoundation`) need their backend package where the server runs: Chronos-2, the default, needs `chronos-forecasting` (the `foundation` extra). Without it, `backtest` and `forecast` answer `missing_dependency`, whose hint gives the `pip install` command and the `--with` option of `uvx`.
-- The script of a forecast with future exogenous values reads them from `exog_future.csv` in its working directory: copy the file there to run it.
+- The script of a forecast with future exogenous values reads them from the file of `exog_path`, by its path, as it reads the data: with its separator, decimal mark, thousands separator, encoding and date format, as `forecast` read it. For data without dates, the rows of the file are the steps of the horizon, in order; a first column without a name (the index that `to_csv()` writes) holds their positions, which must follow the last row of the data.
 
 ---
 

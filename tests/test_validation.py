@@ -29,6 +29,7 @@ from skforecast_ai._validation import (
     _validate_window_features,
     check_estimator_installed,
     is_symmetric_interval,
+    missing_estimator_package,
     validate_estimator,
     validate_estimator_kwargs,
     validate_forecaster,
@@ -40,6 +41,8 @@ from skforecast_ai._validation import (
     validate_preprocessing_step,
     validate_steps,
 )
+
+from tests.fixtures_assistant import RIDGE_ALPHA_TYPES, patch_find_spec
 
 _SUPPORTED = (
     "['LGBMRegressor', 'Ridge', 'XGBRegressor', 'CatBoostRegressor', "
@@ -226,6 +229,44 @@ def test_validate_estimator_kwargs_output_when_lightgbm_alias():
     assert messages == []
 
 
+@pytest.mark.parametrize(
+    "estimator, estimator_kwargs, reason",
+    [
+        (
+            "Ridge",
+            {"alpha": "abc"},
+            f"The 'alpha' parameter of Ridge must be {RIDGE_ALPHA_TYPES}. "
+            "Got 'abc' instead.",
+        ),
+        (
+            "RandomForestRegressor",
+            {"n_estimators": 0},
+            "The 'n_estimators' parameter of RandomForestRegressor must be an "
+            "int in the range [1, inf). Got 0 instead.",
+        ),
+        (
+            "Arima",
+            {"order": (1, 0)},
+            "`order` must be a tuple of length 3, got length 2",
+        ),
+    ],
+    ids=["Ridge", "RandomForestRegressor", "Arima"],
+)
+def test_validate_estimator_kwargs_InvalidInputError_when_value_not_valid(
+    estimator, estimator_kwargs, reason
+):
+    """
+    Test that a value the estimator rejects without data raises with the
+    message of its library and the field `estimator_kwargs`, when the plan
+    is made instead of when its script fits the estimator (V33).
+    """
+    err_msg = re.escape(f"`estimator_kwargs` is not valid for {estimator}: {reason}")
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        validate_estimator_kwargs(estimator, estimator_kwargs)
+
+    assert exc_info.value.field == "estimator_kwargs"
+
+
 def test_validate_estimator_kwargs_output_when_package_not_installed(
     monkeypatch,
 ):
@@ -265,7 +306,8 @@ def test_check_estimator_installed_code_and_field_when_package_missing(
 ):
     """
     Test that a missing estimator package raises InvalidInputError with the
-    code 'missing_dependency' and `estimator` as field.
+    code 'missing_dependency', `estimator` as field and a hint with the
+    install command, as for the backend of a foundation model (V02).
     """
     monkeypatch.setattr(
         validation_module.importlib.util, "find_spec", lambda name: None
@@ -280,6 +322,31 @@ def test_check_estimator_installed_code_and_field_when_package_missing(
 
     assert exc_info.value.code == "missing_dependency"
     assert exc_info.value.field == "estimator"
+    assert exc_info.value.hint == (
+        "Install it where skforecast-ai runs: pip install xgboost."
+    )
+
+
+@pytest.mark.parametrize(
+    "estimator, missing, expected",
+    [
+        ("XGBRegressor", ["xgboost"], "xgboost"),
+        ("CatBoostRegressor", ["catboost"], "catboost"),
+        ("Ridge", ["sklearn"], "scikit-learn"),
+        ("XGBRegressor", [], None),
+        ("Arima", ["xgboost"], None),
+        (None, ["xgboost"], None),
+    ],
+    ids=lambda value: f"{value}",
+)
+def test_missing_estimator_package_output(monkeypatch, estimator, missing, expected):
+    """
+    Test that the package to install is named, with its pip name, only for
+    a supported machine-learning estimator whose module is not found.
+    """
+    patch_find_spec(monkeypatch, missing=missing, installed=["xgboost", "catboost"])
+
+    assert missing_estimator_package(estimator) == expected
 
 
 def test_check_estimator_installed_output_when_not_machine_learning(monkeypatch):
@@ -429,6 +496,43 @@ def test_validate_metrics_ValueError_when_metric_not_supported(metric):
     err_msg = re.escape(f"Unknown metric {metric!r}. Supported metrics:")
     with pytest.raises(ValueError, match=err_msg):
         validate_metrics(["mean_absolute_error", metric])
+
+
+def test_validate_metrics_ValueError_when_metric_is_n_evaluated():
+    """
+    Test that `n_evaluated`, the column of the backtesting metrics of
+    skforecast with the number of points evaluated, is rejected as a metric
+    name with the field that carries it.
+    """
+    err_msg = re.escape(
+        "'n_evaluated' is not a metric: it is the column of the backtesting "
+        "metrics with the number of points evaluated. Supported metrics:"
+    )
+    with pytest.raises(ValueError, match=err_msg) as info:
+        validate_metrics(
+            ["mean_absolute_error", "n_evaluated"], field="metrics_to_compute"
+        )
+
+    assert info.value.field == "metrics_to_compute"
+
+
+def test_validate_metrics_ValueError_when_metric_is_repeated():
+    """
+    Test that a repeated metric is rejected before it reaches skforecast,
+    which raises a ValueError of its own inside the script (the names are the
+    columns of the metrics).
+    """
+    err_msg = re.escape(
+        "`metrics_to_compute` repeats ['mean_absolute_error']: list each "
+        "metric once."
+    )
+    with pytest.raises(ValueError, match=err_msg) as info:
+        validate_metrics(
+            ["mean_absolute_error", "root_mean_squared_error", "mean_absolute_error"],
+            field = "metrics_to_compute",
+        )
+
+    assert info.value.field == "metrics_to_compute"
 
 
 # =============================================================================
@@ -896,6 +1000,19 @@ def test_validate_window_features_passes_when_valid(window_features):
         ([{"stats": ["mean"], "window_size": 0}], "must be a positive int"),
         (
             [
+                {"stats": ["mean"], "window_size": 3},
+                {"stats": ["max"], "window_size": 6, "windows_size": 24,
+                 "min_periods": 2},
+            ],
+            re.escape(
+                "`window_features[1]` has unknown key(s): ['min_periods', "
+                "'windows_size']. Each entry takes only 'stats' and "
+                "'window_size'; add one entry per window size to use several "
+                "sizes."
+            ),
+        ),
+        (
+            [
                 {"stats": ["mean"], "window_size": 7},
                 {"stats": ["mean", "std"], "window_size": 7},
             ],
@@ -905,9 +1022,9 @@ def test_validate_window_features_passes_when_valid(window_features):
 )
 def test_validate_window_features_raises_when_invalid(window_features, match):
     """
-    Test that malformed window_features (wrong container, missing keys,
-    unsupported stats, non-scalar/invalid window_size, or the same statistic
-    paired twice with the same window size) raise ValueError.
+    Test that malformed window_features (wrong container, missing or
+    unknown keys, unsupported stats, non-scalar/invalid window_size, or the
+    same statistic paired twice with the same window size) raise ValueError.
     """
     with pytest.raises(ValueError, match=match):
         _validate_window_features(window_features)

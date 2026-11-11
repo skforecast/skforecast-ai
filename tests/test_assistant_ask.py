@@ -25,6 +25,7 @@ from skforecast_ai.schemas import (
 )
 
 from tests.fixtures_assistant import df_single, make_comparison_result, patch_agent
+from tests.fixtures_llm import make_backtest_result, predictions_backtest
 
 
 # =============================================================================
@@ -147,6 +148,51 @@ def test_ask_records_the_auto_routed_skills(monkeypatch):
 
     assert result.skills == select_skills(task_type=None, question=prompt)
     assert result.skills
+
+
+@pytest.mark.parametrize(
+    "llm", ["openai:fake-model", "ollama:fake-model"], ids=lambda v: v
+)
+@pytest.mark.parametrize("include_reference", [False, True], ids=["no_ref", "ref"])
+def test_ask_budgets_the_skills_against_what_the_request_sends(
+    monkeypatch, llm, include_reference
+):
+    """
+    Test that every provider, hosted or local, budgets the skills against
+    the smallest supported window minus what the request sends: the
+    message with its context, and the API reference only when it goes.
+    """
+    import skforecast_ai.assistant as assistant_mod
+    from skforecast_ai._constants import OLLAMA_MAX_CONTEXT_TOKENS
+    from skforecast_ai.llm.skills import (
+        compute_skill_token_budget,
+        estimate_context_tokens,
+    )
+
+    assistant = ForecastingAssistant(llm=llm)
+    capture = {}
+    patch_agent(monkeypatch, assistant, output="answer", capture=capture)
+    monkeypatch.setattr(assistant_mod, "ensure_ollama_reachable", lambda url: None)
+    budgets = []
+
+    def recording_select_skills(*, task_type, question, token_budget):
+        budgets.append(token_budget)
+        return []
+
+    monkeypatch.setattr(assistant_mod, "select_skills", recording_select_skills)
+
+    assistant.ask(
+        prompt            = "How do I detect drift?",
+        include_reference = include_reference,
+    )
+
+    assert budgets == [
+        compute_skill_token_budget(
+            max_context_tokens = OLLAMA_MAX_CONTEXT_TOKENS,
+            context_tokens     = estimate_context_tokens(capture["message"]),
+            include_reference  = include_reference,
+        )
+    ]
 
 
 def test_ask_routes_skills_by_plan_task_type_when_baseline_plan(monkeypatch):
@@ -356,6 +402,47 @@ def test_ask_no_DataSentToLLMWarning_when_send_data_to_llm_is_true(monkeypatch):
         assistant.ask(prompt="Why did it win?", context=comparison)
 
 
+@pytest.mark.parametrize(
+    "send_data_to_llm", [False, True], ids=lambda v: f"send_data_to_llm={v}"
+)
+def test_ask_sends_y_true_of_a_backtest_only_when_send_data_to_llm(
+    monkeypatch, send_data_to_llm
+):
+    """
+    Test that the observed values of a backtest (`y_true`, values of the
+    dataset) reach the LLM only with `send_data_to_llm=True`: without it no
+    value of the column, nor any statistic of it, is in the message and the
+    context says the column exists; the predicted values are sent either
+    way, with `DataSentToLLMWarning` when the flag is False.
+    """
+    assistant = ForecastingAssistant(
+        llm="openai:fake-model", send_data_to_llm=send_data_to_llm
+    )
+    result = make_backtest_result()
+    capture = {}
+    patch_agent(monkeypatch, assistant, output="It is accurate.", capture=capture)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DataSentToLLMWarning)
+        assistant.ask(prompt="How accurate is it?", context=result)
+
+    message = capture["message"]
+    observed = predictions_backtest["y_true"]
+    observed_values = [
+        str(value)
+        for value in [*observed, observed.min(), observed.max(), observed.mean()]
+    ]
+    withheld = "The predictions also have a `y_true` column"
+    assert "1000.0" in message
+    if send_data_to_llm:
+        assert "1003.125" in message
+        assert "y_true: min=1003.125, max=1100.625, mean=1051.875" in message
+        assert withheld not in message
+    else:
+        assert not [value for value in observed_values if value in message]
+        assert withheld in message
+
+
 def test_ask_output_when_forecast_result_provided(monkeypatch):
     """
     Test that ask() in Results mode passes predictions and metrics to the
@@ -367,9 +454,11 @@ def test_ask_output_when_forecast_result_provided(monkeypatch):
     plan = assistant.plan(profile, steps=5)
 
     predictions = pd.DataFrame({"pred": [10.0, 11.0, 12.0, 13.0, 14.0]})
-    metrics = pd.DataFrame(
-        {"series": ["sales"], "MAE": [1.5], "MSE": [3.2], "MASE": [0.8]}
-    )
+    metrics = pd.DataFrame({
+        "mean_absolute_error":        [1.5],
+        "mean_squared_error":         [3.2],
+        "mean_absolute_scaled_error": [0.8],
+    })
     mock_forecast_result = ForecastResult(
         profile=profile,
         plan=plan,
@@ -394,7 +483,7 @@ def test_ask_output_when_forecast_result_provided(monkeypatch):
     # Context message carries the results sections and metric values.
     assert "<predictions>" in capture["message"]
     assert "<evaluation_metrics>" in capture["message"]
-    assert "MAE" in capture["message"]
+    assert "mean_absolute_error" in capture["message"]
 
     assert result.profile is profile
     assert result.plan is plan
@@ -468,7 +557,11 @@ def test_ask_output_when_forecast_result_with_intervals(monkeypatch):
         "lower_bound": [8.0, 9.0, 10.0, 11.0, 12.0],
         "upper_bound": [12.0, 13.0, 14.0, 15.0, 16.0],
     })
-    metrics = pd.DataFrame({"series": ["sales"], "MAE": [1.5], "MSE": [3.2], "MASE": [0.8]})
+    metrics = pd.DataFrame({
+        "mean_absolute_error":        [1.5],
+        "mean_squared_error":         [3.2],
+        "mean_absolute_scaled_error": [0.8],
+    })
     mock_forecast_result = ForecastResult(
         profile=profile,
         plan=plan,
@@ -568,7 +661,11 @@ def test_ask_output_when_large_predictions_truncated(monkeypatch):
     plan = assistant.plan(profile, steps=5)
 
     predictions = pd.DataFrame({"pred": np.arange(50, dtype=float)})
-    metrics = pd.DataFrame({"series": ["sales"], "MAE": [2.0], "MSE": [4.0], "MASE": [1.0]})
+    metrics = pd.DataFrame({
+        "mean_absolute_error":        [2.0],
+        "mean_squared_error":         [4.0],
+        "mean_absolute_scaled_error": [1.0],
+    })
     mock_forecast_result = ForecastResult(
         profile=profile,
         plan=plan,
@@ -690,9 +787,11 @@ def test_ask_output_when_backtest_result_provided(monkeypatch):
     plan = assistant.plan(profile, steps=5)
 
     predictions = pd.DataFrame({"pred": [10.0, 11.0, 12.0, 13.0, 14.0]})
-    metrics = pd.DataFrame(
-        {"series": ["sales"], "MAE": [1.5], "MSE": [3.2], "MASE": [0.8]}
-    )
+    metrics = pd.DataFrame({
+        "mean_absolute_error":        [1.5],
+        "mean_squared_error":         [3.2],
+        "mean_absolute_scaled_error": [0.8],
+    })
     cv_config = {
         "steps": 5,
         "initial_train_size": 80,
@@ -728,7 +827,7 @@ def test_ask_output_when_backtest_result_provided(monkeypatch):
     assert "initial_train_size" in capture["message"]
     assert "- n_folds: 4" in capture["message"]
     assert "<evaluation_metrics>" in capture["message"]
-    assert "MAE" in capture["message"]
+    assert "mean_absolute_error" in capture["message"]
 
     # The deterministic explanation is forwarded so the LLM does not have
     # to re-derive facts that were already computed.

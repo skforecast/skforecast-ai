@@ -207,7 +207,11 @@ the backtesting animation, and shows the seasonal naive baseline that
 it), one window moving over all the lanes at once while each one draws its
 forecast against the actual series, the leaderboard as a plain sort with how
 many candidates beat the baseline, the winner reused in `forecast()`, and
-`ask()` explaining the ranking. The question and the answer of `ask()` are
+`ask()` explaining the ranking. The comparison fits more than 50
+estimators, so `compare()` asks to confirm its cost before anything runs:
+the script reads the figure of that cost from `CostNotConfirmedError`, runs
+it with `confirm_cost=True` and writes the figure, which the card of the
+call shows next to it. The question and the answer of `ask()` are
 written in the animation (`ASK_PROMPT`, `ANSWER`), with figures from the data;
 the answer only uses what `ask()` sends for a comparison (the leaderboard, the
 shared profile and strategy, and the winning plan, never per-fold results).
@@ -365,8 +369,8 @@ What the script changes, and nothing else:
   of showing a text the session did not produce.
 - **Paths**: the report already writes the temporary workspace of the session
   as `<ws>`; the script shows it as `~/project` and stops if a home directory
-  or a user path is left (section 4 of `dev/roadmap-0.5.0.md`: a
-  report can carry one in the output of a command).
+  or a user path is left (a report can carry one in the output of a
+  command; see [#132](https://github.com/skforecast/skforecast-ai/pull/132)).
 
 The short cut is for a reader of the README, who gives it a few seconds: it
 lasts 24 s instead of 46 and fits in two screens, the calls and the answer,

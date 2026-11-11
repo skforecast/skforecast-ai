@@ -28,7 +28,7 @@ def test_render_forecast_statistical_output_when_daily_frequency():
 
     expected = (
         "import pandas as pd\n"
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n"
         "from skforecast.metrics import mean_absolute_scaled_error\n"
         "from skforecast.stats import Arima\n"
         "from skforecast.recursive import ForecasterStats\n"
@@ -71,7 +71,7 @@ def test_render_forecast_statistical_output_when_daily_frequency():
         "# Evaluate on test set\n"
         "actual = data_test['sales'].iloc[:steps]\n"
         "mae = mean_absolute_error(actual, predictions)\n"
-        "mse = mean_squared_error(actual, predictions)\n"
+        "rmse = root_mean_squared_error(actual, predictions)\n"
         "mase = mean_absolute_scaled_error(\n"
         "    y_true  = actual,\n"
         "    y_pred  = predictions,\n"
@@ -79,7 +79,7 @@ def test_render_forecast_statistical_output_when_daily_frequency():
         ")\n"
         "\n"
         'print(f"MAE  : {mae:.4f}")\n'
-        'print(f"MSE  : {mse:.4f}")\n'
+        'print(f"RMSE : {rmse:.4f}")\n'
         'print(f"MASE : {mase:.4f}")\n'
         "\n"
         "# NOTE: This script uses a train/test split for demonstration purposes.\n"
@@ -100,7 +100,7 @@ def test_render_forecast_statistical_output_when_intervals_requested():
 
     expected = (
         "import pandas as pd\n"
-        "from sklearn.metrics import mean_absolute_error, mean_squared_error\n"
+        "from sklearn.metrics import mean_absolute_error, root_mean_squared_error\n"
         "from skforecast.metrics import mean_absolute_scaled_error\n"
         "from skforecast.stats import Arima\n"
         "from skforecast.recursive import ForecasterStats\n"
@@ -146,7 +146,7 @@ def test_render_forecast_statistical_output_when_intervals_requested():
         "# Evaluate on test set\n"
         "actual = data_test['sales'].iloc[:steps]\n"
         "mae = mean_absolute_error(actual, predictions['pred'])\n"
-        "mse = mean_squared_error(actual, predictions['pred'])\n"
+        "rmse = root_mean_squared_error(actual, predictions['pred'])\n"
         "mase = mean_absolute_scaled_error(\n"
         "    y_true  = actual,\n"
         "    y_pred  = predictions['pred'],\n"
@@ -154,7 +154,7 @@ def test_render_forecast_statistical_output_when_intervals_requested():
         ")\n"
         "\n"
         'print(f"MAE  : {mae:.4f}")\n'
-        'print(f"MSE  : {mse:.4f}")\n'
+        'print(f"RMSE : {rmse:.4f}")\n'
         'print(f"MASE : {mase:.4f}")\n'
         "\n"
         "# NOTE: This script uses a train/test split for demonstration purposes.\n"

@@ -1,7 +1,7 @@
 [
   {
     "name": "profile",
-    "description": "Profile a CSV file: frequency, series, exogenous columns and the recommended forecaster and estimator. Returns a profile id.",
+    "description": "Profile a CSV file: frequency, series, exogenous columns and the recommended forecaster and estimator. The first step: returns a profile id, which `plan` takes.",
     "annotations": {
       "title": null,
       "readOnlyHint": false,
@@ -33,7 +33,7 @@
             }
           ],
           "default": null,
-          "description": "Column to forecast, or a list of columns (one series each) for wide multi-series data. Null when it is not known: the error lists the columns of the file."
+          "description": "Column to forecast, as the user named it, also when you are not sure it exists (an error then lists the columns of the file), or a list of columns (one series each) for wide multi-series data. Null only when the user named no column: the error lists the columns of the file."
         },
         "date_column": {
           "anyOf": [
@@ -106,6 +106,31 @@
           ],
           "default": null,
           "description": "Decimal mark of the file: '.' or ',' (only when the separator is not ','). When null, it is detected from the file."
+        },
+        "thousands": {
+          "anyOf": [
+            {
+              "const": ".",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Thousands separator of the file: '.', with ',' as decimal mark (as in '1.705,11'). When null, it is detected from the file; pass it only when an error says it cannot be told."
+        },
+        "dayfirst": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Order of the day and the month of the dates of the file: true for day first ('31/01/2024'), false for month first ('01/31/2024'). When null, it is told from the dates, or from their regularity with a notice when they read both ways; pass it only when an error says they read both ways, or the user gives another order than a notice, with the order the user confirms."
         }
       },
       "required": [
@@ -152,7 +177,7 @@
         }
       },
       "additionalProperties": false,
-      "description": "Envelope returned by the tools that create an object, and by\n`describe_object`.\n\nAttributes\n----------\nid : str\n    Id of the object, to pass to the tools that take it.\nkind : str\n    Kind of the object: `'profile'`, `'plan'`, `'cv'`, `'backtest'`,\n    `'comparison'` or `'forecast'`.\nlinks : dict\n    Ids of related objects: those it was built from (`profile_id`,\n    `plan_id`, `cv_id`, and `parent_plan_id` for a refined plan), the\n    plan of the winner of a comparison (`best_plan_id`), and the\n    comparison a winning plan comes from (`comparison_id`).\nsummary : str\n    Plain-text description of the object (`describe()` of the core),\n    cut to 20,000 characters.\nsummary_truncated : bool\n    Whether `summary` was cut; the full text is then in\n    `files['summary']`.\nnotices : list of ToolNotice\n    Warnings the call emitted, the first 20 distinct ones. Deprecation\n    warnings go to the log of the server instead, and the failures of\n    the candidates of a comparison are in its result.\nnotices_omitted : int\n    Number of distinct warnings left out of `notices`.\nfiles : dict\n    Absolute paths of the files written for the object, by role:\n    `predictions` and `metrics` (CSV with the index) of a backtest or a\n    forecast, `leaderboard`, `best_predictions` and `best_metrics` of a\n    comparison, and `summary` when the summary was cut.\nvalues_included : bool\n    Always False: the response holds no rows of the data or of the\n    predictions. The summary carries statistics of the predictions, the\n    metrics and the leaderboard of a comparison; the rows are in\n    `files`.\ncost : dict, None\n    Cost of a cross-validation strategy, a backtest or a comparison:\n    `n_folds`, `n_fits` (trainings of the forecaster in the shared\n    strategy), `estimator_fits` (fits of an estimator, which a direct\n    forecaster multiplies by `steps`) and `inference_windows` (the\n    cost of a foundation model, never trained: one forecast per series\n    and fold; 0 for the other forecasters); for a comparison, the last\n    two are sums over its candidates. A cross-validation strategy also\n    has `compare_estimator_fits` and `compare_inference_windows`, those\n    of a comparison without candidates with it. None for the other\n    kinds.\nchangeable : list of str\n    Arguments of `refine_plan` (for a plan) or of `create_cv` (for a\n    cross-validation strategy) that build a variant of the object.\n    Empty for the other kinds.",
+      "description": "Envelope returned by the tools that create an object, and by\n`describe_object`.\n\nAttributes\n----------\nid : str\n    Id of the object, to pass to the tools that take it.\nkind : str\n    Kind of the object: `'profile'`, `'plan'`, `'cv'`, `'backtest'`,\n    `'comparison'` or `'forecast'`.\nlinks : dict\n    Ids of related objects: those it was built from (`profile_id`,\n    `plan_id`, `cv_id`, and `parent_plan_id` for a refined plan), the\n    plan of the winner of a comparison (`best_plan_id`), and the\n    comparison a winning plan comes from (`comparison_id`).\nsummary : str\n    Plain-text description of the object (`describe()` of the core),\n    cut to 20,000 characters.\nsummary_truncated : bool\n    Whether `summary` was cut; the full text is then in\n    `files['summary']`.\nnotices : list of ToolNotice\n    Warnings the call emitted, the first 20 distinct ones. Deprecation\n    warnings go to the log of the server instead, and the failures of\n    the candidates of a comparison are in its result.\nnotices_omitted : int\n    Number of distinct warnings left out of `notices`.\nfiles : dict\n    Absolute paths of the files written for the object, by role:\n    `predictions` and `metrics` (CSV with the index) of a backtest or a\n    forecast, `leaderboard`, `best_predictions` and `best_metrics` of a\n    comparison, and `summary` when the summary was cut.\nvalues_included : bool\n    Always False: the response holds no rows of the data or of the\n    predictions. The summary carries statistics of the predictions, the\n    metrics and the leaderboard of a comparison; the rows are in\n    `files`.\ncost : dict, None\n    Cost of a cross-validation strategy, a backtest or a comparison:\n    `n_folds`, `n_fits` (trainings of the forecaster),\n    `estimator_fits` (fits of an estimator, which a direct forecaster\n    multiplies by `steps`) and `inference_windows` (the cost of a\n    foundation model, never trained: one forecast per series and fold;\n    0 for the other forecasters). For a comparison, `n_folds` is that\n    of the shared strategy and the other three are totals over all its\n    candidates, the baseline included, counted before they run (a\n    candidate that fails while it runs counts too; one whose plan\n    cannot be built, or that fails the checks of `backtest`, runs\n    nothing and does not). A cross-validation\n    strategy also has `compare_estimator_fits` and\n    `compare_inference_windows`, those of a comparison without\n    candidates with it. Above 50 estimator fits, or 2000 inference\n    windows, `backtest` and `compare` run only with `confirm_cost` set\n    to the estimator fits (the inference windows, when only those are\n    above). None for the other kinds.\nchangeable : list of str\n    Arguments of `refine_plan` (for a plan) or of `create_cv` (for a\n    cross-validation strategy) that build a variant of the object.\n    Empty for the other kinds.",
       "properties": {
         "id": {
           "title": "Id",
@@ -245,7 +270,7 @@
   },
   {
     "name": "plan",
-    "description": "Build a forecasting plan (lags, window features, metric, preprocessing, interval) from a profile and a horizon. Returns a plan id.",
+    "description": "Build a forecasting plan (lags, window features, metric, preprocessing, interval) from a profile id and a horizon. Returns a plan id, which `create_cv` and `forecast` take. To change a decision of an existing plan, use `refine_plan`.",
     "annotations": {
       "title": null,
       "readOnlyHint": false,
@@ -314,7 +339,7 @@
             }
           ],
           "default": null,
-          "description": "Estimator: one of ['CatBoostRegressor', 'HistGradientBoostingRegressor', 'LGBMRegressor', 'RandomForestRegressor', 'Ridge', 'XGBRegressor'] for the machine learning forecasters, 'Arima' for ForecasterStats, or the Hugging Face model id of a foundation model for ForecasterFoundation (default 'autogluon/chronos-2-small'; model id prefixes: ['amazon/chronos-2', 'autogluon/chronos-2', 'google/timesfm-2.5', 'google/timesfm-3.0', 'Salesforce/moirai-2', 'soda-inria/tabicl', 'priorlabs/tabpfn', 'theforecastingcompany/t0', 'Synthefy/Nori', 'taharnbl/TS-ICL']). ForecasterEquivalentDate takes none. Null for the recommendation."
+          "description": "Estimator: one of ['CatBoostRegressor', 'HistGradientBoostingRegressor', 'LGBMRegressor', 'RandomForestRegressor', 'Ridge', 'XGBRegressor'] for the machine learning forecasters, 'Arima' for ForecasterStats, or the Hugging Face model id of a foundation model for ForecasterFoundation (default 'autogluon/chronos-2-small'; model id prefixes: ['amazon/chronos-2', 'autogluon/chronos-2', 'google/timesfm-2.5', 'google/timesfm-3.0', 'NX-AI/TiRex-2', 'Salesforce/moirai-2', 'soda-inria/tabicl', 'priorlabs/tabpfn', 'theforecastingcompany/t0', 'Synthefy/Nori', 'taharnbl/TS-ICL', 'mistralai/Timestral']). ForecasterEquivalentDate takes none. Null for the recommendation."
         },
         "estimator_kwargs": {
           "anyOf": [
@@ -351,20 +376,7 @@
           "anyOf": [
             {
               "items": {
-                "additionalProperties": {
-                  "anyOf": [
-                    {
-                      "items": {
-                        "type": "string"
-                      },
-                      "type": "array"
-                    },
-                    {
-                      "type": "integer"
-                    }
-                  ]
-                },
-                "type": "object"
+                "$ref": "#/$defs/WindowFeatureArgs"
               },
               "type": "array"
             },
@@ -481,9 +493,45 @@
         "steps"
       ],
       "$defs": {
+        "WindowFeatureArgs": {
+          "additionalProperties": false,
+          "description": "One window size and the statistics computed over it; no other key is accepted.",
+          "properties": {
+            "stats": {
+              "description": "Statistics computed over the window.",
+              "items": {
+                "enum": [
+                  "mean",
+                  "std",
+                  "min",
+                  "max",
+                  "sum",
+                  "median",
+                  "ratio_min_max",
+                  "coef_variation",
+                  "ewm"
+                ],
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "window_size": {
+              "description": "Number of observations of the window.",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "stats",
+            "window_size"
+          ],
+          "type": "object"
+        },
         "Metric": {
           "enum": [
             "mean_squared_error",
+            "root_mean_squared_error",
             "mean_absolute_error",
             "mean_absolute_percentage_error",
             "mean_squared_log_error",
@@ -536,7 +584,7 @@
         }
       },
       "additionalProperties": false,
-      "description": "Envelope returned by the tools that create an object, and by\n`describe_object`.\n\nAttributes\n----------\nid : str\n    Id of the object, to pass to the tools that take it.\nkind : str\n    Kind of the object: `'profile'`, `'plan'`, `'cv'`, `'backtest'`,\n    `'comparison'` or `'forecast'`.\nlinks : dict\n    Ids of related objects: those it was built from (`profile_id`,\n    `plan_id`, `cv_id`, and `parent_plan_id` for a refined plan), the\n    plan of the winner of a comparison (`best_plan_id`), and the\n    comparison a winning plan comes from (`comparison_id`).\nsummary : str\n    Plain-text description of the object (`describe()` of the core),\n    cut to 20,000 characters.\nsummary_truncated : bool\n    Whether `summary` was cut; the full text is then in\n    `files['summary']`.\nnotices : list of ToolNotice\n    Warnings the call emitted, the first 20 distinct ones. Deprecation\n    warnings go to the log of the server instead, and the failures of\n    the candidates of a comparison are in its result.\nnotices_omitted : int\n    Number of distinct warnings left out of `notices`.\nfiles : dict\n    Absolute paths of the files written for the object, by role:\n    `predictions` and `metrics` (CSV with the index) of a backtest or a\n    forecast, `leaderboard`, `best_predictions` and `best_metrics` of a\n    comparison, and `summary` when the summary was cut.\nvalues_included : bool\n    Always False: the response holds no rows of the data or of the\n    predictions. The summary carries statistics of the predictions, the\n    metrics and the leaderboard of a comparison; the rows are in\n    `files`.\ncost : dict, None\n    Cost of a cross-validation strategy, a backtest or a comparison:\n    `n_folds`, `n_fits` (trainings of the forecaster in the shared\n    strategy), `estimator_fits` (fits of an estimator, which a direct\n    forecaster multiplies by `steps`) and `inference_windows` (the\n    cost of a foundation model, never trained: one forecast per series\n    and fold; 0 for the other forecasters); for a comparison, the last\n    two are sums over its candidates. A cross-validation strategy also\n    has `compare_estimator_fits` and `compare_inference_windows`, those\n    of a comparison without candidates with it. None for the other\n    kinds.\nchangeable : list of str\n    Arguments of `refine_plan` (for a plan) or of `create_cv` (for a\n    cross-validation strategy) that build a variant of the object.\n    Empty for the other kinds.",
+      "description": "Envelope returned by the tools that create an object, and by\n`describe_object`.\n\nAttributes\n----------\nid : str\n    Id of the object, to pass to the tools that take it.\nkind : str\n    Kind of the object: `'profile'`, `'plan'`, `'cv'`, `'backtest'`,\n    `'comparison'` or `'forecast'`.\nlinks : dict\n    Ids of related objects: those it was built from (`profile_id`,\n    `plan_id`, `cv_id`, and `parent_plan_id` for a refined plan), the\n    plan of the winner of a comparison (`best_plan_id`), and the\n    comparison a winning plan comes from (`comparison_id`).\nsummary : str\n    Plain-text description of the object (`describe()` of the core),\n    cut to 20,000 characters.\nsummary_truncated : bool\n    Whether `summary` was cut; the full text is then in\n    `files['summary']`.\nnotices : list of ToolNotice\n    Warnings the call emitted, the first 20 distinct ones. Deprecation\n    warnings go to the log of the server instead, and the failures of\n    the candidates of a comparison are in its result.\nnotices_omitted : int\n    Number of distinct warnings left out of `notices`.\nfiles : dict\n    Absolute paths of the files written for the object, by role:\n    `predictions` and `metrics` (CSV with the index) of a backtest or a\n    forecast, `leaderboard`, `best_predictions` and `best_metrics` of a\n    comparison, and `summary` when the summary was cut.\nvalues_included : bool\n    Always False: the response holds no rows of the data or of the\n    predictions. The summary carries statistics of the predictions, the\n    metrics and the leaderboard of a comparison; the rows are in\n    `files`.\ncost : dict, None\n    Cost of a cross-validation strategy, a backtest or a comparison:\n    `n_folds`, `n_fits` (trainings of the forecaster),\n    `estimator_fits` (fits of an estimator, which a direct forecaster\n    multiplies by `steps`) and `inference_windows` (the cost of a\n    foundation model, never trained: one forecast per series and fold;\n    0 for the other forecasters). For a comparison, `n_folds` is that\n    of the shared strategy and the other three are totals over all its\n    candidates, the baseline included, counted before they run (a\n    candidate that fails while it runs counts too; one whose plan\n    cannot be built, or that fails the checks of `backtest`, runs\n    nothing and does not). A cross-validation\n    strategy also has `compare_estimator_fits` and\n    `compare_inference_windows`, those of a comparison without\n    candidates with it. Above 50 estimator fits, or 2000 inference\n    windows, `backtest` and `compare` run only with `confirm_cost` set\n    to the estimator fits (the inference windows, when only those are\n    above). None for the other kinds.\nchangeable : list of str\n    Arguments of `refine_plan` (for a plan) or of `create_cv` (for a\n    cross-validation strategy) that build a variant of the object.\n    Empty for the other kinds.",
       "properties": {
         "id": {
           "title": "Id",
@@ -629,7 +677,7 @@
   },
   {
     "name": "refine_plan",
-    "description": "Build a new plan from an existing one, changing some of its decisions. Returns a new plan id; the original plan is kept.",
+    "description": "Build a new plan from an existing one, changing some of its decisions and keeping the others: use it instead of `plan` to change a plan. Returns a new plan id; the original plan is kept.",
     "annotations": {
       "title": null,
       "readOnlyHint": false,
@@ -647,7 +695,7 @@
         },
         "overrides": {
           "$ref": "#/$defs/RefinePlanArgs",
-          "description": "Values to change, e.g. {'estimator': 'Ridge', 'lags': 12}. An omitted key keeps the value of the plan; {'lags': null} selects the lags again and {'interval': null} removes the interval."
+          "description": "Values to change, e.g. {'estimator': 'Ridge', 'lags': 12}. An omitted key keeps the value of the plan, unless the new forecaster or estimator cannot take it: it is left out and a notice names it. {'lags': null} selects the lags again and {'interval': null} removes the interval."
         }
       },
       "required": [
@@ -673,7 +721,7 @@
               "type": "string"
             },
             "estimator": {
-              "description": "Estimator: one of ['CatBoostRegressor', 'HistGradientBoostingRegressor', 'LGBMRegressor', 'RandomForestRegressor', 'Ridge', 'XGBRegressor'] for the machine learning forecasters, 'Arima' for ForecasterStats, or the Hugging Face model id of a foundation model for ForecasterFoundation (default 'autogluon/chronos-2-small'; model id prefixes: ['amazon/chronos-2', 'autogluon/chronos-2', 'google/timesfm-2.5', 'google/timesfm-3.0', 'Salesforce/moirai-2', 'soda-inria/tabicl', 'priorlabs/tabpfn', 'theforecastingcompany/t0', 'Synthefy/Nori', 'taharnbl/TS-ICL']). ForecasterEquivalentDate takes none.",
+              "description": "Estimator: one of ['CatBoostRegressor', 'HistGradientBoostingRegressor', 'LGBMRegressor', 'RandomForestRegressor', 'Ridge', 'XGBRegressor'] for the machine learning forecasters, 'Arima' for ForecasterStats, or the Hugging Face model id of a foundation model for ForecasterFoundation (default 'autogluon/chronos-2-small'; model id prefixes: ['amazon/chronos-2', 'autogluon/chronos-2', 'google/timesfm-2.5', 'google/timesfm-3.0', 'NX-AI/TiRex-2', 'Salesforce/moirai-2', 'soda-inria/tabicl', 'priorlabs/tabpfn', 'theforecastingcompany/t0', 'Synthefy/Nori', 'taharnbl/TS-ICL', 'mistralai/Timestral']). ForecasterEquivalentDate takes none.",
               "type": "string"
             },
             "estimator_kwargs": {
@@ -686,7 +734,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Keyword arguments of the estimator, e.g. {'n_estimators': 200}. A foundation model only takes context_length, cross_learning, point_estimate, max_horizon, add_calendar_features and n_fourier_terms. Null for the defaults of the estimator."
+              "description": "Keyword arguments of the estimator, e.g. {'n_estimators': 200}. A foundation model only takes context_length, cross_learning, point_estimate, max_horizon, add_calendar_features and n_fourier_terms. Null for the defaults of the estimator. Omitted while the estimator changes (passed, or chosen again for another forecaster), those of the plan are left out, since they were written for the previous estimator, and a notice names them."
             },
             "steps": {
               "description": "Forecast horizon: number of steps ahead to predict, from 1 to the length of the longest series (12 for a year of monthly data).",
@@ -730,20 +778,7 @@
               "anyOf": [
                 {
                   "items": {
-                    "additionalProperties": {
-                      "anyOf": [
-                        {
-                          "items": {
-                            "type": "string"
-                          },
-                          "type": "array"
-                        },
-                        {
-                          "type": "integer"
-                        }
-                      ]
-                    },
-                    "type": "object"
+                    "$ref": "#/$defs/WindowFeatureArgs"
                   },
                   "type": "array"
                 },
@@ -850,9 +885,45 @@
           },
           "type": "object"
         },
+        "WindowFeatureArgs": {
+          "additionalProperties": false,
+          "description": "One window size and the statistics computed over it; no other key is accepted.",
+          "properties": {
+            "stats": {
+              "description": "Statistics computed over the window.",
+              "items": {
+                "enum": [
+                  "mean",
+                  "std",
+                  "min",
+                  "max",
+                  "sum",
+                  "median",
+                  "ratio_min_max",
+                  "coef_variation",
+                  "ewm"
+                ],
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "window_size": {
+              "description": "Number of observations of the window.",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "stats",
+            "window_size"
+          ],
+          "type": "object"
+        },
         "Metric": {
           "enum": [
             "mean_squared_error",
+            "root_mean_squared_error",
             "mean_absolute_error",
             "mean_absolute_percentage_error",
             "mean_squared_log_error",
@@ -905,7 +976,7 @@
         }
       },
       "additionalProperties": false,
-      "description": "Envelope returned by the tools that create an object, and by\n`describe_object`.\n\nAttributes\n----------\nid : str\n    Id of the object, to pass to the tools that take it.\nkind : str\n    Kind of the object: `'profile'`, `'plan'`, `'cv'`, `'backtest'`,\n    `'comparison'` or `'forecast'`.\nlinks : dict\n    Ids of related objects: those it was built from (`profile_id`,\n    `plan_id`, `cv_id`, and `parent_plan_id` for a refined plan), the\n    plan of the winner of a comparison (`best_plan_id`), and the\n    comparison a winning plan comes from (`comparison_id`).\nsummary : str\n    Plain-text description of the object (`describe()` of the core),\n    cut to 20,000 characters.\nsummary_truncated : bool\n    Whether `summary` was cut; the full text is then in\n    `files['summary']`.\nnotices : list of ToolNotice\n    Warnings the call emitted, the first 20 distinct ones. Deprecation\n    warnings go to the log of the server instead, and the failures of\n    the candidates of a comparison are in its result.\nnotices_omitted : int\n    Number of distinct warnings left out of `notices`.\nfiles : dict\n    Absolute paths of the files written for the object, by role:\n    `predictions` and `metrics` (CSV with the index) of a backtest or a\n    forecast, `leaderboard`, `best_predictions` and `best_metrics` of a\n    comparison, and `summary` when the summary was cut.\nvalues_included : bool\n    Always False: the response holds no rows of the data or of the\n    predictions. The summary carries statistics of the predictions, the\n    metrics and the leaderboard of a comparison; the rows are in\n    `files`.\ncost : dict, None\n    Cost of a cross-validation strategy, a backtest or a comparison:\n    `n_folds`, `n_fits` (trainings of the forecaster in the shared\n    strategy), `estimator_fits` (fits of an estimator, which a direct\n    forecaster multiplies by `steps`) and `inference_windows` (the\n    cost of a foundation model, never trained: one forecast per series\n    and fold; 0 for the other forecasters); for a comparison, the last\n    two are sums over its candidates. A cross-validation strategy also\n    has `compare_estimator_fits` and `compare_inference_windows`, those\n    of a comparison without candidates with it. None for the other\n    kinds.\nchangeable : list of str\n    Arguments of `refine_plan` (for a plan) or of `create_cv` (for a\n    cross-validation strategy) that build a variant of the object.\n    Empty for the other kinds.",
+      "description": "Envelope returned by the tools that create an object, and by\n`describe_object`.\n\nAttributes\n----------\nid : str\n    Id of the object, to pass to the tools that take it.\nkind : str\n    Kind of the object: `'profile'`, `'plan'`, `'cv'`, `'backtest'`,\n    `'comparison'` or `'forecast'`.\nlinks : dict\n    Ids of related objects: those it was built from (`profile_id`,\n    `plan_id`, `cv_id`, and `parent_plan_id` for a refined plan), the\n    plan of the winner of a comparison (`best_plan_id`), and the\n    comparison a winning plan comes from (`comparison_id`).\nsummary : str\n    Plain-text description of the object (`describe()` of the core),\n    cut to 20,000 characters.\nsummary_truncated : bool\n    Whether `summary` was cut; the full text is then in\n    `files['summary']`.\nnotices : list of ToolNotice\n    Warnings the call emitted, the first 20 distinct ones. Deprecation\n    warnings go to the log of the server instead, and the failures of\n    the candidates of a comparison are in its result.\nnotices_omitted : int\n    Number of distinct warnings left out of `notices`.\nfiles : dict\n    Absolute paths of the files written for the object, by role:\n    `predictions` and `metrics` (CSV with the index) of a backtest or a\n    forecast, `leaderboard`, `best_predictions` and `best_metrics` of a\n    comparison, and `summary` when the summary was cut.\nvalues_included : bool\n    Always False: the response holds no rows of the data or of the\n    predictions. The summary carries statistics of the predictions, the\n    metrics and the leaderboard of a comparison; the rows are in\n    `files`.\ncost : dict, None\n    Cost of a cross-validation strategy, a backtest or a comparison:\n    `n_folds`, `n_fits` (trainings of the forecaster),\n    `estimator_fits` (fits of an estimator, which a direct forecaster\n    multiplies by `steps`) and `inference_windows` (the cost of a\n    foundation model, never trained: one forecast per series and fold;\n    0 for the other forecasters). For a comparison, `n_folds` is that\n    of the shared strategy and the other three are totals over all its\n    candidates, the baseline included, counted before they run (a\n    candidate that fails while it runs counts too; one whose plan\n    cannot be built, or that fails the checks of `backtest`, runs\n    nothing and does not). A cross-validation\n    strategy also has `compare_estimator_fits` and\n    `compare_inference_windows`, those of a comparison without\n    candidates with it. Above 50 estimator fits, or 2000 inference\n    windows, `backtest` and `compare` run only with `confirm_cost` set\n    to the estimator fits (the inference windows, when only those are\n    above). None for the other kinds.\nchangeable : list of str\n    Arguments of `refine_plan` (for a plan) or of `create_cv` (for a\n    cross-validation strategy) that build a variant of the object.\n    Empty for the other kinds.",
       "properties": {
         "id": {
           "title": "Id",
@@ -998,7 +1069,7 @@
   },
   {
     "name": "create_cv",
-    "description": "Build a time series cross-validation strategy (TimeSeriesFold) for a plan. The response states its cost in `cost`. Returns a cv id.",
+    "description": "Build a time series cross-validation strategy (TimeSeriesFold) for a plan id. Returns a cv id, which `backtest` and `compare` take, and its cost in `cost`: read it before running them.",
     "annotations": {
       "title": null,
       "readOnlyHint": false,
@@ -1069,7 +1140,7 @@
             }
           ],
           "default": null,
-          "description": "Whether the training window keeps its size when refitting (true) or grows (false). Null for false. Only with `refit` true or an integer: with `refit` false or null it is an error, as it would not run (ForecasterStats aside)."
+          "description": "Whether the training window keeps its size when refitting (true) or grows (false). Null for false. Only with `refit` true or an integer: with `refit` false or null nothing is refitted, so it has no effect and is rejected (`invalid_argument`); ForecasterStats aside, which is refitted in every fold."
         },
         "gap": {
           "anyOf": [
@@ -1102,7 +1173,7 @@
             }
           ],
           "default": null,
-          "description": "Folds are numbered from 0, and fold 0 always runs. An integer n keeps folds 0, n, 2n, ...; a list skips the folds at those numbers (each at least 1 and below the number of folds). Null for every fold."
+          "description": "Folds are numbered from 0, and fold 0 always runs. An integer n keeps folds 0, n, 2n, ...; a list skips the folds at those numbers (each at least 1 and below the number of folds). Null for every fold. Rejected for a ForecasterStats plan, which skforecast refits in every fold."
         },
         "allow_incomplete_fold": {
           "anyOf": [
@@ -1161,7 +1232,7 @@
         }
       },
       "additionalProperties": false,
-      "description": "Envelope returned by the tools that create an object, and by\n`describe_object`.\n\nAttributes\n----------\nid : str\n    Id of the object, to pass to the tools that take it.\nkind : str\n    Kind of the object: `'profile'`, `'plan'`, `'cv'`, `'backtest'`,\n    `'comparison'` or `'forecast'`.\nlinks : dict\n    Ids of related objects: those it was built from (`profile_id`,\n    `plan_id`, `cv_id`, and `parent_plan_id` for a refined plan), the\n    plan of the winner of a comparison (`best_plan_id`), and the\n    comparison a winning plan comes from (`comparison_id`).\nsummary : str\n    Plain-text description of the object (`describe()` of the core),\n    cut to 20,000 characters.\nsummary_truncated : bool\n    Whether `summary` was cut; the full text is then in\n    `files['summary']`.\nnotices : list of ToolNotice\n    Warnings the call emitted, the first 20 distinct ones. Deprecation\n    warnings go to the log of the server instead, and the failures of\n    the candidates of a comparison are in its result.\nnotices_omitted : int\n    Number of distinct warnings left out of `notices`.\nfiles : dict\n    Absolute paths of the files written for the object, by role:\n    `predictions` and `metrics` (CSV with the index) of a backtest or a\n    forecast, `leaderboard`, `best_predictions` and `best_metrics` of a\n    comparison, and `summary` when the summary was cut.\nvalues_included : bool\n    Always False: the response holds no rows of the data or of the\n    predictions. The summary carries statistics of the predictions, the\n    metrics and the leaderboard of a comparison; the rows are in\n    `files`.\ncost : dict, None\n    Cost of a cross-validation strategy, a backtest or a comparison:\n    `n_folds`, `n_fits` (trainings of the forecaster in the shared\n    strategy), `estimator_fits` (fits of an estimator, which a direct\n    forecaster multiplies by `steps`) and `inference_windows` (the\n    cost of a foundation model, never trained: one forecast per series\n    and fold; 0 for the other forecasters); for a comparison, the last\n    two are sums over its candidates. A cross-validation strategy also\n    has `compare_estimator_fits` and `compare_inference_windows`, those\n    of a comparison without candidates with it. None for the other\n    kinds.\nchangeable : list of str\n    Arguments of `refine_plan` (for a plan) or of `create_cv` (for a\n    cross-validation strategy) that build a variant of the object.\n    Empty for the other kinds.",
+      "description": "Envelope returned by the tools that create an object, and by\n`describe_object`.\n\nAttributes\n----------\nid : str\n    Id of the object, to pass to the tools that take it.\nkind : str\n    Kind of the object: `'profile'`, `'plan'`, `'cv'`, `'backtest'`,\n    `'comparison'` or `'forecast'`.\nlinks : dict\n    Ids of related objects: those it was built from (`profile_id`,\n    `plan_id`, `cv_id`, and `parent_plan_id` for a refined plan), the\n    plan of the winner of a comparison (`best_plan_id`), and the\n    comparison a winning plan comes from (`comparison_id`).\nsummary : str\n    Plain-text description of the object (`describe()` of the core),\n    cut to 20,000 characters.\nsummary_truncated : bool\n    Whether `summary` was cut; the full text is then in\n    `files['summary']`.\nnotices : list of ToolNotice\n    Warnings the call emitted, the first 20 distinct ones. Deprecation\n    warnings go to the log of the server instead, and the failures of\n    the candidates of a comparison are in its result.\nnotices_omitted : int\n    Number of distinct warnings left out of `notices`.\nfiles : dict\n    Absolute paths of the files written for the object, by role:\n    `predictions` and `metrics` (CSV with the index) of a backtest or a\n    forecast, `leaderboard`, `best_predictions` and `best_metrics` of a\n    comparison, and `summary` when the summary was cut.\nvalues_included : bool\n    Always False: the response holds no rows of the data or of the\n    predictions. The summary carries statistics of the predictions, the\n    metrics and the leaderboard of a comparison; the rows are in\n    `files`.\ncost : dict, None\n    Cost of a cross-validation strategy, a backtest or a comparison:\n    `n_folds`, `n_fits` (trainings of the forecaster),\n    `estimator_fits` (fits of an estimator, which a direct forecaster\n    multiplies by `steps`) and `inference_windows` (the cost of a\n    foundation model, never trained: one forecast per series and fold;\n    0 for the other forecasters). For a comparison, `n_folds` is that\n    of the shared strategy and the other three are totals over all its\n    candidates, the baseline included, counted before they run (a\n    candidate that fails while it runs counts too; one whose plan\n    cannot be built, or that fails the checks of `backtest`, runs\n    nothing and does not). A cross-validation\n    strategy also has `compare_estimator_fits` and\n    `compare_inference_windows`, those of a comparison without\n    candidates with it. Above 50 estimator fits, or 2000 inference\n    windows, `backtest` and `compare` run only with `confirm_cost` set\n    to the estimator fits (the inference windows, when only those are\n    above). None for the other kinds.\nchangeable : list of str\n    Arguments of `refine_plan` (for a plan) or of `create_cv` (for a\n    cross-validation strategy) that build a variant of the object.\n    Empty for the other kinds.",
       "properties": {
         "id": {
           "title": "Id",
@@ -1254,7 +1325,7 @@
   },
   {
     "name": "backtest",
-    "description": "Backtest a plan with a cross-validation strategy: metrics over the folds, with the predictions and metrics in CSV files. Returns a backtest id.",
+    "description": "Backtest one plan with a cv id of `create_cv`: metrics over the folds, with the predictions and metrics in CSV files named by the new id, so no run overwrites another. To rank several configurations, use `compare`. Returns a backtest id.",
     "annotations": {
       "title": null,
       "readOnlyHint": false,
@@ -1281,6 +1352,19 @@
           ],
           "default": null,
           "description": "Plan to backtest, built from the same profile. Null for the plan the cross-validation strategy was built for."
+        },
+        "confirm_cost": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Confirms an expensive run (above 50 estimator fits, or 2000 inference windows of a foundation model), only once the user chose it: the number of its cost that `create_cv` or the error of a call without it gives (its estimator fits; its inference windows when only those are above). Without it, or with another number, such a run is an error and nothing runs. Ignored below the thresholds."
         }
       },
       "required": [
@@ -1327,7 +1411,7 @@
         }
       },
       "additionalProperties": false,
-      "description": "Envelope returned by the tools that create an object, and by\n`describe_object`.\n\nAttributes\n----------\nid : str\n    Id of the object, to pass to the tools that take it.\nkind : str\n    Kind of the object: `'profile'`, `'plan'`, `'cv'`, `'backtest'`,\n    `'comparison'` or `'forecast'`.\nlinks : dict\n    Ids of related objects: those it was built from (`profile_id`,\n    `plan_id`, `cv_id`, and `parent_plan_id` for a refined plan), the\n    plan of the winner of a comparison (`best_plan_id`), and the\n    comparison a winning plan comes from (`comparison_id`).\nsummary : str\n    Plain-text description of the object (`describe()` of the core),\n    cut to 20,000 characters.\nsummary_truncated : bool\n    Whether `summary` was cut; the full text is then in\n    `files['summary']`.\nnotices : list of ToolNotice\n    Warnings the call emitted, the first 20 distinct ones. Deprecation\n    warnings go to the log of the server instead, and the failures of\n    the candidates of a comparison are in its result.\nnotices_omitted : int\n    Number of distinct warnings left out of `notices`.\nfiles : dict\n    Absolute paths of the files written for the object, by role:\n    `predictions` and `metrics` (CSV with the index) of a backtest or a\n    forecast, `leaderboard`, `best_predictions` and `best_metrics` of a\n    comparison, and `summary` when the summary was cut.\nvalues_included : bool\n    Always False: the response holds no rows of the data or of the\n    predictions. The summary carries statistics of the predictions, the\n    metrics and the leaderboard of a comparison; the rows are in\n    `files`.\ncost : dict, None\n    Cost of a cross-validation strategy, a backtest or a comparison:\n    `n_folds`, `n_fits` (trainings of the forecaster in the shared\n    strategy), `estimator_fits` (fits of an estimator, which a direct\n    forecaster multiplies by `steps`) and `inference_windows` (the\n    cost of a foundation model, never trained: one forecast per series\n    and fold; 0 for the other forecasters); for a comparison, the last\n    two are sums over its candidates. A cross-validation strategy also\n    has `compare_estimator_fits` and `compare_inference_windows`, those\n    of a comparison without candidates with it. None for the other\n    kinds.\nchangeable : list of str\n    Arguments of `refine_plan` (for a plan) or of `create_cv` (for a\n    cross-validation strategy) that build a variant of the object.\n    Empty for the other kinds.",
+      "description": "Envelope returned by the tools that create an object, and by\n`describe_object`.\n\nAttributes\n----------\nid : str\n    Id of the object, to pass to the tools that take it.\nkind : str\n    Kind of the object: `'profile'`, `'plan'`, `'cv'`, `'backtest'`,\n    `'comparison'` or `'forecast'`.\nlinks : dict\n    Ids of related objects: those it was built from (`profile_id`,\n    `plan_id`, `cv_id`, and `parent_plan_id` for a refined plan), the\n    plan of the winner of a comparison (`best_plan_id`), and the\n    comparison a winning plan comes from (`comparison_id`).\nsummary : str\n    Plain-text description of the object (`describe()` of the core),\n    cut to 20,000 characters.\nsummary_truncated : bool\n    Whether `summary` was cut; the full text is then in\n    `files['summary']`.\nnotices : list of ToolNotice\n    Warnings the call emitted, the first 20 distinct ones. Deprecation\n    warnings go to the log of the server instead, and the failures of\n    the candidates of a comparison are in its result.\nnotices_omitted : int\n    Number of distinct warnings left out of `notices`.\nfiles : dict\n    Absolute paths of the files written for the object, by role:\n    `predictions` and `metrics` (CSV with the index) of a backtest or a\n    forecast, `leaderboard`, `best_predictions` and `best_metrics` of a\n    comparison, and `summary` when the summary was cut.\nvalues_included : bool\n    Always False: the response holds no rows of the data or of the\n    predictions. The summary carries statistics of the predictions, the\n    metrics and the leaderboard of a comparison; the rows are in\n    `files`.\ncost : dict, None\n    Cost of a cross-validation strategy, a backtest or a comparison:\n    `n_folds`, `n_fits` (trainings of the forecaster),\n    `estimator_fits` (fits of an estimator, which a direct forecaster\n    multiplies by `steps`) and `inference_windows` (the cost of a\n    foundation model, never trained: one forecast per series and fold;\n    0 for the other forecasters). For a comparison, `n_folds` is that\n    of the shared strategy and the other three are totals over all its\n    candidates, the baseline included, counted before they run (a\n    candidate that fails while it runs counts too; one whose plan\n    cannot be built, or that fails the checks of `backtest`, runs\n    nothing and does not). A cross-validation\n    strategy also has `compare_estimator_fits` and\n    `compare_inference_windows`, those of a comparison without\n    candidates with it. Above 50 estimator fits, or 2000 inference\n    windows, `backtest` and `compare` run only with `confirm_cost` set\n    to the estimator fits (the inference windows, when only those are\n    above). None for the other kinds.\nchangeable : list of str\n    Arguments of `refine_plan` (for a plan) or of `create_cv` (for a\n    cross-validation strategy) that build a variant of the object.\n    Empty for the other kinds.",
       "properties": {
         "id": {
           "title": "Id",
@@ -1420,7 +1504,7 @@
   },
   {
     "name": "compare",
-    "description": "Backtest several configurations on the same folds and rank them by `metric`. Reports progress per candidate and can be cancelled between candidates. Returns a comparison id and the plan of the winner in `links.best_plan_id`.",
+    "description": "Backtest several configurations on the folds of a cv id of `create_cv` and rank them by `metric`; for one plan, use `backtest`. Reports progress per candidate and can be cancelled between candidates. Returns a comparison id and the plan of the winner in `links.best_plan_id`, which `forecast` takes.",
     "annotations": {
       "title": null,
       "readOnlyHint": false,
@@ -1450,7 +1534,7 @@
             }
           ],
           "default": null,
-          "description": "Configurations to compare, each {'name': ..., 'config': {...}}, e.g. [{'name': 'ridge', 'config': {'estimator': 'Ridge'}}]. Null for the candidates recommended by the profile: the forecasters of its family (with several series, ForecasterRecursiveMultiSeries and ForecasterFoundation), or the estimators of the recommended forecaster when that leaves one, without those above 500 estimator fits; plus the plan the strategy was built for, in the row 'Strategy plan', when it is none of them. The summary names the row of that plan. A candidate that fails is ranked last with its error."
+          "description": "Configurations to compare, each {'name': ..., 'config': {...}}, e.g. [{'name': 'ridge', 'config': {'estimator': 'Ridge'}}]. Null for the candidates recommended by the profile: the forecasters of its family (with several series, ForecasterRecursiveMultiSeries and ForecasterFoundation), or the estimators of the recommended forecaster when that leaves one, without those above 500 estimator fits; plus the plan the strategy was built for, in the row 'Strategy plan', when it is none of them. A list runs only those candidates. The summary names the row of that plan, if any. A candidate that fails is ranked last with its error."
         },
         "interval": {
           "anyOf": [
@@ -1492,6 +1576,19 @@
           "default": true,
           "description": "Whether to add a seasonal naive baseline (ForecasterEquivalentDate) to the ranking.",
           "type": "boolean"
+        },
+        "confirm_cost": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Confirms an expensive run (all the candidates together above 50 estimator fits, or 2000 inference windows of foundation models), only once the user chose it: the number of its cost that `create_cv` (without `candidates`) or the error of a call without it gives (the estimator fits; the inference windows when only those are above). Without it, or with another number, such a run is an error and nothing runs. Ignored below the thresholds."
         }
       },
       "required": [
@@ -1503,7 +1600,7 @@
           "description": "A configuration to compare, with a unique name.",
           "properties": {
             "name": {
-              "description": "Unique name of the candidate, which labels its row of the leaderboard. 'Baseline (seasonal naive)' and 'Baseline (naive)' are reserved for the baseline.",
+              "description": "Unique name of the candidate, which labels its row of the leaderboard. 'Baseline (seasonal naive)' and 'Baseline (naive)' are reserved for the baseline, and 'Strategy plan' for the plan of the strategy.",
               "type": "string"
             },
             "config": {
@@ -1534,7 +1631,7 @@
               "type": "string"
             },
             "estimator": {
-              "description": "Estimator: one of ['CatBoostRegressor', 'HistGradientBoostingRegressor', 'LGBMRegressor', 'RandomForestRegressor', 'Ridge', 'XGBRegressor'] for the machine learning forecasters, 'Arima' for ForecasterStats, or the Hugging Face model id of a foundation model for ForecasterFoundation (default 'autogluon/chronos-2-small'; model id prefixes: ['amazon/chronos-2', 'autogluon/chronos-2', 'google/timesfm-2.5', 'google/timesfm-3.0', 'Salesforce/moirai-2', 'soda-inria/tabicl', 'priorlabs/tabpfn', 'theforecastingcompany/t0', 'Synthefy/Nori', 'taharnbl/TS-ICL']). ForecasterEquivalentDate takes none.",
+              "description": "Estimator: one of ['CatBoostRegressor', 'HistGradientBoostingRegressor', 'LGBMRegressor', 'RandomForestRegressor', 'Ridge', 'XGBRegressor'] for the machine learning forecasters, 'Arima' for ForecasterStats, or the Hugging Face model id of a foundation model for ForecasterFoundation (default 'autogluon/chronos-2-small'; model id prefixes: ['amazon/chronos-2', 'autogluon/chronos-2', 'google/timesfm-2.5', 'google/timesfm-3.0', 'NX-AI/TiRex-2', 'Salesforce/moirai-2', 'soda-inria/tabicl', 'priorlabs/tabpfn', 'theforecastingcompany/t0', 'Synthefy/Nori', 'taharnbl/TS-ICL', 'mistralai/Timestral']). ForecasterEquivalentDate takes none.",
               "type": "string"
             },
             "estimator_kwargs": {
@@ -1570,20 +1667,7 @@
               "anyOf": [
                 {
                   "items": {
-                    "additionalProperties": {
-                      "anyOf": [
-                        {
-                          "items": {
-                            "type": "string"
-                          },
-                          "type": "array"
-                        },
-                        {
-                          "type": "integer"
-                        }
-                      ]
-                    },
-                    "type": "object"
+                    "$ref": "#/$defs/WindowFeatureArgs"
                   },
                   "type": "array"
                 },
@@ -1614,7 +1698,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Order of differencing of the target before training (an integer of at least 1, usually 1 for a trend); predictions are integrated back. Machine learning forecasters only. The candidate runs on a copy of the strategy with this order."
+              "description": "Order of differencing of the target before training (an integer of at least 1, usually 1 for a trend); predictions are integrated back. Machine learning forecasters only. Candidates with different orders share the strategy."
             },
             "calendar_features": {
               "anyOf": [
@@ -1672,9 +1756,45 @@
           },
           "type": "object"
         },
+        "WindowFeatureArgs": {
+          "additionalProperties": false,
+          "description": "One window size and the statistics computed over it; no other key is accepted.",
+          "properties": {
+            "stats": {
+              "description": "Statistics computed over the window.",
+              "items": {
+                "enum": [
+                  "mean",
+                  "std",
+                  "min",
+                  "max",
+                  "sum",
+                  "median",
+                  "ratio_min_max",
+                  "coef_variation",
+                  "ewm"
+                ],
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "window_size": {
+              "description": "Number of observations of the window.",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "stats",
+            "window_size"
+          ],
+          "type": "object"
+        },
         "Metric": {
           "enum": [
             "mean_squared_error",
+            "root_mean_squared_error",
             "mean_absolute_error",
             "mean_absolute_percentage_error",
             "mean_squared_log_error",
@@ -1727,7 +1847,7 @@
         }
       },
       "additionalProperties": false,
-      "description": "Envelope returned by the tools that create an object, and by\n`describe_object`.\n\nAttributes\n----------\nid : str\n    Id of the object, to pass to the tools that take it.\nkind : str\n    Kind of the object: `'profile'`, `'plan'`, `'cv'`, `'backtest'`,\n    `'comparison'` or `'forecast'`.\nlinks : dict\n    Ids of related objects: those it was built from (`profile_id`,\n    `plan_id`, `cv_id`, and `parent_plan_id` for a refined plan), the\n    plan of the winner of a comparison (`best_plan_id`), and the\n    comparison a winning plan comes from (`comparison_id`).\nsummary : str\n    Plain-text description of the object (`describe()` of the core),\n    cut to 20,000 characters.\nsummary_truncated : bool\n    Whether `summary` was cut; the full text is then in\n    `files['summary']`.\nnotices : list of ToolNotice\n    Warnings the call emitted, the first 20 distinct ones. Deprecation\n    warnings go to the log of the server instead, and the failures of\n    the candidates of a comparison are in its result.\nnotices_omitted : int\n    Number of distinct warnings left out of `notices`.\nfiles : dict\n    Absolute paths of the files written for the object, by role:\n    `predictions` and `metrics` (CSV with the index) of a backtest or a\n    forecast, `leaderboard`, `best_predictions` and `best_metrics` of a\n    comparison, and `summary` when the summary was cut.\nvalues_included : bool\n    Always False: the response holds no rows of the data or of the\n    predictions. The summary carries statistics of the predictions, the\n    metrics and the leaderboard of a comparison; the rows are in\n    `files`.\ncost : dict, None\n    Cost of a cross-validation strategy, a backtest or a comparison:\n    `n_folds`, `n_fits` (trainings of the forecaster in the shared\n    strategy), `estimator_fits` (fits of an estimator, which a direct\n    forecaster multiplies by `steps`) and `inference_windows` (the\n    cost of a foundation model, never trained: one forecast per series\n    and fold; 0 for the other forecasters); for a comparison, the last\n    two are sums over its candidates. A cross-validation strategy also\n    has `compare_estimator_fits` and `compare_inference_windows`, those\n    of a comparison without candidates with it. None for the other\n    kinds.\nchangeable : list of str\n    Arguments of `refine_plan` (for a plan) or of `create_cv` (for a\n    cross-validation strategy) that build a variant of the object.\n    Empty for the other kinds.",
+      "description": "Envelope returned by the tools that create an object, and by\n`describe_object`.\n\nAttributes\n----------\nid : str\n    Id of the object, to pass to the tools that take it.\nkind : str\n    Kind of the object: `'profile'`, `'plan'`, `'cv'`, `'backtest'`,\n    `'comparison'` or `'forecast'`.\nlinks : dict\n    Ids of related objects: those it was built from (`profile_id`,\n    `plan_id`, `cv_id`, and `parent_plan_id` for a refined plan), the\n    plan of the winner of a comparison (`best_plan_id`), and the\n    comparison a winning plan comes from (`comparison_id`).\nsummary : str\n    Plain-text description of the object (`describe()` of the core),\n    cut to 20,000 characters.\nsummary_truncated : bool\n    Whether `summary` was cut; the full text is then in\n    `files['summary']`.\nnotices : list of ToolNotice\n    Warnings the call emitted, the first 20 distinct ones. Deprecation\n    warnings go to the log of the server instead, and the failures of\n    the candidates of a comparison are in its result.\nnotices_omitted : int\n    Number of distinct warnings left out of `notices`.\nfiles : dict\n    Absolute paths of the files written for the object, by role:\n    `predictions` and `metrics` (CSV with the index) of a backtest or a\n    forecast, `leaderboard`, `best_predictions` and `best_metrics` of a\n    comparison, and `summary` when the summary was cut.\nvalues_included : bool\n    Always False: the response holds no rows of the data or of the\n    predictions. The summary carries statistics of the predictions, the\n    metrics and the leaderboard of a comparison; the rows are in\n    `files`.\ncost : dict, None\n    Cost of a cross-validation strategy, a backtest or a comparison:\n    `n_folds`, `n_fits` (trainings of the forecaster),\n    `estimator_fits` (fits of an estimator, which a direct forecaster\n    multiplies by `steps`) and `inference_windows` (the cost of a\n    foundation model, never trained: one forecast per series and fold;\n    0 for the other forecasters). For a comparison, `n_folds` is that\n    of the shared strategy and the other three are totals over all its\n    candidates, the baseline included, counted before they run (a\n    candidate that fails while it runs counts too; one whose plan\n    cannot be built, or that fails the checks of `backtest`, runs\n    nothing and does not). A cross-validation\n    strategy also has `compare_estimator_fits` and\n    `compare_inference_windows`, those of a comparison without\n    candidates with it. Above 50 estimator fits, or 2000 inference\n    windows, `backtest` and `compare` run only with `confirm_cost` set\n    to the estimator fits (the inference windows, when only those are\n    above). None for the other kinds.\nchangeable : list of str\n    Arguments of `refine_plan` (for a plan) or of `create_cv` (for a\n    cross-validation strategy) that build a variant of the object.\n    Empty for the other kinds.",
       "properties": {
         "id": {
           "title": "Id",
@@ -1820,7 +1940,7 @@
   },
   {
     "name": "forecast",
-    "description": "Run a plan: forecast the future, or evaluate on a test set with `test_size`. Predictions and metrics go to CSV files. Returns a forecast id.",
+    "description": "Run a plan: forecast the future, or evaluate on a test set with `test_size`. Predictions and metrics go to CSV files. A forecast of the future has no error measure: backtest or compare the plan first. Returns a forecast id.",
     "annotations": {
       "title": null,
       "readOnlyHint": false,
@@ -1864,7 +1984,7 @@
             }
           ],
           "default": null,
-          "description": "Absolute path of a CSV file with the future values of the exogenous variables, one row per date (and series) of the horizon. Required to forecast the future when the plan uses exogenous variables. The script of `get_code` reads them from 'exog_future.csv' in its working directory."
+          "description": "Absolute path of a CSV file with the future values of the exogenous variables, one row per date (and series) of the horizon, or for data without dates one row per step, in order. Required to forecast the future when the plan uses exogenous variables. The script of `get_code` reads them from this file, by its path, as it reads the data."
         }
       },
       "required": [
@@ -1911,7 +2031,7 @@
         }
       },
       "additionalProperties": false,
-      "description": "Envelope returned by the tools that create an object, and by\n`describe_object`.\n\nAttributes\n----------\nid : str\n    Id of the object, to pass to the tools that take it.\nkind : str\n    Kind of the object: `'profile'`, `'plan'`, `'cv'`, `'backtest'`,\n    `'comparison'` or `'forecast'`.\nlinks : dict\n    Ids of related objects: those it was built from (`profile_id`,\n    `plan_id`, `cv_id`, and `parent_plan_id` for a refined plan), the\n    plan of the winner of a comparison (`best_plan_id`), and the\n    comparison a winning plan comes from (`comparison_id`).\nsummary : str\n    Plain-text description of the object (`describe()` of the core),\n    cut to 20,000 characters.\nsummary_truncated : bool\n    Whether `summary` was cut; the full text is then in\n    `files['summary']`.\nnotices : list of ToolNotice\n    Warnings the call emitted, the first 20 distinct ones. Deprecation\n    warnings go to the log of the server instead, and the failures of\n    the candidates of a comparison are in its result.\nnotices_omitted : int\n    Number of distinct warnings left out of `notices`.\nfiles : dict\n    Absolute paths of the files written for the object, by role:\n    `predictions` and `metrics` (CSV with the index) of a backtest or a\n    forecast, `leaderboard`, `best_predictions` and `best_metrics` of a\n    comparison, and `summary` when the summary was cut.\nvalues_included : bool\n    Always False: the response holds no rows of the data or of the\n    predictions. The summary carries statistics of the predictions, the\n    metrics and the leaderboard of a comparison; the rows are in\n    `files`.\ncost : dict, None\n    Cost of a cross-validation strategy, a backtest or a comparison:\n    `n_folds`, `n_fits` (trainings of the forecaster in the shared\n    strategy), `estimator_fits` (fits of an estimator, which a direct\n    forecaster multiplies by `steps`) and `inference_windows` (the\n    cost of a foundation model, never trained: one forecast per series\n    and fold; 0 for the other forecasters); for a comparison, the last\n    two are sums over its candidates. A cross-validation strategy also\n    has `compare_estimator_fits` and `compare_inference_windows`, those\n    of a comparison without candidates with it. None for the other\n    kinds.\nchangeable : list of str\n    Arguments of `refine_plan` (for a plan) or of `create_cv` (for a\n    cross-validation strategy) that build a variant of the object.\n    Empty for the other kinds.",
+      "description": "Envelope returned by the tools that create an object, and by\n`describe_object`.\n\nAttributes\n----------\nid : str\n    Id of the object, to pass to the tools that take it.\nkind : str\n    Kind of the object: `'profile'`, `'plan'`, `'cv'`, `'backtest'`,\n    `'comparison'` or `'forecast'`.\nlinks : dict\n    Ids of related objects: those it was built from (`profile_id`,\n    `plan_id`, `cv_id`, and `parent_plan_id` for a refined plan), the\n    plan of the winner of a comparison (`best_plan_id`), and the\n    comparison a winning plan comes from (`comparison_id`).\nsummary : str\n    Plain-text description of the object (`describe()` of the core),\n    cut to 20,000 characters.\nsummary_truncated : bool\n    Whether `summary` was cut; the full text is then in\n    `files['summary']`.\nnotices : list of ToolNotice\n    Warnings the call emitted, the first 20 distinct ones. Deprecation\n    warnings go to the log of the server instead, and the failures of\n    the candidates of a comparison are in its result.\nnotices_omitted : int\n    Number of distinct warnings left out of `notices`.\nfiles : dict\n    Absolute paths of the files written for the object, by role:\n    `predictions` and `metrics` (CSV with the index) of a backtest or a\n    forecast, `leaderboard`, `best_predictions` and `best_metrics` of a\n    comparison, and `summary` when the summary was cut.\nvalues_included : bool\n    Always False: the response holds no rows of the data or of the\n    predictions. The summary carries statistics of the predictions, the\n    metrics and the leaderboard of a comparison; the rows are in\n    `files`.\ncost : dict, None\n    Cost of a cross-validation strategy, a backtest or a comparison:\n    `n_folds`, `n_fits` (trainings of the forecaster),\n    `estimator_fits` (fits of an estimator, which a direct forecaster\n    multiplies by `steps`) and `inference_windows` (the cost of a\n    foundation model, never trained: one forecast per series and fold;\n    0 for the other forecasters). For a comparison, `n_folds` is that\n    of the shared strategy and the other three are totals over all its\n    candidates, the baseline included, counted before they run (a\n    candidate that fails while it runs counts too; one whose plan\n    cannot be built, or that fails the checks of `backtest`, runs\n    nothing and does not). A cross-validation\n    strategy also has `compare_estimator_fits` and\n    `compare_inference_windows`, those of a comparison without\n    candidates with it. Above 50 estimator fits, or 2000 inference\n    windows, `backtest` and `compare` run only with `confirm_cost` set\n    to the estimator fits (the inference windows, when only those are\n    above). None for the other kinds.\nchangeable : list of str\n    Arguments of `refine_plan` (for a plan) or of `create_cv` (for a\n    cross-validation strategy) that build a variant of the object.\n    Empty for the other kinds.",
       "properties": {
         "id": {
           "title": "Id",
@@ -2004,7 +2124,7 @@
   },
   {
     "name": "get_code",
-    "description": "Return the Python script of an object: the one that ran, or that would run for a plan.",
+    "description": "Return the Python script of an object and the packages it needs: the one that ran, or that would run for a plan (a profile has none). For a run that failed, use `get_failure`.",
     "annotations": {
       "title": null,
       "readOnlyHint": true,
@@ -2039,7 +2159,7 @@
     },
     "output_schema": {
       "additionalProperties": false,
-      "description": "Script of an object, returned by the `get_code` tool.\n\nAttributes\n----------\nid : str\n    Id of the object.\nkind : str\n    Kind of the object.\ncandidate : str, None\n    Candidate of a comparison whose script it is.\ncode : str\n    Python code, cut to 20,000 characters.\ncode_truncated : bool\n    Whether `code` was cut; the full code is then in `files['code']`.\nrequirements : list of str\n    Packages to install to run the script outside the server: those of\n    the modules it imports and the backend of its foundation model,\n    each with the version installed where the server runs\n    (`'skforecast==0.26.0'`).\nfiles : dict\n    Absolute path of the file with the full code, when it was cut.",
+      "description": "Script of an object, returned by the `get_code` tool.\n\nAttributes\n----------\nid : str\n    Id of the object.\nkind : str\n    Kind of the object.\ncandidate : str, None\n    Candidate of a comparison whose script it is.\ncode : str\n    Python code, cut to 20,000 characters.\ncode_truncated : bool\n    Whether `code` was cut; the full code is then in `files['code']`.\nrequirements : list of str\n    Packages to install to run the script outside the server: those of\n    the modules it imports and the backend of its foundation model,\n    each with the version installed where the server runs\n    (`'skforecast==0.27.0'`).\nfiles : dict\n    Absolute path of the file with the full code, when it was cut.",
       "properties": {
         "id": {
           "title": "Id",
@@ -2104,7 +2224,7 @@
   },
   {
     "name": "get_failure",
-    "description": "Return the traceback and the code of a failed run or of a failed candidate of a comparison.",
+    "description": "Return the traceback and the code of a failed run (the `details.failure_id` of an error) or of a failed candidate of a comparison. The id of an object that did not fail is `invalid_argument`; for the script of a run that worked, use `get_code`.",
     "annotations": {
       "title": null,
       "readOnlyHint": true,
@@ -2130,7 +2250,7 @@
             }
           ],
           "default": null,
-          "description": "Name of the failed candidate of a comparison."
+          "description": "Name of the failed candidate, required with the id of a comparison; null with a `failure_id`."
         }
       },
       "required": [
@@ -2184,7 +2304,7 @@
   },
   {
     "name": "list_objects",
-    "description": "List the ids of the objects the server keeps.",
+    "description": "List the ids of the profiles, plans, strategies and runs the server keeps, most recently used first; beyond its limits the least recently used are removed, and none survives a restart. Use `describe_object` to read one.",
     "annotations": {
       "title": null,
       "readOnlyHint": true,
@@ -2291,7 +2411,7 @@
   },
   {
     "name": "describe_object",
-    "description": "Return the response that created an object (summary, links, notices, files).",
+    "description": "Return again the response that created an object (summary, links, notices, files), from an id of any response or of `list_objects`.",
     "annotations": {
       "title": null,
       "readOnlyHint": true,
@@ -2352,7 +2472,7 @@
         }
       },
       "additionalProperties": false,
-      "description": "Envelope returned by the tools that create an object, and by\n`describe_object`.\n\nAttributes\n----------\nid : str\n    Id of the object, to pass to the tools that take it.\nkind : str\n    Kind of the object: `'profile'`, `'plan'`, `'cv'`, `'backtest'`,\n    `'comparison'` or `'forecast'`.\nlinks : dict\n    Ids of related objects: those it was built from (`profile_id`,\n    `plan_id`, `cv_id`, and `parent_plan_id` for a refined plan), the\n    plan of the winner of a comparison (`best_plan_id`), and the\n    comparison a winning plan comes from (`comparison_id`).\nsummary : str\n    Plain-text description of the object (`describe()` of the core),\n    cut to 20,000 characters.\nsummary_truncated : bool\n    Whether `summary` was cut; the full text is then in\n    `files['summary']`.\nnotices : list of ToolNotice\n    Warnings the call emitted, the first 20 distinct ones. Deprecation\n    warnings go to the log of the server instead, and the failures of\n    the candidates of a comparison are in its result.\nnotices_omitted : int\n    Number of distinct warnings left out of `notices`.\nfiles : dict\n    Absolute paths of the files written for the object, by role:\n    `predictions` and `metrics` (CSV with the index) of a backtest or a\n    forecast, `leaderboard`, `best_predictions` and `best_metrics` of a\n    comparison, and `summary` when the summary was cut.\nvalues_included : bool\n    Always False: the response holds no rows of the data or of the\n    predictions. The summary carries statistics of the predictions, the\n    metrics and the leaderboard of a comparison; the rows are in\n    `files`.\ncost : dict, None\n    Cost of a cross-validation strategy, a backtest or a comparison:\n    `n_folds`, `n_fits` (trainings of the forecaster in the shared\n    strategy), `estimator_fits` (fits of an estimator, which a direct\n    forecaster multiplies by `steps`) and `inference_windows` (the\n    cost of a foundation model, never trained: one forecast per series\n    and fold; 0 for the other forecasters); for a comparison, the last\n    two are sums over its candidates. A cross-validation strategy also\n    has `compare_estimator_fits` and `compare_inference_windows`, those\n    of a comparison without candidates with it. None for the other\n    kinds.\nchangeable : list of str\n    Arguments of `refine_plan` (for a plan) or of `create_cv` (for a\n    cross-validation strategy) that build a variant of the object.\n    Empty for the other kinds.",
+      "description": "Envelope returned by the tools that create an object, and by\n`describe_object`.\n\nAttributes\n----------\nid : str\n    Id of the object, to pass to the tools that take it.\nkind : str\n    Kind of the object: `'profile'`, `'plan'`, `'cv'`, `'backtest'`,\n    `'comparison'` or `'forecast'`.\nlinks : dict\n    Ids of related objects: those it was built from (`profile_id`,\n    `plan_id`, `cv_id`, and `parent_plan_id` for a refined plan), the\n    plan of the winner of a comparison (`best_plan_id`), and the\n    comparison a winning plan comes from (`comparison_id`).\nsummary : str\n    Plain-text description of the object (`describe()` of the core),\n    cut to 20,000 characters.\nsummary_truncated : bool\n    Whether `summary` was cut; the full text is then in\n    `files['summary']`.\nnotices : list of ToolNotice\n    Warnings the call emitted, the first 20 distinct ones. Deprecation\n    warnings go to the log of the server instead, and the failures of\n    the candidates of a comparison are in its result.\nnotices_omitted : int\n    Number of distinct warnings left out of `notices`.\nfiles : dict\n    Absolute paths of the files written for the object, by role:\n    `predictions` and `metrics` (CSV with the index) of a backtest or a\n    forecast, `leaderboard`, `best_predictions` and `best_metrics` of a\n    comparison, and `summary` when the summary was cut.\nvalues_included : bool\n    Always False: the response holds no rows of the data or of the\n    predictions. The summary carries statistics of the predictions, the\n    metrics and the leaderboard of a comparison; the rows are in\n    `files`.\ncost : dict, None\n    Cost of a cross-validation strategy, a backtest or a comparison:\n    `n_folds`, `n_fits` (trainings of the forecaster),\n    `estimator_fits` (fits of an estimator, which a direct forecaster\n    multiplies by `steps`) and `inference_windows` (the cost of a\n    foundation model, never trained: one forecast per series and fold;\n    0 for the other forecasters). For a comparison, `n_folds` is that\n    of the shared strategy and the other three are totals over all its\n    candidates, the baseline included, counted before they run (a\n    candidate that fails while it runs counts too; one whose plan\n    cannot be built, or that fails the checks of `backtest`, runs\n    nothing and does not). A cross-validation\n    strategy also has `compare_estimator_fits` and\n    `compare_inference_windows`, those of a comparison without\n    candidates with it. Above 50 estimator fits, or 2000 inference\n    windows, `backtest` and `compare` run only with `confirm_cost` set\n    to the estimator fits (the inference windows, when only those are\n    above). None for the other kinds.\nchangeable : list of str\n    Arguments of `refine_plan` (for a plan) or of `create_cv` (for a\n    cross-validation strategy) that build a variant of the object.\n    Empty for the other kinds.",
       "properties": {
         "id": {
           "title": "Id",

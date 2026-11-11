@@ -27,38 +27,93 @@ updates them.
    coverage to pass. Do not merge it yet: the marketplace of this
    repository and the plugin directory serve `main`, and
    `plugin/.mcp.json` pins a version of `skforecast-ai-mcp` that is not on
-   PyPI.
-3. Create the GitHub release `vX.Y.Z` and publish it. The **Target** is
-   the release branch, not `main`, which the form offers by default. The
-   workflow starts by itself; approve the two deployments in its run
+   PyPI. Write down the commit of its head
+   (`gh pr view <n> --json headRefOid --jq .headRefOid`): the next steps
+   use that commit, not the name of the branch, so a later push to `X.Y.x`
+   cannot slip into the release.
+3. Check the release before creating it, in a checkout of that commit.
+   The workflow checks the versions, the tag, the **pre-release** mark and
+   the branch only once the release is published, and by then GitHub has
+   notified its watchers and Zenodo has archived it with a DOI. The
+   workflow runs this same command (it reads the files and git, and needs
+   `packaging`):
+
+   ```bash
+   git fetch origin X.Y.x
+   git switch --detach <sha>
+   python tools/release/publish_pypi.py release --tag vX.Y.Z --prerelease false --sha <sha>
+   ```
+
+   `--prerelease true` only for a pre-release version (`X.Y.Zrc1`).
+4. Create the GitHub release `vX.Y.Z` on that commit and publish it
+   (`--prerelease` for a pre-release version):
+
+   ```bash
+   gh release create vX.Y.Z --target <sha> --title vX.Y.Z \
+     --notes "See https://ai.skforecast.org/X.Y.Z/releases/releases for more information on this new release."
+   ```
+
+   The workflow starts by itself; approve the two deployments in its run
    (**Review deployments**), first `skforecast-ai` and then
-   `skforecast-ai-mcp`.
-4. Publish the entry of the MCP registry (see below) and check that the
+   `skforecast-ai-mcp`. If an upload fails, **Re-run failed jobs** works
+   only when the failed job uploaded nothing (`skforecast-ai-mcp` after
+   `skforecast-ai` went up): a publishing job that uploaded some file
+   fails again, since it does not skip existing files, and **Re-run all
+   jobs** fails at the check of the index once any file of the version is
+   there (see "The publishing workflow").
+5. Publish the entry of the MCP registry (see below) and check that the
    command of the plugin starts with the new version.
-5. Merge the pull request into `main`.
-6. Select **Publish** for the new version in the plugin directory of
+6. Merge the pull request into `main`.
+7. Select **Publish** for the new version in the plugin directory of
    Anthropic (see below).
-7. Optional: **Deploy** and **Make Release** in Glama, so its listing
+8. Optional: **Deploy** and **Make Release** in Glama, so its listing
    tests and scans the new version (see below).
 
 ## The publishing workflow
 
-It builds both packages, runs `twine check --strict`, installs the two
-wheels in a clean environment to run them, uploads `skforecast-ai` and
-then the launcher, which pins its exact version, and installs the launcher
-back from the index. It does not run the test suite: the tests are the
-ones of step 2.
+It builds both packages, runs `twine check --strict`, checks the files of
+each distribution, installs the two wheels in a clean environment to run
+them, uploads `skforecast-ai` and then the launcher, which pins its exact
+version, compares the SHA256 of the files on the index with those built,
+and installs the launcher back from the index (the two packages without
+dependencies, their dependencies only from PyPI). Both installations run
+on Python 3.13 and on the lowest version that `requires-python` accepts.
+It does not run the test suite: the tests are the ones of step 2.
+
+Before the approval of a deployment, `tools/release/publish_pypi.py`
+fails the run when the version is not canonical (`0.5.0rc1`, not
+`0.5.0-rc1`), when the index already has it and, for a release, when the
+tag is not `v` plus the version, when the **pre-release** mark of the
+GitHub release does not match the version, or when its commit is not on
+the release branch `X.Y.x` of the version. The actions are pinned by
+commit, with the version in a comment, since the publishing jobs hold an
+OIDC token.
 
 | Trigger | Index | GitHub environment |
 |:--------|:------|:-------------------|
 | A published GitHub release, tag `vX.Y.Z` | PyPI | `pypi` |
 | A tag `test-publish-*`, or a manual run | TestPyPI | `testpypi` |
 
-A draft of a release starts nothing; a pre-release does. The build fails,
-before any upload, when the tag is not `v` plus the version of
-`pyproject.toml`: delete the release and the tag, fix it and create them
-again. When an upload fails, **Re-run failed jobs** in the same run
-repeats it without a new release.
+A draft of a release starts nothing; a pre-release does. When a check of
+the build fails, nothing is uploaded: reject the deployment if it is
+waiting, delete the release and its tag
+(`gh release delete vX.Y.Z --cleanup-tag`), fix it and start again from
+step 2. Zenodo has already archived the published release: review the new
+version there.
+
+When an upload fails, what can be re-run in the same run follows from
+`skip-existing` being off and from the check of the index in the build:
+
+- **Re-run failed jobs** finishes the release when the failed job
+  uploaded nothing: the upload of `skforecast-ai-mcp` after that of
+  `skforecast-ai` went through, or a job that failed before its upload.
+- A publishing job that uploaded some of its files (the wheel but not
+  the sdist) fails when it runs again, because the index rejects the file
+  that it already has. The missing file can then only go up by hand, from
+  the `dist` artifact of the run (see "Publishing to PyPI by hand").
+- **Re-run all jobs** builds again and fails at the check of the index
+  as soon as any file of the version is there. A rehearsal builds a new
+  `.devN`, so re-running all its jobs is a new rehearsal.
 
 Setup, done once per index (<https://pypi.org> and <https://test.pypi.org>
 are separate accounts): each of the two projects has, in **Settings**,
@@ -83,11 +138,13 @@ git push origin --delete test-publish-X.Y.Z-1
 git tag -d test-publish-X.Y.Z-1
 ```
 
-An index never takes the same file twice. A rehearsal skips the files
-that TestPyPI already has, so a second one with the same version checks
-the build and the login but uploads nothing new.
+A rehearsal publishes `X.Y.Z.devN`, `N` being the UTC time of the build
+(`0.5.0.dev20261109153000`): an index never takes the same file name
+twice, even after it is deleted, so rehearsing `X.Y.Z` itself would take
+the names of the release on TestPyPI, and a repeated rehearsal would have
+nothing new to upload. Each one uploads and checks new files.
 
-## The entry of the MCP registry (step 4)
+## The entry of the MCP registry (step 5)
 
 From the root of the repository, on the release branch, once
 `skforecast-ai-mcp` X.Y.Z is on PyPI:
@@ -131,7 +188,7 @@ fails until the launcher is there. A published version of the entry cannot
 be changed, so run `mcp-publisher validate` and read `server.json` once
 more before publishing it.
 
-## The plugin directory of Anthropic (step 6)
+## The plugin directory of Anthropic (step 7)
 
 The plugin (`plugin/`) is listed in the plugin directory of Anthropic,
 submitted on 2026-10-09 from <https://claude.ai/directory/manage>. The
@@ -158,7 +215,7 @@ So, in every release, once the release branch is merged into `main`:
 
 Both settings can be changed in the **Settings** tab of the plugin.
 
-## Glama (step 7)
+## Glama (step 8)
 
 The server is listed in Glama (<https://glama.ai/mcp/servers/skforecast/skforecast-ai>),
 claimed through `glama.json`, which names the maintainers by their GitHub
@@ -223,3 +280,12 @@ python -m twine upload dist/*
 `dist/` is removed first because twine uploads every file in it, and the
 files of a version already on PyPI make the upload fail. Each upload takes
 the `dist/` of the directory it runs in: check the directory first.
+
+To finish an upload of the workflow that stopped halfway, upload the
+missing file from the artifact of its run instead of building it again,
+so that the files of the version all come from the same build:
+
+```bash
+gh run download <run id> -n dist -D <empty directory>
+python -m twine upload <empty directory>/<project>/<missing file>
+```

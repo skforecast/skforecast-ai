@@ -21,6 +21,7 @@ from rich.table import Table
 from pydantic import ValidationError
 
 from . import __version__
+from ._constants import LONG_INFERENCE_WINDOWS, LONG_TRAINING_FITS
 from .config import (
     CONFIG_FILE,
     VALID_KEYS,
@@ -30,6 +31,7 @@ from .config import (
 )
 from .exceptions import (
     AllCandidatesFailedError,
+    CostNotConfirmedError,
     DataNotFoundError,
     ForecastExecutionError,
     InvalidInputError,
@@ -74,6 +76,8 @@ DropnaOption = Annotated[str | None, typer.Option("--dropna-from-series", help="
 ExogColumnsOption = Annotated[str | None, typer.Option("--exog-columns", help="Comma-separated columns to use as exogenous variables, 'none' for none, or 'auto' for every column that is not the target, the date or the series id. The other columns are not used.")]
 SepOption = Annotated[str | None, typer.Option("--sep", help="Separator of the CSV file: ',', ';' or 'tab'. Detected from the file when omitted.")]
 DecimalOption = Annotated[str | None, typer.Option("--decimal", help="Decimal mark of the CSV file: '.' or ',' (only when the separator is not ','). Detected from the file when omitted.")]
+ThousandsOption = Annotated[str | None, typer.Option("--thousands", help="Thousands separator of the CSV file: '.' (with ',' as decimal mark, as in '1.705,11'). Detected from the file when omitted.")]
+DayfirstOption = Annotated[bool | None, typer.Option("--dayfirst/--monthfirst", help="Order of the day and the month of the dates of the CSV file, for dates that read both ways ('01/02/2024' in every row): day first ('31/01/2024') or month first ('01/31/2024'). When omitted, told from the dates, or from their regularity when they read both ways.")]
 FromPlanOption = Annotated[str | None, typer.Option("--from-plan", help="Load plan bundle from JSON file or '-' for stdin.")]
 FromProfileOption = Annotated[str | None, typer.Option("--from-profile", help="Load profile from JSON file or '-' for stdin.")]
 # CV options default to None so that only the flags actually passed reach
@@ -89,6 +93,7 @@ ApiKeyOption = Annotated[str | None, typer.Option("--api-key", help="API key for
 OutputOption = Annotated[Path | None, typer.Option("--output", "-o", help="Write output to file.")]
 OutputPredictionsOption = Annotated[Path | None, typer.Option("--output-predictions", help="Save predictions as CSV.")]
 QuietOption = Annotated[bool, typer.Option("--quiet", "-q", help="Suppress spinners.")]
+ConfirmCostOption = Annotated[bool, typer.Option("--confirm-cost", help=f"Run it although it is an expensive run: above {LONG_TRAINING_FITS} estimator fits, or {LONG_INFERENCE_WINDOWS} inference windows of a foundation model (for compare, all the candidates together). Without it, such a run stops with its cost before anything runs.")]
 TableFormatOption = Annotated[Literal["table", "json"], typer.Option("--format", help="Output format: table or json.")]
 CodeFormatOption = Annotated[Literal["code", "json"], typer.Option("--format", help="Output format: code or json.")]
 TextFormatOption = Annotated[Literal["text", "json"], typer.Option("--format", help="Output format: text or json.")]
@@ -376,7 +381,7 @@ def _read_json_input(source: str) -> dict:
         path = Path(source)
         if not path.is_file():
             raise DataNotFoundError(f"File not found: '{source}'.")
-        raw = path.read_text()
+        raw = path.read_text(encoding="utf-8")
     try:
         return json.loads(raw)
     except json.JSONDecodeError as e:
@@ -811,7 +816,7 @@ def _write_output(content: str, output: Path | None) -> None:
     None
     """
     if output is not None:
-        output.write_text(content)
+        output.write_text(content, encoding="utf-8")
         console.print(f"[green]Output written to:[/green] {output}")
     else:
         print(content)
@@ -834,6 +839,7 @@ EXECUTION_TIP = (
     "script that failed."
 )
 VALIDATION_TIP = "Use --format json with the source command to produce valid input."
+CONFIRM_COST_TIP = "Pass --confirm-cost to run it as it is."
 NO_LLM_MESSAGE = (
     "No LLM configured. Set the SKFORECAST_AI_LLM environment variable or "
     "use the --llm flag."
@@ -869,6 +875,9 @@ def _report_error(exc: Exception, json_errors: bool) -> None:
         tip = tip or EXECUTION_TIP
     elif isinstance(exc, AllCandidatesFailedError):
         label = "Comparison Error"
+    elif isinstance(exc, CostNotConfirmedError):
+        # The hint of the Python API names its argument.
+        tip = CONFIRM_COST_TIP
     elif isinstance(exc, ValidationError):
         details = "; ".join(
             f"{err['loc'][0]}: {err['msg']}" if err.get("loc") else err["msg"]
@@ -885,7 +894,7 @@ def _report_error(exc: Exception, json_errors: bool) -> None:
         update = {}
         if isinstance(exc, LLMRequiredError):
             update["message"] = message
-        if info.hint is None and tip is not None:
+        if (info.hint is None or isinstance(exc, CostNotConfirmedError)) and tip:
             update["hint"] = tip
         if update:
             info = info.model_copy(update=update)
@@ -999,6 +1008,8 @@ def profile(
     exog_columns: ExogColumnsOption = None,
     sep: SepOption = None,
     decimal: DecimalOption = None,
+    thousands: ThousandsOption = None,
+    dayfirst: DayfirstOption = None,
     format: TableFormatOption = "table",
     output: OutputOption = None,
     quiet: QuietOption = False,
@@ -1015,7 +1026,8 @@ def profile(
                 data=data, target=parsed_target, date_column=date_column,
                 series_id_column=series_id_column,
                 exog_columns=parsed_exog_columns,
-                sep=_parse_sep(sep), decimal=decimal,
+                sep=_parse_sep(sep), decimal=decimal, thousands=thousands,
+                dayfirst=dayfirst,
             )
 
         if format == "json":
@@ -1336,6 +1348,7 @@ def forecast_code(
     calendar_features: CalendarFeaturesOption = None,
     target_transformer: TargetTransformerOption = None,
     dropna_from_series: DropnaOption = None,
+    exog: Annotated[Path | None, typer.Option("--exog", help="CSV with future exogenous values covering the forecast horizon, which the script reads by its path with its separator, decimal mark, encoding and date format, as forecast --exog reads it. When omitted, the script reads exog_future.csv.")] = None,
     from_plan: FromPlanOption = None,
     format: CodeFormatOption = "code",
     output: OutputOption = None,
@@ -1382,10 +1395,11 @@ def forecast_code(
                     profile=prof, plan=plan_obj, **plan_overrides
                 )
             # DATA, when given, is the file the script loads (as in
-            # `backtest-code`); the profile of the bundle describes it.
+            # `backtest-code`); the profile of the bundle describes it. The
+            # library reads --exog with the profile, as `forecast --exog`.
             result = assistant.forecast_code(
                 data=data, target=None, steps=plan_obj.steps,
-                profile=prof, plan=plan_obj,
+                exog=exog, profile=prof, plan=plan_obj,
             )
         else:
             if data is None or target is None or steps is None:
@@ -1397,7 +1411,7 @@ def forecast_code(
 
             with _spinner("Generating code...", quiet):
                 result = assistant.forecast_code(
-                    data=data, target=parsed_target, steps=steps,
+                    data=data, target=parsed_target, steps=steps, exog=exog,
                     date_column=date_column, series_id_column=series_id_column,
                     forecaster=forecaster, estimator=estimator,
                     estimator_kwargs=parsed_estimator_kwargs,
@@ -1410,7 +1424,7 @@ def forecast_code(
             _write_output(json_str, output)
         else:
             if output is not None:
-                output.write_text(result.code)
+                output.write_text(result.code, encoding="utf-8")
                 err_console.print(f"[green]Code written to:[/green] {output}")
             else:
                 console.print(render_code(result.code, title=None))
@@ -1562,7 +1576,7 @@ def backtest_code(
             _write_output(json_str, output)
         else:
             if output is not None:
-                output.write_text(result.code)
+                output.write_text(result.code, encoding="utf-8")
                 err_console.print(f"[green]Code written to:[/green] {output}")
             else:
                 console.print(render_code(result.code, title=None))
@@ -1637,7 +1651,6 @@ def forecast(
 ) -> None:
     """Run end-to-end forecasting and report predictions, plus metrics with --test-size."""
     from .assistant import ForecastingAssistant
-    from ._utils import load_exog
     with _error_handler(json_errors=format == "json"):
         assistant = ForecastingAssistant()
         parsed_interval = _parse_interval(interval)
@@ -1678,12 +1691,6 @@ def forecast(
                     profile=prof, plan=plan_obj, **plan_overrides
                 )
 
-            exog_df = load_exog(
-                exog,
-                date_column      = prof.data_profile.date_column,
-                series_id_column = prof.data_profile.series_id_column,
-            )
-
             with _spinner("Running forecast from plan...", quiet):
                 result = assistant.forecast(
                     data=data,
@@ -1692,7 +1699,7 @@ def forecast(
                     date_column=date_column,
                     series_id_column=series_id_column,
                     test_size=parsed_test_size,
-                    exog=exog_df,
+                    exog=exog,
                     profile=prof, plan=plan_obj,
                 )
         else:
@@ -1703,12 +1710,6 @@ def forecast(
                 )
             parsed_target = _parse_target(target)
 
-            exog_df = load_exog(
-                exog,
-                date_column      = date_column,
-                series_id_column = series_id_column,
-            )
-
             with _spinner("Running forecast...", quiet):
                 result = assistant.forecast(
                     data=data, target=parsed_target, steps=steps,
@@ -1717,7 +1718,7 @@ def forecast(
                     estimator_kwargs=parsed_estimator_kwargs,
                     interval=parsed_interval,
                     lags=parsed_lags, window_features=parsed_window_features,
-                    test_size=parsed_test_size, exog=exog_df, **decisions,
+                    test_size=parsed_test_size, exog=exog, **decisions,
                 )
 
         if output_predictions is not None:
@@ -1725,7 +1726,7 @@ def forecast(
             err_console.print(f"[green]Predictions written to:[/green] {output_predictions}")
 
         if output_code is not None:
-            output_code.write_text(result.code)
+            output_code.write_text(result.code, encoding="utf-8")
             err_console.print(f"[green]Code written to:[/green] {output_code}")
 
         if format == "json":
@@ -1788,6 +1789,7 @@ def backtest(
     from_plan: FromPlanOption = None,
     output_predictions: OutputPredictionsOption = None,
     output_code: Annotated[Path | None, typer.Option("--output-code", help="Save generated script to file.")] = None,
+    confirm_cost: ConfirmCostOption = False,
     format: TableFormatOption = "table",
     quiet: QuietOption = False,
 ) -> None:
@@ -1908,6 +1910,7 @@ def backtest(
                 profile=prof,
                 plan=plan_obj,
                 show_progress=(not quiet and format != "json"),
+                confirm_cost=confirm_cost,
             )
 
         if output_predictions is not None:
@@ -1915,7 +1918,7 @@ def backtest(
             err_console.print(f"[green]Predictions written to:[/green] {output_predictions}")
 
         if output_code is not None:
-            output_code.write_text(result.code)
+            output_code.write_text(result.code, encoding="utf-8")
             err_console.print(f"[green]Code written to:[/green] {output_code}")
 
         if format == "json":
@@ -2007,10 +2010,12 @@ def compare(
     allow_incomplete_fold: AllowIncompleteFoldOption = None,
     from_profile: FromProfileOption = None,
     output_code: Annotated[Path | None, typer.Option("--output-code", help="Save the winning configuration's script to file.")] = None,
+    confirm_cost: ConfirmCostOption = False,
     format: TableFormatOption = "table",
     quiet: QuietOption = False,
 ) -> None:
     """Compare several forecasters and report a ranked leaderboard."""
+    from ._utils import _strategy_plan_not_chosen
     from .assistant import ForecastingAssistant
     from .schemas.profiles import ForecastingProfile
     with _error_handler(json_errors=format == "json"):
@@ -2078,22 +2083,31 @@ def compare(
                 **cv_kwargs,
             )
 
-            result = assistant.compare(
-                data=data,
-                cv=cv,
-                target=parsed_target,
-                date_column=resolved_date_column,
-                series_id_column=resolved_series_id,
-                candidates=parsed_candidates,
-                metric=parsed_metric,
-                interval=parsed_interval,
-                profile=prof,
-                show_progress=(not quiet and format != "json"),
-                baseline=baseline,
+            # With --candidates, the default plan only sized the strategy:
+            # the user never chose it, so compare() does not say that it was
+            # not compared.
+            sized_only = (
+                _strategy_plan_not_chosen() if parsed_candidates is not None
+                else contextlib.nullcontext()
             )
+            with sized_only:
+                result = assistant.compare(
+                    data=data,
+                    cv=cv,
+                    target=parsed_target,
+                    date_column=resolved_date_column,
+                    series_id_column=resolved_series_id,
+                    candidates=parsed_candidates,
+                    metric=parsed_metric,
+                    interval=parsed_interval,
+                    profile=prof,
+                    show_progress=(not quiet and format != "json"),
+                    baseline=baseline,
+                    confirm_cost=confirm_cost,
+                )
 
         if output_code is not None:
-            output_code.write_text(result.best_candidate.code)
+            output_code.write_text(result.best_candidate.code, encoding="utf-8")
             err_console.print(f"[green]Code written to:[/green] {output_code}")
 
         if format == "json":

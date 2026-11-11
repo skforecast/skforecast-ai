@@ -2,14 +2,25 @@
 
 import time
 
+import numpy as np
 import pandas as pd
+import pytest
 
 from skforecast_ai import ForecastingAssistant
 from skforecast_ai.mcp import _runtime, create_server
 from skforecast_ai.mcp.models import ToolNotice
 
+from ..fixtures_assistant import (
+    df_crossing_zero,
+    df_multi_long_numeric_ids,
+    df_single,
+    patch_find_spec,
+)
+from ..fixtures_datasets import df_items_sales_long, df_items_sales_wide
 from .fixtures_mcp import (
     DATA_VALUES_HINT,
+    MSE_UNIT,
+    RMSE_UNIT,
     call,
     content_of,
     csv_of,
@@ -31,7 +42,9 @@ def test_tool_backtest_output_matches_python_api(tmp_path):
     Test that `backtest` runs the plan of the strategy as the Python API
     does: same summary, predictions and metrics (written to CSV files, not
     sent), cost, links and script. Its metrics include MASE, so a notice
-    gives the reference it is scaled by, which the summary does not.
+    gives the reference it is scaled by, which the summary does not. The
+    default panel has RMSE and not MSE, so the unit notice gives the unit of
+    RMSE and not that of MSE.
     """
     server, path = h2o_server(tmp_path)
     profile_id, plan_id, cv_id = cv_of(server, path, cv_arguments={"refit": True})
@@ -67,9 +80,11 @@ def test_tool_backtest_output_matches_python_api(tmp_path):
     ]
     assert result["notices"][0]["message"].startswith(
         "`mean_absolute_scaled_error` divides the error by that of the "
-        "one-step naive forecast (repeat the previous value) on the training "
-        "data"
+        "one-step naive forecast (repeat the previous value) over the "
+        "observations known when each prediction is made"
     )
+    assert result["notices"][1]["message"].endswith(RMSE_UNIT)
+    assert MSE_UNIT not in result["notices"][1]["message"]
 
 
 def test_tool_backtest_another_plan_of_the_same_profile(tmp_path):
@@ -131,7 +146,9 @@ def test_tool_backtest_does_not_repeat_the_warnings_of_the_profile(tmp_path):
 
     result = content_of(call(server, "backtest", {"cv_id": cv_id}))
 
-    assert [n["category"] for n in result["notices"]] == ["MetricReferenceNotice"]
+    assert [n["category"] for n in result["notices"]] == [
+        "MetricReferenceNotice", "MetricUnitNotice"
+    ]
 
 
 def test_tool_backtest_data_changed_since_profiled(tmp_path):
@@ -170,7 +187,7 @@ def test_tool_backtest_execution_failed_keeps_the_failure(tmp_path):
         path,
         forecaster="ForecasterRecursive",
         estimator="Ridge",
-        estimator_kwargs={"solver": "no-such-solver"},
+        estimator_kwargs={"solver": "lbfgs"},
     )
 
     error = error_of(call(server, "backtest", {"cv_id": cv_id}), "backtest")
@@ -180,14 +197,14 @@ def test_tool_backtest_execution_failed_keeps_the_failure(tmp_path):
 
     assert error["code"] == "execution_failed"
     assert error["message"] == (
-        "The generated script failed with InvalidParameterError. Its message, "
-        "the traceback and the code that ran are in `get_failure`, with the "
+        "The generated script failed with ValueError. Its message, the "
+        "traceback and the code that ran are in `get_failure`, with the "
         "`failure_id` of `details`."
     )
     assert failure["id"] == error["details"]["failure_id"]
     assert failure["text"].startswith("Error executing generated forecasting code.")
     assert "Traceback:\n" in failure["text"]
-    assert "'no-such-solver'" in failure["text"].split("Code that ran:\n")[1]
+    assert "'lbfgs'" in failure["text"].split("Code that ran:\n")[1]
     traceback_text = failure["text"].split("Traceback:\n")[1].split("Code that ran")[0]
     assert 'File "sklearn/' in traceback_text
     assert 'File "/' not in traceback_text
@@ -237,8 +254,9 @@ def test_tool_backtest_missing_dependency_of_a_foundation_model(
     """
     Test that backtesting a ForecasterFoundation plan whose backend is not
     installed is `missing_dependency` before any script runs (it was
-    `execution_failed` after the script failed), with one install advice;
-    `forecast` checks the same.
+    `execution_failed` after the script failed), with one install advice,
+    on `cv_id`, the argument that named the plan; with `plan_id`, on
+    `plan_id`. `forecast` checks the same.
     """
     monkeypatch.setattr(
         "skforecast_ai._foundation.foundation_backend_installed", lambda info: False
@@ -247,15 +265,19 @@ def test_tool_backtest_missing_dependency_of_a_foundation_model(
     _, plan_id, cv_id = cv_of(server, path, forecaster="ForecasterFoundation")
 
     error = error_of(call(server, "backtest", {"cv_id": cv_id}), "backtest")
+    with_plan = error_of(
+        call(server, "backtest", {"cv_id": cv_id, "plan_id": plan_id}), "backtest"
+    )
     forecast = error_of(call(server, "forecast", {"plan_id": plan_id}), "forecast")
 
+    assert with_plan == {**error, "field": "plan_id"}
     assert error == {
         "code": "missing_dependency",
         "message": (
             "'autogluon/chronos-2-small' needs the 'chronos-forecasting' package, "
             "which is not installed where the server runs. Nothing was run."
         ),
-        "field": "plan_id",
+        "field": "cv_id",
         "hint": (
             'Ask the user to install it where the server runs and to restart the '
             'server: `pip install "chronos-forecasting"` in its Python '
@@ -270,35 +292,72 @@ def test_tool_backtest_missing_dependency_of_a_foundation_model(
     assert (forecast["code"], forecast["field"]) == ("missing_dependency", "plan_id")
 
 
+def test_tool_backtest_missing_dependency_of_an_estimator(tmp_path, monkeypatch):
+    """
+    Test that backtesting a plan whose estimator is not installed (XGBoost)
+    is `missing_dependency` before any script runs, with the contract of a
+    foundation model without its backend (V02): the install advice for pip
+    and for uvx with the restart, `details` with the estimator and the
+    package, and the argument that named the plan as `field` (`cv_id`, or
+    `plan_id` when it is passed; not `estimator`, which is no argument of
+    `backtest`).
+    """
+    patch_find_spec(monkeypatch, missing=["xgboost"])
+    server, path = h2o_server(tmp_path)
+    _, plan_id, cv_id = cv_of(server, path, estimator="XGBRegressor")
+
+    error = error_of(call(server, "backtest", {"cv_id": cv_id}), "backtest")
+    with_plan = error_of(
+        call(server, "backtest", {"cv_id": cv_id, "plan_id": plan_id}), "backtest"
+    )
+
+    assert with_plan == {**error, "field": "plan_id"}
+    assert error == {
+        "code": "missing_dependency",
+        "message": (
+            "XGBRegressor needs the 'xgboost' package, which is not installed "
+            "where the server runs. Nothing was run."
+        ),
+        "field": "cv_id",
+        "hint": (
+            'Ask the user to install it where the server runs and to restart the '
+            'server: `pip install "xgboost"` in its Python environment, or '
+            '`--with "xgboost"` added to the uvx command that starts it.'
+        ),
+        "details": {"estimator": "XGBRegressor", "package": "xgboost"},
+    }
+
+
 def test_tool_backtest_differentiation_of_the_plan_and_of_the_strategy(tmp_path):
     """
     Test that a plan with `differentiation` backtests on a strategy created
-    from it, as the Python API does, and that backtesting it on a strategy
-    with another order is an `invalid_argument` naming `cv_id`.
+    from a plan without it, where it was an `invalid_argument` before: the
+    strategy does not carry the order (skforecast 0.27 takes it from the
+    window of the forecaster), and the summary is the one of the Python
+    API for the same plan and strategy.
     """
     server, path = h2o_server(tmp_path)
     profile_id, _, cv_id = cv_of(server, path)
-    _, _, diff_cv_id = cv_of(server, path, differentiation=1)
     diff_plan = content_of(call(server, "plan", {
         "profile_id": profile_id, "steps": 12, "differentiation": 1,
     }))
 
-    result = content_of(call(server, "backtest", {"cv_id": diff_cv_id}))
-    error = error_of(
-        call(server, "backtest", {"cv_id": cv_id, "plan_id": diff_plan["id"]}),
-        "backtest",
+    result = content_of(
+        call(server, "backtest", {"cv_id": cv_id, "plan_id": diff_plan["id"]})
     )
 
     assistant = ForecastingAssistant()
     profile = assistant.profile(path, target="x")
+    plain = assistant.plan(profile=profile, steps=12)
     plan = assistant.plan(profile=profile, steps=12, differentiation=1)
     expected = assistant.backtest(
-        data=path, cv=assistant.create_cv(profile=profile, plan=plan),
-        profile=profile, show_progress=False,
+        data=path, cv=assistant.create_cv(profile=profile, plan=plain),
+        profile=profile, plan=plan, show_progress=False,
     )
 
     assert result["summary"] == expected.describe()
-    assert (error["code"], error["field"]) == ("invalid_argument", "cv_id")
+    assert expected.plan.forecaster_kwargs["differentiation"] == 1
+    assert "differentiation" not in expected.cv_config
 
 
 def test_tool_backtest_output_when_csv_dates_in_utc(tmp_path):
@@ -381,15 +440,16 @@ def test_tool_backtest_invalid_argument_when_lag_reads_missing_month(tmp_path):
             source   = "runtime",
             category = "UserWarning",
             message  = (
-                "The target has missing values or missing timestamps "
-                "(asfreq() restores them as missing values), and "
-                "ForecasterRecursive with Ridge cannot predict from a "
-                "missing value: `backtest()` of this plan raises when a test "
-                "fold is predicted from one, naming its dates. "
-                "`dropna_from_series` only drops them from the training "
-                "data. Impute the target, or choose an estimator that "
-                "accepts missing values (for example 'LGBMRegressor') to "
-                "backtest every fold."
+                "The target has missing timestamps (asfreq() restores them as "
+                "missing values), and `backtest()` checks every test fold before "
+                "running: it raises, naming the dates, when a test fold is "
+                "predicted from one, since ForecasterRecursive with Ridge cannot "
+                "predict from a missing value. The metrics leave out the test dates "
+                "without a value. `dropna_from_series` only drops the training rows "
+                "that read one, and a training window left without rows raises too. "
+                "An estimator that accepts missing values (such as "
+                "'RandomForestRegressor') avoids the error of a fold predicted from "
+                "a missing value. Impute the target to backtest every fold."
             ),
             count    = 1,
         )
@@ -399,12 +459,554 @@ def test_tool_backtest_invalid_argument_when_lag_reads_missing_month(tmp_path):
     assert [n["category"] for n in cv["notices"]][:1] == ["MissingValuesNotice"]
     assert (error["code"], error["field"]) == ("invalid_argument", "data_path")
     assert error["message"] == (
-        "The forecaster reads missing values of the target to predict 1 of "
-        "the 3 test folds ('x': 1 value(s), such as '2004-10-01'). "
+        "To predict 1 of the 3 test folds, the forecaster reads "
+        "values of the target before the start of those folds, the ones "
+        "their predictions start from, and some are missing "
+        "('x': 1 value(s), such as '2004-10-01'). "
         "ForecasterRecursive with Ridge cannot use them, so its predictions "
         "would be missing. "
         "Either they are filled in, or the plan uses an estimator that "
-        "accepts missing values (for example 'LGBMRegressor')."
+        "accepts missing values (such as 'RandomForestRegressor')."
     )
     assert error["hint"] == DATA_VALUES_HINT
     assert not forecast.is_error
+
+
+def test_tool_backtest_output_when_series_ids_are_numbers(tmp_path):
+    """
+    Test that `backtest` runs on long-format data whose series ids are
+    numbers ('001', '1', '10') as the Python API does, with the series named
+    as in the file. Before, it failed as `execution_failed` with `KeyError: 1`
+    inside skforecast (skforecast issue #1357).
+    """
+    path = write_csv(tmp_path, "stores.csv", df_multi_long_numeric_ids)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, _, cv_id = cv_of(
+        server,
+        path,
+        target="value",
+        steps=7,
+        profile_arguments={"series_id_column": "series_id"},
+    )
+
+    result = content_of(call(server, "backtest", {"cv_id": cv_id}))
+    code = content_of(call(server, "get_code", {"object_id": result["id"]}))["code"]
+
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(path, target="value", series_id_column="series_id")
+    plan = assistant.plan(profile=profile, steps=7)
+    cv = assistant.create_cv(profile=profile, plan=plan)
+    expected = assistant.backtest(
+        data=path, cv=cv, profile=profile, plan=plan, show_progress=False
+    )
+    predictions = pd.read_csv(
+        result["files"]["predictions"], index_col=0, dtype={"level": str}
+    )
+
+    assert result["summary"] == expected.describe()
+    assert text_of(result["files"]["predictions"]) == csv_of(expected.predictions)
+    assert text_of(result["files"]["metrics"]) == csv_of(expected.metrics)
+    assert sorted(predictions["level"].unique()) == ["001", "1", "10"]
+    assert f"pd.read_csv({path!r}, dtype={{'series_id': str}})" in code
+    assert code == expected.code
+
+
+def test_tool_backtest_insufficient_data_when_a_series_is_never_forecast(tmp_path):
+    """
+    Test that a long-format CSV with a series of 20 days ('item_2', its last
+    ones), fewer than the 21 its plan reads, is named from the profile to the
+    backtest: the profile notice names it, and `backtest` is
+    `insufficient_data` on `data_path` naming it, before running, as
+    `forecast` of the plan is. Before, skforecast forecast it in no fold and
+    left it out of the predictions and of the average across series without
+    a warning (skforecast issue #1406).
+    """
+    data = df_items_sales_long.drop(
+        index=df_items_sales_long.index[df_items_sales_long["series"] == "item_2"][:-20]
+    )
+    path = write_csv(tmp_path, "items.csv", data)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+
+    async def steps(client):
+        profile = content_of(await client.call_tool(
+            "profile",
+            {"data_path": path, "target": "value", "series_id_column": "series"},
+        ))
+        plan = content_of(
+            await client.call_tool("plan", {"profile_id": profile["id"], "steps": 7})
+        )
+        cv = content_of(await client.call_tool("create_cv", {"plan_id": plan["id"]}))
+        backtest = await client.call_tool("backtest", {"cv_id": cv["id"]})
+        forecast = await client.call_tool("forecast", {"plan_id": plan["id"]})
+        return profile, backtest, forecast
+
+    profile, backtest, forecast = run_session(server, steps)
+    error = error_of(backtest, "backtest")
+
+    assert [n["message"] for n in profile["notices"]] == [
+        "Short series: only 20 observations in series 'item_2'. Results may be "
+        "unreliable with fewer than 50 observations."
+    ]
+    assert (error["code"], error["field"]) == ("insufficient_data", "data_path")
+    assert error["message"] == (
+        "Some series cannot be forecast in any fold of the backtest ('item_2': "
+        "20 observations, from their first to their last value). "
+        "ForecasterRecursiveMultiSeries forecasts a series in a fold only when "
+        "the training window of the fold has more than the 21 observations of "
+        "it that it reads to build its predictors, and the series has the 21 "
+        "dates before the fold; skforecast leaves the other series out without "
+        "a warning, so they would get no predictions and no metrics, and the "
+        "average across series would leave them out. `forecast()` of this plan "
+        "rejects them too. Remove those series, or use shorter lags and window "
+        "features."
+    )
+    assert error["hint"] == (
+        "Remove those series, or use shorter lags and window features."
+    )
+    assert error_of(forecast, "forecast")["code"] == "insufficient_data"
+
+
+def test_tool_backtest_notice_of_undefined_mape_when_target_crosses_zero(tmp_path):
+    """
+    Test that MAPE requested on a target that crosses zero gets, in the
+    response of `backtest`, the notice that it has no meaning instead of its
+    unit, which needs the profile of the data.
+    """
+    path = write_csv(tmp_path, "profit.csv", df_crossing_zero)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, _, cv_id = cv_of(
+        server, path, target="profit", steps=6,
+        metric="mean_absolute_percentage_error",
+    )
+
+    result = content_of(call(server, "backtest", {"cv_id": cv_id}))
+    assert [n["category"] for n in result["notices"]] == ["MetricUndefinedNotice"]
+    assert result["notices"][-1]["message"].startswith(
+        "`mean_absolute_percentage_error` has no meaning on this data"
+    )
+
+
+def test_tool_backtest_output_when_metric_is_root_mean_squared_error(tmp_path):
+    """
+    Test that a plan whose `metric` is `root_mean_squared_error` is
+    backtested as the Python API does: its script passes it by name, as the
+    other metrics, the CSV of metrics has a column of that name, the square
+    root of the MSE, and the response gives the units of both, squared and
+    that of the target, in a `MetricUnitNotice`.
+    """
+    path = write_csv(tmp_path, "sales.csv", df_single)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    metric = ["root_mean_squared_error", "mean_squared_error"]
+    _, _, cv_id = cv_of(
+        server, path, target="sales", steps=5, metric=metric,
+        cv_arguments={"initial_train_size": 60},
+    )
+
+    result = content_of(call(server, "backtest", {"cv_id": cv_id}))
+    code = content_of(call(server, "get_code", {"object_id": result["id"]}))["code"]
+    metrics = pd.read_csv(result["files"]["metrics"], index_col=0)
+
+    assistant = ForecastingAssistant()
+    profile = assistant.profile(path, target="sales")
+    plan = assistant.plan(profile=profile, steps=5, metric=metric)
+    expected = assistant.backtest(
+        data=path,
+        profile=profile,
+        plan=plan,
+        cv=assistant.create_cv(profile, plan, initial_train_size=60),
+        show_progress=False,
+    )
+
+    assert text_of(result["files"]["metrics"]) == csv_of(expected.metrics)
+    assert list(metrics.columns) == [*metric, "n_evaluated"]
+    np.testing.assert_almost_equal(
+        metrics["root_mean_squared_error"].iloc[0],
+        np.sqrt(metrics["mean_squared_error"].iloc[0]),
+    )
+    assert code == expected.code
+    assert "sklearn.metrics" not in code
+    assert "['root_mean_squared_error', 'mean_squared_error']" in code
+    assert [ToolNotice(**n) for n in result["notices"]] == [
+        ToolNotice(
+            source   = "runtime",
+            category = "MetricUnitNotice",
+            message  = f"{MSE_UNIT} {RMSE_UNIT}",
+            count    = 1,
+        )
+    ]
+
+
+def test_tool_backtest_confirm_cost_of_an_expensive_run(tmp_path):
+    """
+    Test that a backtest above 50 estimator fits (a ForecasterDirect of 6
+    steps refitted in each of 14 folds: 84) is refused before running
+    without `confirm_cost`, with its cost, the cheaper strategies and the
+    number to repeat, that `create_cv` gives that number and its
+    `CostNotice` names it, that another number is refused saying the
+    strategy or the plan changed, that `true` is not a number, and that the
+    number runs it.
+    """
+    server, path = h2o_server(tmp_path)
+    _, _, cv_id = cv_of(
+        server,
+        path,
+        steps=6,
+        forecaster="ForecasterDirect",
+        cv_arguments={"initial_train_size": 120, "refit": True},
+    )
+    cv = content_of(call(server, "describe_object", {"object_id": cv_id}))
+
+    missing = error_of(call(server, "backtest", {"cv_id": cv_id}), "backtest")
+    another = error_of(
+        call(server, "backtest", {"cv_id": cv_id, "confirm_cost": 83}), "backtest"
+    )
+    true = error_of(
+        call(server, "backtest", {"cv_id": cv_id, "confirm_cost": True}), "backtest"
+    )
+    result = content_of(
+        call(server, "backtest", {"cv_id": cv_id, "confirm_cost": 84})
+    )
+
+    assert cv["cost"]["estimator_fits"] == 84
+    assert "passing `confirm_cost: 84` to `backtest`" in cv["notices"][0]["message"]
+    assert missing == {
+        "code": "cost_not_confirmed",
+        "message": (
+            "Expensive run not confirmed, so nothing ran. This backtest is above "
+            "the threshold of an expensive run (50 estimator fits or 2000 "
+            "inference windows). ForecasterDirect will be fit 84 times (14 "
+            "trainings x 6 estimators)."
+        ),
+        "field": "confirm_cost",
+        "hint": (
+            "Do not call `backtest` again until the user answers: tell them "
+            "these numbers and the cheaper strategies (`refit=2` (retrain "
+            "every 2 folds: 42 estimator fits), fewer folds (a later "
+            "`initial_train_size`, a "
+            "larger `fold_stride` or `skip_folds`) or `refit=false` (train "
+            "once: 6 estimator fits)), and ask whether to run it. Only if they "
+            "choose to run it as "
+            "it is, call `backtest` again with the same arguments and "
+            "`confirm_cost: 84`. Asking to retrain the model, or to evaluate it "
+            "as in production, is not that choice."
+        ),
+        "details": {
+            "confirm_cost": 84,
+            "cost": {
+                "n_folds": 14, "n_fits": 14, "estimator_fits": 84,
+                "inference_windows": 0,
+            },
+        },
+    }
+    assert another["message"] == (
+        f"{missing['message']} `confirm_cost` is 83, not 84: the strategy or the "
+        f"plan changed since that number was given."
+    )
+    assert true["field"] == "confirm_cost"
+    assert true["details"] is None
+    assert result["cost"] == {
+        "n_folds": 14, "n_fits": 14, "estimator_fits": 84, "inference_windows": 0
+    }
+    assert [n["category"] for n in result["notices"]] == [
+        "MetricReferenceNotice", "MetricUnitNotice",
+    ]
+
+
+def test_tool_backtest_confirm_cost_of_another_plan_on_the_strategy(tmp_path):
+    """
+    Test that the number to confirm is the cost of the plan that runs: a
+    strategy built for a ForecasterRecursive plan (14 fits, below the
+    threshold) needs no confirmation for it, while `plan_id` of a
+    ForecasterDirect plan on it (84 fits) is refused until that number is
+    given.
+    """
+    server, path = h2o_server(tmp_path)
+    profile_id, _, cv_id = cv_of(
+        server,
+        path,
+        steps=6,
+        cv_arguments={"initial_train_size": 120, "refit": True},
+    )
+    direct = content_of(
+        call(
+            server, "plan",
+            {"profile_id": profile_id, "steps": 6, "forecaster": "ForecasterDirect"},
+        )
+    )
+
+    own = content_of(call(server, "backtest", {"cv_id": cv_id}))
+    refused = error_of(
+        call(server, "backtest", {"cv_id": cv_id, "plan_id": direct["id"]}),
+        "backtest",
+    )
+    confirmed = content_of(
+        call(
+            server, "backtest",
+            {"cv_id": cv_id, "plan_id": direct["id"], "confirm_cost": 84},
+        )
+    )
+
+    assert own["cost"]["estimator_fits"] == 14
+    assert refused["details"]["confirm_cost"] == 84
+    assert confirmed["cost"]["estimator_fits"] == 84
+
+
+def test_tool_backtest_below_the_threshold_ignores_confirm_cost(tmp_path):
+    """
+    Test that a backtest at or below 50 estimator fits needs no
+    `confirm_cost` and ignores one that is not its cost: the same response
+    without it and with 999.
+    """
+    server, path = h2o_server(tmp_path)
+    _, _, cv_id = cv_of(server, path)
+
+    without = content_of(call(server, "backtest", {"cv_id": cv_id}))
+    ignored = content_of(
+        call(server, "backtest", {"cv_id": cv_id, "confirm_cost": 999})
+    )
+
+    assert without["cost"] == ignored["cost"]
+    assert without["cost"]["estimator_fits"] <= 50
+    assert text_of(without["files"]["metrics"]) == text_of(ignored["files"]["metrics"])
+
+
+_COVERAGE_NOTICE_END = (
+    "(more than 2 binomial standard errors for the number of predictions, "
+    "and at least 5 percentage points, below 80 %). Do not present the "
+    "interval of these series as covering 80 %: report the coverage measured "
+    "in the backtest (the `coverage` column of the metrics). The same holds "
+    "for a `forecast` of the same plan with this interval: give the user the "
+    "coverage measured here (by series when there are several) and say that "
+    "the uncertainty is larger than its bounds show."
+)
+
+
+@pytest.mark.parametrize(
+    "forecaster, measured",
+    [
+        (
+            "ForecasterRecursiveMultiSeries",
+            "3 of 3 series (share of the actual values inside it): 'item_3' "
+            "22.2 % of 36 predictions, 'item_2' 30.6 % of 36 predictions, "
+            "'item_1' 55.6 % of 36 predictions",
+        ),
+        (
+            "ForecasterDirectMultiVariate",
+            "1 of 1 series (share of the actual values inside it): 'item_1' "
+            "41.7 % of 36 predictions",
+        ),
+    ],
+    ids=["recursive_multiseries", "direct_multivariate"],
+)
+def test_tool_backtest_interval_coverage_notice_when_series_cover_less(
+    tmp_path, forecaster, measured
+):
+    """
+    Test that a multi-series backtest whose 80 % interval covers far less
+    (intervals from in-sample residuals, items_sales) carries an
+    `IntervalCoverageNotice` with the series and their coverage, in place of
+    the `IntervalCoverageWarning` of the library, and that its metrics and
+    summary hold the coverage and the width that skforecast measured.
+    """
+    path = write_csv(tmp_path, "items.csv", df_items_sales_wide.reset_index())
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, _, cv_id = cv_of(
+        server,
+        path,
+        target     = ["item_1", "item_2", "item_3"],
+        steps      = 7,
+        interval   = [0.1, 0.9],
+        forecaster = forecaster,
+    )
+
+    result = content_of(call(server, "backtest", {"cv_id": cv_id}))
+
+    assert [(n["source"], n["category"]) for n in result["notices"]] == [
+        ("runtime", "IntervalCoverageNotice"),
+        ("runtime", "MetricReferenceNotice"),
+        ("runtime", "MetricUnitNotice"),
+    ]
+    assert result["notices"][0]["message"] == (
+        f"The prediction interval [0.1, 0.9] has a nominal coverage of 80 %, "
+        f"but it covered clearly less in {measured} {_COVERAGE_NOTICE_END}"
+    )
+    header = text_of(result["files"]["metrics"]).splitlines()[0]
+    assert header.endswith(",coverage,interval_width,n_evaluated")
+    assert (
+        "Prediction interval [0.1, 0.9] (nominal coverage 80 %), share of the "
+        "actual values inside it (coverage) and mean width in the units of "
+        "each series (interval_width), by series: 'item_1' "
+    ) in result["summary"]
+
+
+def test_tool_backtest_no_interval_coverage_notice_when_close_to_nominal(tmp_path):
+    """
+    Test that a backtest of one series whose 80 % interval covers close to
+    that level (the seasonal naive baseline on h2o, 75.8 % of 62
+    predictions, above the threshold of 69.8 %) carries no
+    `IntervalCoverageNotice`, and that its summary states the coverage and
+    the width next to the nominal coverage.
+    """
+    server, path = h2o_server(tmp_path)
+    _, _, cv_id = cv_of(
+        server, path, interval=[0.1, 0.9], forecaster="ForecasterEquivalentDate"
+    )
+
+    result = content_of(call(server, "backtest", {"cv_id": cv_id}))
+
+    assert [n["category"] for n in result["notices"]] == [
+        "MetricReferenceNotice", "MetricUnitNotice"
+    ]
+    assert (
+        "Prediction interval [0.1, 0.9] (nominal coverage 80 %): 75.8 % of the "
+        "62 actual values fell inside it (coverage: 0.7581), with a mean width "
+        "of 0.1823 in the units of the target (interval_width)."
+    ) in result["summary"]
+
+
+def test_tool_backtest_foundation_series_that_no_fold_forecasts(tmp_path, monkeypatch):
+    """
+    Test that backtesting a ForecasterFoundation plan on several series where
+    a series has values only in the last test fold (none before it, the
+    context of the model) is `insufficient_data` in `data_path`, with the
+    remedy of a later `initial_train_size`, before anything runs (the
+    backend is reported installed). skforecast left the series out of every
+    fold without a warning.
+    """
+    monkeypatch.setattr(
+        "skforecast_ai._foundation.foundation_backend_installed", lambda info: True
+    )
+    late = df_items_sales_long.drop(
+        index=df_items_sales_long.index[df_items_sales_long["series"] == "item_2"][:-2]
+    )
+    path = write_csv(tmp_path, "items.csv", late)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, _, cv_id = cv_of(
+        server,
+        path,
+        target            = "value",
+        steps             = 3,
+        forecaster        = "ForecasterFoundation",
+        cv_arguments      = {"initial_train_size": 84},
+        profile_arguments = {"series_id_column": "series"},
+    )
+
+    error = error_of(call(server, "backtest", {"cv_id": cv_id}), "backtest")
+
+    assert (error["code"], error["field"]) == ("insufficient_data", "data_path")
+    assert error["message"].startswith(
+        "Some series cannot be forecast in any fold of the backtest ('item_2'). "
+        "ForecasterFoundation forecasts a series in a fold only when it has a "
+        "value to evaluate in the fold and one in the 8192 observations before "
+        "it, the context of the model"
+    )
+    assert error["hint"] == (
+        "Remove those series, or use a later `initial_train_size`, so that the "
+        "folds start after their first values."
+    )
+
+
+def test_tool_backtest_notice_of_series_left_out_of_some_folds(tmp_path):
+    """
+    Test that a backtest of ForecasterRecursiveMultiSeries that does not
+    forecast a series in some test fold where it has values (item_2 has its
+    last 60 values; with refit the first fold trains on 20 of them, no more
+    than the window of the plan) carries a notice (`FoldsLeftOutWarning`,
+    source `runtime`) and a sentence in its summary that name it with its
+    folds. skforecast left it out of the first fold without a warning.
+    """
+    late = df_items_sales_long.drop(
+        index=df_items_sales_long.index[df_items_sales_long["series"] == "item_2"][:-60]
+    )
+    path = write_csv(tmp_path, "items.csv", late)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, _, cv_id = cv_of(
+        server,
+        path,
+        target            = "value",
+        steps             = 5,
+        estimator         = "Ridge",
+        cv_arguments      = {"initial_train_size": 80, "refit": True},
+        profile_arguments = {"series_id_column": "series"},
+    )
+
+    result = content_of(call(server, "backtest", {"cv_id": cv_id}))
+
+    text = (
+        "Some series were not forecast in every test fold where they have "
+        "values to evaluate ('item_2': in 7 of its 8 folds with values), so "
+        "their metrics, and the average across series, leave the other folds "
+        "out. ForecasterRecursiveMultiSeries leaves a series out of a fold "
+        "when the training window of the fold has too few of its "
+        "observations, or when it cannot predict it from the values before "
+        "the fold."
+    )
+    notices = [(n["source"], n["category"], n["message"]) for n in result["notices"]]
+    assert ("runtime", "FoldsLeftOutWarning", text) in notices
+    assert text in result["summary"]
+
+
+def test_tool_backtest_notice_of_missing_exog_with_an_estimator_that_accepts_them(
+    tmp_path,
+):
+    """
+    Test that a backtest with an estimator that accepts missing values
+    (LGBMRegressor) whose test folds read a missing value of an exogenous
+    column runs and carries a notice (source `runtime`) naming the column
+    and the date, as `forecast` does with the future values. Before, nothing
+    said it.
+    """
+    frame = df_h2o_csv.assign(promo=np.arange(len(df_h2o_csv)) % 3 * 1.0)
+    frame.loc[200, "promo"] = np.nan
+    path = write_csv(tmp_path, "h2o_promo.csv", frame)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, _, cv_id = cv_of(
+        server, path, estimator="LGBMRegressor", use_exog=True,
+        estimator_kwargs={"n_estimators": 10, "verbose": -1},
+    )
+
+    result = content_of(call(server, "backtest", {"cv_id": cv_id}))
+
+    messages = [
+        n["message"] for n in result["notices"]
+        if (n["source"], n["category"]) == ("runtime", "UserWarning")
+    ]
+    assert (
+        "The forecaster reads missing values of the exogenous variables to "
+        "predict 1 of the 6 test folds ('promo': 1 value(s), such as "
+        "'2008-03-01'). LGBMRegressor treats them as missing values; check "
+        "that they are meant to be missing."
+    ) in messages
+
+
+def test_tool_backtest_summary_never_carries_the_values_of_y_true(tmp_path):
+    """
+    Test that the predictions CSV of a backtest keeps the columns of
+    skforecast 0.27 (`fold`, `step`, `y_true`, `pred`), while its summary,
+    which the server has no `send_data_to_llm` to allow, gives none of the
+    observed values of `y_true` (values of the dataset; the largest one is
+    also the maximum of the data, which the dataset section states) and says
+    that the column exists, without naming `send_data_to_llm`.
+    """
+    data = df_single.assign(sales=df_single["sales"] + 0.3125)
+    path = write_csv(tmp_path, "sales.csv", data)
+    server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
+    _, _, cv_id = cv_of(
+        server, path, target="sales", steps=5,
+        cv_arguments={"initial_train_size": 60},
+    )
+
+    result = content_of(call(server, "backtest", {"cv_id": cv_id}))
+    predictions = pd.read_csv(result["files"]["predictions"], index_col=0)
+    observed = predictions["y_true"]
+
+    assert list(predictions.columns) == ["fold", "step", "y_true", "pred"]
+    assert observed.iloc[0] == 60.3125
+    leaked = [
+        value for value in [*observed[observed < 99.3125], observed.mean()]
+        if str(value) in result["summary"]
+    ]
+    assert leaked == []
+    assert "y_true:" not in result["summary"]
+    assert "The predictions also have a `y_true` column" in result["summary"]
+    assert "send_data_to_llm" not in result["summary"]

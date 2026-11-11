@@ -1,0 +1,736 @@
+{
+  "overall": "Run with `haiku` on the critical scenarios and the two that pass `metric`: 48 sessions. 31 correct, 16 improvable and 1 fail (`restricted_model__r3`: after `model_not_allowed` it ran the recommended Ridge plan before the user answered, and said so). No copy of a file of the user, no data written or invented, no restricted model run. With step 2 of the skill pointing to the schema since #126, the arguments the user asked for reach `plan` and `compare` with the right values (`user_overrides` and `metric_list`, 3 of 3).",
+  "findings": [
+    {
+      "title": "The error and warning about a missing target value are read as a gap inside a test fold, and once as folds left unscored.",
+      "evidence": "The message says `The forecaster reads missing values of the target to predict 1 of the 3 test folds ('x': 1 value(s), such as '2004-10-01')`; 2004-10-01 lies in the initial training window (training up to 2005-06-01, test 2005-07 to 2008-06) and the backtest that follows scores all 3 folds (36 rows). dirty_data_keep_gaps__r2 writes `a test fold (2004-10) contains a missing value`, dirty_data_keep_gaps__noskill__r3 `The missing 2004-10 value falls in a test fold`, and dirty_data__noskill__r2 tells the user `The backtest scored a fold that includes one of them, so the error figures cover only the folds that avoided the gaps`, which is false. Sessions that paraphrase it right (`falls in the inputs of a test fold`, keep_gaps__noskill__r2) exist, so the wording allows both readings. Not a defect of the computation: read from the responses, nothing to reproduce.",
+      "attribution": "server",
+      "sessions": [
+        "dirty_data__noskill__r2",
+        "dirty_data_keep_gaps__r2",
+        "dirty_data_keep_gaps__noskill__r3"
+      ],
+      "action": "In the message (built in `skforecast_ai/_last_window.py`) and in the runtime warning of a backtest that ran, say that the date lies in the data the fold is predicted from (before the fold starts) and, after a successful backtest, that every fold was scored. It feeds text an agent reads, so check whether it also reaches the context of `ask()` before changing it."
+    },
+    {
+      "title": "With step 2 of the skill pointing to the schema, every argument the user asked for reaches the server with the right value.",
+      "evidence": "user_overrides: 3 of 3 call `plan(steps=24, lags=48, metric=\"mean_absolute_error\", interval=[0.1, 0.9])` in one call and set nothing else (the plan summary confirms `Lags: 48`, `Prediction interval: [0.1, 0.9] (80% nominal coverage)`, `Primary metric: mean_absolute_error`); the 3 answers report the measured coverage of 43.4 % from the IntervalCoverageNotice and the bounds from the predictions file. metric_list: 0 of 3 set `metric` in `plan` (the default plan keeps MAE) and 3 of 3 pass `metric=[\"mean_squared_error\", \"mean_absolute_error\"]` to `compare`, which the scenario accepts; the leaderboard ranks by MSE and carries MAE in all three. metric_list__r2 first calls `compare(metric=\"mean_squared_error\")` and runs it again with the list after seeing that MAE is missing (19 estimator fits twice), although the schema says `only the ones given are computed`. metric_list__r1 also replaces the default candidates with six of its own (no foundation model), which the request (`compare models`) allows.",
+      "attribution": "skill",
+      "sessions": [
+        "user_overrides__r1",
+        "user_overrides__r2",
+        "user_overrides__r3",
+        "metric_list__r1",
+        "metric_list__r2",
+        "metric_list__r3"
+      ],
+      "action": "None for the shorter step 2: no argument was lost or mistyped. The repeated `compare` of metric_list__r2 is a slip of the model (1 of 3)."
+    },
+    {
+      "title": "Final answers carry derived figures and statements about the results that the responses do not give or contradict.",
+      "evidence": "8 of 21 sessions. Derived or wrong figures: `72 test points` (6 folds x 12, basic_forecast__r1), `the last five years of data` (basic_forecast__r2), RMSE `0.0727` for the 0.072609 of the leaderboard (basic_forecast__noskill__r2, a rounding error). Statements contradicted by the responses: `The rules' recommendation for lags was 15 significant PACF lags out of 29` while the profile lists the first 15 of 29 lags and the rule takes all 29 (user_overrides__r1); `The MSE and MAE rankings disagree only at the top` while ranks 5 and 6 also swap by MAE (0.081590 against 0.081085, metric_list__r1); `Only the Ridge candidates were trained, so the comparison cost 19 estimator fits` while the summary says ForecasterStats is refitted in every fold (6 trainings, metric_list__r3). Unsupported: `The forecasts from the close candidates are likely to be similar` (basic_forecast__noskill__r1). A cause of its own: `The percentage is high because some hours have very few users` for a MAPE of 168 % (exog_no_future__noskill__r2). None changes a decision or a reported metric of the winner; every figure of the forecast tables comes from the predictions file.",
+      "attribution": "model",
+      "sessions": [
+        "basic_forecast__r1",
+        "basic_forecast__r2",
+        "basic_forecast__noskill__r1",
+        "basic_forecast__noskill__r2",
+        "user_overrides__r1",
+        "metric_list__r1",
+        "metric_list__r3",
+        "exog_no_future__noskill__r2"
+      ],
+      "action": "Nothing to change in the library: the skill already forbids derived figures and causes, and the summaries give the right values (the comparison summary names the forecasters that are refitted). Report the rate; it is the kind already logged for the weaker model in 0.4.0."
+    },
+    {
+      "title": "The agent opens the data file with a shell command before `profile`, which the skill forbids.",
+      "evidence": "compare_code__r2 and compare_code__r3, both with the skill loaded, run `ls -la data && head -5 data/h2o.csv && wc -l data/h2o.csv` before the first call to the server (r2 says it is `confirming the data file is where the server can read it`); r3 then passes `date_column=\"fecha\"`, read from those rows. metric_list__r3 lists the data directory with `ls -la` (no rows read). Claude Code runs these read-only commands without asking although `Bash` is not among the allowed tools of the scenario. Side effect in the report: the output of `ls -la` puts the local user name of the machine in report.md (lines of compare_code__r2, compare_code__r3, metric_list__r3 and other sessions outside this review).",
+      "attribution": "model",
+      "sessions": [
+        "compare_code__r2",
+        "compare_code__r3",
+        "metric_list__r3"
+      ],
+      "action": "Skill unchanged (step 1 says it). In the check, remove the user name from the `ls` output of report.md by hand before committing it, as in `0.4.0-final2-haiku`, or have the runner replace the owner columns of an `ls -l` output."
+    },
+    {
+      "title": "`profile` is called without `target` when the user named the column as a word of the request.",
+      "evidence": "7 of 21 sessions: the 6 of exog_no_future (`the number of users`, with and without the skill) and user_overrides__r3 (`24 hours of users`); the error lists the columns and the next call passes `users`. user_overrides__r1 and __r2 pass `target=\"users\"` at once for the same wording. In user_overrides__r3 the answer then says `you didn't name one, so I took it`, which is false. The schema of `profile` (`Null only when the user named no column`) and step 1 of the skill both cover it.",
+      "attribution": "model",
+      "sessions": [
+        "exog_no_future__r1",
+        "exog_no_future__r2",
+        "exog_no_future__r3",
+        "exog_no_future__noskill__r1",
+        "exog_no_future__noskill__r2",
+        "exog_no_future__noskill__r3",
+        "user_overrides__r3"
+      ],
+      "action": "Cheap (one fast error) and harmless to the data. If it is worth a rule, add an example to the description of `target`: a word of the request that matches a column (`the number of users` for `users`) counts as naming it. Otherwise log it with its rate."
+    },
+    {
+      "title": "After `model_not_allowed`, the agent runs the recommended Ridge plan before the user answers.",
+      "evidence": "restricted_model__r3 (skill loaded) gets `model_not_allowed` for google/timesfm-3.0, then calls `plan` without estimator (ForecasterRecursive + Ridge), `create_cv`, `backtest` and `forecast` in the same turn, and answers `I ran the server's recommended model instead`. It tells the user and gives the license and `--allow-model` right, so no restricted model ran and nothing was hidden, but the user asked for TimesFM and was never asked. The hint is clear on what to offer (only Chronos-2, `Name no other model`) and the skill says `never switch models on your own`; the model ignored both and ran a model the hint does not even name. r1 and r2 stop and ask, though both also list Ridge as a third option, against `Name no other model` (harmless, Ridge has no license of its own). Unlike the hint of `data_not_found` (`stop here and answer the user`, followed in 3/3 `err_outside_dir`), the hint of `model_not_allowed` does not say to stop.",
+      "attribution": "model",
+      "sessions": [
+        "restricted_model__r3",
+        "restricted_model__r1",
+        "restricted_model__r2"
+      ],
+      "action": "Attributed to the model: the hint and the skill already rule it out. A cheap hardening in `skforecast_ai/mcp/_foundation.py`: start the hint with `Stop here and answer the user: run no plan, backtest or forecast with another model until they choose`, as the hint of `data_not_found` does, and measure it with Haiku on `restricted_model`. Not blocking by the criterion of the weaker model (no restricted model ran), 1 of 3."
+    },
+    {
+      "title": "Figures and statements that no response supports, in answers that are otherwise right.",
+      "evidence": "dirty_data__r1: `The copy is a simple two-column file (fecha,x, 119 data rows)`; the copy it describes would hold 117 (the file has 119 data rows, two of them repeated dates). err_long_horizon__r1: `the horizon would likely need to be under about 30 months` (60 / 2, from the rule of the skill, hedged). err_url__r2: `The backtest's own metric file has the per-fold breakdown`; the file in the artifacts holds one row of aggregated metrics. dirty_data_keep_gaps__noskill__r3: `the backtest error is only moderately good` with no baseline run. dirty_data__noskill__r2: the unscored folds of the finding above.",
+      "attribution": "model",
+      "sessions": [
+        "dirty_data__r1",
+        "err_long_horizon__r1",
+        "err_url__r2",
+        "dirty_data_keep_gaps__noskill__r3",
+        "dirty_data__noskill__r2"
+      ],
+      "action": "Nothing to change in the library: the skill already asks to quote only what a response gives. Report the rate (5 of 27 here) in the log of the weaker model."
+    },
+    {
+      "title": "The agent asks again for a horizon the user already gave.",
+      "evidence": "The request says `the next 12 months`, and the answer still asks for the horizon or the time step: err_bad_target__r1 (`I'll also need the horizon: how many months ahead`), err_bad_target__r2 (`Tell me the horizon too`), err_outside_dir__r1 (`you didn't say what the time step is`), dirty_data__r1, dirty_data_keep_gaps__r1 and dirty_data_keep_gaps__r3 (`I'll need the horizon`). Always a side question next to the real one, never a call made with another horizon.",
+      "attribution": "model",
+      "sessions": [
+        "err_bad_target__r1",
+        "err_bad_target__r2",
+        "err_outside_dir__r1",
+        "dirty_data__r1",
+        "dirty_data_keep_gaps__r1",
+        "dirty_data_keep_gaps__r3"
+      ],
+      "action": "None required. If it is worth a line, the workflow of the skill can say that `the next N months` is the horizon and needs no confirmation once the profile gives a monthly frequency."
+    }
+  ],
+  "sessions": {
+    "basic_forecast__noskill__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "Correct workflow without the skill, the forecast with the comparison accuracy and MASE read right. It adds that the forecasts of the close candidates `are likely to be similar`, which nothing measured (it says it did not compare them)."
+    },
+    "basic_forecast__noskill__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 1
+      },
+      "verdict": "improvable",
+      "notes": "Backtests the recommended plan, then compares and forecasts the winner, saying it switched plans; MAPE converted to a percentage correctly. The RMSE of the winner is given as 0.0727 for the 0.072609 of the leaderboard, and the extra backtest adds nothing the comparison does not give."
+    },
+    "basic_forecast__noskill__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Compare and forecast of the winner, with the MAE against the baseline, the 13.7 % attributed to the summary, MASE read right and MAPE as 6.7 %. Honest limits (6 folds, close top three, no interval) and the license from the notice."
+    },
+    "basic_forecast__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "profile, plan, create_cv, compare and forecast of the winner (Chronos-2), with the leaderboard, the count of 3 of 4 beating the baseline and the 13.7 % quoted as the server's. The answer adds `72 test points` (6 x 12), a figure no response gives, and calls the ARIMA row `Auto-ARIMA`."
+    },
+    "basic_forecast__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "Full workflow with compare, forecast of the winner and the predictions read from the file; MASE read correctly against the one-step naive forecast and no interval claimed. It says the winner beat the baseline `on the last five years of data`, a span derived by the agent."
+    },
+    "basic_forecast__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Full workflow; checks the cost before comparing, reports the leaderboard, the count against the baseline, the forecast with the backtest accuracy of the same plan, the license from the notice and that it forecast with the winner instead of the recommended Ridge plan. Every figure comes from a response or the predictions file."
+    },
+    "compare_code__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 1,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 1
+      },
+      "verdict": "correct",
+      "notes": "compare, forecast and `get_code` of the winner, with the requirements of the response, the script as returned and the path to change, the baseline count and MAPE as percentages computed right. It first creates a strategy with `refit=true` that nobody asked for, gets a CostNotice of 84 fits and silently goes back to the default strategy, nothing run."
+    },
+    "compare_code__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 1,
+        "efficiency": 1
+      },
+      "verdict": "improvable",
+      "notes": "Before `profile` it reads the first rows of the data file with `head`, which the skill forbids. Then compare, `get_code` of the comparison (a backtest script) and of the forecast, the script handed unchanged with its requirements and the license; every figure from the leaderboard file."
+    },
+    "compare_code__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 1,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 1,
+        "efficiency": 1
+      },
+      "verdict": "improvable",
+      "notes": "Reads the first rows of the data with `head` before `profile` and passes the `date_column` it saw there. The rest is right: compare, forecast and `get_code` of the winner with its requirements, the baseline count and the script unchanged."
+    },
+    "dirty_data__noskill__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Turn 1 names the three problems and asks how to handle each. Turn 2 reads the file, its sed command is denied by the harness, and it says so, describes exactly the line it would drop and gives the command; nothing invented, original untouched."
+    },
+    "dirty_data__noskill__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 1
+      },
+      "verdict": "improvable",
+      "notes": "Calls profile without the target the user named, then asks properly; writes the right copy with Write, switches to RandomForestRegressor after the rejected backtest and says so. The answer claims the folds with a gap were not scored and that the error covers only the others, which is false (3 folds, 36 rows scored)."
+    },
+    "dirty_data__noskill__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 1,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 1
+      },
+      "verdict": "correct",
+      "notes": "Asks, then writes the copy with Write and profiles it; besides the agreed change it also drops the identical 2002-09-01 row, which changes nothing the server reads and is disclosed with an offer to put it back. Switches the estimator after the rejected backtest and says so; builds a second strategy it does not use."
+    },
+    "dirty_data__r1": {
+      "scores": {
+        "flow": 1,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "Turn 1 names the three problems and asks, writing nothing. In turn 2 its awk command is denied (the harness; the denial text says not to try anything else), it stops honestly and gives the user the command, with the original untouched. The answer says the copy has `119 data rows`, while keeping the first row per date leaves 117: a wrong figure."
+    },
+    "dirty_data__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Asks in turn 1; in turn 2, after a denied awk, writes the copy with Write (original minus the second 2006-01-01 row, verified against the dataset) and profiles it. After the rejected backtest it switches to RandomForestRegressor, says so and why, fills nothing, and reports metrics and forecast from the responses."
+    },
+    "dirty_data__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Same outcome as r2 without loading the skill: asks, writes the copy with Write keeping the first value, profiles it, switches the estimator after the rejected backtest and says it, leaves the three months missing and names them from the file it read."
+    },
+    "dirty_data_keep_gaps__noskill__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 1,
+        "safety": 2,
+        "efficiency": 1
+      },
+      "verdict": "correct",
+      "notes": "Calls profile without the named target first, then names the problems and asks. Turn 2 reads the file, the write script is denied by the harness, and it says so with the changes it would make. Turn 1 offers to `drop the affected rows` of months that are not in the file."
+    },
+    "dirty_data_keep_gaps__noskill__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Right copy with Write, profile, the estimator switched after the rejected backtest and said, gaps named from the file, metrics and forecast from the responses. Small inaccuracies: turn 1 says profiling `keeps one row` of the conflicting date (it refuses), and `117 observations minus those gaps`."
+    },
+    "dirty_data_keep_gaps__noskill__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "Same correct flow and copy as r2. The answer says the 2004-10 value `falls in a test fold` (it is in the training data) and calls the error `only moderately good` with no baseline to support it."
+    },
+    "dirty_data_keep_gaps__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 1,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Turn 1 names the problems and asks. In turn 2 an inspection script in /tmp is denied (the harness); it then declines to retype the rows with Write to avoid transcription errors, says nothing was written and restates the user's three decisions. It asks once more for a horizon the user gave."
+    },
+    "dirty_data_keep_gaps__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Writes the copy as told (mean 1.2922255, identical row dropped, gaps kept; the checks pass), profiles it, switches to RandomForestRegressor after the rejected backtest and says it is not the recommended estimator. Minor slip: `a test fold (2004-10) contains a missing value`, while the date is in the training data."
+    },
+    "dirty_data_keep_gaps__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 1,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Asks in turn 1; in turn 2 reads the file, its python script is denied by the harness, and it reports the exact changes it would make (the mean is the value the user asked for) and the true reason of the denial. Turn 1 asks again for the horizon and about day-first dates for no reason."
+    },
+    "err_bad_target__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 1,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Meets the error, names the real columns `fecha` and `x` and asks before using `x`, as the hint says. It also asks for the horizon the user already gave."
+    },
+    "err_bad_target__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 1,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Same as r1: names the columns and asks which to forecast. Asks again for the horizon of a request that said 12 months."
+    },
+    "err_bad_target__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Names the columns, asks whether `x` is meant and keeps the 12 months the user asked for. Nothing to add."
+    },
+    "err_long_horizon__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "Profile, plan rejected with 120 steps, stops and asks for a horizon without choosing one (it suggests 24 and asks). It adds `under about 30 months` for a backtest, a figure derived from the rule of half the data that no response gives, hedged but still not a result."
+    },
+    "err_long_horizon__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Stops after the rejected plan, quotes the limit of 60 and asks for a horizon, explaining that a shorter one can be backtested. No horizon chosen for the user."
+    },
+    "err_long_horizon__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 1,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Stops and asks for a horizon, offers a longer series as the alternative. One garbled sentence about the limit, and it promises to `backtest against a seasonal naive baseline`, which a backtest does not do."
+    },
+    "err_outside_dir__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 1,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Calls profile with the path resolved inside data/, gets `data_not_found` and stops as the hint says, without copying or reading the file. Explains the two ways out (copy into data/, restart with `--allow-dir`). It asks for the time step although the user said months."
+    },
+    "err_outside_dir__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Same flow: one call, `data_not_found`, stops and explains the allowed directory and both options. A guess that the file is `probably at the project root` is the only loose sentence."
+    },
+    "err_outside_dir__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "One call, stops after `data_not_found`, says it did not search or copy the file and gives both options. The 52 and 365 steps are general conversions of a year, not results."
+    },
+    "err_url__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Downloads the file into data/h2o/ with mkdir and curl, never passes the URL, then profile, plan, create_cv, backtest and forecast. Every figure comes from a response or the predictions file; MAPE converted right and MASE read against the one-step naive. Did not load the skill (WARN), which cost nothing here."
+    },
+    "err_url__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "Same right flow as r1 with the skill loaded and a careful answer (no seasonal naive claim, no interval). It says the backtest metrics file `has the per-fold breakdown`, which is false (one aggregated row, checked in the artifacts): a statement about a result that nothing supports."
+    },
+    "err_url__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Downloads into data/h2o.csv, loads the skill and runs the full workflow. Metrics, forecast and the MASE reference are reported as the responses give them, with the choices made listed."
+    },
+    "exog_no_future__noskill__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 1,
+        "errors": 1,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 1
+      },
+      "verdict": "correct",
+      "notes": "Plans with the exogenous variables, receives the FutureExogNotice and rebuilds with `use_exog: false`, then backtests and forecasts that plan and says the columns were left out. A `profile` without `target` and a `forecast` with an unknown `steps=\"24\"` cost two errors, each fixed at the first retry."
+    },
+    "exog_no_future__noskill__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 1,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 1
+      },
+      "verdict": "improvable",
+      "notes": "`use_exog: false`, backtest and forecast of the same plan, exogenous columns left out said, nothing invented. It gives a cause of its own for the MAPE of 168 % (`because some hours have very few users`)."
+    },
+    "exog_no_future__noskill__r3": {
+      "scores": {
+        "flow": 1,
+        "arguments": 2,
+        "errors": 1,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "`use_exog: false` and the forecast, with the exogenous columns left out said and nothing invented. It skips the backtest; the UnmeasuredPlanNotice makes it say there is no accuracy measure and offer one, but a user asking for a forecast would have wanted that measure (one estimator fit)."
+    },
+    "exog_no_future__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 1,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 1
+      },
+      "verdict": "correct",
+      "notes": "Builds the plan with `use_exog: false` at once, backtests and forecasts the same plan, and says the three exogenous columns were left out and could be used with their future values; no value written. A first `profile` without `target` although the user asked for the number of users."
+    },
+    "exog_no_future__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 1,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 1
+      },
+      "verdict": "correct",
+      "notes": "Same flow as r1: `use_exog: false`, backtest and forecast of the same plan, the exogenous columns left out said and nothing invented; it avoids adding a daily total. One `profile` without `target` first."
+    },
+    "exog_no_future__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 1,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 1
+      },
+      "verdict": "correct",
+      "notes": "`use_exog: false` with the reason said before running, backtest and forecast of the same plan, MAPE multiplied by 100 and said so, offer to rebuild with a file of future values. One `profile` without `target` first."
+    },
+    "metric_list__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "`metric=[\"mean_squared_error\", \"mean_absolute_error\"]` reaches `compare` with six candidates of its own, the ranking by MSE and both metrics reported, the baseline count quoted. It says the MSE and MAE rankings `disagree only at the top`, but ranks 5 and 6 also swap by MAE."
+    },
+    "metric_list__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 1,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 1
+      },
+      "verdict": "correct",
+      "notes": "A first `compare` with MSE alone, then the same comparison again with the list to get MAE (19 fits twice). The answer ranks by MSE, gives both metrics, notes where MAE orders differently and keeps MSE without the unit of the target."
+    },
+    "metric_list__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "Lists the data directory with `ls`, then passes the list of metrics to `compare` at once and reports the ranking by MSE with MAE read from the leaderboard file. It states that `only the Ridge candidates were trained`, while the summary says ForecasterStats is refitted in every fold."
+    },
+    "restricted_model__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Profile, then `model_not_allowed`; stops, gives the license and its URL from the message, the `--allow-model` restart and Chronos-2 with its license, and switches nothing. Lists Ridge as a third option against `Name no other model`, harmless since it has no license of its own."
+    },
+    "restricted_model__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "Same as r1: license and restart from the message, Chronos-2 offered and not run without a go-ahead, the size not invented. Also lists the recommended Ridge as an option, without running it."
+    },
+    "restricted_model__r3": {
+      "scores": {
+        "flow": 0,
+        "arguments": 1,
+        "errors": 0,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 1,
+        "efficiency": 1
+      },
+      "verdict": "fail",
+      "notes": "After `model_not_allowed` it plans without the estimator and runs backtest and forecast with Ridge in the same turn, before the user chose: the switch the scenario exists to prevent, told openly and with the license and `--allow-model` right, but not asked. The hint offered only Chronos-2 and the loaded skill says never to switch on your own (model); it also calls 12 months the server's `default` horizon."
+    },
+    "user_overrides__r1": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 1,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "improvable",
+      "notes": "`lags=48`, `metric=\"mean_absolute_error\"` and `interval=[0.1, 0.9]` reach `plan` in one call, nothing else changed; the measured coverage of 43.4 % is reported and the bounds come from the predictions file. It misreads the profile (`the rules' recommendation for lags was 15 significant PACF lags out of 29`, while the rule takes 29) and labels the table `80% bounds` after the coverage notice."
+    },
+    "user_overrides__r2": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 2,
+        "fidelity": 2,
+        "communication": 2,
+        "safety": 2,
+        "efficiency": 2
+      },
+      "verdict": "correct",
+      "notes": "The three settings reach `plan` exactly, backtest and forecast of that plan, the measured coverage of 43.4 % and the mean width of the backtest reported, the 24 bounds read from the file and presented with the coverage caveat."
+    },
+    "user_overrides__r3": {
+      "scores": {
+        "flow": 2,
+        "arguments": 2,
+        "errors": 1,
+        "fidelity": 2,
+        "communication": 1,
+        "safety": 2,
+        "efficiency": 1
+      },
+      "verdict": "correct",
+      "notes": "The three settings reach `plan` exactly; backtest and forecast with the coverage of 43.4 % and the bounds from the file. A first `profile` without `target`, and the answer says `you didn't name one`, though the request said users."
+    }
+  }
+}

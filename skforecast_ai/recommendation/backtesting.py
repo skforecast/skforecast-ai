@@ -19,6 +19,7 @@ from .._constants import (
     MIN_RESIDUALS_PER_BIN,
     ML_TASK_TYPES,
 )
+from .._dates import aware_index
 from ..schemas import DataProfile, ForecastingProfile, ForecastPlan
 from ..exceptions import InvalidInputError, InvalidInputTypeError
 
@@ -59,7 +60,6 @@ def derive_cv_defaults(
         "fold_stride": None,
         "skip_folds": None,
         "allow_incomplete_fold": True,
-        "differentiation": plan.forecaster_kwargs.get("differentiation"),
     }
 
 
@@ -140,6 +140,67 @@ def default_initial_train_size(
         "window_size": window_size,
         "steps": steps,
     }
+
+
+def check_default_folds_fit(
+    plan: ForecastPlan,
+    data_profile: DataProfile,
+) -> None:
+    """
+    Raise when the data cannot hold two folds of `steps` after the default
+    `initial_train_size`.
+
+    `default_initial_train_size` lowers the default so that two folds of
+    `steps` remain, a bound that does not apply when `steps` is at least
+    half the observations: the default then falls outside the data and
+    skforecast rejects an `initial_train_size` that the caller did not
+    pass. Checked before the strategy is built, when `initial_train_size`
+    is left to the default.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan of the strategy.
+    data_profile : DataProfile
+        Profile of the data.
+
+    Returns
+    -------
+    None
+    """
+    n_observations = data_profile.span_index_length
+    steps = plan.steps
+    if n_observations - 2 * steps >= 1:
+        return
+
+    # The longest horizon whose two folds leave the first training window
+    # the forecaster needs (`training_length_needed`, which grows with the
+    # steps of a direct forecaster), one observation without a window.
+    needed = training_length_needed(plan)
+    if needed is None:
+        max_steps = (n_observations - 1) // 2
+    elif plan.forecaster in DIRECT_FORECASTERS:
+        max_steps = (n_observations - (needed[0] - steps)) // 3
+    else:
+        max_steps = (n_observations - needed[0]) // 2
+    fewer = (
+        f"Keeping the rest of the plan, at most {max_steps} `steps` leave two "
+        f"folds and the first training window it needs: make a plan with that "
+        f"horizon, or use more data. "
+        if max_steps >= 1 else "Use more data. "
+    )
+    raise InvalidInputError(
+        f"The data has {n_observations} observations, too few for a backtest "
+        f"of {steps} steps: its two folds take {2 * steps}, and at least one "
+        f"observation is needed before them to train on.",
+        code  = "insufficient_data",
+        field = "plan",
+        hint  = (
+            f"{fewer}To evaluate a single window, the last `steps` "
+            f"observations, use `forecast` with `test_size` instead: one "
+            f"hold-out, not a backtest."
+        ),
+    )
 
 
 def cv_fields_without_effect(
@@ -487,6 +548,7 @@ def build_cv_explanation(
     n_fits: int | None = None,
     forecaster: str | None = None,
     inference_windows: int | None = None,
+    last_fold_steps: int | None = None,
 ) -> str:
     """
     Build a human-readable explanation of the cross-validation strategy.
@@ -517,6 +579,10 @@ def build_cv_explanation(
         Number of inference windows of a foundation model (one per series
         and fold, see `count_inference_windows`), stated when `trains` is
         False. None when unknown.
+    last_fold_steps : int, default None
+        Steps the last fold predicts. Stated next to the number of folds
+        when it is fewer than `steps` (an incomplete last fold), so the
+        folds are not all read as full horizons. None when unknown.
 
     Returns
     -------
@@ -529,6 +595,10 @@ def build_cv_explanation(
     refit = cv_params["refit"]
     fixed_train_size = cv_params["fixed_train_size"]
     gap = cv_params["gap"]
+    folds_desc = f"{n_folds} folds"
+    if last_fold_steps is not None and 0 < last_fold_steps < steps:
+        step_word = "step" if last_fold_steps == 1 else "steps"
+        folds_desc += f" (the last one has only {last_fold_steps} {step_word})"
 
     if not trains:
         if isinstance(initial_train_size, str):
@@ -545,7 +615,7 @@ def build_cv_explanation(
             f"{steps}-step horizon",
         ]
         if n_folds > 0:
-            parts.append(f"{n_folds} folds")
+            parts.append(folds_desc)
         if gap > 0:
             parts.append(f"gap of {gap} observations")
         explanation = ", ".join(parts) + "."
@@ -579,14 +649,10 @@ def build_cv_explanation(
     parts += [refit_desc, f"{steps}-step horizon"]
 
     if n_folds > 0:
-        parts.append(f"{n_folds} folds")
+        parts.append(folds_desc)
 
     if gap > 0:
         parts.append(f"gap of {gap} observations")
-
-    differentiation = cv_params.get("differentiation")
-    if differentiation is not None:
-        parts.append(f"differentiation order {differentiation}")
 
     explanation = ", ".join(parts) + "."
     if forecaster == "ForecasterStats":
@@ -619,35 +685,13 @@ def _local_index(
     autumn, as the dates of the data do, so the position of a date is the
     one it has in the data. A zone pandas cannot use gives the regular grid.
     """
-    aware = _aware_index(start_date, n_observations, frequency, time_zone)
+    aware = aware_index(start_date, n_observations, frequency, time_zone)
     if aware is None:
         return pd.date_range(
             start=start_date, periods=n_observations, freq=frequency
         )
 
     return aware.tz_localize(None)
-
-
-def _aware_index(
-    start_date: str,
-    n_observations: int,
-    frequency: str,
-    time_zone: str | None,
-) -> pd.DatetimeIndex | None:
-    """
-    Rebuild the dates of the data in their time zone, or return None when
-    they have none or pandas cannot build the grid in it.
-    """
-    if time_zone is None:
-        return None
-    try:
-        return pd.date_range(
-            start   = pd.Timestamp(start_date).tz_localize(time_zone),
-            periods = n_observations,
-            freq    = frequency,
-        )
-    except Exception:
-        return None
 
 
 def _split_folds(
@@ -732,7 +776,7 @@ def _split_folds(
         date = pd.Timestamp(its)
         aware = None
         if date.tz is not None:
-            aware = _aware_index(start_date, n_observations, frequency, time_zone)
+            aware = aware_index(start_date, n_observations, frequency, time_zone)
         if aware is not None:
             # A date with its own time zone is placed by skforecast on the
             # dates in their zone, as in the script, which gets it as given.
@@ -922,6 +966,42 @@ def count_inference_windows(
     return n_folds * n_series
 
 
+def count_trainings(
+    n_fits: int,
+    forecaster: str,
+    n_folds: int,
+) -> int:
+    """
+    Count the trainings of a forecaster in a backtest, as skforecast runs
+    it.
+
+    Parameters
+    ----------
+    n_fits : int
+        Number of folds in which a forecaster is trained under the
+        strategy, see `count_cv_fits`.
+    forecaster : str
+        Name of the skforecast forecaster class.
+    n_folds : int
+        Number of folds of the strategy, see `count_cv_folds`.
+
+    Returns
+    -------
+    trainings : int
+        0 for `ForecasterFoundation` (never trained), `n_folds` for
+        `ForecasterStats` (refitted in every fold whatever `refit` says,
+        see `cv_as_executed`), and `n_fits` otherwise. It is the `n_fits`
+        of the `cv_config` of the backtest of that forecaster.
+    """
+
+    if forecaster == "ForecasterFoundation":
+        return 0
+    if forecaster == "ForecasterStats":
+        return n_folds
+
+    return n_fits
+
+
 def cv_as_executed(
     cv: TimeSeriesFold,
     forecaster: str | None,
@@ -993,10 +1073,9 @@ def build_cv(
     cv_params : dict
         Resolved `TimeSeriesFold` parameters with keys `'steps'`,
         `'initial_train_size'`, `'refit'`, `'fixed_train_size'`, `'gap'`,
-        `'fold_stride'`, `'skip_folds'`, `'allow_incomplete_fold'` and
-        `'differentiation'`. Keys starting with an underscore (such as the
-        LLM `'_reasoning'`) are ignored. `'initial_train_size'` is
-        normalised in place.
+        `'fold_stride'`, `'skip_folds'` and `'allow_incomplete_fold'`. Keys
+        starting with an underscore (such as the LLM `'_reasoning'`) are
+        ignored. `'initial_train_size'` is normalised in place.
     data_profile : DataProfile
         Profile of the dataset the splitter is applied to.
     min_folds : int, default 2
@@ -1023,7 +1102,6 @@ def build_cv(
             fold_stride           = cv_params.get("fold_stride"),
             skip_folds            = cv_params.get("skip_folds"),
             allow_incomplete_fold = cv_params.get("allow_incomplete_fold", True),
-            differentiation       = cv_params.get("differentiation"),
             verbose               = False,
         )
 
@@ -1245,11 +1323,12 @@ def resolve_cv_config(
     cv_config : dict
         Resolved `TimeSeriesFold` parameters (`steps`,
         `initial_train_size`, `refit`, `fixed_train_size`, `gap`,
-        `fold_stride`, `skip_folds`, `allow_incomplete_fold`,
-        `differentiation`) plus `n_folds` and `n_fits` (folds in which the
-        forecaster is trained, 0 when it is not trained), and for
-        `ForecasterFoundation` `inference_windows` (one per series and
-        fold, see `count_inference_windows`).
+        `fold_stride`, `skip_folds`, `allow_incomplete_fold`) plus `n_folds`
+        and `n_fits` (folds in which the forecaster is trained, 0 when it is
+        not trained), for `ForecasterFoundation` `inference_windows`
+        (one per series and fold, see `count_inference_windows`), and
+        `last_fold_steps` when the last fold predicts fewer steps than
+        `steps`.
     explanation : str
         Multi-sentence description of the strategy, see
         `build_cv_explanation`.
@@ -1266,6 +1345,8 @@ def resolve_cv_config(
             )
     n_folds = len(folds)
     n_fits = sum(bool(fold[-1]) for fold in folds) if trains else 0
+    # Positions predicted by the last fold, after the gap.
+    last_fold_steps = folds[-1][4][1] - folds[-1][4][0] if folds else None
     cv_config = {
         "steps": cv.steps,
         # A Timestamp as text, as `build_cv` stores it: the configuration
@@ -1281,7 +1362,6 @@ def resolve_cv_config(
         "fold_stride": cv.fold_stride,
         "skip_folds": cv.skip_folds,
         "allow_incomplete_fold": cv.allow_incomplete_fold,
-        "differentiation": cv.differentiation,
         "n_folds": n_folds,
         "n_fits": n_fits,
     }
@@ -1293,6 +1373,11 @@ def resolve_cv_config(
                                 forecaster = forecaster,
                             )
         cv_config["inference_windows"] = inference_windows
+    # Only when the last fold is shorter than the horizon, as the
+    # explanation says it: the section of a backtest script reads the folds
+    # from here, and "N folds of M steps" alone was read as full folds.
+    if last_fold_steps is not None and 0 < last_fold_steps < cv.steps:
+        cv_config["last_fold_steps"] = last_fold_steps
     explanation = build_cv_explanation(
                       cv_params         = cv_config,
                       n_observations    = span_index_length,
@@ -1301,6 +1386,7 @@ def resolve_cv_config(
                       n_fits            = n_fits,
                       forecaster        = forecaster,
                       inference_windows = inference_windows,
+                      last_fold_steps   = last_fold_steps,
                   )
 
     return cv_config, explanation
@@ -1351,6 +1437,38 @@ def plan_window_size(plan: ForecastPlan) -> int | None:
     return None
 
 
+def training_length_needed(plan: ForecastPlan) -> tuple[int, str] | None:
+    """
+    Fewest observations the forecaster of a plan can be trained on, and why.
+
+    skforecast needs more observations than the window size of the
+    forecaster (`plan_window_size`), and a direct forecaster, which trains
+    one estimator per step, at least the window size plus `steps`.
+
+    Parameters
+    ----------
+    plan : ForecastPlan
+        Plan to train.
+
+    Returns
+    -------
+    needed : tuple of (int, str), None
+        The number of observations and the reason, written to follow
+        "needs at least N"; None for the forecasters without a window
+        (ForecasterStats and the foundation models).
+    """
+    window_size = plan_window_size(plan)
+    if window_size is None:
+        return None
+    if plan.forecaster in DIRECT_FORECASTERS:
+        return window_size + plan.steps, (
+            f"its window size, {window_size}, plus the {plan.steps} steps it "
+            f"is trained to predict"
+        )
+
+    return window_size + 1, f"more than its window size, {window_size}"
+
+
 def first_window_issue(
     plan: ForecastPlan,
     cv: TimeSeriesFold,
@@ -1381,9 +1499,10 @@ def first_window_issue(
     issue : str, None
         What fails, or None.
     """
-    window_size = plan_window_size(plan)
-    if window_size is None:
+    needed = training_length_needed(plan)
+    if needed is None:
         return None
+    needed, reason = needed
     # skforecast splits the dates of every series, from the earliest first
     # date in long format, where `start_date` is the latest one.
     folds = _split_folds(
@@ -1397,15 +1516,6 @@ def first_window_issue(
         return None
     train_start, train_end = folds[0][1]
     n_train = train_end - train_start
-    if plan.forecaster in DIRECT_FORECASTERS:
-        needed = window_size + plan.steps
-        reason = (
-            f"its window size, {window_size}, plus the {plan.steps} steps it "
-            f"is trained to predict"
-        )
-    else:
-        needed = window_size + 1
-        reason = f"more than its window size, {window_size}"
     if n_train >= needed:
         return None
 
@@ -1507,7 +1617,95 @@ def warn_first_window(
 # Forecasters whose intervals come from binned residuals of the training rows.
 _RESIDUAL_INTERVAL_FORECASTERS = (
     "ForecasterRecursive", "ForecasterDirect", "ForecasterEquivalentDate",
+    "ForecasterRecursiveMultiSeries", "ForecasterDirectMultiVariate",
 )
+
+# Series named in the residuals warning of several series.
+_SHOWN_SERIES = 5
+
+
+def _series_span_positions(
+    data_profile: DataProfile,
+) -> dict[str, tuple[int, int]]:
+    """
+    Locate each series on the span of the data, where the folds are counted.
+
+    skforecast splits the union index of the series, from the earliest first
+    date (`span_start_date`), so a series that starts later has fewer
+    observations in a training window than the window itself. A series of
+    long format spans its own dates, and one of wide format the dates from
+    its first to its last value, on the dates of the frame. Every other
+    series, and the series whose span cannot be rebuilt on their dates (no
+    dates or frequency, dates that mix time zones, a span counted as the
+    longest series), spans the whole of it.
+
+    Parameters
+    ----------
+    data_profile : DataProfile
+        Profile of the data.
+
+    Returns
+    -------
+    positions : dict
+        Mapping of series name to the positions of its first date and of the
+        one after its last date on the span.
+    """
+    n_observations = data_profile.span_index_length
+    whole = {name: (0, n_observations) for name in data_profile.series_lengths}
+    if (
+        data_profile.data_format not in ("long", "wide")
+        or data_profile.frequency is None
+    ):
+        return whole
+    infos = data_profile.series_lengths
+    if any(info.start is None or info.end is None for info in infos.values()):
+        return whole
+    try:
+        starts = {name: pd.Timestamp(info.start) for name, info in infos.items()}
+        ends = {name: pd.Timestamp(info.end) for name, info in infos.items()}
+        first, last = min(starts.values()), max(ends.values())
+        # As in `span_start_date`: the dates carry the UTC offset of their
+        # day, and the span is rebuilt on the local times of the zone.
+        aware = data_profile.time_zone is not None and first.tzinfo is not None
+        if aware:
+            starts = {
+                name: date.tz_convert(data_profile.time_zone)
+                for name, date in starts.items()
+            }
+            ends = {
+                name: date.tz_convert(data_profile.time_zone)
+                for name, date in ends.items()
+            }
+            first, last = min(starts.values()), max(ends.values())
+        if data_profile.data_format == "wide":
+            # The series of wide data are on the dates of the frame, which
+            # can start before the first value of every series.
+            span = (
+                aware_index(
+                    data_profile.span_start_date, n_observations,
+                    data_profile.frequency, data_profile.time_zone,
+                )
+                if aware else None
+            )
+            if span is None:
+                span = pd.date_range(
+                    start   = data_profile.span_start_date,
+                    periods = n_observations,
+                    freq    = data_profile.frequency,
+                )
+        else:
+            span = pd.date_range(start=first, end=last, freq=data_profile.frequency)
+        if len(span) != n_observations or first < span[0] or last > span[-1]:
+            return whole
+        return {
+            name: (
+                int(span.searchsorted(starts[name])),
+                int(span.searchsorted(ends[name], side="right")),
+            )
+            for name in infos
+        }
+    except (ValueError, TypeError):
+        return whole
 
 
 def warn_interval_residuals(
@@ -1519,16 +1717,24 @@ def warn_interval_residuals(
     Warn when a strategy is built whose first training window leaves too few
     rows for the prediction intervals of its plan.
 
-    ForecasterRecursive and ForecasterDirect (bootstrapping) and
-    ForecasterEquivalentDate (conformal) estimate the intervals from the
-    residuals of the training rows, which skforecast spreads over up to
-    `INTERVAL_RESIDUAL_BINS` bins of the predicted value. With fewer than
-    `MIN_RESIDUALS_PER_BIN` residuals per bin the intervals tend to be too
-    narrow (a nominal 95% covers 59 to 80% with 2 to 6 per bin, in the
-    simulation skforecast took its rule of thumb from), and with a single
-    residual in a bin the lower bound equals the upper one, with the
-    prediction outside. skforecast warns about it only for out-of-sample
-    residuals, which the generated scripts do not use.
+    ForecasterRecursive, ForecasterDirect, ForecasterRecursiveMultiSeries and
+    ForecasterDirectMultiVariate (bootstrapping) and ForecasterEquivalentDate
+    (conformal) estimate the intervals from the residuals of the training
+    rows, which skforecast spreads over up to `INTERVAL_RESIDUAL_BINS` bins
+    of the predicted value. With fewer than `MIN_RESIDUALS_PER_BIN`
+    residuals per bin the intervals tend to be too narrow (a nominal 95%
+    covers 59 to 80% with 2 to 6 per bin, in the simulation skforecast took
+    its rule of thumb from), and with a single residual in a bin the lower
+    bound equals the upper one, with the prediction outside. skforecast
+    warns about it only for out-of-sample residuals, which the generated
+    scripts do not use.
+
+    With several series the residuals are counted per series, as skforecast
+    bins them: ForecasterRecursiveMultiSeries keeps the residuals and the
+    bins of each series apart (all of them together with `encoding=None`),
+    counted on the observations of the series in the window, and
+    ForecasterDirectMultiVariate those of its level, the only series it
+    predicts. The warning names the series with few residuals.
 
     Parameters
     ----------
@@ -1569,18 +1775,37 @@ def warn_interval_residuals(
     n_train = train_end - train_start
     # A direct forecaster trains the estimator of step h on h - 1 rows fewer.
     extra_steps = plan.steps - 1 if plan.forecaster in DIRECT_FORECASTERS else 0
-    n_rows = n_train - window_size - extra_steps
     needed = MIN_RESIDUALS_PER_BIN * INTERVAL_RESIDUAL_BINS
-    # A window that leaves no rows is reported by `warn_first_window()`.
-    if n_rows < 1 or n_rows >= needed:
-        return
     features = (
         ", or fewer lags or smaller window features"
         if plan.forecaster in AUTOREG_FORECASTERS else ""
     )
+    if plan.forecaster == "ForecasterRecursiveMultiSeries":
+        _warn_series_residuals(
+            plan         = plan,
+            data_profile = data_profile,
+            train_start  = train_start,
+            train_end    = train_end,
+            window_size  = window_size,
+            needed       = needed,
+            features     = features,
+        )
+        return
+    n_rows = n_train - window_size - extra_steps
+    # A window that leaves no rows is reported by `warn_first_window()`.
+    if n_rows < 1 or n_rows >= needed:
+        return
+    level = ""
+    if plan.forecaster == "ForecasterDirectMultiVariate":
+        target = data_profile.target
+        name = target[0] if isinstance(target, list) else target
+        level = (
+            f" for {name!r}, the only series ForecasterDirectMultiVariate "
+            f"predicts"
+        )
     warnings.warn(
         f"The first training window of the strategy leaves {n_rows} row(s) to "
-        f"train on ({n_train} observations for a window size of "
+        f"train on{level} ({n_train} observations for a window size of "
         f"{window_size}), so the prediction intervals are estimated from "
         f"{n_rows} residual(s). skforecast spreads them over up to "
         f"{INTERVAL_RESIDUAL_BINS} bins, and below {MIN_RESIDUALS_PER_BIN} "
@@ -1591,6 +1816,87 @@ def warn_interval_residuals(
         UserWarning,
         stacklevel = 3,
     )
+
+
+def _warn_series_residuals(
+    plan: ForecastPlan,
+    data_profile: DataProfile,
+    train_start: int,
+    train_end: int,
+    window_size: int,
+    needed: int,
+    features: str,
+) -> None:
+    """
+    Warn about the series of a ForecasterRecursiveMultiSeries plan whose
+    first training window leaves few residuals (see
+    `warn_interval_residuals`), each counted on its own observations in the
+    window. A series without rows in the window is left out: it is not
+    trained, so it has no interval in that fold.
+    """
+    rows = {}
+    for name, (start, stop) in _series_span_positions(data_profile).items():
+        observed = max(0, min(stop, train_end) - max(start, train_start))
+        if observed - window_size >= 1:
+            rows[name] = (observed - window_size, observed)
+    if not rows:
+        return
+
+    def _shown(names: list[str]) -> str:
+        found = [
+            f"{name!r}: {rows[name][0]} row(s) of {rows[name][1]} observations"
+            for name in names
+        ]
+        shown = "; ".join(found[:_SHOWN_SERIES])
+        if len(found) > _SHOWN_SERIES:
+            shown += f"; and {len(found) - _SHOWN_SERIES} more series"
+        return shown
+
+    n_series = len(data_profile.series_lengths)
+    tail = (
+        f"spread over up to {INTERVAL_RESIDUAL_BINS} bins, and below "
+        f"{MIN_RESIDUALS_PER_BIN} residuals per bin ({needed} rows) the "
+        f"intervals tend to be too narrow; with a single residual in a bin "
+        f"the lower bound equals the upper one."
+    )
+    # Without encoding skforecast pools the residuals of every series.
+    kwargs = plan.forecaster_kwargs
+    if "encoding" in kwargs and kwargs["encoding"] is None:
+        total = sum(n_rows for n_rows, _ in rows.values())
+        if total >= needed:
+            return
+        scope = (
+            f"its {n_series} series" if len(rows) == n_series
+            else f"{len(rows)} of its {n_series} series"
+        )
+        message = (
+            f"The first training window of the strategy leaves {total} row(s) "
+            f"to train on across {scope} ({_shown(list(rows))}), for a window "
+            f"size of {window_size}. With `encoding=None` skforecast "
+            f"estimates the prediction intervals of every series from the "
+            f"residuals of all of them together, {tail} Read them with "
+            f"caution, or use a later `initial_train_size`{features}."
+        )
+    else:
+        few = sorted(
+            (name for name in rows if rows[name][0] < needed),
+            key = lambda name: rows[name][0],
+        )
+        if not few:
+            return
+        scope = (
+            f"all {n_series} series" if len(few) == n_series
+            else f"{len(few)} of the {n_series} series"
+        )
+        message = (
+            f"The first training window of the strategy leaves fewer than "
+            f"{needed} rows to train on in {scope} ({_shown(few)}), for a "
+            f"window size of {window_size}. skforecast estimates the "
+            f"prediction intervals of each series from the residuals of its "
+            f"own rows, {tail} Read the intervals of those series with "
+            f"caution, or use a later `initial_train_size`{features}."
+        )
+    warnings.warn(message, UserWarning, stacklevel=4)
 
 
 def _compute_min_train_size(plan: ForecastPlan) -> int:

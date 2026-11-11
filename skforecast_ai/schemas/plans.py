@@ -9,7 +9,7 @@ from __future__ import annotations
 import sys
 from typing import Annotated, Any, ClassVar, Literal, get_args
 import numpy as np
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 if sys.version_info >= (3, 12):
     from typing import TypedDict
@@ -169,6 +169,12 @@ class WindowFeature(BaseModel):
         float or bool is rejected); to combine several window sizes, use
         one `WindowFeature` per size.
     """
+    # The docstring is the description of the output schema the model sees,
+    # so this stays here: a key the model makes up (`min_periods`) is
+    # rejected instead of dropped without saying so, and pydantic-ai sends
+    # the error back to the model, which retries.
+    model_config = ConfigDict(extra="forbid")
+
     stats: list[WindowStat] = Field(
         description=(
             "Rolling statistics to compute. Each value must be one of: "
@@ -313,7 +319,9 @@ class RefinePlanOverrides(TypedDict, total=False):
         of a foundation model, e.g. `'google/timesfm-3.0-pytorch'`.
     estimator_kwargs : dict, None
         Keyword arguments for the estimator constructor. None resets them
-        to the built-in defaults.
+        to the built-in defaults. When omitted with a new `estimator`, the
+        keyword arguments of the plan, written for the previous one, are
+        left out with a `PlanEditsDiscardedWarning` that names them.
     steps : int
         Forecast horizon.
     interval : list of float, None
@@ -397,8 +405,8 @@ class CandidateConfig(TypedDict, total=False):
         Whether the candidate uses the exogenous variables, as in `plan()`.
         None uses them whenever the forecaster can.
     differentiation : int, None
-        Order of differencing of the target, as in `plan()`. The candidate
-        runs on a copy of the strategy with this order.
+        Order of differencing of the target, as in `plan()`. Candidates
+        with different orders share the strategy.
     calendar_features : list of str, None
         Calendar features to generate, as in `plan()`.
     target_transformer : str, None
@@ -488,7 +496,7 @@ class ForecastPlan(PickleDefaultsMixin, DisplayMixin, BaseModel):
     metric : str, default 'mean_absolute_error'
         Recommended primary evaluation metric (string name matching
         sklearn/skforecast naming conventions).
-    metrics_to_compute : list, default ['mean_absolute_error', 'mean_squared_error', 'mean_absolute_scaled_error']
+    metrics_to_compute : list, default ['mean_absolute_error', 'root_mean_squared_error', 'mean_absolute_scaled_error']
         Full list of metrics to evaluate in generated code.
     use_exog : bool, default False
         Whether to include exogenous variables.
@@ -550,7 +558,11 @@ class ForecastPlan(PickleDefaultsMixin, DisplayMixin, BaseModel):
     interval_method: Literal["bootstrapping", "conformal", "native"] | None = None
     metric: str = "mean_absolute_error"
     metrics_to_compute: list[str] = Field(
-        default_factory=lambda: ["mean_absolute_error", "mean_squared_error", "mean_absolute_scaled_error"]
+        default_factory=lambda: [
+            "mean_absolute_error",
+            "root_mean_squared_error",
+            "mean_absolute_scaled_error",
+        ]
     )
     use_exog: bool = False
     preprocessing_steps: list[PreprocessingStep] = Field(default_factory=list)

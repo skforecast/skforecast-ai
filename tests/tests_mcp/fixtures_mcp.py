@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 from mcp import Client
 
+from ..fixtures_assistant import df_multi_long_numeric_ids
 from ..fixtures_datasets import df_h2o
 
 # h2o (monthly, 204 observations) with the dates in the column 'fecha'.
@@ -33,6 +34,12 @@ DATA_WARNING = (
     "10 (counting from 0, header excluded). Column 'date' is used as the date "
     "column instead; pass `date_column` to choose another one."
 )
+# The column of those dates is an exogenous column with 2 missing values,
+# which the profile records in `data_profile.warnings`.
+DATA_MISSING_EXOG_WARNING = (
+    "Missing values in exogenous columns: 'event': 2. An estimator that does "
+    "not accept missing values fails when it reads them."
+)
 
 # h2o without three months in 2005 (missing timestamps, which the profile
 # records in `data_profile.warnings` without emitting a Python warning).
@@ -56,10 +63,22 @@ GAPS_WARNING = (
 DATA_VALUES_HINT = (
     "The values the message names are data of the user: do not fill in, drop "
     "or write any of them yourself, and ask before a corrected copy is "
-    "written. Say in your answer that this call failed and why. When the "
-    "message blames the estimator, one that accepts missing values (such as "
-    "'LGBMRegressor') avoids the error without touching the data: if you "
-    "switch to it, say in your answer that you changed the estimator and why."
+    "written. Say in your answer that this call failed and why. Only when the "
+    "message names an estimator that accepts missing values does changing the "
+    "plan as the message says avoid this error without touching the data: if "
+    "you switch to it, say in your answer that you changed the estimator and "
+    "why."
+)
+
+# Units of MSE and RMSE in the `MetricUnitNotice` of a result that
+# computes them.
+MSE_UNIT = (
+    "`mean_squared_error` is in the squared units of the target: do not "
+    "write it with the unit of the target."
+)
+RMSE_UNIT = (
+    "`root_mean_squared_error` is in the units of the target: report it as "
+    "it is."
 )
 
 # Ten future values of `promo` after the last date of `df_single`.
@@ -67,6 +86,42 @@ df_single_future_exog = pd.DataFrame(
     {
         "date": pd.date_range("2023-04-11", periods=10, freq="D").strftime("%Y-%m-%d"),
         "promo": np.tile([0.0, 1.0], 5),
+    }
+)
+
+# Long data whose series ids are numbers ('001', '1', '10'), with an
+# exogenous variable, and its future values for the 7 days after its last
+# date, with the same ids (finding G02 of the MCP audit: every run failed
+# with `KeyError: 1` and the profile named the series '1' and '10').
+df_numeric_ids_exog = df_multi_long_numeric_ids.assign(
+    promo=(np.arange(len(df_multi_long_numeric_ids)) % 5 == 0).astype(float)
+)
+df_numeric_ids_future_exog = pd.DataFrame(
+    {
+        "series_id": np.repeat(["001", "1", "10"], 7),
+        "date": np.tile(
+            pd.date_range("2023-04-11", periods=7, freq="D").strftime("%Y-%m-%d"),
+            3,
+        ),
+        "promo": np.tile([1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0], 3),
+    }
+)
+
+# Two years of hourly values (17544 rows), as bike_sharing: a plan of 24
+# steps has 220 folds with the default strategy, where the fit budget of
+# `compare()` leaves ForecasterDirect out until `refit=12` (review of the
+# 0.5.0 agent check fixes).
+_hours = pd.date_range("2011-01-01", periods=17544, freq="h")
+df_hourly_two_years = pd.DataFrame(
+    {
+        "date_time": _hours.strftime("%Y-%m-%d %H:%M:%S"),
+        "users": np.round(
+            100
+            + 60 * np.sin(2 * np.pi * _hours.hour / 24)
+            + 20 * (_hours.dayofweek < 5)
+            + np.random.default_rng(42).normal(0, 10, len(_hours)),
+            1,
+        ),
     }
 )
 

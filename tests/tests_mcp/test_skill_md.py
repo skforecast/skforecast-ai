@@ -222,7 +222,8 @@ def test_skill_md_covers_what_agents_get_wrong(phrase):
     [
         "the directory the server may read, which its instructions name",
         "divide the error by that of the one-step naive forecast (repeat the "
-        "previous value) on the training data",
+        "previous value) over the observations known when each prediction is "
+        "made",
         "never report a value below 1 as beating either",
         "Never copy or move a file of the user into that directory yourself",
         "Do not copy or move it yourself: tell the user, who can copy it there "
@@ -244,12 +245,21 @@ def test_skill_md_covers_what_agents_get_wrong(phrase):
         "stop and do not run it: tell the user the number of fits and the "
         "cheaper strategies",
         "asking to retrain regularly is not that choice",
+        "never pass `confirm_cost` before you asked",
+        "Do not call the tool again until the user answers",
+        "`backtest` and `compare` refuse it, before anything runs, unless "
+        "`confirm_cost` is the number of its cost",
         "Report what was measured, never why",
         "The server does not search hyperparameters",
         "Do not do any of it another way in the same answer",
         "Never write those values yourself, nor answer with a `test_size` "
         "evaluation instead",
         "nor as the forecast of the future: its dates are already in the data",
+        "carries an `EstimatorNotRecommendedNotice`: say in your answer which "
+        "estimator ran, which one the rules recommend and why it was changed",
+        "A coverage measured on few values is a rough check, not the reliable "
+        "level of the interval: quote the level the user asked for, with the "
+        "warning the server gives",
     ],
     ids=lambda phrase: phrase[:40],
 )
@@ -259,7 +269,9 @@ def test_skill_md_states_the_rules_agents_broke_in_the_agent_check(phrase):
     agent check: where the allowed directory is named, what MASE is scaled
     by, that the agent never copies a file of the user into the allowed
     directory, that a license is quoted from a response, what `get_code`
-    says to install and that an error names one problem of a file.
+    says to install, that an error names one problem of a file, that a
+    switch of estimator is said in the answer and that a coverage measured
+    on few values is not quoted as the level of the interval.
     """
     skill = _flat(SKILL_PATH.read_text(encoding="utf-8"))
 
