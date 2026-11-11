@@ -254,7 +254,7 @@ The main changes in this release are:
 
 *CLI*
 
-+ On Windows, `--output` of the [CLI][cli] wrote the script in the encoding of the system, so a script with a column named outside ASCII (`año`) failed with a `SyntaxError`. Scripts, JSON outputs and the configuration file are now written in UTF-8.
++ On Windows, `--output` of the [CLI][cli] wrote the script in the encoding of the system, so a script with a column named outside ASCII (`año`) failed with a `SyntaxError`. Scripts, JSON outputs and the configuration file are now written in UTF-8 ([#148](https://github.com/skforecast/skforecast-ai/pull/148)).
 
 *LLM layer*
 
