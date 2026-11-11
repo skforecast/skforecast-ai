@@ -127,7 +127,7 @@ _SKILL_TOKEN_ESTIMATES: dict[str, int] = {
     "feature-selection": 1579,
     "forecasting-multiple-series": 2001,
     "forecasting-single-series": 1505,
-    "foundation-forecasting": 12974,
+    "foundation-forecasting": 13072,
     "hyperparameter-optimization": 6876,
     "metric-selection": 6485,
     "prediction-intervals": 5106,
@@ -135,7 +135,7 @@ _SKILL_TOKEN_ESTIMATES: dict[str, int] = {
     "troubleshooting-common-errors": 3125,
 }
 
-_REFERENCE_TOKEN_ESTIMATE = 10789  # llms-base.txt measured size
+_REFERENCE_TOKEN_ESTIMATE = 10802  # llms-base.txt measured size
 
 # A skill named with this suffix (`'hyperparameter-optimization/SKILL.md'`)
 # is loaded without its `references/`. The budget trimming sends it this
