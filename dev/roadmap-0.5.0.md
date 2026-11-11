@@ -499,6 +499,23 @@ Hecho en [#126](https://github.com/skforecast/skforecast-ai/pull/126) (D34).
    contextos solo cambian en el último fold incompleto): los informes y la
    fila del log son de esa pasada, en
    [#134](https://github.com/skforecast/skforecast-ai/pull/134).
+   Pendiente al cierre (2026-11-11): una pasada parcial de pago, que lanza
+   el usuario. La última completa es del 2026-11-08; desde entonces
+   cambiaron el texto de la referencia del MASE (#143, en el prompt de rol
+   y en la línea del baseline de una comparación), los valores de MASE de
+   todo backtest y comparación (skforecast#1473) y cinco skills
+   (`metric-selection`, `prediction-intervals`, `foundation-forecasting`,
+   `feature-selection` y `complete-api-reference`, 47 líneas nuevas y 21
+   quitadas). Comparado sin llamar al LLM, contexto a contexto y pregunta a
+   pregunta, contra los informes guardados: cambian los contextos de 21
+   escenarios (los de backtest y comparación; en sus líneas solo cambia el
+   valor de MASE, más la frase de la referencia en 5), ninguna pregunta
+   recibe otra selección de skills, y 78 de las 182 respuestas leen un
+   contexto o un skill que cambió. Escenarios a repetir en los cuatro
+   datasets: `foundation_plan`, `forecast`, `backtest`, `stats_backtest`,
+   `compare`, `compare_default`, `compare_many`, `compare_no_baseline`,
+   `compare_refined_plan`, `foundation_backtest`, `foundation_incomplete` y
+   `restricted_license_plan`.
 2. Check con agentes: hecho (2026-10-29 a 2026-10-31), en
    [#132](https://github.com/skforecast/skforecast-ai/pull/132). Sus
    hallazgos del servidor y del SKILL se arreglaron en
@@ -517,6 +534,42 @@ Hecho en [#126](https://github.com/skforecast/skforecast-ai/pull/126) (D34).
    bien los argumentos de `plan` (`use_exog`, `metric`,
    `differentiation`...), que desde #126 (D34) el paso 2 del SKILL.md no
    explica y remite al esquema.
+   Repetido al cierre (2026-11-11) sobre `26f8943` y skforecast 0.27.0 de
+   PyPI, por lo que cambió desde `0.5.0-fix3` (D38, Timestral y TiRex-2 en
+   el SKILL.md, #143, #145): los 9 escenarios críticos más
+   `dirty_data_keep_gaps`, `foundation_default` y `multi_series`, con sus 4
+   ablaciones, 3 repeticiones, 48 sesiones por modelo (`0.5.0-final` y
+   `0.5.0-final-haiku`, filas en el log de `tools/mcp/README.md`). Sonnet:
+   46 correctas, 2 mejorables, 0 fallos. Haiku: 22 correctas, 26
+   mejorables, 0 fallos, y el criterio del modelo débil se cumple sin
+   excepción. Ningún escenario crítico falla. No concluyente: 10 de 12
+   sesiones de `dirty_data` y `dirty_data_keep_gaps` con sonnet (3 de 12
+   con haiku) acaban cuando el cliente deniega el comando de shell que
+   escribe la copia acordada. Los datos del escenario no ejercitan D38 (los
+   tres meses que faltan caen antes del primer fold de test), y ninguna
+   sesión nombra Timestral ni TiRex-2. Dos hallazgos del servidor quedan
+   abiertos, sin arreglar ni aceptar en el log (lo decide el usuario):
+   - Las frases sobre las fechas de test sin valor (el paso de `plan` y el
+     aviso de `create_cv`, de #139) son reglas escritas sin los datos y
+     salen también cuando ninguna fecha de test falta: 3 de 9 respuestas de
+     haiku las repiten como algo que pasó (0 de 2 con sonnet). `create_cv()`
+     no recibe los datos, así que precisarlo pide otro diseño (que lo diga
+     el resumen de `backtest`, que sí cuenta las fechas fuera) y cambia
+     textos que lee el LLM: candidato a la 0.6.0.
+   - En la copia con huecos, el forecast del plan recomendado (Ridge, con
+     `dropna_from_series`) entrena con 15 de 84 filas y solo lo dicen los
+     recuentos del `MissingValuesWarning` (1 sesión). La causa está en
+     skforecast y es para reportarla allí, sin rodearla aquí:
+     `RollingFeatures.transform_batch` (entrenamiento) da NaN en toda
+     ventana que contiene un valor que falta, y `RollingFeatures.transform`
+     (predicción) lo salta con funciones que ignoran los NaN. Reproducido
+     con skforecast 0.27.0 puro: con un NaN y una ventana de 6, 6 filas de
+     entrenamiento con `roll_mean_6` NaN, y en predicción la misma ventana
+     da la media de los 5 valores restantes (y `roll_sum_6`, su suma, menor
+     que cualquier suma de 6 del entrenamiento). Con un estimador que no
+     acepta NaN se pierden `window_size` filas por cada hueco; con uno que
+     los acepta, entrena con NaN y predice con un estadístico que nunca
+     vio.
 3. Los datos de las animaciones de la portada y de la documentación:
    hecho en [#127](https://github.com/skforecast/skforecast-ai/pull/127)
    (2026-10-29). Las cifras citadas en las respuestas de `ask()` escritas a
@@ -535,12 +588,54 @@ Hecho en [#126](https://github.com/skforecast/skforecast-ai/pull/126) (D34).
    `confirm_cost=True`: ninguno lo pasa hoy.
 4. Comprobaciones a mano (abajo).
 5. skforecast 0.27.0 publicado con todo lo de "Dependencia de skforecast
-   0.27.0" resuelto, `/sync-skforecast-assets` (lo lanzas tú) y la suite
-   contra la 0.27.0 de PyPI. `pyproject.toml` pide ya `skforecast>=0.27.0`
-   (2026-10-18): hasta que esté en PyPI, las sesiones en la nube instalan
-   skforecast de su rama `0.27.x` y el entorno local también.
-6. `/release-note consolidate`, bump de versión (`/release-bump`) y
-   publicación.
+   0.27.0" resuelto, activos sincronizados y la suite contra la 0.27.0 de
+   PyPI: hecho (2026-11-11), sobre `0.5.x` en `26f8943`.
+   - skforecast 0.27.0 está en PyPI desde el 2026-11-11 (tag `v0.27.0` en
+     `de9a5c0`, el merge de #1483, sin commits entre los dos). Su wheel es
+     idéntico al tag en los 69 ficheros del paquete. Las tres últimas filas
+     de la tabla de abajo cubren lo que no tenía fila: el merge de la
+     release, dos commits directos y los PRs anteriores a la tabla.
+   - Entorno local: skforecast 0.27.0 instalado de PyPI con `uv`, sin
+     `direct_url.json` (venía de git, del mismo commit).
+   - Activos: `sync_skforecast_assets.py --check --branch v0.27.0`
+     (`llms-base.txt` y los 29 ficheros de skills coinciden) y
+     `measure_skill_tokens.py --check` pasan. No hace falta otro
+     `/sync-skforecast-assets`.
+   - Comprobaciones contra la 0.27.0 de PyPI: `ruff check` limpio; suite
+     completa, 7.113 tests (`-n 4`, 182 s); tests de los hooks, 128;
+     `mkdocs build` sin avisos; `page_meta.py`, 0 problemas;
+     `check_release_notes.py`, sin referencias sin definir ni entradas sin
+     enlace.
+   - Build de release en un clon aparte, con los pasos del flujo de
+     publicación (`publish_pypi.py version` y `release --tag v0.5.0`,
+     `python -m build` de los dos paquetes, `twine check --strict`,
+     `contents` y `absent` contra PyPI): todo pasa, y los dos wheels se
+     instalan en un entorno limpio con Python 3.13 y 3.10 y resuelven
+     `skforecast 0.27.0` de PyPI. Ningún extra lleva una referencia directa
+     (`name @ git+...`): el backend de Timestral solo lo escribe el servidor
+     MCP en los requisitos de un script. El extra `foundation` instala
+     `chronos-forecasting>=2.0`, el backend sin versión mínima en skforecast;
+     los demás backends (`tfc-t0[torch]>=0.6`, `tirex-2`,
+     `tabpfn-time-series>=1.3`...) se leen de `backend_package` de skforecast
+     al dar la pista de instalación, sin copia aquí.
+   - Versiones desfasadas: solo el ejemplo `'skforecast==0.26.0'` del
+     docstring de `CodeResult` (llega al esquema de salida de `get_code` y a
+     su golden) y dos docstrings de tests; rama
+     `chore/skforecast-0-27-references`.
+   - El hook de arranque de las sesiones en la nube no cambia: instala de
+     PyPI y solo cae a la rama `X.Y.x` de skforecast cuando esa instalación
+     falla, que es lo que hará falta mientras se desarrolle contra la 0.28.0
+     sin publicar. Con la 0.27.0 publicada ya no entra en ese camino.
+6. `/release-note consolidate`: hecho (2026-11-11, `77ea4ca`). La sección
+   pasa de 87 entradas y 5.991 palabras a 72 y 5.112, agrupadas por área,
+   con 10 destacados y un "Before upgrading" de una línea por método que
+   empieza diciendo que skforecast 0.27.0 es el mínimo. Ninguna entrada
+   eliminada: las 15 que desaparecen se fusionaron con otra del mismo
+   objeto, con todos sus enlaces. Dos líneas nuevas que solo estaban en la
+   tabla de abajo: el orden de las filas del forecast multiserie en formato
+   ancho (skforecast#1435) y el modelo que conserva ForecasterStats al
+   reentrenar (skforecast#1425). Quedan el bump de versión
+   (`/release-bump`) y la publicación, que lanza el usuario.
 7. Tras publicar: Deploy y Make Release en Glama y apuntar el TDQS nuevo
    (paso 8 del plan de descripciones).
 
@@ -2168,6 +2263,9 @@ arranque de las sesiones en la nube instala skforecast desde su rama
 | Sin issue ([#1480](https://github.com/skforecast/skforecast/pull/1480)) | Vuelve a ejecutar las dos guías de modelos foundation en un entorno con los once backends (`tfc-t0` 0.6.1, `tirex-2` 0.5.0, TabPFN-3.5), completa sus textos con #1478 y #1479, cambia una lista a mano por `get_model_info(...).allow_exog` y quita del resultado el aviso de TabPFN-TS en CPU (`execute_notebooks.py`) | Nada: notebooks y herramientas de documentación de skforecast. No cambia ningún activo sincronizado | Resuelto en `0.27.x` (2026-11-11) |
 | Sin issue ([#1481](https://github.com/skforecast/skforecast/pull/1481)) | Vuelve a ejecutar 51 notebooks de la documentación con el código de `0.27.x` (columnas nuevas del backtesting, paneles de `fetch_dataset`) y arregla el código de cuatro guías que la ejecución mostró desfasado | Nada: solo notebooks e imágenes de la documentación de skforecast | Resuelto en `0.27.x` (2026-11-11) |
 | Sin issue ([#1483](https://github.com/skforecast/skforecast/pull/1483)) | `select_features` y `select_features_multiseries` pasan al selector los registros muestreados en orden aleatorio, sin el `np.sort` de la 0.26.0: con un `cv` entero (`RFECV(cv=3)`) los folds dejan de validar sobre periodos o series enteras no vistas, y la selección cambia. `RollingFeatures` y `RollingFeaturesClassification` con `stats=[]` lanzan un `ValueError` que sugiere `window_features=None`, en vez de `max() iterable argument is empty`. Docstrings del backtesting (orden de las columnas, `n_evaluated`). Cambian el skill `feature-selection`, `model-selection-signatures.md` de `complete-api-reference` y `llms-base.txt` | Nada en el código: no llamamos a `select_features`, y ninguna ruta llega a `RollingFeatures(stats=[])`, porque `_validate_window_features` (argumentos, refinado del LLM, servidor MCP y esquema del plan) rechaza `stats` vacío antes de escribir el script. Suite en verde contra la cabeza de `0.27.x` (`de9a5c0`): 7.113; con los activos sincronizados en un worktree aparte, los 629 tests de LLM y skills pasan (`feature-selection`: 1.579 a 1.734 tokens; `complete-api-reference`: 12.737 a 12.753; `llms-base.txt`: 10.802 a 10.812). Activos sincronizados en `692057e` | Resuelto en `0.27.x` (2026-11-11) |
+| Sin issue ([#1482](https://github.com/skforecast/skforecast/pull/1482)) | Merge de `0.27.x` en `main` para publicar la 0.27.0 (2026-11-11). El tag `v0.27.0` es `de9a5c0`, el merge de #1483: no hay ningún commit entre los dos, y `main` solo añade el commit de merge, sin cambios de ficheros. Desde el 2026-11-11 no se ha fusionado ningún otro PR en `0.27.x` ni en `main` | Nada. Comprobado el 2026-11-11: los 69 ficheros del wheel de PyPI son idénticos byte a byte a los del tag, el entorno local lo instala de PyPI (sin `direct_url.json`), los activos sincronizados coinciden con el tag (`sync_skforecast_assets.py --check --branch v0.27.0` y `measure_skill_tokens.py --check`) y la suite pasa contra él: 7.113. La rama `0.27.x` tiene un commit posterior al tag (`a1a837b`, alertas de Dependabot: quita ficheros de `dev/` y sube `black` en el extra `docs`), que no está en la 0.27.0 | Publicado (2026-11-11) |
+| Commits directos a `0.27.x` entre #1481 y #1483 (`f63af29`, `c8ff22a`, 2026-11-11) | `f63af29`: los adaptadores fundacionales pasan `na_value=np.nan` al convertir una serie o una covariable de dtype nullable (`Int64`, `Float64`, `boolean`) con valores que faltan, que con pandas anterior a 2.3 daba `ValueError` (lo dice el test del commit). `c8ff22a`: solo la tolerancia de un test | Nada que cambiar: `_future_exog.py` deja pasar el `pd.NA` de una exógena numérica nullable en un plan fundacional (solo lo rechaza con los demás forecasters), así que con pandas 2.2, nuestro mínimo, ese forecast deja de fallar dentro del adaptador. Solo se llega por la API de Python con un DataFrame de dtypes nullable: un CSV no los produce. Sin reproducir aquí (el entorno tiene pandas 2.3.3) | En la 0.27.0 |
+| PRs y commits directos de la 0.27.0 que no tenían fila, revisados al cierre (2026-11-11) | Con código: #1387 (`plot_residuals` y `fig`), #1400 (compilación de `Ets`), #1419 y #1443 (`backtesting_stats` con varios estimadores y folds solapados), #1388, #1433 y #1434 (búsquedas con `lags=None`), #1402, #1439, #1441 y #1442 (`fetch_dataset`: `website_visits` y `m5`, aviso al rellenar fechas, orden estable en formato largo), #1445 y #1448 (`PopulationDriftDetector`; #1448 añade `observed=True` al agrupar un `exog` largo en `FoundationModel`), #1451 (el aviso de `exog` futuro reindexado ya no sale cuando solo tiene valores que faltan), y los commits `6a5d933` (`set_in_sample_residuals` con CatBoost y exógenas categóricas, #1354) y `b4918b4` (`alpha` fuera de las funciones privadas del backtesting de stats). Sin código: #1384, #1390 a #1399, #1401 (revertido), #1403, #1405, #1429, #1444, #1449 y #1453 (documentación, harness y `dev/`), y #1341, que entró dentro de #1463 | Nada: no usamos `plot`, `Ets` (los planes de ForecasterStats escriben siempre un `Arima`), búsquedas, `PopulationDriftDetector` ni `set_in_sample_residuals` (los scripts ajustan con `store_in_sample_residuals=True`), ni importamos nada privado de skforecast. De `fetch_dataset` solo se cargan `h2o`, `items_sales` y `bike_sharing` (tests, `tools/` y notebooks), no los datasets que cambian. Los scripts no dan a `FoundationModel` un índice categórico, y ningún código ni test depende del texto del aviso de #1451. Los cambios de skills de #1384, #1391 y #1399 están en los activos sincronizados. Python 3.10 queda deprecado en skforecast 0.27.0 (la 0.28.0 pedirá 3.11): la 0.5.0 mantiene `requires-python >= 3.10`, y subirlo va con la versión que pida skforecast 0.28 | Revisado (2026-11-11) |
 
 Detalle de cada uno:
 
