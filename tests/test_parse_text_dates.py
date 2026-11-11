@@ -1,6 +1,7 @@
 # Unit test parse_text_dates
 
 import re
+import sys
 
 import numpy as np
 import pandas as pd
@@ -128,7 +129,13 @@ def test_parse_text_dates_output_when_date_format(values, date_format, expected)
         ),
         (
             ["01/02/2020", "31/02/2020"],
-            "day is out of range for month, at position 1.",
+            # Python 3.14 names the day, the month and the year.
+            (
+                "day 31 must be in range 1..29 for month 2 in year 2020, at "
+                "position 1."
+                if sys.version_info >= (3, 14)
+                else "day is out of range for month, at position 1."
+            ),
         ),
         (
             ["01/02/2020", "13/02/2020 10:30"],

@@ -42,7 +42,7 @@ from skforecast_ai._validation import (
     validate_steps,
 )
 
-from tests.fixtures_assistant import patch_find_spec
+from tests.fixtures_assistant import RIDGE_ALPHA_TYPES, patch_find_spec
 
 _SUPPORTED = (
     "['LGBMRegressor', 'Ridge', 'XGBRegressor', 'CatBoostRegressor', "
@@ -235,8 +235,8 @@ def test_validate_estimator_kwargs_output_when_lightgbm_alias():
         (
             "Ridge",
             {"alpha": "abc"},
-            "The 'alpha' parameter of Ridge must be a float in the range "
-            "[0.0, inf) or an array-like. Got 'abc' instead.",
+            f"The 'alpha' parameter of Ridge must be {RIDGE_ALPHA_TYPES}. "
+            "Got 'abc' instead.",
         ),
         (
             "RandomForestRegressor",

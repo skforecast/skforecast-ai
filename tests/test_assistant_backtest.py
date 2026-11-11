@@ -2172,11 +2172,11 @@ def test_backtest_output_when_stats_interval_80_is_narrower_than_95():
     assert width_80 < width_95
     np.testing.assert_allclose(width_80, width_95 * 1.2815516 / 1.9599640, rtol=1e-4)
     # The width comes from the ARIMA fit, which differs between platforms
-    # (a relative 4.7e-5 on macOS arm): the tolerance of the ratio above.
+    # (a relative 4.7e-5 on macOS arm, 2.1e-4 on Linux in CI).
     # Since skforecast 0.27, `freeze_params=True` keeps the model selected in
     # the first fit, so the folds after the first one give another width.
     np.testing.assert_allclose(
         result_80.metrics[["coverage", "interval_width"]].to_numpy(),
         [[0.6296296296296297, 0.14169101871061165]],
-        rtol=1e-4,
+        rtol=5e-4,
     )

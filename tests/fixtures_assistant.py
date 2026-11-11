@@ -2,7 +2,16 @@
 
 import numpy as np
 import pandas as pd
+import sklearn
 
+
+# The types that the parameter validation of scikit-learn names for the
+# `alpha` of Ridge: "an array-like" since 1.9, a NumPy array before.
+RIDGE_ALPHA_TYPES = (
+    "a float in the range [0.0, inf) or an array-like"
+    if tuple(int(part) for part in sklearn.__version__.split(".")[:2]) >= (1, 9)
+    else "a float in the range [0.0, inf) or an instance of 'numpy.ndarray'"
+)
 
 # Seed for reproducibility
 _rng = np.random.default_rng(42)

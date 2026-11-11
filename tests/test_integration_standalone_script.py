@@ -74,7 +74,7 @@ def _run_standalone(
     """
 
     script_path = workdir / "script.py"
-    script_path.write_text(script)
+    script_path.write_text(script, encoding="utf-8")
     export_path = workdir / f"{variable}.csv"
     wrapper = workdir / "run.py"
     wrapper.write_text(textwrap.dedent(f"""

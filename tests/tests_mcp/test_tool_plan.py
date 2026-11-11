@@ -11,6 +11,7 @@ from skforecast_ai.mcp import create_server
 from skforecast_ai.mcp.models import ToolNotice
 
 from ..fixtures_assistant import (
+    RIDGE_ALPHA_TYPES,
     df_categorical_exog,
     df_crossing_zero,
     patch_find_spec,
@@ -303,8 +304,7 @@ def test_tool_plan_invalid_argument_when_estimator_kwargs_value_not_valid(tmp_pa
     assert error["field"] == "estimator_kwargs"
     assert error["message"] == (
         "`estimator_kwargs` is not valid for Ridge: The 'alpha' parameter of "
-        "Ridge must be a float in the range [0.0, inf) or an array-like. Got "
-        "'abc' instead."
+        f"Ridge must be {RIDGE_ALPHA_TYPES}. Got 'abc' instead."
     )
 
 

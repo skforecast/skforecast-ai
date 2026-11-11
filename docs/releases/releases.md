@@ -252,6 +252,10 @@ The main changes in this release are:
 
 + The script of data without dates passed in memory printed a pandas `UserWarning` ("Could not infer format") when run, as it read the positions saved by `to_csv()` with `parse_dates=True`. It now reads them as they are; the predictions are the same ([#125](https://github.com/skforecast/skforecast-ai/pull/125)).
 
+*CLI*
+
++ On Windows, `--output` of the [CLI][cli] wrote the script in the encoding of the system, so a script with a column named outside ASCII (`año`) failed with a `SyntaxError`. Scripts, JSON outputs and the configuration file are now written in UTF-8 ([#148](https://github.com/skforecast/skforecast-ai/pull/148)).
+
 *LLM layer*
 
 + [<code>ForecastingAssistant.refine_plan()</code>][assistant] and `create_cv()` with a `prompt` fell back to the deterministic result, with a warning, when the LLM was Claude Sonnet 5.5 or Opus 5.5 and pydantic-ai was older than 2.52, which forced a `tool_choice` those models reject. The `llm` extra now requires pydantic-ai 2.52 or later ([#129](https://github.com/skforecast/skforecast-ai/pull/129)).

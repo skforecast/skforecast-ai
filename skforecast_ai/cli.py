@@ -381,7 +381,7 @@ def _read_json_input(source: str) -> dict:
         path = Path(source)
         if not path.is_file():
             raise DataNotFoundError(f"File not found: '{source}'.")
-        raw = path.read_text()
+        raw = path.read_text(encoding="utf-8")
     try:
         return json.loads(raw)
     except json.JSONDecodeError as e:
@@ -816,7 +816,7 @@ def _write_output(content: str, output: Path | None) -> None:
     None
     """
     if output is not None:
-        output.write_text(content)
+        output.write_text(content, encoding="utf-8")
         console.print(f"[green]Output written to:[/green] {output}")
     else:
         print(content)
@@ -1424,7 +1424,7 @@ def forecast_code(
             _write_output(json_str, output)
         else:
             if output is not None:
-                output.write_text(result.code)
+                output.write_text(result.code, encoding="utf-8")
                 err_console.print(f"[green]Code written to:[/green] {output}")
             else:
                 console.print(render_code(result.code, title=None))
@@ -1576,7 +1576,7 @@ def backtest_code(
             _write_output(json_str, output)
         else:
             if output is not None:
-                output.write_text(result.code)
+                output.write_text(result.code, encoding="utf-8")
                 err_console.print(f"[green]Code written to:[/green] {output}")
             else:
                 console.print(render_code(result.code, title=None))
@@ -1726,7 +1726,7 @@ def forecast(
             err_console.print(f"[green]Predictions written to:[/green] {output_predictions}")
 
         if output_code is not None:
-            output_code.write_text(result.code)
+            output_code.write_text(result.code, encoding="utf-8")
             err_console.print(f"[green]Code written to:[/green] {output_code}")
 
         if format == "json":
@@ -1918,7 +1918,7 @@ def backtest(
             err_console.print(f"[green]Predictions written to:[/green] {output_predictions}")
 
         if output_code is not None:
-            output_code.write_text(result.code)
+            output_code.write_text(result.code, encoding="utf-8")
             err_console.print(f"[green]Code written to:[/green] {output_code}")
 
         if format == "json":
@@ -2107,7 +2107,7 @@ def compare(
                 )
 
         if output_code is not None:
-            output_code.write_text(result.best_candidate.code)
+            output_code.write_text(result.best_candidate.code, encoding="utf-8")
             err_console.print(f"[green]Code written to:[/green] {output_code}")
 
         if format == "json":

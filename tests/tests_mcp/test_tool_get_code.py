@@ -187,7 +187,7 @@ def test_tool_get_code_end_to_end_when_forecast_with_exog_path_from_excel_es(
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     script = run_dir / "script.py"
-    script.write_text(code["code"])
+    script.write_text(code["code"], encoding="utf-8")
     wrapper = run_dir / "run.py"
     wrapper.write_text(textwrap.dedent(f"""
         import runpy
@@ -282,7 +282,7 @@ def test_tool_get_code_end_to_end_when_data_without_dates_and_exog_path(
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     script = run_dir / "script.py"
-    script.write_text(code["code"])
+    script.write_text(code["code"], encoding="utf-8")
     wrapper = run_dir / "run.py"
     wrapper.write_text(textwrap.dedent(f"""
         import runpy

@@ -3,6 +3,7 @@
 import re
 import warnings
 
+import dateutil
 import numpy as np
 import pandas as pd
 import pytest
@@ -887,6 +888,12 @@ def test_validate_future_exog_UserWarning_when_infinite_values_and_lightgbm():
             exog_dst.tz_convert("dateutil/Europe/Madrid"),
             data_dst, profile_dst, plan_dst,
             id="same_time_zone_other_name",
+            # pandas 2.3 cannot localize the time zones of python-dateutil
+            # 3.0 (pandas#71459, fixed only in pandas 3).
+            marks=pytest.mark.skipif(
+                int(dateutil.__version__.split(".")[0]) >= 3,
+                reason="pandas 2.3 does not support the time zones of dateutil 3",
+            ),
         ),
         pytest.param(
             pd.DataFrame(
