@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<!--
+  Copyright (c) 2021-present Joaquín Amat Rodrigo and Javier Escobar Ortiz.
+  Part of the skforecast-ai documentation, licensed under CC BY-NC-SA 4.0
+  (https://creativecommons.org/licenses/by-nc-sa/4.0/). It is not covered by the
+  license of the skforecast-ai software.
+  The skforecast trademark and logo are registered with the EUIPO (application
+  number 019109684) and may not be used without permission.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deterministic first, LLM second</title>
+<meta name="description" content="Animated explanation of how skforecast-ai splits the work between deterministic code and an optional LLM: the data is profiled and planned with rules on your machine, the LLM only sees the profile and the plan, its suggestions are validated before they enter the plan, forecast() runs the script it returns, and ask() explains the result without changing it.">
+<link rel="stylesheet" href="skf-anim.css">
+</head>
+<body>
+<div class="skf-anim"></div>
+<script src="skf-anim.js"></script>
+<script src="deterministic-first-data.js"></script>
+<script>
+(function(){
+"use strict";
+const {cl, ease, lin, P, lerp, r2, V, pulse, mw, text, rect, line, circle, path, polyline, arrow, header} = SkfAnim;
+
+/* ------------------------------------------------------------------ data */
+// Real skforecast-ai outputs on the last 2,000 hours of bike_sharing, written by
+// tools/docs/home_page/generate_home_data.py: the profile, the deterministic plan,
+// the lags an LLM suggested with refine_plan(), the forecast of the refined plan
+// on 36 held-out hours, and the message of the validation that rejects a longer
+// lag. The question and the answer of ask() are written here (see ANSWER).
+const D = window.DETERMINISTIC_FIRST_DATA;
+if (!D){
+  document.querySelector('.skf-anim').textContent =
+    'Missing deterministic-first-data.js: run tools/docs/home_page/generate_home_data.py.';
+  return;
+}
+const WEEK = D.history, LAST = D.history.slice(-72);
+// Fewer rows, so they can be read at the size the page shows the animation.
+const PROFILE_ROWS = D.profile.filter(([k]) => k !== 'missing values');
+const PLAN_ROWS = D.plan.filter(([k]) => k !== 'metric');
+const LAGS_ROW = PLAN_ROWS.findIndex(([k]) => k === 'lags');
+const WINDOWS_ROW = PLAN_ROWS.findIndex(([k]) => k === 'windows');
+const REFINES_WINDOWS = D.refined.fields.includes('window_features');
+const FIELDS_LABEL = D.refined.fields.map(f => f === 'window_features' ? 'windows' : f).join(' + ');
+const PCT = Math.round(100*D.rejected.max/D.rejected.n_obs);
+
+// A list of lags in at most `max` characters: the first and last lags are kept
+// and the middle is elided.
+function fmtLags(lags, max, open = '[', close = ']'){
+  const s = open + lags.join(', ') + close;
+  if (s.length <= max) return s;
+  for (let head = lags.length - 2; head >= 1; head--){
+    for (const tail of [2, 1]){
+      if (head + tail >= lags.length) continue;
+      const c = open + lags.slice(0, head).concat(['...'], lags.slice(-tail)).join(', ') + close;
+      if (c.length <= max) return c;
+    }
+  }
+  return open + [lags[0], '...', lags[lags.length - 1]].join(', ') + close;
+}
+// 'lags = ' plus the list fits the 31 characters of the LLM box
+const BAD = 'lags = ' + fmtLags(D.rejected.lags, 24);
+const GOOD = 'lags = ' + fmtLags(D.refined.lags, 24);
+const GOOD_ROW = fmtLags(D.refined.lags, 20, '', '');
+
+// The answer of ask() is written by hand: the animation shows what kind of answer
+// to expect, not the exact words of a model. Its numbers come from the data; its
+// last sentence describes this forecast (all of its large errors are the peaks of
+// the second day, which it underestimates), so review it if the data changes.
+const ASK_PROMPT = 'Is this forecast good? Answer in two short sentences.';
+const ANSWER = (D.metrics.mase < 1
+  ? `Yes. Its MASE of ${D.metrics.mase.toFixed(2)} is below 1, so it beats the naive forecast, `
+  : `Not yet. Its MASE of ${D.metrics.mase.toFixed(2)} is not below 1, so it does not beat the naive forecast, `) +
+  `with an average error of ${Math.round(D.metrics.mae)} users per hour. ` +
+  'Most of that error comes from the peaks of the second day, which it underestimates.';
+
+const CODE = [
+  [`forecaster = ${D.plan[0][1]}(`, 'fg'],
+  [`    estimator       = ${D.plan[1][1]}(...),`, 'fg'],
+  [`    lags            = ${fmtLags(D.refined.lags, 22)},`, 'llm'],
+  ['    window_features = window_features,', REFINES_WINDOWS ? 'llm' : 'fg'],
+  [')', 'fg'],
+  ['forecaster.fit(y=..., exog=...)', 'fg'],
+  ['predictions = forecaster.predict_interval(...)', 'fg']
+];
+
+/* -------------------------------------------------------------- timeline */
+const T = {
+  machine:[0.2,0.8], data:[0.4,1.0], draw:[0.8,3.0],
+  a1:[3.2,3.8], prof:[3.6,4.2], scan:[4.2,7.4], profRow:4.4, profStep:.6, chipDur:.7,
+  a2:[9.6,10.2], plan:[10.0,10.6], planRow:10.8, planStep:.7, badge:[14.6,15.2],
+  llm:[17.0,17.6], prompt:[17.3,17.9], llmBox:[18.0,18.6], fly:18.8, flyDur:1.3, lock:[18.8,19.4],
+  resp1:[21.0,21.8], go1:[22.0,23.0], red:[23.0,24.6], back1:[23.4,24.3], err:[23.2,26.8],
+  resp2:[25.0,25.8], go2:[26.0,27.0], green:[27.0,28.6], into:[27.2,28.2], swap:[28.0,28.5], ok:[27.2,99],
+  fallback:[28.8,29.4],
+  a3:[33.2,33.9], fcCard:[33.6,34.2], hist:[34.0,35.0], fc:[35.0,36.8], actual:[36.8,37.6], metrics:[37.4,38.0],
+  a4:[38.6,39.3], code:[39.0,39.6], codeRow:39.6, codeStep:.2, codeHi:[41.4,42.0],
+  refineOut:[43.0,43.5], askPrompt:[43.4,44.0], resFly:[44.2,45.5], answer:[46.2,46.6], typing:[46.6,52.0],
+  fadeOut:[59.2,60.0], total:60.0
+};
+const CAPTIONS = [
+  [0.0, 3.8, 'skforecast-ai starts from your data, on your machine.'],
+  [3.8, 9.5, 'profile() inspects the data and keeps summary statistics: frequency, size, exogenous variables, autocorrelation.'],
+  [9.5, 17.0,'plan() turns the profile into decisions with deterministic rules: same data, same plan, no LLM.'],
+  [17.0,20.5,'Optional: refine_plan() with a prompt asks an LLM to suggest lags and window features.'],
+  [20.5,24.6,'Only the profile and the plan reach the LLM: summary statistics, never the data.'],
+  [24.6,28.6,'Every suggestion must pass the checks of a manual override. A rejected one goes back with the reason.'],
+  [28.6,33.0,'A valid suggestion enters the plan. If 3 attempts fail, refine_plan() warns and keeps the deterministic plan.'],
+  [33.0,38.4,'forecast() renders the plan as a skforecast script, runs it and evaluates it on 36 held-out hours.'],
+  [38.4,43.0,'The script comes back as result.code, the one forecast_code() returns: the code you see is the code that ran.'],
+  [43.0,47.0,'Optional: ask() explains a result. The LLM reads its profile, plan, predictions and metrics, never your data.'],
+  [47.0,99,  'The LLM explains the forecast; it never changes it.']
+];
+const STEPPER = [['Profile',0,9.5],['Plan',9.5,17.0],['LLM refinement',17.0,33.0],['Run',33.0,43.0],['Ask',43.0,99]];
+
+/* ---------------------------------------------------------------- layout */
+const MX0 = 30, MY0 = 124, MX1 = 900, MY1 = 690;             // your machine
+const TOP = 166, BOT = 376;                                   // first row of cards
+const DX0 = 50, DX1 = 280, RX0 = 312, RX1 = 530, NX0 = 562, NX1 = 850;
+const rowY = i => 252 + i*32;
+const GX = MX1, GY = rowY(LAGS_ROW) - 5, GW = 78, GH = 44;   // validation gate
+const LX0 = 960, LX1 = 1240, LY0 = 278, LY1 = 436;           // LLM
+const PY0 = 158, PY1 = 264;                                   // call and prompt, above the LLM
+const CX0 = 50, CX1 = 440, FX0 = 470, FX1 = 880, BY0 = 420, BY1 = 672;   // code, forecast
+
+// chart in the data card: the last week before the forecast
+const dataPt = (v, i) => [DX0 + 16 + i*(DX1 - DX0 - 32)/(WEEK.length - 1), BOT - 16 - v/280*118];
+// chart in the forecast card: the last 3 days and the 36 held-out hours
+const NF = LAST.length + D.pred.length;
+const fcX = i => FX0 + 18 + i*(FX1 - FX0 - 36)/(NF - 1);
+const fcY = v => BY1 - 18 - v/330*130;
+
+/* ------------------------------------------------------------- helpers */
+function card(o, x0, y0, x1, y1, title, sub, op, mono = true){
+  o.push(rect(x0, y0, x1 - x0, y1 - y0, {rx:12, fill:V('panel'), stroke:V('border'), op}));
+  o.push(text(x0 + 16, y0 + 28, title, {size:17, weight:700, cls: mono ? 'm' : 's', op}));
+  o.push(text(x0 + 16, y0 + 49, sub, {size:13, cls: mono ? 'm' : 's', fill:V('muted'), op}));
+}
+function vArrow(o, x0, y0, x1, y1, p, color, op = 1){
+  if (p <= 0 || op <= 0) return;
+  const b = (y1 - y0)*.5, dir = y1 > y0 ? 1 : -1;
+  const d = `M${r2(x0)} ${r2(y0)} C${r2(x0)} ${r2(y0 + b)} ${r2(x1)} ${r2(y1 - b)} ${r2(x1)} ${r2(y1)}`;
+  o.push(`<path d="${d}" pathLength="1" style="fill:none;stroke:${color};stroke-width:2;stroke-dasharray:${r2(p)} 1;stroke-linecap:round" opacity="${r2(op)}"/>`);
+  if (p > .96) o.push(path(`M${r2(x1)} ${r2(y1 + dir)} l-5 ${-dir*9} h10 z`, {fill:color, op:op*lin(p, .96, 1)}));
+}
+function pill(o, x, y, s, fill, op = 1, size = 12.5){
+  const w = mw(s, size, 700, 'm') + 16;
+  o.push(rect(x - w/2, y - 11, w, 22, {rx:11, fill, op}));
+  o.push(text(x, y + 4.5, s, {size, cls:'m', weight:700, anchor:'middle', fill:V('chip'), op}));
+}
+// What the LLM reads: the same chip flies to the LLM box and stays there.
+const chipW = s => mw(s, 12.5, 700, 'm') + 20;
+function llmChip(o, cx, cy, s, op){
+  const w = chipW(s);
+  o.push(rect(cx - w/2, cy - 11, w, 22, {rx:11, fill:V('panel'), stroke:V('llm'), sw:1.2, op}));
+  o.push(text(cx, cy + 4.5, s, {size:12.5, cls:'m', weight:700, anchor:'middle', fill:V('llm'), op}));
+}
+// Center of the chip `k` of `names` in the row "reads" of the LLM box.
+const READ_Y = LY0 + 70;
+function readX(names, k){
+  let x = LX0 + 70;
+  for (let j = 0; j < k; j++) x += chipW(names[j]) + 10;
+  return x + chipW(names[k])/2;
+}
+function lockIcon(o, x, y, op, color = V('muted')){
+  o.push(rect(x, y + 6, 13, 10, {rx:2, fill:color, op}));
+  o.push(path(`M${x + 3} ${y + 6} v-3 a3.5 3.5 0 0 1 7 0 v3`, {stroke:color, sw:1.8, op}));
+}
+const quad = (a, c, b, q) => [(1-q)*(1-q)*a[0] + 2*(1-q)*q*c[0] + q*q*b[0], (1-q)*(1-q)*a[1] + 2*(1-q)*q*c[1] + q*q*b[1]];
+const typed = (s, t, a, b) => s.slice(0, Math.round(lin(t, a, b)*s.length));
+// Greedy word wrap to `width` pixels.
+function wrap(s, width, size, weight = 400, cls = 's'){
+  const lines = []; let cur = '';
+  for (const w of s.split(/\s+/)){
+    const next = cur ? cur + ' ' + w : w;
+    if (cur && mw(next, size, weight, cls) > width){ lines.push(cur); cur = w; } else cur = next;
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+
+/* ----------------------------------------------------------------- scenes */
+function machine(t, o){
+  const a = P(t, ...T.machine);
+  o.push(rect(MX0, MY0, MX1 - MX0, MY1 - MY0, {rx:18, stroke:V('faint'), sw:1.5, dash:'6 6', op:a}));
+  lockIcon(o, MX0 + 18, MY0 + 12, a);
+  o.push(text(MX0 + 40, MY0 + 27, 'Your machine', {size:14, weight:700, fill:V('muted'), op:a}));
+}
+
+function dataCard(t, o){
+  const a = P(t, ...T.data);
+  if (a <= 0) return;
+  card(o, DX0, TOP, DX1, BOT, 'data', 'bike_sharing, users per hour', a, false);
+  o.push(line(DX0 + 14, BOT - 15, DX1 - 14, BOT - 15, {op:a}));
+  o.push(path(polyline(WEEK.map(dataPt), P(t, ...T.draw)), {stroke:V('series'), sw:1.4, op:a}));
+  // profiling scans the series
+  const sp = lin(t, ...T.scan), sa = pulse(sp, .5, .5)*(t < T.scan[1] ? 1 : 0);
+  if (sa > 0){
+    const x = lerp(DX0 + 16, DX1 - 16, sp);
+    o.push(rect(DX0 + 16, TOP + 62, x - DX0 - 16, BOT - TOP - 78, {fill:V('lag'), fo:.08, op:Math.min(1, sa*3)}));
+    o.push(line(x, TOP + 62, x, BOT - 16, {stroke:V('lag'), sw:2, op:Math.min(1, sa*3)}));
+  }
+  // the data never leaves the machine
+  const la = P(t, ...T.lock);
+  lockIcon(o, DX0 + 2, BOT + 12, la, V('ok'));
+  o.push(text(DX0 + 22, BOT + 27, 'never leaves your machine', {size:14, weight:700, fill:V('ok'), op:la}));
+}
+
+function profileCard(t, o){
+  const a = P(t, ...T.prof);
+  if (a <= 0) return;
+  card(o, RX0, TOP, RX1, BOT, 'profile()', 'ForecastingProfile', a);
+  PROFILE_ROWS.forEach(([lab, val], i) => {
+    const s = T.profRow + i*T.profStep, q = lin(t, s, s + T.chipDur), y = rowY(i);
+    const ra = P(t, s - .2, s + .2)*a;
+    o.push(text(RX0 + 16, y, lab, {size:14, fill:V('muted'), op:ra}));
+    o.push(text(RX1 - 16, y, val, {size:14, cls:'m', weight:700, anchor:'end', op:a*lin(q, .85, 1)}));
+    if (q > 0 && q < 1){
+      const e = ease(q), w = mw(val, 12.5, 700, 'm') + 16;
+      const x = lerp(DX0 + 40 + i*44, RX1 - 16 - w/2 + 8, e), yy = lerp(TOP + 120 + (i % 2)*40, y - 5, e) - 26*Math.sin(Math.PI*e);
+      pill(o, x, yy, val, V('lag'), Math.min(1, q*5)*(1 - lin(q, .85, 1)));
+    }
+  });
+}
+
+function planCard(t, o){
+  const a = P(t, ...T.plan);
+  if (a <= 0) return;
+  card(o, NX0, TOP, NX1, BOT, 'plan()', 'ForecastPlan', a);
+  // the badge says where the values come from: rules, then rules and validated LLM values
+  // (the highlighted rows say which ones)
+  const sw = P(t, ...T.swap);
+  [['deterministic rules', 'ok', P(t, ...T.badge)*(1 - sw)], ['rules + validated LLM', 'llm', sw]].forEach(([bs, c, ba]) => {
+    const bw = mw(bs, 12, 700) + 18;
+    o.push(rect(NX1 - 16 - bw, TOP + 12, bw, 22, {rx:11, fill:V(c), fo:.14, op:ba}));
+    o.push(text(NX1 - 16 - bw/2, TOP + 27.5, bs, {size:12, weight:700, anchor:'middle', fill:V(c), op:ba}));
+  });
+  PLAN_ROWS.forEach(([lab, val], i) => {
+    const s = T.planRow + i*T.planStep, ra = P(t, s, s + .4)*a, y = rowY(i), dx = 12*(1 - ra);
+    const refined = i === LAGS_ROW ? GOOD_ROW : i === WINDOWS_ROW && REFINES_WINDOWS ? D.refined.windows : null;
+    if (refined !== null && sw > 0){
+      o.push(rect(NX0 + 8, y - 19, NX1 - NX0 - 16, 27, {rx:6, fill:V('llm'), fo:.1, op:sw}));
+    }
+    o.push(text(NX0 + 16 + dx, y, lab, {size:14, fill:V('muted'), op:ra}));
+    if (refined !== null){
+      o.push(text(NX1 - 16 + dx, y, val, {size:14, weight:700, anchor:'end', op:ra*(1 - sw)}));
+      o.push(text(NX1 - 16, y, refined, {size:14, weight:700, anchor:'end', fill:V('llm'), op:sw}));
+    } else {
+      o.push(text(NX1 - 16 + dx, y, val, {size:14, weight:700, anchor:'end', op:ra}));
+    }
+  });
+}
+
+// A call with its prompt: the code in mono type, and the prompt indented on
+// its own lines between the call and the parenthesis that closes it.
+function promptBubble(o, call, prompt, op){
+  if (op <= 0) return;
+  // Regular type: the engine measures text once, and an italic face that loads
+  // late would be measured with the fallback font and overflow the bubble.
+  const lines = wrap(`"${prompt}"`, LX1 - LX0 - 40, 14).slice(0, 2);
+  o.push(rect(LX0, PY0, LX1 - LX0, PY1 - PY0, {rx:10, fill:V('llm'), fo:.07, stroke:V('llm'), so:.4, op}));
+  o.push(text(LX0 + 14, PY0 + 25, call, {size:12.5, cls:'m', weight:700, op}));
+  lines.forEach((s, k) => o.push(text(LX0 + 28, PY0 + 48 + k*20, s, {size:14, fill:V('muted'), op})));
+  o.push(text(LX0 + 14, PY0 + 50 + lines.length*20, ')', {size:12.5, cls:'m', weight:700, op}));
+}
+
+function llmZone(t, o){
+  const a = P(t, ...T.llm);
+  if (a <= 0) return;
+  const k3 = 1 - P(t, ...T.refineOut);        // what belongs to refine_plan() fades when ask() starts
+  o.push(text(LX0, MY0 + 22, 'LLM, optional', {size:14, weight:700, fill:V('llm'), op:a}));
+  promptBubble(o, 'refine_plan(..., prompt=', D.llm.refine_prompt, P(t, ...T.prompt)*k3);
+  promptBubble(o, 'ask(context=result, prompt=', ASK_PROMPT, P(t, ...T.askPrompt));
+  // model: after the call that reaches it
+  const b = P(t, ...T.llmBox);
+  o.push(rect(LX0, LY0, LX1 - LX0, LY1 - LY0, {rx:12, fill:V('panel'), stroke:V('llm'), so:.7, sw:1.5, op:b}));
+  o.push(text(LX0 + 16, LY0 + 32, 'LLM', {size:20, weight:700, fill:V('llm'), op:b}));
+  // what it reads (the cards arrive in traffic())
+  const ra = lin(t, T.fly + T.flyDur - .1, T.fly + T.flyDur + .2);
+  const rr = lin(t, T.resFly[1] - .1, T.resFly[1] + .2);
+  o.push(text(LX0 + 16, READ_Y + 5, 'reads', {size:14, fill:V('muted'), op:Math.max(ra*k3, rr)}));
+  // A chip that lands is replaced in the same frame by the one that stays, at
+  // full opacity: a fade here would show as a blink.
+  ['profile', 'plan'].forEach((s, k) => {
+    const ka = (t >= T.fly + k*.25 + T.flyDur ? 1 : 0)*k3;
+    llmChip(o, readX(['profile', 'plan'], k), READ_Y, s, ka);
+  });
+  llmChip(o, readX(['result'], 0), READ_Y, 'result', t >= T.resFly[1] ? 1 : 0);
+  o.push(text(LX0 + 16, LY0 + 106, 'the profile, the plan,', {size:14, fill:V('muted'), op:rr}));
+  o.push(text(LX0 + 16, LY0 + 126, 'its predictions and metrics', {size:14, fill:V('muted'), op:rr}));
+  // what it suggests
+  const r1 = lin(t, T.resp1[0], T.resp1[0] + .2)*(1 - lin(t, T.resp2[0] - .4, T.resp2[0]));
+  const r2a = lin(t, T.resp2[0], T.resp2[0] + .2)*k3;
+  o.push(text(LX0 + 16, LY0 + 110, 'suggests', {size:14, fill:V('muted'), op:Math.max(r1, r2a)}));
+  o.push(text(LX1 - 16, LY0 + 110, 'attempt 1 of 3', {size:13, anchor:'end', fill:V('muted'), op:r1}));
+  o.push(text(LX1 - 16, LY0 + 110, 'attempt 2 of 3', {size:13, anchor:'end', fill:V('muted'), op:r2a}));
+  o.push(text(LX0 + 16, LY0 + 138, typed(BAD, t, ...T.resp1), {size:13, cls:'m', weight:700, fill:V('llm'), op:r1}));
+  o.push(text(LX0 + 16, LY0 + 138, typed(GOOD, t, ...T.resp2), {size:13, cls:'m', weight:700, fill:V('llm'), op:r2a}));
+  // validation messages
+  const ea = P(t, T.err[0], T.err[0] + .3)*(1 - P(t, T.err[1] - .3, T.err[1]));
+  o.push(text(LX0, LY1 + 28, `Rejected: lags up to ${D.rejected.span} exceed`, {size:14, weight:700, fill:V('err'), op:ea}));
+  o.push(text(LX0, LY1 + 48, `the maximum of ${D.rejected.max} (${PCT}% of ${D.rejected.n_obs.toLocaleString('en')}).`, {size:14, weight:700, fill:V('err'), op:ea}));
+  o.push(text(LX0, LY1 + 72, 'Sent back to the LLM with the reason.', {size:14, fill:V('muted'), op:ea}));
+  const oa = P(t, T.ok[0], T.ok[0] + .3)*k3;
+  o.push(text(LX0, LY1 + 28, 'Accepted: it passes the same', {size:14, weight:700, fill:V('ok'), op:oa}));
+  o.push(text(LX0, LY1 + 48, 'checks as a manual override.', {size:14, weight:700, fill:V('ok'), op:oa}));
+  const fa = P(t, ...T.fallback)*k3;
+  o.push(text(LX0, LY1 + 76, 'If 3 attempts fail: a warning, and', {size:14, cls:'i', fill:V('muted'), op:fa}));
+  o.push(text(LX0, LY1 + 96, 'the deterministic plan is kept.', {size:14, cls:'i', fill:V('muted'), op:fa}));
+  // the answer of ask()
+  const aa = P(t, ...T.answer);
+  if (aa > 0){
+    const lines = wrap(ANSWER, LX1 - LX0 - 28, 14.5), total = lines.join(' ').length;
+    const shown = Math.round(lin(t, ...T.typing)*total);
+    const h = 50 + lines.length*21;
+    o.push(rect(LX0, LY1 + 16, LX1 - LX0, h, {rx:12, fill:V('llm'), fo:.07, stroke:V('llm'), so:.4, op:aa}));
+    o.push(text(LX0 + 14, LY1 + 40, 'answers', {size:13, fill:V('muted'), op:aa}));
+    let used = 0;
+    lines.forEach((s, k) => {
+      const n = cl(shown - used, 0, s.length); used += s.length + 1;
+      if (n > 0) o.push(text(LX0 + 14, LY1 + 66 + k*21, s.slice(0, n), {size:14.5, op:aa}));
+    });
+  }
+}
+
+function gate(t, o){
+  const a = P(t, ...T.llmBox)*(1 - .6*P(t, ...T.refineOut));
+  if (a <= 0) return;
+  const red = P(t, T.red[0], T.red[0] + .15)*(1 - P(t, T.red[1] - .4, T.red[1]));
+  const green = P(t, T.green[0], T.green[0] + .15)*(1 - P(t, T.green[1] - .4, T.green[1]));
+  const x = GX - GW/2, y = GY - GH/2;
+  // the fill always hides the dashed border of the machine behind the gate
+  o.push(rect(x, y, GW, GH, {rx:10, fill:V('bg')}));
+  o.push(rect(x, y, GW, GH, {rx:10, stroke:V('border'), sw:1.5, op:a}));
+  o.push(rect(x, y, GW, GH, {rx:10, fill:V('err'), fo:.14, stroke:V('err'), sw:2, op:red}));
+  o.push(rect(x, y, GW, GH, {rx:10, fill:V('ok'), fo:.14, stroke:V('ok'), sw:2, op:green}));
+  o.push(text(GX, GY + 5, 'validate', {size:14, weight:700, anchor:'middle', op:a*(1 - Math.max(red, green))}));
+  o.push(text(GX, GY + 5, 'rejected', {size:14, weight:700, anchor:'middle', fill:V('err'), op:red}));
+  o.push(text(GX, GY + 5, 'valid', {size:14, weight:700, anchor:'middle', fill:V('ok'), op:green}));
+}
+
+function traffic(t, o){
+  // the profile and the plan travel to the LLM, the data stays
+  // (they land on the chips that llmZone() keeps in the LLM box)
+  [[(RX0 + RX1)/2, 'profile'], [(NX0 + NX1)/2, 'plan']].forEach(([sx, s], k) => {
+    const q = lin(t, T.fly + k*.25, T.fly + k*.25 + T.flyDur);
+    if (q <= 0 || q >= 1) return;
+    const ex = readX(['profile', 'plan'], k);
+    const [x, y] = quad([sx, TOP], [(sx + ex)/2, 60], [ex, READ_Y], ease(q));
+    llmChip(o, x, y, s, Math.min(1, q*6));
+  });
+  // each suggestion travels to the gate
+  const from = [LX0 + 60, LY0 + 134], ctrl = [LX0 - 20, LY0 + 134], to = [GX + GW/2 + 24, GY];
+  const g1 = lin(t, ...T.go1), b1 = lin(t, ...T.back1);
+  if (g1 > 0 && b1 < 1){
+    const q = b1 > 0 ? 1 - ease(b1) : ease(g1), [x, y] = quad(from, ctrl, to, q);
+    const shake = 3*Math.sin(t*50)*pulse(t, T.red[0] + .2, .25);
+    const rc = lin(t, T.red[0], T.red[0] + .1);
+    pill(o, x + shake, y, 'lags', V('llm'), Math.min(1, g1*6)*(1 - rc));
+    pill(o, x + shake, y, 'lags', V('err'), rc*(1 - lin(b1, .6, 1)));
+  }
+  const g2 = lin(t, ...T.go2), i2 = lin(t, ...T.into);
+  if (g2 > 0 && i2 < 1){
+    let x, y;
+    if (i2 <= 0) [x, y] = quad(from, ctrl, to, ease(g2));
+    else { x = lerp(to[0], NX1 - 80, ease(i2)); y = lerp(GY, rowY(LAGS_ROW) - 5, ease(i2)); }
+    const gc = lin(t, T.green[0], T.green[0] + .1);
+    pill(o, x, y, FIELDS_LABEL, V('llm'), Math.min(1, g2*6)*(1 - gc));
+    pill(o, x, y, FIELDS_LABEL, V('ok'), gc*(1 - lin(i2, .7, 1)));
+  }
+  // ask(): the result, not the data, travels to the LLM
+  const q = lin(t, ...T.resFly);
+  if (q > 0 && q < 1){
+    const ex = readX(['result'], 0);
+    const [x, y] = quad([FX1 - 60, BY0 + 10], [960, BY0 + 10], [ex, READ_Y], ease(q));
+    llmChip(o, x, y, 'result', Math.min(1, q*6));
+  }
+}
+
+function forecastCard(t, o){
+  const a = P(t, ...T.fcCard);
+  if (a <= 0) return;
+  card(o, FX0, BY0, FX1, BY1, 'forecast()', 'on 36 held-out hours', a);
+  const ma = P(t, ...T.metrics);
+  o.push(text(FX1 - 16, BY0 + 28, `MASE ${D.metrics.mase.toFixed(2)}`, {size:15, cls:'m', weight:700, anchor:'end', op:ma}));
+  o.push(text(FX1 - 16, BY0 + 49, `MAE ${D.metrics.mae.toFixed(1)}`, {size:13, cls:'m', anchor:'end', fill:V('muted'), op:ma}));
+  const x0 = fcX(LAST.length - 1), y0 = fcY(LAST[LAST.length - 1]);
+  o.push(line(FX0 + 16, BY1 - 17, FX1 - 16, BY1 - 17, {op:a}));
+  o.push(path(polyline(LAST.map((v, i) => [fcX(i), fcY(v)]), P(t, ...T.hist)), {stroke:V('series'), sw:1.6, op:a}));
+  const fp = lin(t, ...T.fc);
+  if (fp <= 0) return;
+  o.push(line(x0, BY0 + 64, x0, BY1 - 17, {stroke:V('faint'), dash:'4 4', op:lin(fp, 0, .15)}));
+  o.push(text(x0 + 8, BY0 + 78, '36-hour forecast', {size:13, weight:700, fill:V('targetText'), op:lin(fp, 0, .2)}));
+  const n = Math.max(1, Math.ceil(fp*D.pred.length));
+  const up = [[x0, y0]], dn = [];
+  for (let h = 0; h < n; h++){ up.push([fcX(LAST.length + h), fcY(D.hi[h])]); dn.unshift([fcX(LAST.length + h), fcY(D.lo[h])]); }
+  o.push(path('M' + up.concat(dn).map(p => `${r2(p[0])} ${r2(p[1])}`).join(' L') + ' Z', {fill:V('target'), op:.18*lin(fp, 0, .15)}));
+  const pts = [[x0, y0]].concat(D.pred.map((v, h) => [fcX(LAST.length + h), fcY(v)]));
+  o.push(path(polyline(pts, fp), {stroke:V('target'), sw:2.2}));
+  // the held-out hours, to compare
+  const ap = lin(t, ...T.actual);
+  const act = [[x0, y0]].concat(D.actual.map((v, h) => [fcX(LAST.length + h), fcY(v)]));
+  o.push(path(polyline(act, ap), {stroke:V('series'), sw:1.3, dash:'3 3', op:.8}));
+  o.push(line(x0 + 8, BY0 + 94, x0 + 24, BY0 + 94, {stroke:V('series'), sw:1.3, dash:'3 3', op:lin(ap, 0, .3)}));
+  o.push(text(x0 + 30, BY0 + 98, 'actual values', {size:13, fill:V('muted'), op:lin(ap, 0, .3)}));
+}
+
+function codeCard(t, o){
+  const a = P(t, ...T.code);
+  if (a <= 0) return;
+  card(o, CX0, BY0, CX1, BY1, 'result.code', 'the script that ran', a);
+  const ha = P(t, ...T.codeHi);
+  CODE.forEach(([s, c], i) => {
+    const y = BY0 + 86 + i*25, ca = P(t, T.codeRow + i*T.codeStep, T.codeRow + i*T.codeStep + .3)*a;
+    if (c === 'llm') o.push(rect(CX0 + 10, y - 17, CX1 - CX0 - 20, 24, {rx:5, fill:V('llm'), fo:.1, op:ha}));
+    const fill = c === 'muted' ? V('muted') : c === 'llm' ? `color-mix(in srgb, ${V('llm')} ${Math.round(100*ha)}%, ${V('fg')})` : V('fg');
+    o.push(text(CX0 + 16, y, s, {size:12.5, cls:'m', fill, op:ca}));
+  });
+}
+
+function arrows(t, o){
+  const c = V('muted');
+  arrow(o, DX1 + 4, (TOP + BOT)/2, RX0 - 4, (TOP + BOT)/2, P(t, ...T.a1), c, 1, 10);
+  arrow(o, RX1 + 4, (TOP + BOT)/2, NX0 - 4, (TOP + BOT)/2, P(t, ...T.a2), c, 1, 10);
+  vArrow(o, (NX0 + NX1)/2, BOT + 4, (FX0 + FX1)/2, BY0 - 4, P(t, ...T.a3), c);
+  arrow(o, FX0 - 4, (BY0 + BY1)/2, CX1 + 4, (BY0 + BY1)/2, P(t, ...T.a4), c, 1, 10);
+}
+
+/* ---------------------------------------------------------------- run */
+SkfAnim.run({
+  title: 'Deterministic first, LLM second',
+  desc: `The bike_sharing series (${D.rejected.n_obs.toLocaleString('en')} hourly observations) stays on your machine. ` +
+        'profile() inspects it and keeps summary statistics: frequency, size, exogenous variables, missing values ' +
+        'and the strongest PACF lags. plan() turns the profile into decisions with deterministic rules: ' +
+        D.plan.map(([k, v]) => `${k} ${v}`).join(', ') + '. ' +
+        `Optionally, refine_plan() with the prompt "${D.llm.refine_prompt}" sends the profile and the plan, never ` +
+        `the data, to an LLM. A suggestion that spans ${D.rejected.span} observations is rejected, because the ` +
+        `maximum is ${D.rejected.max} (${PCT}% of the series), and it goes back to the LLM with the reason; the ` +
+        `suggestion lags = [${D.refined.lags.join(', ')}] passes the same checks as a manual override and enters ` +
+        'the plan. If 3 attempts fail, a warning is emitted and the deterministic plan is kept. forecast() renders ' +
+        'the plan as a skforecast script, runs it and evaluates it on 36 held-out hours ' +
+        `(MAE ${D.metrics.mae}, MASE ${D.metrics.mase}), and returns the script with the results, the same one ` +
+        'forecast_code() returns. Finally, ask() sends the profile, the plan, the predictions and the metrics of the result to the LLM with ' +
+        `the question "${ASK_PROMPT}", and the LLM answers: "${ANSWER}"`,
+  total: T.total,
+  height: 720,
+  still: 56,
+  fadeOut: T.fadeOut,
+  brandUrl: 'ai.skforecast.org',
+  render(t, o){
+    header(t, o, {title:'Deterministic first, LLM second', captions:CAPTIONS, steps:STEPPER});
+    machine(t, o); arrows(t, o);
+    dataCard(t, o); profileCard(t, o); planCard(t, o); forecastCard(t, o); codeCard(t, o);
+    llmZone(t, o); gate(t, o); traffic(t, o);
+  }
+});
+})();
+</script>
+</body>
+</html>

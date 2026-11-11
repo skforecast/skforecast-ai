@@ -1596,7 +1596,7 @@ Every forecast of skforecast-ai runs on
 </div>
 </div>
 </div>
-<p>To install a specific version, pin it (<code>pip install skforecast-ai==0.4.2</code>). The development version, which may be unstable, installs from GitHub:</p>
+<p>To install a specific version, pin it (<code>pip install skforecast-ai==0.5.0</code>). The development version, which may be unstable, installs from GitHub:</p>
 <div class="language-bash highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span>git+https://github.com/skforecast/skforecast-ai@main
 </code></pre></div>
 <p>To work on the code, see the <a href="https://github.com/skforecast/skforecast-ai/blob/main/CONTRIBUTING.md">Contribution Guide</a>.</p>
@@ -1611,8 +1611,11 @@ Every forecast of skforecast-ai runs on
 <span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">metrics</span><span class="p">)</span>
 </code></pre></div>
 <p>If the installation works, it prints one row of metrics:</p>
-<div class="language-text highlight"><pre><span></span><code>  series       MAE       MSE      MASE      MAPE
-0      y  0.078442  0.008933  0.802828  0.088608
+<div class="language-text highlight"><pre><span></span><code>   mean_absolute_error  root_mean_squared_error  mean_absolute_scaled_error  \
+0             0.078442                 0.094514                    0.802828
+
+   mean_absolute_percentage_error
+0                        0.088608
 </code></pre></div>
 <p>The command line interface is installed with the package:</p>
 <div class="language-bash highlight"><pre><span></span><code>skforecast-ai<span class="w"> </span>--version
@@ -1662,6 +1665,7 @@ skforecast-ai<span class="w"> </span>check-llm<span class="w"> </span>--llm<span
 </table>
 <p>The core dependencies (skforecast, pandas, pydantic, statsmodels, typer and rich) are listed with their versions on <a href="https://pypi.org/project/skforecast-ai/">PyPI</a>.</p>
 <p>Without the <code>foundation</code> extra, <code>compare()</code> leaves <code>ForecasterFoundation</code> out of the automatic candidates with a <code>MissingBackendWarning</code>. Other foundation models (TimesFM, Moirai, TabICL, ...) need their own backend; skforecast names the package to install when it is missing.</p>
+<p>No extra installs XGBoost or CatBoost: <code>plan()</code> accepts <code>XGBRegressor</code> and <code>CatBoostRegressor</code> and warns with a <code>MissingBackendWarning</code> when their package is missing (<code>pip install xgboost</code> or <code>pip install catboost</code>), and <code>compare()</code> with several series leaves <code>XGBRegressor</code> out of the automatic candidates in that case.</p>
 <div class="admonition note">
 <p class="admonition-title">Groq</p>
 <p>The <code>groq</code> extra (<code>pip install "skforecast-ai[groq]"</code>) is kept for backwards compatibility. Groq support is already included in the <code>llm</code> extra.</p>

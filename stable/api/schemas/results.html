@@ -2317,6 +2317,195 @@ Every forecast of skforecast-ai runs on
 </li>
         
           <li class="md-nav__item">
+  <a href="#skforecast_ai.schemas.results.CandidateCost" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CandidateCost
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="CandidateCost">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#skforecast_ai.schemas.results.CandidateCost-attributes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Attributes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Attributes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#skforecast_ai.schemas.results.CandidateCost.model_config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        model_config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#skforecast_ai.schemas.results.CandidateCost.forecaster" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        forecaster
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#skforecast_ai.schemas.results.CandidateCost.n_fits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        n_fits
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#skforecast_ai.schemas.results.CandidateCost.estimator_fits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        estimator_fits
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#skforecast_ai.schemas.results.CandidateCost.inference_windows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        inference_windows
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#skforecast_ai.schemas.results.ComparisonCost" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ComparisonCost
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ComparisonCost">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#skforecast_ai.schemas.results.ComparisonCost-attributes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Attributes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Attributes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#skforecast_ai.schemas.results.ComparisonCost.model_config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        model_config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#skforecast_ai.schemas.results.ComparisonCost.n_folds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        n_folds
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#skforecast_ai.schemas.results.ComparisonCost.candidates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        candidates
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#skforecast_ai.schemas.results.ComparisonCost.n_fits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        n_fits
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#skforecast_ai.schemas.results.ComparisonCost.estimator_fits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        estimator_fits
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#skforecast_ai.schemas.results.ComparisonCost.inference_windows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        inference_windows
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#skforecast_ai.schemas.results.ComparisonResult" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2488,6 +2677,17 @@ Every forecast of skforecast-ai runs on
     <span class="md-ellipsis">
       
         strategy_plan_name
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#skforecast_ai.schemas.results.ComparisonResult.cost" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        cost
       
     </span>
   </a>
@@ -2981,7 +3181,7 @@ Every forecast of skforecast-ai runs on
 </tbody>
 </table>
 <p>Every result renders itself in a notebook and serializes to JSON, and all of them except <code>AskResult</code> and <code>LLMCheckResult</code> can be the <code>context</code> of <code>ask()</code>. Every result that <code>ask()</code> accepts, plus <code>ForecastingProfile</code>, also describes itself in plain text with <a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-function-name&quot;&gt;skforecast_ai.schemas.explainable.ExplainableResult.describe&lt;/span&gt;" href="#skforecast_ai.schemas.explainable.ExplainableResult.describe"><code>describe()</code></a>, without an LLM: the text is the context <code>ask()</code> sends about it, with the predictions summarized instead of listed row by row, without the instructions addressed to the LLM and with its lists cut when there are many series.</p>
-<p><code>compare()</code> also sends a <a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;CompareProgress&lt;/span&gt;" href="#skforecast_ai.schemas.results.CompareProgress"><code>CompareProgress</code></a> to its <code>progress_callback</code> when each candidate starts and ends.</p>
+<p><code>compare()</code> also sends a <a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;CompareProgress&lt;/span&gt;" href="#skforecast_ai.schemas.results.CompareProgress"><code>CompareProgress</code></a> to its <code>progress_callback</code> when each candidate starts and ends. Its result keeps the cost of the comparison, counted once the plans of the candidates are built and before any of them runs (a candidate whose plan cannot be built, or that fails the checks <code>backtest()</code> makes before running, runs nothing and is not counted), in a <a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;ComparisonCost&lt;/span&gt;" href="#skforecast_ai.schemas.results.ComparisonCost"><code>ComparisonCost</code></a> with a <a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;CandidateCost&lt;/span&gt;" href="#skforecast_ai.schemas.results.CandidateCost"><code>CandidateCost</code></a> per candidate; above the thresholds of an expensive run, <code>compare()</code> raises <code>CostNotConfirmedError</code> with that cost unless <code>confirm_cost</code> confirms it.</p>
 
 
 <div class="doc doc-object doc-module">
@@ -3099,6 +3299,22 @@ Every forecast of skforecast-ai runs on
             <td>
               <div class="doc-md-description">
                 <p>Progress event that <code>compare()</code> passes to its <code>progress_callback</code>.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;CandidateCost&lt;/span&gt; (&lt;code&gt;skforecast_ai.schemas.results.CandidateCost&lt;/code&gt;)" href="#skforecast_ai.schemas.results.CandidateCost">CandidateCost</a></code></td>
+            <td>
+              <div class="doc-md-description">
+                <p>Cost of one candidate of <code>compare()</code> on the shared strategy, counted</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;ComparisonCost&lt;/span&gt; (&lt;code&gt;skforecast_ai.schemas.results.ComparisonCost&lt;/code&gt;)" href="#skforecast_ai.schemas.results.ComparisonCost">ComparisonCost</a></code></td>
+            <td>
+              <div class="doc-md-description">
+                <p>Cost of a comparison: every candidate on the shared strategy, the</p>
               </div>
             </td>
           </tr>
@@ -4321,13 +4537,17 @@ index as a leading column. <code>model_dump()</code> keeps the live DataFrames.<
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Evaluation metrics. DataFrame with a <code>series</code> column and one
-column per metric of <code>plan.metrics_to_compute</code> (by default <code>MAE</code>,
-<code>MSE</code> and <code>MASE</code>, plus <code>MAPE</code> when the target has no values near
-zero). For single-series tasks
-this contains one row; for multi-series tasks one row per level.
-None in prediction mode (<code>test_size=None</code>), where there is no
-ground truth to evaluate against.</p>
+                <p>Evaluation metrics, with the metric columns of a backtest of the
+same plan (without its <code>n_evaluated</code>): one column per metric of
+<code>plan.metrics_to_compute</code>, named as the metric (by default
+<code>mean_absolute_error</code>, <code>root_mean_squared_error</code> and
+<code>mean_absolute_scaled_error</code>, plus <code>mean_absolute_percentage_error</code>
+when the target of no series takes values at or around zero). For
+single-series tasks this contains one row; for multi-series tasks
+one row per series, named in a <code>levels</code> column, which
+ForecasterDirectMultiVariate also has for its one row. None in
+prediction mode (<code>test_size=None</code>), where there is no ground truth
+to evaluate against.</p>
               </div>
             </td>
           </tr>
@@ -4463,7 +4683,8 @@ bound columns are included alongside the point predictions.</p>
                 <p>Resolved <code>TimeSeriesFold</code> parameters plus the resulting <code>n_folds</code>
 and <code>n_fits</code> (trainings), for traceability. For a
 <code>ForecasterFoundation</code> plan, also <code>inference_windows</code>, its cost:
-one forecast per series and fold.</p>
+one forecast per series and fold. When the last fold predicts
+fewer steps than the horizon, also <code>last_fold_steps</code>.</p>
               </div>
             </td>
           </tr>
@@ -4479,7 +4700,10 @@ one forecast per series and fold.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Backtesting metric values returned by skforecast.</p>
+                <p>Backtesting metric values returned by skforecast. The last column,
+<code>n_evaluated</code>, is not a metric: it is the number of points each row
+is measured on (predictions with an observed value), summed in the
+aggregated rows of several series.</p>
               </div>
             </td>
           </tr>
@@ -4495,7 +4719,11 @@ one forecast per series and fold.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Full backtest predictions across all folds.</p>
+                <p>Full backtest predictions across all folds, with the columns of
+skforecast: <code>level</code> (several series), <code>fold</code>, <code>step</code> (the step of
+the horizon of each prediction), <code>y_true</code> (the observed value, from
+the data), <code>pred</code> and the interval bounds. <code>y_true</code> reaches the
+LLM of <code>ask()</code> only with <code>send_data_to_llm=True</code>.</p>
               </div>
             </td>
           </tr>
@@ -4880,7 +5108,8 @@ fold horizon).</p>
                 <p>Resolved <code>TimeSeriesFold</code> parameters plus the resulting <code>n_folds</code>
 and <code>n_fits</code> (trainings). For a <code>ForecasterFoundation</code> plan, also
 <code>inference_windows</code>, its cost: one forecast per series and fold.
-For a <code>ForecasterStats</code> plan, the strategy skforecast runs:
+When the last fold predicts fewer steps than the horizon, also
+<code>last_fold_steps</code>. For a <code>ForecasterStats</code> plan, the strategy skforecast runs:
 <code>refit=True</code> (it refits ARIMA in every fold) and, when <code>cv</code> does
 not refit, <code>fixed_train_size=True</code>.</p>
               </div>
@@ -5406,7 +5635,8 @@ if data was provided.</p>
             <td>
               <div class="doc-md-description">
                 <p>Names of the skill documents sent to the model, after any
-trimming to fit the context budget. Recorded because the budget
+trimming to fit the context budget; a skill sent without its
+references ends with <code>'/SKILL.md'</code>. Recorded because the budget
 depends on the profile and context size at call time, so the
 selection cannot be re-derived from the question alone.</p>
               </div>
@@ -6294,10 +6524,8 @@ serializable.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Class name of the root-cause exception, for example
-<code>'ImportError'</code>. An input error of skforecast-ai is named after the
-built-in class it derives from (<code>'ValueError'</code> for an
-<code>InvalidInputError</code>), as before these errors had their own classes.</p>
+                <p>Class name of the root-cause exception, for example <code>'ImportError'</code>
+or <code>'InvalidInputError'</code>.</p>
               </div>
             </td>
           </tr>
@@ -6584,46 +6812,46 @@ reason rather than the verbose execution-context message.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>skforecast_ai/schemas/results.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">814</span>
-<span class="normal">815</span>
-<span class="normal">816</span>
-<span class="normal">817</span>
-<span class="normal">818</span>
-<span class="normal">819</span>
-<span class="normal">820</span>
-<span class="normal">821</span>
-<span class="normal">822</span>
-<span class="normal">823</span>
-<span class="normal">824</span>
-<span class="normal">825</span>
-<span class="normal">826</span>
-<span class="normal">827</span>
-<span class="normal">828</span>
-<span class="normal">829</span>
-<span class="normal">830</span>
-<span class="normal">831</span>
-<span class="normal">832</span>
-<span class="normal">833</span>
-<span class="normal">834</span>
-<span class="normal">835</span>
-<span class="normal">836</span>
-<span class="normal">837</span>
-<span class="normal">838</span>
-<span class="normal">839</span>
-<span class="normal">840</span>
-<span class="normal">841</span>
-<span class="normal">842</span>
-<span class="normal">843</span>
-<span class="normal">844</span>
-<span class="normal">845</span>
-<span class="normal">846</span>
-<span class="normal">847</span>
-<span class="normal">848</span>
-<span class="normal">849</span>
-<span class="normal">850</span>
-<span class="normal">851</span>
-<span class="normal">852</span>
-<span class="normal">853</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@classmethod</span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">861</span>
+<span class="normal">862</span>
+<span class="normal">863</span>
+<span class="normal">864</span>
+<span class="normal">865</span>
+<span class="normal">866</span>
+<span class="normal">867</span>
+<span class="normal">868</span>
+<span class="normal">869</span>
+<span class="normal">870</span>
+<span class="normal">871</span>
+<span class="normal">872</span>
+<span class="normal">873</span>
+<span class="normal">874</span>
+<span class="normal">875</span>
+<span class="normal">876</span>
+<span class="normal">877</span>
+<span class="normal">878</span>
+<span class="normal">879</span>
+<span class="normal">880</span>
+<span class="normal">881</span>
+<span class="normal">882</span>
+<span class="normal">883</span>
+<span class="normal">884</span>
+<span class="normal">885</span>
+<span class="normal">886</span>
+<span class="normal">887</span>
+<span class="normal">888</span>
+<span class="normal">889</span>
+<span class="normal">890</span>
+<span class="normal">891</span>
+<span class="normal">892</span>
+<span class="normal">893</span>
+<span class="normal">894</span>
+<span class="normal">895</span>
+<span class="normal">896</span>
+<span class="normal">897</span>
+<span class="normal">898</span>
+<span class="normal">899</span>
+<span class="normal">900</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@classmethod</span>
 <span class="k">def</span><span class="w"> </span><span class="nf">from_exception</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">exc</span><span class="p">:</span> <span class="ne">Exception</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CandidateFailure</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Build a `CandidateFailure` from the exception a candidate raised.</span>
@@ -6644,7 +6872,7 @@ reason rather than the verbose execution-context message.</p>
 <span class="sd">        Plain-data snapshot of the failure.</span>
 <span class="sd">    """</span>
 
-    <span class="kn">from</span><span class="w"> </span><span class="nn">..exceptions</span><span class="w"> </span><span class="kn">import</span> <span class="n">ForecastExecutionError</span><span class="p">,</span> <span class="n">_reported_type_name</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">..exceptions</span><span class="w"> </span><span class="kn">import</span> <span class="n">ForecastExecutionError</span>
 
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="n">ForecastExecutionError</span><span class="p">):</span>
         <span class="n">root</span> <span class="o">=</span> <span class="n">exc</span><span class="o">.</span><span class="n">original_error</span>
@@ -6658,7 +6886,7 @@ reason rather than the verbose execution-context message.</p>
         <span class="n">generated_code</span> <span class="o">=</span> <span class="kc">None</span>
 
     <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span>
-        <span class="n">error_type</span>     <span class="o">=</span> <span class="n">_reported_type_name</span><span class="p">(</span><span class="n">root</span><span class="p">),</span>
+        <span class="n">error_type</span>     <span class="o">=</span> <span class="nb">type</span><span class="p">(</span><span class="n">root</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">,</span>
         <span class="n">message</span>        <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">root</span><span class="p">),</span>
         <span class="n">traceback</span>      <span class="o">=</span> <span class="n">formatted</span><span class="p">,</span>
         <span class="n">generated_code</span> <span class="o">=</span> <span class="n">generated_code</span><span class="p">,</span>
@@ -6742,23 +6970,23 @@ truncated with a trailing ellipsis.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>skforecast_ai/schemas/results.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">855</span>
-<span class="normal">856</span>
-<span class="normal">857</span>
-<span class="normal">858</span>
-<span class="normal">859</span>
-<span class="normal">860</span>
-<span class="normal">861</span>
-<span class="normal">862</span>
-<span class="normal">863</span>
-<span class="normal">864</span>
-<span class="normal">865</span>
-<span class="normal">866</span>
-<span class="normal">867</span>
-<span class="normal">868</span>
-<span class="normal">869</span>
-<span class="normal">870</span>
-<span class="normal">871</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">summary</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">max_length</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">200</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">902</span>
+<span class="normal">903</span>
+<span class="normal">904</span>
+<span class="normal">905</span>
+<span class="normal">906</span>
+<span class="normal">907</span>
+<span class="normal">908</span>
+<span class="normal">909</span>
+<span class="normal">910</span>
+<span class="normal">911</span>
+<span class="normal">912</span>
+<span class="normal">913</span>
+<span class="normal">914</span>
+<span class="normal">915</span>
+<span class="normal">916</span>
+<span class="normal">917</span>
+<span class="normal">918</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">summary</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">max_length</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">200</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Build a concise one-line `"ErrorType: message"` summary.</span>
 
@@ -7086,6 +7314,555 @@ column of the results table. Only set when <code>status</code> is
 
 
 
+<h4 id="skforecast_ai.schemas.results.CandidateCost" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">CandidateCost</span>
+
+
+<a href="#skforecast_ai.schemas.results.CandidateCost" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="pydantic.BaseModel">BaseModel</span></code></p>
+
+
+
+        <p>Cost of one candidate of <code>compare()</code> on the shared strategy, counted
+before it runs.</p>
+
+
+<p><span class="doc-section-title">Attributes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;forecaster&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-instance-attribute&quot;&gt;&lt;code&gt;instance-attribute&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;skforecast_ai.schemas.results.CandidateCost.forecaster&lt;/code&gt;)" href="#skforecast_ai.schemas.results.CandidateCost.forecaster">forecaster</a></code></td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Name of the forecaster of the candidate.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;n_fits&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-class-attribute&quot;&gt;&lt;code&gt;class-attribute&lt;/code&gt;&lt;/small&gt;
+      &lt;small class=&quot;doc doc-label doc-label-instance-attribute&quot;&gt;&lt;code&gt;instance-attribute&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;skforecast_ai.schemas.results.CandidateCost.n_fits&lt;/code&gt;)" href="#skforecast_ai.schemas.results.CandidateCost.n_fits">n_fits</a></code></td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Trainings of the forecaster, as skforecast runs them: 0 for
+<code>ForecasterFoundation</code>, one per fold for <code>ForecasterStats</code>.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;estimator_fits&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-class-attribute&quot;&gt;&lt;code&gt;class-attribute&lt;/code&gt;&lt;/small&gt;
+      &lt;small class=&quot;doc doc-label doc-label-instance-attribute&quot;&gt;&lt;code&gt;instance-attribute&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;skforecast_ai.schemas.results.CandidateCost.estimator_fits&lt;/code&gt;)" href="#skforecast_ai.schemas.results.CandidateCost.estimator_fits">estimator_fits</a></code></td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Fits of an estimator: a direct forecaster fits one per step in
+every training; 0 for <code>ForecasterFoundation</code> and
+<code>ForecasterEquivalentDate</code>.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;inference_windows&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-class-attribute&quot;&gt;&lt;code&gt;class-attribute&lt;/code&gt;&lt;/small&gt;
+      &lt;small class=&quot;doc doc-label doc-label-instance-attribute&quot;&gt;&lt;code&gt;instance-attribute&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;skforecast_ai.schemas.results.CandidateCost.inference_windows&lt;/code&gt;)" href="#skforecast_ai.schemas.results.CandidateCost.inference_windows">inference_windows</a></code></td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Cost of <code>ForecasterFoundation</code>, never trained: up to one forecast
+per series and fold. 0 for the other forecasters.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+<h5 id="skforecast_ai.schemas.results.CandidateCost-attributes">Attributes<a href="#skforecast_ai.schemas.results.CandidateCost-attributes" class="headerlink" title="Permanent link">&para;</a></h5>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h6 id="skforecast_ai.schemas.results.CandidateCost.model_config" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">model_config</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-class-attribute"><code>class-attribute</code></small>
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+<a href="#skforecast_ai.schemas.results.CandidateCost.model_config" class="headerlink" title="Permanent link">&para;</a></h6>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span class="n">model_config</span> <span class="o">=</span> <span class="n">ConfigDict</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">extra</span><span class="o">=</span><span class="s1">'forbid'</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h6 id="skforecast_ai.schemas.results.CandidateCost.forecaster" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">forecaster</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+<a href="#skforecast_ai.schemas.results.CandidateCost.forecaster" class="headerlink" title="Permanent link">&para;</a></h6>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span class="n">forecaster</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h6 id="skforecast_ai.schemas.results.CandidateCost.n_fits" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">n_fits</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-class-attribute"><code>class-attribute</code></small>
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+<a href="#skforecast_ai.schemas.results.CandidateCost.n_fits" class="headerlink" title="Permanent link">&para;</a></h6>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span class="n">n_fits</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">ge</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h6 id="skforecast_ai.schemas.results.CandidateCost.estimator_fits" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">estimator_fits</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-class-attribute"><code>class-attribute</code></small>
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+<a href="#skforecast_ai.schemas.results.CandidateCost.estimator_fits" class="headerlink" title="Permanent link">&para;</a></h6>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span class="n">estimator_fits</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">ge</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h6 id="skforecast_ai.schemas.results.CandidateCost.inference_windows" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">inference_windows</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-class-attribute"><code>class-attribute</code></small>
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+<a href="#skforecast_ai.schemas.results.CandidateCost.inference_windows" class="headerlink" title="Permanent link">&para;</a></h6>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span class="n">inference_windows</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">ge</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h4 id="skforecast_ai.schemas.results.ComparisonCost" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">ComparisonCost</span>
+
+
+<a href="#skforecast_ai.schemas.results.ComparisonCost" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="pydantic.BaseModel">BaseModel</span></code></p>
+
+
+
+        <p>Cost of a comparison: every candidate on the shared strategy, the
+baseline included, counted from the plan and the strategy before
+anything runs (<code>count_comparison_cost</code>).</p>
+<p><code>compare()</code> applies the thresholds of an expensive run to these totals
+(<code>confirm_cost</code>). The count is made once the plans of the candidates
+are built and before any of them runs: a candidate whose plan cannot be
+built runs nothing and is not counted, and one that fails while it runs
+is counted all the same.</p>
+
+
+<p><span class="doc-section-title">Attributes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;n_folds&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-class-attribute&quot;&gt;&lt;code&gt;class-attribute&lt;/code&gt;&lt;/small&gt;
+      &lt;small class=&quot;doc doc-label doc-label-instance-attribute&quot;&gt;&lt;code&gt;instance-attribute&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;skforecast_ai.schemas.results.ComparisonCost.n_folds&lt;/code&gt;)" href="#skforecast_ai.schemas.results.ComparisonCost.n_folds">n_folds</a></code></td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Folds of the shared strategy, the same for every candidate.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;candidates&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-instance-attribute&quot;&gt;&lt;code&gt;instance-attribute&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;skforecast_ai.schemas.results.ComparisonCost.candidates&lt;/code&gt;)" href="#skforecast_ai.schemas.results.ComparisonCost.candidates">candidates</a></code></td>
+            <td>
+                  <code><span title="dict">dict</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Mapping of candidate name to its <code>CandidateCost</code>, in the order the
+candidates run.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;n_fits&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-property&quot;&gt;&lt;code&gt;property&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;skforecast_ai.schemas.results.ComparisonCost.n_fits&lt;/code&gt;)" href="#skforecast_ai.schemas.results.ComparisonCost.n_fits">n_fits</a></code></td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Trainings of all the candidates together.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;estimator_fits&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-property&quot;&gt;&lt;code&gt;property&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;skforecast_ai.schemas.results.ComparisonCost.estimator_fits&lt;/code&gt;)" href="#skforecast_ai.schemas.results.ComparisonCost.estimator_fits">estimator_fits</a></code></td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Estimator fits of all the candidates together.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;inference_windows&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-property&quot;&gt;&lt;code&gt;property&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;skforecast_ai.schemas.results.ComparisonCost.inference_windows&lt;/code&gt;)" href="#skforecast_ai.schemas.results.ComparisonCost.inference_windows">inference_windows</a></code></td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Inference windows of all the candidates together.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+<h5 id="skforecast_ai.schemas.results.ComparisonCost-attributes">Attributes<a href="#skforecast_ai.schemas.results.ComparisonCost-attributes" class="headerlink" title="Permanent link">&para;</a></h5>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h6 id="skforecast_ai.schemas.results.ComparisonCost.model_config" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">model_config</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-class-attribute"><code>class-attribute</code></small>
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+<a href="#skforecast_ai.schemas.results.ComparisonCost.model_config" class="headerlink" title="Permanent link">&para;</a></h6>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span class="n">model_config</span> <span class="o">=</span> <span class="n">ConfigDict</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">extra</span><span class="o">=</span><span class="s1">'forbid'</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h6 id="skforecast_ai.schemas.results.ComparisonCost.n_folds" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">n_folds</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-class-attribute"><code>class-attribute</code></small>
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+<a href="#skforecast_ai.schemas.results.ComparisonCost.n_folds" class="headerlink" title="Permanent link">&para;</a></h6>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span class="n">n_folds</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">ge</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h6 id="skforecast_ai.schemas.results.ComparisonCost.candidates" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">candidates</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+<a href="#skforecast_ai.schemas.results.ComparisonCost.candidates" class="headerlink" title="Permanent link">&para;</a></h6>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span class="n">candidates</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h6 id="skforecast_ai.schemas.results.ComparisonCost.n_fits" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">n_fits</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+<a href="#skforecast_ai.schemas.results.ComparisonCost.n_fits" class="headerlink" title="Permanent link">&para;</a></h6>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span class="n">n_fits</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Return the trainings of all the candidates together.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h6 id="skforecast_ai.schemas.results.ComparisonCost.estimator_fits" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">estimator_fits</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+<a href="#skforecast_ai.schemas.results.ComparisonCost.estimator_fits" class="headerlink" title="Permanent link">&para;</a></h6>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span class="n">estimator_fits</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Return the estimator fits of all the candidates together.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h6 id="skforecast_ai.schemas.results.ComparisonCost.inference_windows" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">inference_windows</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+<a href="#skforecast_ai.schemas.results.ComparisonCost.inference_windows" class="headerlink" title="Permanent link">&para;</a></h6>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span class="n">inference_windows</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Return the inference windows of all the candidates together.</p>
+
+    </div>
+
+</div>
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
 <h4 id="skforecast_ai.schemas.results.ComparisonResult" class="doc doc-heading">
             <span class="doc doc-object-name doc-class-name">ComparisonResult</span>
 
@@ -7143,9 +7920,10 @@ plus the winning configuration as a reusable <code>BacktestResult</code>.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Resolved <code>TimeSeriesFold</code> parameters plus the resulting <code>n_folds</code>,
-applied identically to
-every candidate.</p>
+                <p>Resolved <code>TimeSeriesFold</code> parameters plus the resulting <code>n_folds</code>
+and <code>n_fits</code>, applied identically to every candidate: <code>n_fits</code> is
+the number of folds in which the strategy trains a forecaster, not
+the trainings of the comparison, which <code>cost</code> adds up.</p>
               </div>
             </td>
           </tr>
@@ -7164,7 +7942,13 @@ every candidate.</p>
                 <p>Ranked comparison table, one row per candidate sorted best to
 worst by <code>ranking_metric</code>. Columns are
 <code>['rank', 'name', 'forecaster', 'estimator', &lt;metric columns...&gt;]</code>,
-plus an <code>'error'</code> column when at least one candidate failed.</p>
+plus <code>'coverage'</code> and <code>'interval_width'</code> after the metrics when the
+comparison has an interval (measured by skforecast, averaged
+across series with several; they do not rank), then
+<code>'n_evaluated'</code>, the number of points each candidate was measured
+on (a nullable integer, summed across series with several; it is
+not a metric and does not rank), and an <code>'error'</code> column when at
+least one candidate failed.</p>
               </div>
             </td>
           </tr>
@@ -7357,6 +8141,25 @@ candidate that makes the same decisions. None when <code>compare()</code>
 received a <code>TimeSeriesFold</code> or explicit <code>candidates</code>, or when the
 plan belongs to a forecaster family that cannot be ranked with the
 candidates.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;cost&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-class-attribute&quot;&gt;&lt;code&gt;class-attribute&lt;/code&gt;&lt;/small&gt;
+      &lt;small class=&quot;doc doc-label doc-label-instance-attribute&quot;&gt;&lt;code&gt;instance-attribute&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;skforecast_ai.schemas.results.ComparisonResult.cost&lt;/code&gt;)" href="#skforecast_ai.schemas.results.ComparisonResult.cost">cost</a></code></td>
+            <td>
+                  <code>ComparisonCost, default None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Cost of every candidate on the shared strategy and the totals,
+counted before anything runs. None for a result built by hand or
+saved by a version without it.</p>
               </div>
             </td>
           </tr>
@@ -7755,6 +8558,29 @@ index as a leading column. <code>model_dump()</code> keeps the live DataFrames.<
 
 
 
+<h6 id="skforecast_ai.schemas.results.ComparisonResult.cost" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">cost</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-class-attribute"><code>class-attribute</code></small>
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+<a href="#skforecast_ai.schemas.results.ComparisonResult.cost" class="headerlink" title="Permanent link">&para;</a></h6>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span class="n">cost</span> <span class="o">=</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
 <h6 id="skforecast_ai.schemas.results.ComparisonResult.best_name" class="doc doc-heading">
             <span class="doc doc-object-name doc-attribute-name">best_name</span>
 
@@ -7886,19 +8712,18 @@ keeps every list whole.</p>
 <p>The summary of the predictions is computed over all their rows,
 and with several series the point forecast is also summarized for
 each of the first 5 series, while <code>ask()</code> sends their rows. The
-<code>fold</code> column of a backtest is an
-identifier: only the number of folds is given. The script of
+<code>fold</code> and <code>step</code> columns of a backtest are
+identifiers: only the number of folds and the range of the steps
+are given. The observed values of a backtest (<code>y_true</code>) are values
+of the dataset: the description says that the column exists and
+gives none of them. The script of
 <code>backtest_code()</code> is described as a backtest, with its
 cross-validation strategy, number of folds and trainings.</p>
 </details>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>skforecast_ai/schemas/explainable.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">36</span>
-<span class="normal">37</span>
-<span class="normal">38</span>
-<span class="normal">39</span>
-<span class="normal">40</span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">40</span>
 <span class="normal">41</span>
 <span class="normal">42</span>
 <span class="normal">43</span>
@@ -7940,7 +8765,14 @@ cross-validation strategy, number of folds and trainings.</p>
 <span class="normal">79</span>
 <span class="normal">80</span>
 <span class="normal">81</span>
-<span class="normal">82</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">describe</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="normal">82</span>
+<span class="normal">83</span>
+<span class="normal">84</span>
+<span class="normal">85</span>
+<span class="normal">86</span>
+<span class="normal">87</span>
+<span class="normal">88</span>
+<span class="normal">89</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">describe</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""</span>
 <span class="sd">    Describe the result in plain text.</span>
 
@@ -7980,8 +8812,11 @@ cross-validation strategy, number of folds and trainings.</p>
 <span class="sd">    The summary of the predictions is computed over all their rows,</span>
 <span class="sd">    and with several series the point forecast is also summarized for</span>
 <span class="sd">    each of the first 5 series, while `ask()` sends their rows. The</span>
-<span class="sd">    `fold` column of a backtest is an</span>
-<span class="sd">    identifier: only the number of folds is given. The script of</span>
+<span class="sd">    `fold` and `step` columns of a backtest are</span>
+<span class="sd">    identifiers: only the number of folds and the range of the steps</span>
+<span class="sd">    are given. The observed values of a backtest (`y_true`) are values</span>
+<span class="sd">    of the dataset: the description says that the column exists and</span>
+<span class="sd">    gives none of them. The script of</span>
 <span class="sd">    `backtest_code()` is described as a backtest, with its</span>
 <span class="sd">    cross-validation strategy, number of folds and trainings.</span>
 <span class="sd">    """</span>

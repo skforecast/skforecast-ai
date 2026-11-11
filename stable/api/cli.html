@@ -1637,6 +1637,18 @@ Every forecast of skforecast-ai runs on
 <td>-</td>
 </tr>
 <tr>
+<td><code>--thousands <str></code></td>
+<td>Thousands separator of the CSV file: '.' (with ',' as decimal mark, as in '1.705,11'). Detected from the file when omitted.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--dayfirst / --monthfirst</code></td>
+<td>Order of the day and the month of the dates of the CSV file, for dates that read both ways ('01/02/2024' in every row): day first ('31/01/2024') or month first ('01/31/2024'). When omitted, told from the dates, or from their regularity when they read both ways.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
 <td><code>--format [table|json]</code></td>
 <td>Output format: table or json.</td>
 <td>No</td>
@@ -2086,6 +2098,12 @@ Every forecast of skforecast-ai runs on
 <tr>
 <td><code>--dropna-from-series <str></code></td>
 <td>Drop the training rows with missing values: 'true', 'false' or 'auto' for the rule. Machine learning forecasters only.</td>
+<td>No</td>
+<td>-</td>
+</tr>
+<tr>
+<td><code>--exog <path></code></td>
+<td>CSV with future exogenous values covering the forecast horizon, which the script reads by its path with its separator, decimal mark, encoding and date format, as forecast --exog reads it. When omitted, the script reads exog_future.csv.</td>
 <td>No</td>
 <td>-</td>
 </tr>
@@ -2684,6 +2702,12 @@ Every forecast of skforecast-ai runs on
 <td>-</td>
 </tr>
 <tr>
+<td><code>--confirm-cost</code></td>
+<td>Run it although it is an expensive run: above 50 estimator fits, or 2000 inference windows of a foundation model (for compare, all the candidates together). Without it, such a run stops with its cost before anything runs.</td>
+<td>No</td>
+<td><code>False</code></td>
+</tr>
+<tr>
 <td><code>--format [table|json]</code></td>
 <td>Output format: table or json.</td>
 <td>No</td>
@@ -2824,6 +2848,12 @@ Every forecast of skforecast-ai runs on
 <td>Save the winning configuration's script to file.</td>
 <td>No</td>
 <td>-</td>
+</tr>
+<tr>
+<td><code>--confirm-cost</code></td>
+<td>Run it although it is an expensive run: above 50 estimator fits, or 2000 inference windows of a foundation model (for compare, all the candidates together). Without it, such a run stops with its cost before anything runs.</td>
+<td>No</td>
+<td><code>False</code></td>
 </tr>
 <tr>
 <td><code>--format [table|json]</code></td>

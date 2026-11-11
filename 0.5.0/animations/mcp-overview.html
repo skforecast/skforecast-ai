@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<!--
+  Copyright (c) 2021-present Joaquín Amat Rodrigo and Javier Escobar Ortiz.
+  Part of the skforecast-ai documentation, licensed under CC BY-NC-SA 4.0
+  (https://creativecommons.org/licenses/by-nc-sa/4.0/). It is not covered by the
+  license of the skforecast-ai software.
+  The skforecast trademark and logo are registered with the EUIPO (application
+  number 019109684) and may not be used without permission.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your agent asks, skforecast-ai decides</title>
+<meta name="description" content="Animated explanation of the skforecast-ai MCP server: connect it to a coding agent, ask in plain language, and the agent calls profile, plan, create_cv, compare, forecast and get_code. The server decides with deterministic rules, its responses carry summaries and never rows of the data, the predictions go to files, and the agent answers with the figures of the server and the script that produced the forecast.">
+<link rel="stylesheet" href="skf-anim.css">
+</head>
+<body>
+<div class="skf-anim"></div>
+<script src="skf-anim.js"></script>
+<script src="mcp-overview-data.js"></script>
+<script>
+(function(){
+"use strict";
+const {cl, lin, P, lerp, r2, V, pulse, mw, text, rect, line, circle, path, polyline, header} = SkfAnim;
+
+/* ------------------------------------------------------------------ data */
+// Real responses of the MCP server, written by
+// tools/docs/home_page/generate_mcp_overview_data.py: the script calls the tools
+// of this animation through an in-memory MCP client, on the monthly h2o series,
+// with no LLM. The request of the user and the answer of the agent are written
+// here; the answer only states figures of the data.
+const D = window.MCP_OVERVIEW_DATA;
+if (!D){
+  document.querySelector('.skf-anim').textContent =
+    'Missing mcp-overview-data.js: run tools/docs/home_page/generate_mcp_overview_data.py.';
+  return;
+}
+const ROWS = D.compare.rows, BEST = ROWS[0], BASE = D.compare.baseline;
+// The winner as the leaderboard names it, with its model: the bars only say
+// "Foundation", so the answer has to tie both names together.
+const modelName = r => !r.estimator ? r.name : r.name + ' (' + (r.forecaster === 'ForecasterFoundation'
+  ? r.estimator.split('/').pop().replace(/^./, c => c.toUpperCase()) : r.estimator) + ')';
+// The files are shown without the counter and the session suffix of their id
+// ("comparison-4-d0bc74-leaderboard.csv"), which tell the reader nothing.
+const short = f => f.replace(/-\d+-[0-9a-f]+-/, '-');
+const LB_FILE = short(D.compare.file), PRED_FILE = short(D.forecast.file);
+const PROMPT = `Forecast the next ${D.steps} months of ${D.data_file} and tell me how accurate it is.`;
+const ANSWER = `${modelName(BEST)} ranks first among ${ROWS.length - 1} candidates: MAE ` +
+  `${BEST.mae.toFixed(4)}, ${D.compare.gain_pct}% below the seasonal naive baseline ` +
+  `(${D.compare.baseline_mae.toFixed(4)}). The forecast is in ${PRED_FILE}, ` +
+  'and this is the script that produced it.';
+const INSTALL = ['/plugin marketplace add skforecast/skforecast-ai', '/plugin install skforecast-ai@skforecast-ai'];
+
+/* -------------------------------------------------------------- timeline */
+// Five chapters (the steps of the header): each one ends in a still, complete
+// state, so a pause at the end of any of them leaves a readable diagram.
+const AS = 12.0, R = AS + 4.6, VA = R + 13.8, AN = VA + 12.0;   // starts of Ask, Rules decide, Validate and Answer
+const CH = {connect:0, ask:AS, rules:R, validate:VA, answer:AN};
+const T = {
+  agent:[0.3,0.8],
+  // The server and the two folders come in one by one, with time to read each.
+  cmd1:[1.0,2.6], cmd2:[2.9,4.3], installed:4.6, others:5.0, server:[6.2,6.8], project:[7.8,8.4],
+  allow:[8.4,9.8], output:[9.6,10.2],
+  termOut:[AS, AS + .4], prompt:[AS + .5, AS + 2.6], read:AS + 2.8, pick:AS + 3.8,
+  // The gap after profile is longer: the model reads its summary, and that is
+  // the privacy step.
+  profile:R, plan:R + 5.4, cv:R + 9.6,
+  compare:VA, bars:[VA + 1.4, VA + 3.4], winner:[VA + 3.7, VA + 4.2], gain:VA + 4.2,
+  lbFly:[VA + 4.7, VA + 5.4], lbFile:VA + 5.4, compareBack:[VA + 5.7, VA + 6.5],
+  forecast:VA + 7.4, predFly:[VA + 8.4, VA + 9.1], predFile:[VA + 9.1, VA + 10.3], forecastBack:[VA + 10.5, VA + 11.3],
+  // The log of calls stays a while after get_code, so its last line can be read.
+  code:AN, script:[AN + 1.0, AN + 1.6], codeBack:[AN + 1.8, AN + 2.6],
+  answerIn:[AN + 4.8, AN + 5.8],
+  fadeOut:[AN + 11.6, AN + 12.3], total:AN + 12.3
+};
+T.privacy = [T.profile + 3.2, T.plan - .6];               // from the response of profile to the choice of plan
+const CAPTIONS = [
+  [0, CH.ask, 'Connect once: the Claude Code plugin adds the server and its skill. Other agents add one MCP entry.'],
+  [CH.ask, CH.rules, 'Ask in plain language: the server gives your agent its workflow, so the model knows which tool comes next.'],
+  [CH.rules, T.privacy[0], 'The server reads the file and answers with an id and a plain-text summary: statistics of your data, not the data.'],
+  [T.privacy[0], T.plan, 'The model reads that summary, not your file: the responses of the server never carry rows of your data.'],
+  [T.plan, CH.validate, 'The server decides with the same deterministic rules as the Python API: no LLM in the decisions.'],
+  [CH.validate, T.forecast, 'compare backtests the candidates on the same folds, next to a seasonal naive baseline.'],
+  [T.forecast, CH.answer, 'The predictions go to CSV files in the output folder: the agent opens them only if it needs to.'],
+  [CH.answer, 99, 'The agent answers with the figures of the server, and the script runs on its own with plain skforecast.'],
+];
+const STEPPER = [['Connect',CH.connect,CH.ask],['Ask',CH.ask,CH.rules],['Rules decide',CH.rules,CH.validate],
+  ['Validate',CH.validate,CH.answer],['Answer',CH.answer,99]];
+
+// The calls of the agent, in order: when it is sent, what the server shows
+// while it answers and what goes back.
+const CALLS = [
+  {tool:'profile', args:`${D.data_file}, target=x`, at:T.profile, id:D.profile.id, lines:D.profile.lines},
+  {tool:'plan', args:`steps=${D.steps}`, at:T.plan, id:D.plan.id,
+   lines:[D.profile.forecaster, ...D.plan.lines]},
+  {tool:'create_cv', args:'', at:T.cv, id:D.cv.id,
+   lines:[...D.cv.lines, `compare_estimator_fits: ${D.cv.compare_fits}`]},
+  {tool:'compare', args:'', at:T.compare, id:D.compare.id, board:true, back:T.compareBack},
+  // The response of forecast carries its summary and the path of the file with
+  // the predictions, not the script: that is what get_code returns.
+  {tool:'forecast', args:'best plan', at:T.forecast, id:D.forecast.id, back:T.forecastBack,
+   lines:[...D.forecast.lines, 'predictions: ' + PRED_FILE]},
+  {tool:'get_code', args:'', at:T.code, id:D.forecast.id, script:true, back:T.codeBack},
+];
+CALLS.forEach(c => { if (!c.back) c.back = [c.at + 2.4, c.at + 3.2]; c.sent = [c.at + .1, c.at + .9]; });
+const TOOLS = ['profile', 'plan', 'create_cv', 'compare', 'forecast', 'get_code'];
+
+// What the language model of the agent does, and when: it is lit only during
+// these moments, [start, end, what it does], and off while the server works.
+// It does not pick a tool out of nowhere: the instructions of the server give
+// the workflow (profile -> plan -> create_cv -> compare -> forecast), and the
+// strip says so.
+const NEXT = 'next in the workflow: ';
+const MODEL = [[T.read, T.pick, 'reads your request'], [T.pick, CALLS[0].at + .3, NEXT + 'profile']];
+// It reads every response, but that is said once, after profile (the privacy
+// step): a second text in the short gap before each call could not be read.
+CALLS.slice(1).forEach((c, i) => {
+  const from = CALLS[i].back[1];
+  if (i) MODEL.push([from, c.at + .3, NEXT + c.tool]);
+  else MODEL.push([from, c.at - .6, 'reads the summary, not the file'], [c.at - .6, c.at + .3, NEXT + c.tool]);
+});
+MODEL.push([T.codeBack[1], T.answerIn[1] + .4, 'writes the answer']);
+
+/* ---------------------------------------------------------------- layout */
+const AX0 = 40, AX1 = 604, CY0 = 120, CY1 = 432;          // agent card
+const SX0 = 636, SX1 = 1240;                              // server card
+// Project and output folders. The output folder is as wide as its content
+// (the forecast at the scale of the series, and its files); the project
+// folder takes the rest, so it is somewhat wider than the agent above it.
+const PX1 = 656, OX0 = PX1 + 32, FY0 = 456, FY1 = 672;
+// Both charts share the vertical scale and the rows of pixels they use, so the
+// forecast continues the series from one folder to the other.
+// The project folder shows the last TAIL months of the series, and the output
+// folder the forecast at the same pixels per month (PXM), right after it.
+const TAIL = 36, SERIES = D.series.values.slice(-TAIL), PXM = (PX1 - AX0 - 36)/(TAIL - 1);
+const YV = [...SERIES, ...D.forecast.values], YLO = Math.min(...YV), YHI = Math.max(...YV);
+const chartY = y => FY1 - 30 - (y - YLO)/(YHI - YLO)*(FY1 - 30 - (FY0 + 92));
+const LY0 = CY1 - 42, LY1 = CY1 - 12;                     // language model, at the foot of the agent card
+const RY0 = CY0 + 108;                                    // response area of the server
+const MONO = 13, CWm = 0.6*MONO;
+
+/* ------------------------------------------------------------- helpers */
+function card(o, x0, y0, x1, y1, title, sub, op, stroke = V('border'), titleFill = V('fg')){
+  o.push(rect(x0, y0, x1 - x0, y1 - y0, {rx:12, fill:V('panel'), stroke, sw:1.5, op}));
+  o.push(text(x0 + 18, y0 + 28, title, {size:16, weight:700, fill:titleFill, op}));
+  if (sub) o.push(text(x0 + 18, y0 + 48, sub, {size:13, fill:V('muted'), op}));
+}
+function pill(o, x, y, s, {fill = V('bg'), stroke = V('border'), color = V('fg'), op = 1, size = MONO, weight = 400} = {}){
+  const w = mw(s, size, weight, 'm') + 20;
+  o.push(rect(x - w/2, y - 13, w, 26, {rx:13, fill, stroke, sw:1.5, op}));
+  o.push(text(x, y + 4.5, s, {size, cls:'m', weight, anchor:'middle', fill:color, op}));
+  return w;
+}
+// A chip that travels from (x0, y0) to (x1, y1) during [a, b], and fades out there.
+function fly(o, t, [a, b], x0, y0, x1, y1, s, style){
+  if (t < a || t > b + .25) return;
+  const p = P(t, a, b), op = Math.min(lin(t, a, a + .15), 1 - lin(t, b, b + .25));
+  pill(o, lerp(x0, x1, p), lerp(y0, y1, p) - Math.sin(p*Math.PI)*18, s, {...style, op});
+}
+// The tools in one row, in the order of the calls: center of each pill.
+// Measured on each call: the widths change when the fonts finish loading.
+function toolXY(name){
+  const w = TOOLS.map(s => mw(s, MONO, 700, 'm') + 20), gap = (SX1 - SX0 - 36 - w.reduce((a, b) => a + b, 0))/(TOOLS.length - 1);
+  const i = TOOLS.indexOf(name);
+  return [SX0 + 18 + w.slice(0, i).reduce((a, b) => a + b + gap, 0) + w[i]/2, CY0 + 78];
+}
+const typed = (s, t, [a, b]) => s.slice(0, Math.round(lin(t, a, b)*s.length));
+function wrap(s, width, size, cls = 's'){
+  const out = []; let cur = '';
+  for (const w of s.split(' ')){
+    const next = cur ? cur + ' ' + w : w;
+    if (cur && mw(next, size, 400, cls) > width){ out.push(cur); cur = w; } else cur = next;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+// Emphasis in Ask: the server and the folders take no part in it, so they fade.
+function focus(t){
+  return lerp(1, .4, lin(t, CH.ask, CH.ask + .4)*(1 - lin(t, CH.rules - .4, CH.rules)));
+}
+
+/* ----------------------------------------------------------------- scenes */
+// The language model lives in the agent: a strip at the foot of its card, lit
+// while the model reads or picks (MODEL) and off while the server works, so the
+// animation alternates violet and orange as its title does.
+function model(t, o, a){
+  const seg = MODEL.find(([s, e]) => t >= s && t < e);
+  const on = Math.max(...MODEL.map(([s, e]) => Math.min(lin(t, s - .15, s), 1 - lin(t, e, e + .25))));
+  const busy = t > CALLS[0].at && t < T.codeBack[1];
+  const x0 = AX0 + 18, x1 = AX1 - 18, y = (LY0 + LY1)/2 + 4.5;
+  o.push(rect(x0, LY0, x1 - x0, LY1 - LY0, {rx:8, fill:V('bg'), stroke:V('border'), sw:1.5, op:a}));
+  if (on > 0) o.push(rect(x0, LY0, x1 - x0, LY1 - LY0, {rx:8, stroke:V('llm'), sw:2, op:a*on}));
+  o.push(circle(x0 + 16, (LY0 + LY1)/2, 5, {fill:V('faint'), op:a}));
+  if (on > 0) o.push(circle(x0 + 16, (LY0 + LY1)/2, 5, {fill:V('llm'), op:a*on}));
+  o.push(text(x0 + 30, y, 'Language model', {size:13, weight:700, fill:V('llm'), op:a*lerp(.55, 1, on)}));
+  if (seg) o.push(text(x1 - 14, y, seg[2], {size:12.5, cls:'m', weight:700, anchor:'end', fill:V('llm'), op:a*on}));
+  else o.push(text(x1 - 14, y, busy ? 'waits for the server' : t > T.answerIn[1] ? 'wrote the answer' : 'reads what the agent reads',
+    {size:12.5, cls:'m', anchor:'end', fill:V('muted'), op:a*(1 - on)}));
+}
+
+function agentCard(t, o){
+  const a = P(t, ...T.agent);
+  if (a <= 0) return;
+  card(o, AX0, CY0, AX1, CY1, 'Your coding agent', 'Claude Code, Cursor, VS Code, Codex...', a);
+  const x = AX0 + 18;
+  model(t, o, a);
+  // Connect: the two commands of the plugin.
+  const term = a*(1 - P(t, ...T.termOut));
+  if (term > 0){
+    INSTALL.forEach((cmd, i) => {
+      const s = typed(cmd, t, i ? T.cmd2 : T.cmd1);
+      if (!s) return;
+      o.push(text(x, CY0 + 88 + i*26, '> ' + s, {size:MONO, cls:'m', fill:V('fg'), op:term}));
+    });
+    o.push(text(x, CY0 + 150, 'server and skill installed', {size:MONO, cls:'m', weight:700, fill:V('ok'), op:term*lin(t, T.installed, T.installed + .3)}));
+    o.push(text(x, CY0 + 196, 'Other agents: one entry in their MCP settings,', {size:13, fill:V('muted'), op:term*lin(t, T.others, T.others + .4)}));
+    o.push(text(x, CY0 + 215, 'such as uvx skforecast-ai-mcp --allow-dir ...', {size:13, fill:V('muted'), op:term*lin(t, T.others, T.others + .4)}));
+  }
+  // Ask: the request, kept at the top of the card.
+  const ask = lin(t, T.prompt[0] - .2, T.prompt[0]);
+  if (ask > 0){
+    const lines = wrap(PROMPT, AX1 - AX0 - 90, 15);
+    const shown = typed(PROMPT, t, T.prompt);
+    o.push(rect(x, CY0 + 64, AX1 - AX0 - 36, 22 + lines.length*20, {rx:10, fill:V('bg'), stroke:V('border'), op:ask}));
+    let used = 0;
+    lines.forEach((ln, i) => {
+      const part = shown.slice(used, used + ln.length);
+      used += ln.length + 1;
+      o.push(text(x + 12, CY0 + 86 + i*20, part, {size:15, op:ask}));
+    });
+  }
+  // Rules decide and Validate: one line per call, with the id that comes back.
+  const logOut = 1 - P(t, T.answerIn[0] - .5, T.answerIn[0]);
+  CALLS.forEach((c, i) => {
+    const op = lin(t, c.at, c.at + .2)*logOut;
+    if (op <= 0) return;
+    const y = CY0 + 142 + i*21;
+    o.push(text(x, y, c.tool, {size:MONO, cls:'m', weight:700, fill:V('targetText'), op}));
+    if (c.args) o.push(text(x + mw(c.tool, MONO, 700, 'm') + 8, y, c.args, {size:MONO, cls:'m', fill:V('muted'), op}));
+    const back = lin(t, c.back[1] - .1, c.back[1] + .2);
+    const got = c.script ? `script, ${D.script.length} lines` : c.id;
+    if (back > 0) o.push(text(AX1 - 18, y, '✓ ' + got, {size:MONO, cls:'m', anchor:'end', fill:V('ok'), op:op*back}));
+  });
+  // Answer: written by the model, with the figures of the server.
+  const ans = lin(t, ...T.answerIn);
+  if (ans > 0){
+    wrap(ANSWER, AX1 - AX0 - 40, 15).forEach((ln, i) =>
+      o.push(text(x, CY0 + 150 + i*22, ln, {size:15, op:ans*lin(t, T.answerIn[0] + i*.15, T.answerIn[0] + i*.15 + .3)})));
+  }
+}
+
+function serverCard(t, o){
+  const a = P(t, ...T.server)*focus(t, 'server');
+  if (a <= 0) return;
+  card(o, SX0, CY0, SX1, CY1, 'skforecast-ai MCP server', 'runs on your machine: deterministic rules, no LLM', a, V('target'), V('targetText'));
+  // The tools, lit while they run.
+  TOOLS.forEach((name, i) => {
+    const c = CALLS.find(k => k.tool === name);
+    const on = c ? Math.min(lin(t, c.sent[1], c.sent[1] + .2), 1 - lin(t, c.back[0], c.back[0] + .3)) : 0;
+    const used = c ? lin(t, c.back[0], c.back[0] + .3) : 0;
+    const [cx, cy] = toolXY(name);
+    pill(o, cx, cy, name, {fill: on > .5 ? V('target') : V('bg'), stroke: on > .5 || used ? V('target') : V('border'),
+      color: on > .5 ? '#2a1600' : used ? V('targetText') : V('muted'), op:a, weight: on > .5 || used ? 700 : 400});
+  });
+  // The response area: what the current call sends back.
+  const shown = CALLS, cur = [...shown].reverse().find(c => t >= c.sent[1]);
+  o.push(rect(SX0 + 16, RY0 - 8, SX1 - SX0 - 32, CY1 - RY0 - 6, {rx:8, fill:V('bg'), op:a*.9}));
+  if (!cur){
+    o.push(text(SX0 + 30, RY0 + 16, 'waiting for a call', {size:MONO, cls:'m', fill:V('faint'), op:a}));
+    return;
+  }
+  const show = lin(t, cur.sent[1] + .2, cur.sent[1] + .6);
+  const next = shown[shown.indexOf(cur) + 1];
+  const op = a*show*(next ? 1 - lin(t, next.sent[1] - .1, next.sent[1] + .1) : 1);
+  const x = SX0 + 30;
+  o.push(text(x, RY0 + 14, cur.script ? `script that ran (${D.script.length} lines)` : 'response: ' + cur.id, {size:12, cls:'m', fill:V('muted'), op}));
+  if (cur.board) board(t, o, x, RY0 + 36, op);
+  else if (cur.script) script(o, x, RY0 + 38, op);
+  else cur.lines.forEach((s, i) =>
+    o.push(text(x, RY0 + 40 + i*21, s, {size:MONO, cls:'m', fill:V('fg'), op:op*lin(t, cur.sent[1] + .3 + i*.25, cur.sent[1] + .6 + i*.25)})));
+}
+
+// The leaderboard of compare: one bar per row, the baseline in gray.
+function board(t, o, x, y, op){
+  const max = Math.max(...ROWS.map(r => r.mae)), W = 340, BX = x + 112, STEP = 21;
+  ROWS.forEach((r, i) => {
+    const s = T.bars[0] + i*.35, g = P(t, s, s + .5), base = r.name === BASE, win = i === 0 && t >= T.winner[0];
+    const yy = y + 4 + i*STEP, fill = base ? V('muted') : win ? V('target') : V('lag');
+    const label = base ? 'Baseline' : r.name.replace('Forecaster', '');
+    o.push(text(x, yy, label, {size:MONO, cls:'m', weight: win ? 700 : 400, fill: base ? V('muted') : V('fg'), op:op*lin(t, s, s + .2)}));
+    o.push(rect(BX, yy - 12, W*r.mae/max*g, 15, {rx:3, fill, op:op*(base ? .8 : 1)}));
+    o.push(text(BX + W + 10, yy, r.mae.toFixed(4), {size:MONO, cls:'m', fill:V('fg'), op:op*g}));
+  });
+  // The verdict, and how many candidates are worth more than the baseline:
+  // one of them is not, and the leaderboard is there to show it.
+  const beat = ROWS.findIndex(r => r.name === BASE), gain = op*lin(t, T.gain, T.gain + .3), yg = y + ROWS.length*STEP + 14;
+  o.push(text(x, yg, `${modelName(BEST)}: MAE ${D.compare.gain_pct}% below the baseline`, {size:14, weight:700, fill:V('targetText'), op:gain}));
+  o.push(text(x, yg + 21, `${beat} of ${ROWS.length - 1} candidates beat the baseline`, {size:13, fill:V('targetText'), op:gain}));
+}
+
+// The first line of the script of the forecast and its last five statements.
+function script(o, x, y, op){
+  const S = D.script, keep = [S[0], '...', ...S.filter(s => /^[A-Za-z]/.test(s)).slice(-5)];
+  keep.forEach((s, i) => o.push(text(x, y + i*19, s,
+    {size:MONO, cls:'m', fill: s === '...' ? V('muted') : V('fg'), op})));
+}
+
+function folders(t, o){
+  // Project folder: the only folder the server reads. The data stays in the file.
+  const a = P(t, ...T.project)*focus(t, 'folders');
+  if (a > 0){
+    const hl = pulse(t, (T.allow[0] + T.allow[1])/2, .7);
+    const read = CALLS[0], r = Math.min(lin(t, read.sent[1], read.sent[1] + .2), 1 - lin(t, read.back[0], read.back[0] + .4));
+    card(o, AX0, FY0, PX1, FY1, 'Project folder', '--allow-dir: the only folder the server reads', a,
+      hl > .05 || r > .05 ? V('target') : V('border'));
+    o.push(text(AX0 + 18, FY0 + 78, D.data_file, {size:MONO, cls:'m', weight:700, fill:V('fg'), op:a}));
+    const v = D.series.values;
+    const X0 = AX0 + 18, X1 = PX1 - 18;
+    const pts = SERIES.map((y, i) => [X0 + i*PXM, chartY(y)]);
+    o.push(path(polyline(pts), {stroke:V('series'), sw:1.5, op:a}));
+    // The privacy step: while the model reads the summary, the rows are here.
+    const stay = Math.min(lin(t, T.privacy[0], T.privacy[0] + .3), 1 - lin(t, T.privacy[1], T.privacy[1] + .4));
+    o.push(text(X1, FY1 - 10, `${v.length} rows, the last ${TAIL} drawn: they stay in the file`,
+      {size:12.5, anchor:'end', weight: stay > .5 ? 700 : 400, fill: stay > .5 ? V('ok') : V('muted'), op:a}));
+    // The server reads the file during profile.
+    if (r > 0){
+      // Straight down: the project folder reaches under the left edge of the server.
+      const rx = (SX0 + PX1)/2;
+      o.push(line(rx, CY1 + 2, rx, FY0 - 2, {stroke:V('target'), sw:2, op:r}));
+      o.push(text(rx + 10, FY0 - 8, 'reads the CSV', {size:12.5, weight:700, fill:V('targetText'), op:r}));
+    }
+  }
+  // Output folder: what the server writes.
+  const b = P(t, ...T.output)*focus(t, 'folders');
+  if (b <= 0) return;
+  card(o, OX0, FY0, SX1, FY1, 'Output folder', 'temporary, unless --output-dir', b);
+  // Side by side, so the chart starts at the same height as the one of the
+  // series. Each name appears when its chip lands (traffic).
+  outFiles().forEach(([f, , at, x, y, note]) => {
+    const op = b*lin(t, at, at + .3);
+    o.push(text(x, y, f, {size:MONO, cls:'m', fill:V('fg'), op}));
+    o.push(text(x, y + 19, note, {size:12.5, fill:V('muted'), op}));
+  });
+  // The forecast itself, as written to the file.
+  const g = lin(t, ...T.predFile);
+  if (g > 0){
+    const v = D.forecast.values;
+    const pts = v.map((y, i) => [OX0 + 18 + i*PXM, chartY(y)]);
+    o.push(path(polyline(pts, g), {stroke:V('target'), sw:2, op:b}));
+  }
+}
+
+// The files of the output folder: name, flight of its chip from the server,
+// when the name appears, where, and what it holds: a column to the right of the chart, which
+// keeps the left of the card so the forecast starts next to the series.
+function outFiles(){
+  const x = OX0 + 18 + (D.forecast.values.length - 1)*PXM + 56;
+  return [
+    [LB_FILE, T.lbFly, T.lbFile, x, FY0 + 102, `${ROWS.length - 1} candidates and the baseline, ranked by MAE`],
+    [PRED_FILE, T.predFly, T.predFile[0], x, FY0 + 154, `${D.forecast.values.length} predictions, the months after the series`],
+  ];
+}
+
+// Everything that travels: calls and responses between the agent and the
+// server, and the files the server writes to the output folder.
+function traffic(t, o){
+  const call = {fill:V('bg'), stroke:V('target'), color:V('targetText'), weight:700};
+  const resp = {fill:V('bg'), stroke:V('ok'), color:V('ok'), weight:700};
+  outFiles().forEach(([f, at, , x, y]) =>
+    fly(o, t, at, SX0 + 120, RY0 + 60, x + mw(f, MONO, 400, 'm')/2, y - 4, f, {...call, weight:400}));
+  CALLS.forEach((c, i) => {
+    const y = CY0 + 138 + i*21, [sx, sy] = toolXY(c.tool);
+    fly(o, t, c.sent, AX0 + 60, y, sx, sy, c.tool, call);
+    fly(o, t, c.back, SX0 + 80, RY0 + 30, AX1 - 110, y, c.script ? 'script' : 'id + summary', resp);
+  });
+}
+
+/* ---------------------------------------------------------------- run */
+SkfAnim.run({
+  title: 'Your agent asks, skforecast-ai decides',
+  desc: 'Five chapters. Connect: in Claude Code, two plugin commands install the MCP server and its skill; other agents ' +
+        'add one entry to their MCP settings. The server runs on your machine and only reads CSV files in the project ' +
+        `folder (--allow-dir). Ask: "${PROMPT}" The language model of the agent follows the workflow the server ` +
+        'gives it, one call at a time, and reads what the agent reads. Rules decide: the agent calls profile, plan and create_cv; the server decides with the deterministic ' +
+        'rules of the Python API, and each response is an id and a summary, never rows of the data: ' +
+        `${D.profile.lines.join(', ')}; ${D.plan.lines.join(', ')}. Validate: compare backtests ${ROWS.length - 1} ` +
+        `candidates and a seasonal naive baseline on the same folds; ${modelName(BEST)} ranks first with MAE ` +
+        `${BEST.mae.toFixed(4)}, ${D.compare.gain_pct}% below the baseline. forecast writes ${D.forecast.values.length} ` +
+        'predictions to a file in the output folder. Answer: get_code returns the script that ran, and the agent ' +
+        `answers: "${ANSWER}"`,
+  total: T.total,
+  height: 720,
+  still: T.fadeOut[0] - 1,
+  fadeOut: T.fadeOut,
+  brandUrl: 'ai.skforecast.org',
+  render(t, o){
+    header(t, o, {title:'Your agent asks, skforecast-ai decides', captions:CAPTIONS, steps:STEPPER});
+    serverCard(t, o); agentCard(t, o); folders(t, o); traffic(t, o);
+  }
+});
+})();
+</script>
+</body>
+</html>

@@ -1464,6 +1464,17 @@ Every forecast of skforecast-ai runs on
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#skforecast_ai.schemas.plans.WindowFeature.model_config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        model_config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#skforecast_ai.schemas.plans.WindowFeature.stats" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3542,6 +3553,29 @@ one <code>WindowFeature</code> per size.</p>
 
 
 
+<h6 id="skforecast_ai.schemas.plans.WindowFeature.model_config" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">model_config</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-class-attribute"><code>class-attribute</code></small>
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+<a href="#skforecast_ai.schemas.plans.WindowFeature.model_config" class="headerlink" title="Permanent link">&para;</a></h6>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span class="n">model_config</span> <span class="o">=</span> <span class="n">ConfigDict</span><span class="p">(</span><span class="n">extra</span><span class="o">=</span><span class="s1">'forbid'</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
 <h6 id="skforecast_ai.schemas.plans.WindowFeature.stats" class="doc doc-heading">
             <span class="doc doc-object-name doc-attribute-name">stats</span>
 
@@ -3885,7 +3919,9 @@ of a foundation model, e.g. <code>'google/timesfm-3.0-pytorch'</code>.</p>
             <td>
               <div class="doc-md-description">
                 <p>Keyword arguments for the estimator constructor. None resets them
-to the built-in defaults.</p>
+to the built-in defaults. When omitted with a new <code>estimator</code>, the
+keyword arguments of the plan, written for the previous one, are
+left out with a <code>PlanEditsDiscardedWarning</code> that names them.</p>
               </div>
             </td>
           </tr>
@@ -4536,8 +4572,8 @@ None uses them whenever the forecaster can.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Order of differencing of the target, as in <code>plan()</code>. The candidate
-runs on a copy of the strategy with this order.</p>
+                <p>Order of differencing of the target, as in <code>plan()</code>. Candidates
+with different orders share the strategy.</p>
               </div>
             </td>
           </tr>
@@ -5104,7 +5140,7 @@ sklearn/skforecast naming conventions).</p>
       &lt;small class=&quot;doc doc-label doc-label-instance-attribute&quot;&gt;&lt;code&gt;instance-attribute&lt;/code&gt;&lt;/small&gt;
   &lt;/span&gt; (&lt;code&gt;skforecast_ai.schemas.plans.ForecastPlan.metrics_to_compute&lt;/code&gt;)" href="#skforecast_ai.schemas.plans.ForecastPlan.metrics_to_compute">metrics_to_compute</a></code></td>
             <td>
-                  <code>(<span title="list">list</span>, <span title="default">default</span>[&#39;mean_absolute_error&#39;, &#39;mean_squared_error&#39;, &#39;mean_absolute_scaled_error&#39;])</code>
+                  <code>(<span title="list">list</span>, <span title="default">default</span>[&#39;mean_absolute_error&#39;, &#39;root_mean_squared_error&#39;, &#39;mean_absolute_scaled_error&#39;])</code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -5547,7 +5583,7 @@ left no column out: the data are then profiled with every column.</p>
 <div class="language-python doc-signature highlight"><pre><span></span><code><span class="n">metrics_to_compute</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span>
     <span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="p">[</span>
         <span class="s2">"mean_absolute_error"</span><span class="p">,</span>
-        <span class="s2">"mean_squared_error"</span><span class="p">,</span>
+        <span class="s2">"root_mean_squared_error"</span><span class="p">,</span>
         <span class="s2">"mean_absolute_scaled_error"</span><span class="p">,</span>
     <span class="p">]</span>
 <span class="p">)</span>

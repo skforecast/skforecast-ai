@@ -2246,7 +2246,7 @@ skforecast-ai<span class="w"> </span>mcp<span class="w"> </span>--allow-dir<span
 </code></pre></div>
 <p>Importing <code>skforecast_ai</code> never imports the server or the <code>mcp</code> package. The options of the command are in the <a href="cli.html">CLI reference</a>; how to connect an agent and give it the skill that ships with the package, in <a href="../user-guides/mcp-server.html">MCP server for coding agents</a>.</p>
 <h2 id="tools">Tools<a class="headerlink" href="#tools" title="Permanent link">&para;</a></h2>
-<p>Every tool that creates an object returns a <a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;ToolResult&lt;/span&gt;" href="#skforecast_ai.mcp.models.ToolResult"><code>ToolResult</code></a> with its <code>id</code>; later tools take ids, never objects, so no plan, profile or cross-validation strategy is ever accepted as JSON.</p>
+<p>Every tool that creates an object returns a <a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;ToolResult&lt;/span&gt;" href="#skforecast_ai.mcp.models.ToolResult"><code>ToolResult</code></a> with its <code>id</code>; later tools take ids, never objects, so no plan, profile or cross-validation strategy is ever accepted as JSON. The description of each tool says which id it takes, which tool takes the id it returns and which other tool to use instead when the two can be confused; the instructions the server sends when a client connects give the whole workflow and the rules on trust, cost, privacy and licenses.</p>
 <table>
 <thead>
 <tr>
@@ -2258,7 +2258,7 @@ skforecast-ai<span class="w"> </span>mcp<span class="w"> </span>--allow-dir<span
 <tbody>
 <tr>
 <td style="text-align: left;"><code>profile</code></td>
-<td style="text-align: left;"><code>data_path</code>, <code>target</code> (without it, the error lists the columns of the file), <code>date_column</code>, <code>series_id_column</code>, <code>exog_columns</code> (the exogenous columns to use, <code>[]</code> for none; null for every other column), <code>sep</code> and <code>decimal</code> (the separator and the decimal mark of the file; null to detect them)</td>
+<td style="text-align: left;"><code>data_path</code>, <code>target</code> (without it, the error lists the columns of the file), <code>date_column</code>, <code>series_id_column</code>, <code>exog_columns</code> (the exogenous columns to use, <code>[]</code> for none; null for every other column), <code>sep</code>, <code>decimal</code> and <code>thousands</code> (the separator, the decimal mark and the thousands separator of the file; null to detect them), <code>dayfirst</code> (the order of the day and the month of dates that read both ways; null to tell it from the dates)</td>
 <td style="text-align: left;">a profile id</td>
 </tr>
 <tr>
@@ -2268,7 +2268,7 @@ skforecast-ai<span class="w"> </span>mcp<span class="w"> </span>--allow-dir<span
 </tr>
 <tr>
 <td style="text-align: left;"><code>refine_plan</code></td>
-<td style="text-align: left;"><code>plan_id</code>, <code>overrides</code> (the keys of <code>refine_plan()</code>; an omitted key keeps the value of the plan, and every key but <code>forecaster</code>, <code>estimator</code> and <code>steps</code> set to null asks for the default)</td>
+<td style="text-align: left;"><code>plan_id</code>, <code>overrides</code> (the keys of <code>refine_plan()</code>; an omitted key keeps the value of the plan, and every key but <code>forecaster</code>, <code>estimator</code> and <code>steps</code> set to null asks for the default; a value the new forecaster or estimator cannot take is left out, with a notice that names it)</td>
 <td style="text-align: left;">a new plan id</td>
 </tr>
 <tr>
@@ -2278,27 +2278,27 @@ skforecast-ai<span class="w"> </span>mcp<span class="w"> </span>--allow-dir<span
 </tr>
 <tr>
 <td style="text-align: left;"><code>backtest</code></td>
-<td style="text-align: left;"><code>cv_id</code>, <code>plan_id</code> (another plan of the same profile; null for the plan of the strategy)</td>
-<td style="text-align: left;">a backtest id; predictions and metrics in CSV files</td>
+<td style="text-align: left;"><code>cv_id</code>, <code>plan_id</code> (another plan of the same profile; null for the plan of the strategy), <code>confirm_cost</code> (the number of the cost of an expensive run, once the user chose it)</td>
+<td style="text-align: left;">a backtest id; predictions and metrics in CSV files (the predictions carry the <code>fold</code>, the <code>step</code> of the horizon and the observed value <code>y_true</code>, whose values the summary never gives; with an interval, the metrics carry its <code>coverage</code> and <code>interval_width</code> by series, which the summary gives next to the nominal coverage; the metrics end with <code>n_evaluated</code>, the number of points each row is measured on, which is not a metric)</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>compare</code></td>
-<td style="text-align: left;"><code>cv_id</code>, <code>candidates</code> (<code>[{name, config}]</code>, null for those of the profile and the plan of the strategy), <code>interval</code>, <code>metric</code>, <code>baseline</code></td>
-<td style="text-align: left;">a comparison id, the plan of the winner in <code>links.best_plan_id</code>; the leaderboard and the predictions and metrics of the winner in CSV files</td>
+<td style="text-align: left;"><code>cv_id</code>, <code>candidates</code> (<code>[{name, config}]</code>, null for those of the profile and the plan of the strategy), <code>interval</code>, <code>metric</code>, <code>baseline</code>, <code>confirm_cost</code> (as in <code>backtest</code>)</td>
+<td style="text-align: left;">a comparison id, the plan of the winner in <code>links.best_plan_id</code>; the leaderboard (with an interval, its <code>coverage</code> and <code>interval_width</code> after the metrics, then <code>n_evaluated</code>, the number of points each candidate was measured on; they do not rank) and the predictions and metrics of the winner in CSV files; its cost: the folds of the strategy and the trainings, estimator fits and inference windows of all its candidates together, the baseline included, counted before they run</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>forecast</code></td>
-<td style="text-align: left;"><code>plan_id</code>, <code>test_size</code> (null to forecast the future), <code>exog_path</code></td>
+<td style="text-align: left;"><code>plan_id</code>, <code>test_size</code> (null to forecast the future), <code>exog_path</code> (one row per date of the horizon, and per series when they are stacked; for data without dates, one row per step, in order)</td>
 <td style="text-align: left;">a forecast id; predictions (and metrics in evaluation) in CSV files</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>get_code</code></td>
 <td style="text-align: left;"><code>object_id</code>, <code>candidate</code> (of a comparison)</td>
-<td style="text-align: left;">a <a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;CodeResult&lt;/span&gt;" href="#skforecast_ai.mcp.models.CodeResult"><code>CodeResult</code></a>: the script that ran, or that would run for a plan, and <code>requirements</code>, the packages it needs with the versions installed where the server runs. A forecast with <code>exog_path</code> reads the future exogenous values from <code>exog_future.csv</code> in its working directory: copy the file there to run it</td>
+<td style="text-align: left;">a <a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;CodeResult&lt;/span&gt;" href="#skforecast_ai.mcp.models.CodeResult"><code>CodeResult</code></a>: the script that ran, or that would run for a plan, and <code>requirements</code>, the packages it needs with the versions installed where the server runs. A forecast with <code>exog_path</code> reads the future exogenous values from that file, by its path, with its separator, decimal mark, encoding and date format</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>get_failure</code></td>
-<td style="text-align: left;"><code>object_id</code> (<code>details.failure_id</code> of an error, or a comparison), <code>candidate</code></td>
+<td style="text-align: left;"><code>object_id</code> (<code>details.failure_id</code> of an error, or a comparison), <code>candidate</code> (required with a comparison)</td>
 <td style="text-align: left;">a <a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;FailureResult&lt;/span&gt;" href="#skforecast_ai.mcp.models.FailureResult"><code>FailureResult</code></a>: the traceback and the code of a failed run</td>
 </tr>
 <tr>
@@ -2315,17 +2315,17 @@ skforecast-ai<span class="w"> </span>mcp<span class="w"> </span>--allow-dir<span
 </table>
 <p><code>compare</code> ranks the candidates by its <code>metric</code>; without one, by the metric chosen for the plan of the strategy (<code>metric</code> of <code>plan</code> or <code>refine_plan</code>), and otherwise by the metric selected from the data (<code>compare()</code> in Python, which takes no plan, uses the metric selected from the data). A candidate whose arguments do not match the schema of the tool (an unknown key, a forecaster that does not exist) or that names a foundation model the server does not run is rejected with the whole call, before anything runs. A candidate that passes those checks and whose configuration is not valid (an unknown estimator, arguments the forecaster cannot use) is ranked last with its error, as in Python, and <code>get_failure</code> returns why it failed. <code>compare</code> sends a progress notification when each candidate starts and ends (<code>2 * completed + started</code> over <code>2 * total</code>). Every tool that runs the core also sends one every 5 seconds while its worker thread is busy, to a client that asked for progress: <code>k</code> notifications after an event of progress <code>p</code> send <code>p + k / (k + 1)</code> (from 0, with no total, for a call without events), so the values grow without reaching the next event, and the message names what runs and for how long ("ForecasterStats: running (35 s)"). A cancelled <code>compare</code> stops before its next candidate; any other cancelled call waits for its work to end. A cancelled call registers nothing. While a call runs, only <code>get_code</code>, <code>get_failure</code>, <code>list_objects</code> and <code>describe_object</code> answer; the other tools wait their turn.</p>
 <p>Foundation models only take the <code>estimator_kwargs</code> <code>context_length</code>, <code>cross_learning</code>, <code>point_estimate</code>, <code>max_horizon</code>, <code>add_calendar_features</code> and <code>n_fourier_terms</code> through the server: other arguments of the adapters of skforecast can send the data to a remote service or download files. The server decides from the <code>FoundationModelInfo</code> of skforecast: a foundation model whose license restricts commercial use (<code>commercial_use_restricted</code>), whose weights are gated (<code>requires_hf_auth</code>) or whose provider requires its own account (<code>requires_provider_auth</code>), or for which skforecast does not give these facts, only runs when the server was started with <code>--allow-model</code> and a prefix of its model ID; otherwise <code>plan</code>, <code>refine_plan</code> and <code>compare</code> raise <code>model_not_allowed</code>. The weights of a foundation model are downloaded the first time it runs: the first time a plan or a candidate uses a model whose weights are not in the local Hugging Face cache (looked up under <code>weights_repo_id</code>), the response carries a <code>ModelDownloadNotice</code> (source <code>plan</code>) with its license. Every other plan with a foundation model, and every comparison that ran one, carries a <code>ModelLicenseNotice</code> with that license, so the agent never has to state it from memory. A model whose backend keeps its weights outside that cache (<code>weights_in_hf_cache</code> is false, as for TabPFN) gets the notice the first time it is used, saying that the server cannot tell whether they are downloaded. Set <code>HF_HUB_OFFLINE=1</code> in the environment of the server to forbid downloads from the Hugging Face Hub.</p>
-<p>Arguments are checked strictly: an unknown argument, a number written as text or a float for an integer is an error. Dates are ISO 8601 text.</p>
-<p>The files of a response are CSV files with the index of the data: <code>predictions</code> and <code>metrics</code> of a backtest or a forecast, <code>leaderboard</code>, <code>best_predictions</code> and <code>best_metrics</code> of a comparison. A summary, a script or a failure too long for a response is written to a file as well.</p>
-<p>The <code>notices</code> of a response are the warnings the call emitted, deduplicated, with their source: <code>data</code> (reading or profiling the data), <code>plan</code> (a warning the plan carries in <code>plan.warnings</code>) or <code>runtime</code>. Deprecation warnings go to the log of the server (stderr) instead. Besides those, a profile carries <code>data_profile.warnings</code> (category <code>DataProfileWarning</code>, source <code>data</code>), a plan carries them too, with any text of <code>plan.warnings</code> not emitted in the call (category <code>PlanWarning</code>), and <code>create_cv</code> carries the <code>LongTrainingWarning</code> that a backtest of the strategy will emit (above 50 estimator fits, or 2000 inference windows of a foundation model, one per series and fold). The server adds notices of its own, besides the <code>ModelDownloadNotice</code> and the <code>ModelLicenseNotice</code> of a foundation model: <code>create_cv</code> carries a <code>CostNotice</code> (source <code>runtime</code>) when the backtest of the strategy, or a <code>compare</code> without <code>candidates</code> on it, is above those thresholds, next to the warning of the library that states the cost: the notice tells the agent to stop, to tell the user the numbers and the cheaper strategies, and to run the expensive one only if they choose it; <code>create_cv</code> also carries a <code>CompareCostNotice</code> (source <code>runtime</code>) when a <code>compare</code> without <code>candidates</code> on the strategy would cost more than its plan; <code>create_cv</code> also carries a <code>MissingValuesNotice</code> (source <code>data</code>) when the backtest of its plan can fail on missing values of the target, next to the warning of the library that says so: the notice tells the agent that those values are the user's (ask before filling, dropping or writing any, also in a copy), that an estimator that accepts missing values avoids the error without touching the data, and to say it when it switches or when it forecasts without a backtest; a backtest or a forecast whose metrics include MASE or RMSSE carries a <code>MetricReferenceNotice</code> (source <code>runtime</code>) saying that they are scaled by the one-step naive forecast on the training data, not by a seasonal naive forecast nor by the baseline of <code>compare</code>; a backtest, a forecast or a comparison that computes MAPE carries a <code>MetricUnitNotice</code> saying that it is a fraction (1.245 is 124.5 %); a forecast run with <code>test_size</code> carries a <code>HoldoutEvaluationNotice</code> (source <code>runtime</code>) with the dates it predicts, which are already in the data, so it is not presented as the forecast of the future; a plan that uses exogenous variables carries a <code>FutureExogNotice</code> (source <code>plan</code>) saying that <code>forecast</code> needs their future values from the user, and a forecast of a plan that leaves the exogenous columns of the data out carries an <code>ExogLeftOutNotice</code>. An error of the library about the content of a file (a problem of the CSV in <code>profile</code>; missing values that a prediction reads, or final rows without a target, in <code>backtest</code>, <code>compare</code> and <code>forecast</code>; the file of future exogenous values, or its absence, in <code>forecast</code>) has a hint of the server that leaves the values to the user: the agent tells them and asks, and never writes, fills in or drops values on its own.</p>
-<p><code>compare</code> without <code>interval</code> computes the interval of the plan the strategy was built for (unlike <code>compare()</code> in Python, whose default is no interval), so the plan of the winner keeps it; to compare without one, build the strategy from a plan without interval. Other decisions of that plan (<code>lags</code>, <code>use_exog</code>...) do not reach the other candidates: each one is planned from the profile with its own <code>config</code>. Without <code>candidates</code>, that plan also runs, with its decisions, as the row <code>Strategy plan</code> when it is none of the candidates of the profile (as <code>compare()</code> in Python does with a <code>CVResult</code>), and the summary names the row of that plan. A candidate with a <code>differentiation</code> other than the one of the strategy runs on a copy of the strategy with its own order, and the summary says so. <code>backtest</code> with a <code>plan_id</code> whose differentiation order is not the one of the strategy is an <code>invalid_argument</code>. The seasonal naive baseline and <code>ForecasterStats</code> only compute symmetric intervals (lower + upper = 1): with an asymmetric one the comparison has no baseline (its summary says why), and a <code>ForecasterStats</code> candidate fails and is ranked last. <code>backtest</code> and <code>forecast</code> of a <code>ForecasterFoundation</code> plan whose backend package is not installed where the server runs raise <code>missing_dependency</code> before running anything; a candidate of <code>compare</code> with that model fails and is ranked last, as in Python.</p>
+<p>Arguments are checked strictly: an unknown argument, a number written as text or a float for an integer is an error, and so is a key of an entry of <code>window_features</code> other than <code>stats</code> and <code>window_size</code>. The values of <code>estimator_kwargs</code> are checked when the plan is made by building the estimator with them: a value that a scikit-learn estimator or the <code>Arima</code> of ForecasterStats rejects is <code>invalid_argument</code> on <code>estimator_kwargs</code> (LightGBM, XGBoost and CatBoost check theirs only when they fit, so a wrong value of theirs is an <code>execution_failed</code>). Dates are ISO 8601 text; a <code>test_size</code> with a time zone is placed on the dates of the data in their zone, and is <code>invalid_argument</code> when the data has none.</p>
+<p>The files of a response are CSV files with the index of the data: <code>predictions</code> and <code>metrics</code> of a backtest or a forecast, <code>leaderboard</code>, <code>best_predictions</code> and <code>best_metrics</code> of a comparison. The <code>metrics</code> of a forecast with <code>test_size</code> have the columns of those of a backtest of the same plan: one per metric, named as the metric (<code>mean_absolute_error</code>, <code>root_mean_squared_error</code>...), and <code>levels</code> with the series when skforecast gives it (several series, and ForecasterDirectMultiVariate). A summary, a script or a failure too long for a response is written to a file as well.</p>
+<p>The <code>notices</code> of a response are the warnings the call emitted, deduplicated, with their source: <code>data</code> (reading or profiling the data), <code>plan</code> (a warning the plan carries in <code>plan.warnings</code>) or <code>runtime</code>. Deprecation warnings go to the log of the server (stderr) instead. Besides those, a profile carries <code>data_profile.warnings</code> (category <code>DataProfileWarning</code>, source <code>data</code>), a plan carries them too (without those about the exogenous columns when it has <code>use_exog: false</code>, and with the rate of missing values computed on the target alone), with any text of <code>plan.warnings</code> not emitted in the call (category <code>PlanWarning</code>), and <code>create_cv</code> carries a <code>LongTrainingWarning</code> with the cost of a backtest of the strategy when it is an expensive run (above 50 estimator fits, or 2000 inference windows of a foundation model, one per series and fold). The server adds notices of its own, besides the <code>ModelDownloadNotice</code> and the <code>ModelLicenseNotice</code> of a foundation model: <code>create_cv</code> carries a <code>CostNotice</code> (source <code>runtime</code>) when the backtest of the strategy, or a <code>compare</code> without <code>candidates</code> on it, is above those thresholds, next to the warning of the library that states the cost: the notice tells the agent to stop, to tell the user the numbers and the cheaper strategies, and to run the expensive one only if they choose it, passing the number of its cost as <code>confirm_cost</code> (see the errors below). It names only the changes that lower that cost: an integer <code>refit</code> or <code>refit=false</code> only when the strategy trains more than once, and never for ForecasterStats (refitted in every fold) nor for a foundation model (never trained); fewer folds (<code>skip_folds</code> among them, except when ForecasterStats runs, which rejects it); a shorter horizon for a direct forecaster trained once; fewer series for a foundation model. The thresholds of a <code>compare</code> apply to all its candidates together, also with <code>candidates</code>: above them, the error of a call without <code>confirm_cost</code> gives the total and what each candidate adds; <code>create_cv</code> also carries a <code>CompareCostNotice</code> (source <code>runtime</code>) when a <code>compare</code> without <code>candidates</code> on the strategy would cost more than its plan; <code>create_cv</code> also carries a <code>MissingValuesNotice</code> (source <code>data</code>) when the backtest of its plan can fail on missing values of the target or of its exogenous columns, next to the warnings of the library that say when: the notice tells the agent that those values are the user's (ask before filling, dropping or writing any, also in a copy), that <code>backtest</code> checks every test fold of the target and of the exogenous columns before running and names the dates, that an estimator that accepts missing values (the one the rules choose for the data) avoids the error of a test fold predicted from a missing value but not that of a test fold that holds one, and to say it when it switches or when it forecasts without a backtest; a backtest or a forecast of a plan whose estimator was passed to <code>plan</code>, <code>refine_plan</code> or the <code>candidates</code> of <code>compare</code> instead of the one the rules recommend for its forecaster on the data (the one <code>plan</code> chooses, for ForecasterDirectMultiVariate sized by the dates the series share) carries an <code>EstimatorNotRecommendedNotice</code> (source <code>plan</code>) with both estimators and, when it is so, that it is the estimator that accepts missing values that the advice on the missing values names, and tells the agent to say in its answer that the estimator is not the recommended one, which one is and why it was changed; the plan of the winner of a <code>compare</code> without <code>candidates</code> (chosen and measured among candidates of the rules), ForecasterStats, a foundation model and the baseline never carry it, and the Python API does not warn about it (whoever chose the estimator there knows it); a plan (from <code>plan</code> or <code>refine_plan</code>) whose estimator needs a package that is not installed where the server runs (XGBoost, CatBoost) is still made, since its script may run elsewhere, and carries a <code>MissingDependencyNotice</code> (source <code>plan</code>) in place of the <code>MissingBackendWarning</code> of the library: it says that, until the package is installed, <code>backtest</code> and <code>forecast</code> fail on it with <code>missing_dependency</code> and its row of <code>compare</code> fails and is ranked last, with the advice of that error (pip, the <code>--with</code> of uvx, the restart); a backtest or a forecast whose metrics include MASE or RMSSE carries a <code>MetricReferenceNotice</code> (source <code>runtime</code>) saying that they are scaled by the one-step naive forecast over the observations known when each prediction is made, not by a seasonal naive forecast nor by the baseline of <code>compare</code>; a backtest, a forecast or a comparison that computes MAPE, sMAPE, MSE or RMSE carries a <code>MetricUnitNotice</code> with the unit of each one: MAPE is a fraction (1.245 is 124.5 %), sMAPE is already a percentage, from 0 to 200, MSE is in the squared units of the target and RMSE in its units; when the target of a series takes values at or around zero, MAPE gets a <code>MetricUndefinedNotice</code> instead, saying that its value means nothing there and is not to be reported nor converted (the default panel leaves MAPE out on such a target, and a plan that asks for it carries a warning); a backtest or a comparison with an interval whose coverage, measured by skforecast (<code>coverage</code> in the metrics and the leaderboard, next to the mean width <code>interval_width</code>), is clearly below its nominal level in a series (more than two binomial standard errors for the number of predictions, and at least 5 percentage points) carries an <code>IntervalCoverageNotice</code> (source <code>runtime</code>) in place of the <code>IntervalCoverageWarning</code> of the library: it names the series, or the candidates, with their coverage, and tells the agent to give the measured coverage, also in a <code>forecast</code> of the same plan, and never to present the interval at its nominal level; a backtest of several series (ForecasterRecursiveMultiSeries, or a foundation model) that did not forecast a series in some test fold where it has values carries a <code>FoldsLeftOutWarning</code> (source <code>runtime</code>), also in its summary, that names the series and those folds, since its metrics and the average across series use fewer folds, and a comparison carries one that names the candidates; a backtest with an estimator that accepts missing values carries one (category <code>UserWarning</code>) naming the missing exogenous values that a test fold reads, as <code>forecast</code> does with the future values; a forecast run with <code>test_size</code> carries a <code>HoldoutEvaluationNotice</code> (source <code>runtime</code>) with the dates it predicts, which are already in the data, so it is not presented as the forecast of the future; a forecast of the future carries an <code>UnmeasuredPlanNotice</code> (source <code>runtime</code>) when no <code>backtest</code>, <code>compare</code> or <code>forecast</code> with <code>test_size</code> of the server measured its plan, that is, the same decisions on the same profile with any interval or metric (any candidate of a comparison that ran counts, not only the winner), so it is not presented as reliable nor given the accuracy of another plan; a plan that uses exogenous variables carries a <code>FutureExogNotice</code> (source <code>plan</code>) saying that <code>forecast</code> needs their future values from the user, naming only the columns its model reads (ForecasterStats and a foundation model without categorical covariates leave the categorical ones out), and a forecast of a plan that leaves the exogenous columns of the data out carries an <code>ExogLeftOutNotice</code>. An error of the library about the content of a file (a problem of the CSV in <code>profile</code>; missing values that a prediction reads, or final rows without a target, in <code>backtest</code>, <code>compare</code> and <code>forecast</code>; the file of future exogenous values, or its absence, in <code>forecast</code>) has a hint of the server that leaves the values to the user: the agent tells them and asks, and never writes, fills in or drops values on its own.</p>
+<p><code>compare</code> without <code>interval</code> computes the interval of the plan the strategy was built for (unlike <code>compare()</code> in Python, whose default is no interval), so the plan of the winner keeps it; to compare without one, build the strategy from a plan without interval. Other decisions of that plan (<code>lags</code>, <code>use_exog</code>...) do not reach the other candidates: each one is planned from the profile with its own <code>config</code>. Without <code>candidates</code>, that plan also runs, with its decisions, as the row <code>Strategy plan</code> when it is none of the candidates of the profile (as <code>compare()</code> in Python does with a <code>CVResult</code>), and the summary names the row of that plan. With <code>candidates</code>, only they run: the summary names the candidate that makes the decisions of that plan, or a notice (category <code>UserWarning</code>, source <code>runtime</code>) and the summary say that it was not compared; <code>Strategy plan</code> is reserved, as are the names of the baseline, and a candidate with that name is <code>invalid_argument</code> in <code>candidates</code>. Each candidate goes through the checks <code>backtest</code> makes before running (a series that no fold forecasts, a missing value that a fold reads, a first training window too short): one that fails them is ranked last with that error, which <code>get_failure</code> gives, runs nothing and is left out of the <code>cost</code>. Candidates with different <code>differentiation</code> orders run on the same strategy, and <code>backtest</code> takes a <code>plan_id</code> of any order on any strategy of its profile: skforecast takes the order from the window of the forecaster, so the strategy does not carry it. The seasonal naive baseline and <code>ForecasterStats</code> only compute symmetric intervals (lower + upper = 1): with an asymmetric one the comparison has no baseline (its summary says why), and a <code>ForecasterStats</code> candidate fails and is ranked last. skforecast does not allow <code>skip_folds</code> for <code>ForecasterStats</code> either: without <code>candidates</code>, a strategy with <code>skip_folds</code> leaves it out, with a notice that says so. <code>backtest</code> and <code>forecast</code> of a <code>ForecasterFoundation</code> plan whose backend package is not installed where the server runs, or of a plan whose estimator needs a package that is not installed there (XGBoost, CatBoost), raise <code>missing_dependency</code> before running anything, on the argument that named the plan (<code>plan_id</code>, or <code>cv_id</code> for <code>backtest</code> without <code>plan_id</code>), with a <code>hint</code> that says how to install it with pip and with the <code>--with</code> of uvx and to restart the server, and <code>details</code> with the package and the model ID or the estimator; a candidate of <code>compare</code> with that model or estimator fails and is ranked last, as in Python. Without <code>candidates</code>, <code>compare</code> leaves such a candidate out (the foundation model, and <code>XGBRegressor</code>, which the rules propose with several series and no extra installs), with a notice (category <code>MissingBackendWarning</code>) and a sentence of the summary that name the package, and it is not counted in the <code>cost</code>; the profile still lists the estimator, since it does not depend on where the server runs.</p>
 <h2 id="limits">Limits<a class="headerlink" href="#limits" title="Permanent link">&para;</a></h2>
 <ul>
 <li>The server keeps at most 256 objects and about 1 GB of them (<code>--max-objects</code>, <code>--max-memory-mb</code>); beyond that, the least recently used ones are removed and their ids raise <code>unknown_id</code> saying so. Objects built from a removed one keep working.</li>
 <li>Ids do not survive a restart of the server: an id of a previous run raises <code>unknown_id</code> saying so.</li>
 <li>A summary, a script or a failure longer than 20,000 characters is cut in the response, and the full text is written to the output directory (<code>files</code>).</li>
 <li>Calls run one at a time; a call waits for the previous one to end.</li>
-<li>CSV files larger than <code>--max-file-mb</code> (256 MB by default) are rejected before being read, and <code>plan</code> and <code>refine_plan</code> reject a <code>steps</code> longer than the longest series of the profile (<code>invalid_argument</code>).</li>
+<li>CSV files larger than <code>--max-file-mb</code> (256 MB by default) are rejected before being read, and <code>plan</code> and <code>refine_plan</code> reject a <code>steps</code> longer than the longest series of the profile (<code>invalid_argument</code>). <code>create_cv</code> rejects <code>skip_folds</code> for a <code>ForecasterStats</code> plan, which skforecast refits in every fold, and <code>fixed_train_size</code> with <code>refit</code> false or null for any other plan, where it has no effect (<code>invalid_argument</code>; the Python API warns instead).</li>
 <li>The output directory (<code>--output-dir</code>, by default a new temporary directory that is kept when the server stops) is also the working directory of the server.</li>
 <li>The scripts run in the process of the server, with the permissions of the user who started it. The server trusts the agent as much as that user: it limits what the agent can read (<code>--allow-dir</code>) and pass, not what the scripts it builds can do.</li>
 <li>The scripts of <code>get_code</code> and the summary of a plan (its script lists the file it reads) name the path of the data file; the other summaries, the failures and the rest of the responses do not.</li>
@@ -2361,6 +2361,10 @@ skforecast-ai<span class="w"> </span>mcp<span class="w"> </span>--allow-dir<span
 <td style="text-align: left;">The path is a URL. Download the file into the allowed directory.</td>
 </tr>
 <tr>
+<td style="text-align: left;"><code>cost_not_confirmed</code></td>
+<td style="text-align: left;"><code>backtest</code> or <code>compare</code> of an expensive run without <code>confirm_cost</code>, or with a number that is not that of its cost (see below). Nothing ran. It is not <code>invalid_argument</code> on purpose: that code asks the agent to correct the argument and call again, and here the user decides.</td>
+</tr>
+<tr>
 <td style="text-align: left;"><code>file_too_large</code></td>
 <td style="text-align: left;">The CSV file (data or future exogenous values) is larger than <code>--max-file-mb</code> (256 MB by default; 0 for no limit). Its size is checked before reading it, and so is the size of the content of a <code>.gz</code> file; <code>details</code> has the size and the limit.</td>
 </tr>
@@ -2374,7 +2378,8 @@ skforecast-ai<span class="w"> </span>mcp<span class="w"> </span>--allow-dir<span
 </tr>
 </tbody>
 </table>
-<p>When a script fails (<code>execution_failed</code>) or every candidate of a comparison fails (<code>all_candidates_failed</code>), <code>details.failure_id</code> names the full failure, which <code>get_failure</code> returns: it never goes in the error itself. The error names only the type of what failed when skforecast-ai did not raise it (an error of pandas or of the estimator can quote a value of the data), as an <code>internal_error</code> does. The failure that <code>get_failure</code> returns holds the whole message, so it can quote values of the data; its traceback names the files by module, without the directory they are installed in, and the code it holds reads the data in memory and does not name the path of the data file.</p>
+<p>An expensive run is refused before anything runs: a <code>backtest</code> above 50 estimator fits, or 2000 inference windows of a foundation model, or a <code>compare</code> whose candidates are above them together (the baseline included, without a candidate whose plan cannot be built or that fails the checks of <code>backtest</code>, which runs nothing), is a <code>cost_not_confirmed</code> error (field <code>confirm_cost</code>) unless <code>confirm_cost</code> is the number of its cost: its estimator fits, or its inference windows when only those are above. Its message states the cost and what each candidate adds, its hint the cheaper strategies and that the agent does not call again until the user answers, and then only if they choose that run, and <code>details</code> has the number (<code>confirm_cost</code>), the <code>cost</code> and, for a comparison, the cost of each candidate (<code>candidates</code>). In the core the error is <code>CostNotConfirmedError</code>, with the code <code>invalid_argument</code>, and it accepts <code>confirm_cost=True</code> (the Python API and the CLI, where a person decides); the server gives the error its own code and only takes the number, so the agent has read the cost, and a number given for another strategy, plan or candidates is refused with the new one. Below the thresholds <code>confirm_cost</code> is ignored. <code>create_cv</code> gives the number for its plan and for a <code>compare</code> without <code>candidates</code> in <code>cost</code> and in its <code>CostNotice</code>.</p>
+<p>When a script fails (<code>execution_failed</code>) or every candidate of a comparison fails (<code>all_candidates_failed</code>), <code>details.failure_id</code> names the full failure, which <code>get_failure</code> returns: it never goes in the error itself. The error names only the type of what failed when skforecast-ai did not raise it (an error of pandas or of the estimator can quote a value of the data), as an <code>internal_error</code> does; an error of skforecast-ai keeps its class (<code>InvalidInputError</code>) and its message, also for a failed candidate. With the id of a comparison, <code>get_failure</code> needs the <code>candidate</code>; without it, the error lists the failed candidates. The id of an object that did not fail (a comparison whose candidates all ran, or any other object) is <code>invalid_argument</code> on <code>object_id</code>. The failure that <code>get_failure</code> returns holds the whole message, so it can quote values of the data; its traceback names the files by module, without the directory they are installed in, and the code it holds reads the data in memory and does not name the path of the data file.</p>
 <p>An error of <code>profile</code> about the content of the file (repeated dates with different values, series of different frequencies) gets a hint that leaves the fix to the user: the agent must tell them and ask before writing a corrected copy. The messages of the core are forwarded as they are: they can name columns, series ids and values of the data, such as categories or dates (at most 5 values each). An error that skforecast-ai did not raise itself is an <code>internal_error</code> with only its type and an id (<code>details.error_type</code>, <code>details.error_id</code>): its message and traceback, which can quote a value, are written to the log of the server (stderr) with that id. The server cuts a message to 4,000 characters, a hint to 1,000 and each text of <code>details</code> to 500, and a response carries at most 20 notices of 1,000 characters each (<code>notices_omitted</code> counts the rest).</p>
 
 
@@ -2553,60 +2558,60 @@ limit.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>skforecast_ai/mcp/server.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">2904</span>
-<span class="normal">2905</span>
-<span class="normal">2906</span>
-<span class="normal">2907</span>
-<span class="normal">2908</span>
-<span class="normal">2909</span>
-<span class="normal">2910</span>
-<span class="normal">2911</span>
-<span class="normal">2912</span>
-<span class="normal">2913</span>
-<span class="normal">2914</span>
-<span class="normal">2915</span>
-<span class="normal">2916</span>
-<span class="normal">2917</span>
-<span class="normal">2918</span>
-<span class="normal">2919</span>
-<span class="normal">2920</span>
-<span class="normal">2921</span>
-<span class="normal">2922</span>
-<span class="normal">2923</span>
-<span class="normal">2924</span>
-<span class="normal">2925</span>
-<span class="normal">2926</span>
-<span class="normal">2927</span>
-<span class="normal">2928</span>
-<span class="normal">2929</span>
-<span class="normal">2930</span>
-<span class="normal">2931</span>
-<span class="normal">2932</span>
-<span class="normal">2933</span>
-<span class="normal">2934</span>
-<span class="normal">2935</span>
-<span class="normal">2936</span>
-<span class="normal">2937</span>
-<span class="normal">2938</span>
-<span class="normal">2939</span>
-<span class="normal">2940</span>
-<span class="normal">2941</span>
-<span class="normal">2942</span>
-<span class="normal">2943</span>
-<span class="normal">2944</span>
-<span class="normal">2945</span>
-<span class="normal">2946</span>
-<span class="normal">2947</span>
-<span class="normal">2948</span>
-<span class="normal">2949</span>
-<span class="normal">2950</span>
-<span class="normal">2951</span>
-<span class="normal">2952</span>
-<span class="normal">2953</span>
-<span class="normal">2954</span>
-<span class="normal">2955</span>
-<span class="normal">2956</span>
-<span class="normal">2957</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">create_server</span><span class="p">(</span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">3938</span>
+<span class="normal">3939</span>
+<span class="normal">3940</span>
+<span class="normal">3941</span>
+<span class="normal">3942</span>
+<span class="normal">3943</span>
+<span class="normal">3944</span>
+<span class="normal">3945</span>
+<span class="normal">3946</span>
+<span class="normal">3947</span>
+<span class="normal">3948</span>
+<span class="normal">3949</span>
+<span class="normal">3950</span>
+<span class="normal">3951</span>
+<span class="normal">3952</span>
+<span class="normal">3953</span>
+<span class="normal">3954</span>
+<span class="normal">3955</span>
+<span class="normal">3956</span>
+<span class="normal">3957</span>
+<span class="normal">3958</span>
+<span class="normal">3959</span>
+<span class="normal">3960</span>
+<span class="normal">3961</span>
+<span class="normal">3962</span>
+<span class="normal">3963</span>
+<span class="normal">3964</span>
+<span class="normal">3965</span>
+<span class="normal">3966</span>
+<span class="normal">3967</span>
+<span class="normal">3968</span>
+<span class="normal">3969</span>
+<span class="normal">3970</span>
+<span class="normal">3971</span>
+<span class="normal">3972</span>
+<span class="normal">3973</span>
+<span class="normal">3974</span>
+<span class="normal">3975</span>
+<span class="normal">3976</span>
+<span class="normal">3977</span>
+<span class="normal">3978</span>
+<span class="normal">3979</span>
+<span class="normal">3980</span>
+<span class="normal">3981</span>
+<span class="normal">3982</span>
+<span class="normal">3983</span>
+<span class="normal">3984</span>
+<span class="normal">3985</span>
+<span class="normal">3986</span>
+<span class="normal">3987</span>
+<span class="normal">3988</span>
+<span class="normal">3989</span>
+<span class="normal">3990</span>
+<span class="normal">3991</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">create_server</span><span class="p">(</span>
     <span class="n">allow_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
     <span class="n">output_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">max_objects</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">DEFAULT_MAX_OBJECTS</span><span class="p">,</span>
@@ -2844,101 +2849,101 @@ license information.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>skforecast_ai/mcp/server.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">2960</span>
-<span class="normal">2961</span>
-<span class="normal">2962</span>
-<span class="normal">2963</span>
-<span class="normal">2964</span>
-<span class="normal">2965</span>
-<span class="normal">2966</span>
-<span class="normal">2967</span>
-<span class="normal">2968</span>
-<span class="normal">2969</span>
-<span class="normal">2970</span>
-<span class="normal">2971</span>
-<span class="normal">2972</span>
-<span class="normal">2973</span>
-<span class="normal">2974</span>
-<span class="normal">2975</span>
-<span class="normal">2976</span>
-<span class="normal">2977</span>
-<span class="normal">2978</span>
-<span class="normal">2979</span>
-<span class="normal">2980</span>
-<span class="normal">2981</span>
-<span class="normal">2982</span>
-<span class="normal">2983</span>
-<span class="normal">2984</span>
-<span class="normal">2985</span>
-<span class="normal">2986</span>
-<span class="normal">2987</span>
-<span class="normal">2988</span>
-<span class="normal">2989</span>
-<span class="normal">2990</span>
-<span class="normal">2991</span>
-<span class="normal">2992</span>
-<span class="normal">2993</span>
-<span class="normal">2994</span>
-<span class="normal">2995</span>
-<span class="normal">2996</span>
-<span class="normal">2997</span>
-<span class="normal">2998</span>
-<span class="normal">2999</span>
-<span class="normal">3000</span>
-<span class="normal">3001</span>
-<span class="normal">3002</span>
-<span class="normal">3003</span>
-<span class="normal">3004</span>
-<span class="normal">3005</span>
-<span class="normal">3006</span>
-<span class="normal">3007</span>
-<span class="normal">3008</span>
-<span class="normal">3009</span>
-<span class="normal">3010</span>
-<span class="normal">3011</span>
-<span class="normal">3012</span>
-<span class="normal">3013</span>
-<span class="normal">3014</span>
-<span class="normal">3015</span>
-<span class="normal">3016</span>
-<span class="normal">3017</span>
-<span class="normal">3018</span>
-<span class="normal">3019</span>
-<span class="normal">3020</span>
-<span class="normal">3021</span>
-<span class="normal">3022</span>
-<span class="normal">3023</span>
-<span class="normal">3024</span>
-<span class="normal">3025</span>
-<span class="normal">3026</span>
-<span class="normal">3027</span>
-<span class="normal">3028</span>
-<span class="normal">3029</span>
-<span class="normal">3030</span>
-<span class="normal">3031</span>
-<span class="normal">3032</span>
-<span class="normal">3033</span>
-<span class="normal">3034</span>
-<span class="normal">3035</span>
-<span class="normal">3036</span>
-<span class="normal">3037</span>
-<span class="normal">3038</span>
-<span class="normal">3039</span>
-<span class="normal">3040</span>
-<span class="normal">3041</span>
-<span class="normal">3042</span>
-<span class="normal">3043</span>
-<span class="normal">3044</span>
-<span class="normal">3045</span>
-<span class="normal">3046</span>
-<span class="normal">3047</span>
-<span class="normal">3048</span>
-<span class="normal">3049</span>
-<span class="normal">3050</span>
-<span class="normal">3051</span>
-<span class="normal">3052</span>
-<span class="normal">3053</span>
-<span class="normal">3054</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">run_server</span><span class="p">(</span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">3994</span>
+<span class="normal">3995</span>
+<span class="normal">3996</span>
+<span class="normal">3997</span>
+<span class="normal">3998</span>
+<span class="normal">3999</span>
+<span class="normal">4000</span>
+<span class="normal">4001</span>
+<span class="normal">4002</span>
+<span class="normal">4003</span>
+<span class="normal">4004</span>
+<span class="normal">4005</span>
+<span class="normal">4006</span>
+<span class="normal">4007</span>
+<span class="normal">4008</span>
+<span class="normal">4009</span>
+<span class="normal">4010</span>
+<span class="normal">4011</span>
+<span class="normal">4012</span>
+<span class="normal">4013</span>
+<span class="normal">4014</span>
+<span class="normal">4015</span>
+<span class="normal">4016</span>
+<span class="normal">4017</span>
+<span class="normal">4018</span>
+<span class="normal">4019</span>
+<span class="normal">4020</span>
+<span class="normal">4021</span>
+<span class="normal">4022</span>
+<span class="normal">4023</span>
+<span class="normal">4024</span>
+<span class="normal">4025</span>
+<span class="normal">4026</span>
+<span class="normal">4027</span>
+<span class="normal">4028</span>
+<span class="normal">4029</span>
+<span class="normal">4030</span>
+<span class="normal">4031</span>
+<span class="normal">4032</span>
+<span class="normal">4033</span>
+<span class="normal">4034</span>
+<span class="normal">4035</span>
+<span class="normal">4036</span>
+<span class="normal">4037</span>
+<span class="normal">4038</span>
+<span class="normal">4039</span>
+<span class="normal">4040</span>
+<span class="normal">4041</span>
+<span class="normal">4042</span>
+<span class="normal">4043</span>
+<span class="normal">4044</span>
+<span class="normal">4045</span>
+<span class="normal">4046</span>
+<span class="normal">4047</span>
+<span class="normal">4048</span>
+<span class="normal">4049</span>
+<span class="normal">4050</span>
+<span class="normal">4051</span>
+<span class="normal">4052</span>
+<span class="normal">4053</span>
+<span class="normal">4054</span>
+<span class="normal">4055</span>
+<span class="normal">4056</span>
+<span class="normal">4057</span>
+<span class="normal">4058</span>
+<span class="normal">4059</span>
+<span class="normal">4060</span>
+<span class="normal">4061</span>
+<span class="normal">4062</span>
+<span class="normal">4063</span>
+<span class="normal">4064</span>
+<span class="normal">4065</span>
+<span class="normal">4066</span>
+<span class="normal">4067</span>
+<span class="normal">4068</span>
+<span class="normal">4069</span>
+<span class="normal">4070</span>
+<span class="normal">4071</span>
+<span class="normal">4072</span>
+<span class="normal">4073</span>
+<span class="normal">4074</span>
+<span class="normal">4075</span>
+<span class="normal">4076</span>
+<span class="normal">4077</span>
+<span class="normal">4078</span>
+<span class="normal">4079</span>
+<span class="normal">4080</span>
+<span class="normal">4081</span>
+<span class="normal">4082</span>
+<span class="normal">4083</span>
+<span class="normal">4084</span>
+<span class="normal">4085</span>
+<span class="normal">4086</span>
+<span class="normal">4087</span>
+<span class="normal">4088</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">run_server</span><span class="p">(</span>
     <span class="n">allow_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
     <span class="n">output_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">max_objects</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">DEFAULT_MAX_OBJECTS</span><span class="p">,</span>
@@ -3345,15 +3350,22 @@ metrics and the leaderboard of a comparison; the rows are in
             <td>
               <div class="doc-md-description">
                 <p>Cost of a cross-validation strategy, a backtest or a comparison:
-<code>n_folds</code>, <code>n_fits</code> (trainings of the forecaster in the shared
-strategy), <code>estimator_fits</code> (fits of an estimator, which a direct
-forecaster multiplies by <code>steps</code>) and <code>inference_windows</code> (the
-cost of a foundation model, never trained: one forecast per series
-and fold; 0 for the other forecasters); for a comparison, the last
-two are sums over its candidates. A cross-validation strategy also
-has <code>compare_estimator_fits</code> and <code>compare_inference_windows</code>, those
-of a comparison without candidates with it. None for the other
-kinds.</p>
+<code>n_folds</code>, <code>n_fits</code> (trainings of the forecaster),
+<code>estimator_fits</code> (fits of an estimator, which a direct forecaster
+multiplies by <code>steps</code>) and <code>inference_windows</code> (the cost of a
+foundation model, never trained: one forecast per series and fold;
+0 for the other forecasters). For a comparison, <code>n_folds</code> is that
+of the shared strategy and the other three are totals over all its
+candidates, the baseline included, counted before they run (a
+candidate that fails while it runs counts too; one whose plan
+cannot be built, or that fails the checks of <code>backtest</code>, runs
+nothing and does not). A cross-validation
+strategy also has <code>compare_estimator_fits</code> and
+<code>compare_inference_windows</code>, those of a comparison without
+candidates with it. Above 50 estimator fits, or 2000 inference
+windows, <code>backtest</code> and <code>compare</code> run only with <code>confirm_cost</code> set
+to the estimator fits (the inference windows, when only those are
+above). None for the other kinds.</p>
               </div>
             </td>
           </tr>
@@ -4065,7 +4077,7 @@ silence it, cut to 1,000 characters.</p>
                 <p>Packages to install to run the script outside the server: those of
 the modules it imports and the backend of its foundation model,
 each with the version installed where the server runs
-(<code>'skforecast==0.26.0'</code>).</p>
+(<code>'skforecast==0.27.0'</code>).</p>
               </div>
             </td>
           </tr>

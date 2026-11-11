@@ -1436,6 +1436,84 @@ Every forecast of skforecast-ai runs on
 </li>
         
           <li class="md-nav__item">
+  <a href="#skforecast_ai.exceptions.CostNotConfirmedError" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CostNotConfirmedError
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="CostNotConfirmedError">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#skforecast_ai.exceptions.CostNotConfirmedError-attributes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Attributes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Attributes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#skforecast_ai.exceptions.CostNotConfirmedError.figure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        figure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#skforecast_ai.exceptions.CostNotConfirmedError.cost" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        cost
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#skforecast_ai.exceptions.CostNotConfirmedError.description" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        description
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#skforecast_ai.exceptions.CostNotConfirmedError.comparison_cost" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        comparison_cost
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#skforecast_ai.exceptions.DataNotFoundError" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1764,6 +1842,28 @@ Every forecast of skforecast-ai runs on
     <span class="md-ellipsis">
       
         DataSentToLLMWarning
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#skforecast_ai.exceptions.FoldsLeftOutWarning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        FoldsLeftOutWarning
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#skforecast_ai.exceptions.IntervalCoverageWarning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        IntervalCoverageWarning
       
     </span>
   </a>
@@ -2250,7 +2350,12 @@ Every forecast of skforecast-ai runs on
 <tr>
 <td><code>DataContentError</code></td>
 <td><code>forecast()</code>, <code>backtest()</code>, <code>compare()</code> and the CLI</td>
-<td>Every argument is valid and the content of the data, or of the future exogenous variables, cannot be used for what was asked: a missing value of the target that a prediction or a metric reads, final rows without a target value, or future exogenous variables whose columns, dates or values do not fit the data and the plan. An <code>InvalidInputError</code> and therefore a <code>ValueError</code>, with the same <code>code</code> and <code>field</code>.</td>
+<td>Every argument is valid and the content of the data, or of the future exogenous variables, cannot be used for what was asked: a missing value of the target that a prediction or a metric reads, a training window whose rows all read one, a missing exogenous value of the data that a prediction of <code>backtest()</code> reads, final rows without a target value, or future exogenous variables whose columns, dates or values do not fit the data and the plan. An <code>InvalidInputError</code> and therefore a <code>ValueError</code>, with the same <code>code</code> and <code>field</code>.</td>
+</tr>
+<tr>
+<td><code>CostNotConfirmedError</code></td>
+<td><code>backtest()</code>, <code>compare()</code> and the CLI</td>
+<td>The run is expensive (above 50 estimator fits, or 2000 inference windows of a foundation model; for <code>compare()</code>, all its candidates together) and <code>confirm_cost</code> does not confirm it. Raised before anything runs: in <code>backtest()</code> after its other checks, in <code>compare()</code> once the plans of the candidates are built; the message states the cost and the changes that lower it. Pass <code>confirm_cost=True</code> (<code>--confirm-cost</code> in the CLI) to run it as it is. <code>figure</code>, <code>cost</code> and <code>comparison_cost</code> hold the cost. An <code>InvalidInputError</code> with the field <code>confirm_cost</code>.</td>
 </tr>
 <tr>
 <td><code>DataNotFoundError</code></td>
@@ -2284,8 +2389,18 @@ Every forecast of skforecast-ai runs on
 </tr>
 <tr>
 <td><code>MissingBackendWarning</code></td>
-<td><code>compare()</code> without <code>candidates</code></td>
-<td>The backend of the default foundation model (<code>chronos-forecasting</code> for Chronos-2) is not installed, so <code>ForecasterFoundation</code> is left out of the comparison instead of failing. Install it with <code>pip install skforecast-ai[foundation]</code>.</td>
+<td><code>compare()</code> without <code>candidates</code>, <code>plan()</code></td>
+<td>The backend of the default foundation model (<code>chronos-forecasting</code> for Chronos-2) is not installed, so <code>ForecasterFoundation</code> is left out of the comparison instead of failing; install it with <code>pip install skforecast-ai[foundation]</code>. With several series, <code>XGBRegressor</code> is left out the same way when <code>xgboost</code>, which no extra installs, is missing. <code>plan()</code> warns when the estimator of the plan (XGBoost, CatBoost) is not installed: the plan is made, since its script may run elsewhere, and running it here fails with <code>missing_dependency</code>.</td>
+</tr>
+<tr>
+<td><code>IntervalCoverageWarning</code></td>
+<td><code>backtest()</code>, <code>compare()</code> with <code>interval</code></td>
+<td>The prediction interval covers clearly less than its nominal level (<code>upper - lower</code>) in a series: the <code>coverage</code> that skforecast measured is more than two binomial standard errors for the number of predictions, and at least 5 percentage points, below it. It names the series (in <code>compare()</code>, the candidates) with their coverage; report that coverage, not the nominal level. The summary of the backtest gives the coverage and the mean width of the interval of every series.</td>
+</tr>
+<tr>
+<td><code>FoldsLeftOutWarning</code></td>
+<td><code>backtest()</code>, <code>compare()</code> of several series</td>
+<td>The backtest did not forecast a series in some test folds where it has values to evaluate (one that starts late, with <code>refit</code>, say), so its metrics, and the average across series, use fewer folds than the others. Read from the <code>level</code> and <code>fold</code> of the predictions; it names the series (in <code>compare()</code>, the candidates) with those folds, as the explanation does. A series that no fold forecasts raises <code>InvalidInputError</code> before running instead.</td>
 </tr>
 <tr>
 <td><code>DataSentToLLMWarning</code></td>
@@ -2295,7 +2410,7 @@ Every forecast of skforecast-ai runs on
 <tr>
 <td><code>PlanEditsDiscardedWarning</code></td>
 <td><code>refine_plan()</code>, <code>compare()</code> without <code>candidates</code></td>
-<td>The plan holds values edited by hand (a key of <code>forecaster_kwargs</code>, the preprocessing steps) that the refined plan does not keep. The warning names them and its text is kept in the <code>warnings</code> of the refined plan. The ones <code>refine_plan()</code> takes as overrides (<code>forecaster</code>, <code>lags</code>, <code>metric</code>...) can be passed again; the others cannot be kept. In <code>compare()</code>, the row <code>'Strategy plan'</code> runs the plan of the <code>CVResult</code> without them: <code>backtest()</code> measures it as it is.</td>
+<td>The plan holds values edited by hand (a key of <code>forecaster_kwargs</code>, the preprocessing steps) that the refined plan does not keep. The warning names them and its text is kept in the <code>warnings</code> of the refined plan. The ones <code>refine_plan()</code> takes as overrides (<code>forecaster</code>, <code>lags</code>, <code>metric</code>...) can be passed again; the others cannot be kept. It also names the decisions the refined plan leaves out because its forecaster or estimator cannot take them (the <code>estimator_kwargs</code> of another estimator; the differentiation, calendar features, target transformer, lags refined by the LLM, or the <code>transformer_exog</code> and <code>categorical_features</code> of the exogenous columns the plan read, when switching to <code>ForecasterStats</code>, <code>ForecasterFoundation</code> or the baseline), and whether the user, the LLM or the rules chose them, in the same warning as the values edited by hand. In <code>compare()</code>, the row <code>'Strategy plan'</code> runs the plan of the <code>CVResult</code> without them: <code>backtest()</code> measures it as it is.</td>
 </tr>
 <tr>
 <td><code>UnrecommendedForecasterWarning</code></td>
@@ -2334,12 +2449,12 @@ Every forecast of skforecast-ai runs on
 <tr>
 <td><code>data_unreadable</code></td>
 <td><code>DataNotFoundError</code>, <code>InvalidInputError</code></td>
-<td>An input exists but cannot be parsed: a CSV file that pandas cannot read (empty, binary, not UTF-8, or rows with more fields than the header) or whose separator or decimal mark cannot be told (pass <code>sep</code> and <code>decimal</code> to <code>profile()</code>), a URL whose content is not a CSV (<code>DataNotFoundError</code>, as before), or the JSON of <code>--from-plan</code> or <code>--from-profile</code> in the CLI.</td>
+<td>An input exists but cannot be parsed: a CSV file that pandas cannot read (empty, binary, in UTF-16 or in another encoding than UTF-8 and cp1252, rows with more fields than the header, or a column without name and values) or whose separator, decimal mark or thousands separator cannot be told (pass <code>sep</code>, <code>decimal</code> or <code>thousands</code> to <code>profile()</code>) or whose dates read both day first and month first with nothing to tell the order (pass <code>dayfirst</code>; for the file of future exogenous values, write its dates in ISO 8601), a URL whose content is not a CSV (<code>DataNotFoundError</code>, as before), or the JSON of <code>--from-plan</code> or <code>--from-profile</code> in the CLI.</td>
 </tr>
 <tr>
 <td><code>missing_dependency</code></td>
 <td><code>InvalidInputError</code></td>
-<td>The package of the chosen estimator, or the backend package of the foundation model, is not installed. Checked before <code>forecast()</code> and <code>backtest()</code> run the script.</td>
+<td>The package of the chosen estimator, or the backend package of the foundation model, is not installed. Checked before <code>forecast()</code> and <code>backtest()</code> run the script; <code>plan()</code> already warns about an estimator with <code>MissingBackendWarning</code>.</td>
 </tr>
 <tr>
 <td><code>execution_failed</code></td>
@@ -2435,6 +2550,14 @@ Every forecast of skforecast-ai runs on
             </td>
           </tr>
           <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;CostNotConfirmedError&lt;/span&gt; (&lt;code&gt;skforecast_ai.exceptions.CostNotConfirmedError&lt;/code&gt;)" href="#skforecast_ai.exceptions.CostNotConfirmedError">CostNotConfirmedError</a></code></td>
+            <td>
+              <div class="doc-md-description">
+                <p>Raised by <code>backtest()</code> and <code>compare()</code> before anything runs when the</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
             <td><code><a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;DataNotFoundError&lt;/span&gt; (&lt;code&gt;skforecast_ai.exceptions.DataNotFoundError&lt;/code&gt;)" href="#skforecast_ai.exceptions.DataNotFoundError">DataNotFoundError</a></code></td>
             <td>
               <div class="doc-md-description">
@@ -2491,10 +2614,26 @@ Every forecast of skforecast-ai runs on
             </td>
           </tr>
           <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;FoldsLeftOutWarning&lt;/span&gt; (&lt;code&gt;skforecast_ai.exceptions.FoldsLeftOutWarning&lt;/code&gt;)" href="#skforecast_ai.exceptions.FoldsLeftOutWarning">FoldsLeftOutWarning</a></code></td>
+            <td>
+              <div class="doc-md-description">
+                <p>Warned by <code>backtest()</code> and <code>compare()</code> when the backtest of several</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;IntervalCoverageWarning&lt;/span&gt; (&lt;code&gt;skforecast_ai.exceptions.IntervalCoverageWarning&lt;/code&gt;)" href="#skforecast_ai.exceptions.IntervalCoverageWarning">IntervalCoverageWarning</a></code></td>
+            <td>
+              <div class="doc-md-description">
+                <p>Warned by <code>backtest()</code> and <code>compare()</code> when the prediction interval</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
             <td><code><a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;MissingBackendWarning&lt;/span&gt; (&lt;code&gt;skforecast_ai.exceptions.MissingBackendWarning&lt;/code&gt;)" href="#skforecast_ai.exceptions.MissingBackendWarning">MissingBackendWarning</a></code></td>
             <td>
               <div class="doc-md-description">
-                <p>Warned by <code>compare()</code> when a foundation model candidate is left out.</p>
+                <p>Warned when a model needs a package that is not installed: by</p>
               </div>
             </td>
           </tr>
@@ -3318,6 +3457,390 @@ values, which is solved in the data, from an argument to correct.</p>
 
 
 
+<h4 id="skforecast_ai.exceptions.CostNotConfirmedError" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">CostNotConfirmedError</span>
+
+
+<a href="#skforecast_ai.exceptions.CostNotConfirmedError" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span class="nf">CostNotConfirmedError</span><span class="p">(</span>
+    <span class="n">message</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">figure</span><span class="p">,</span>
+    <span class="n">cost</span><span class="p">,</span>
+    <span class="n">description</span><span class="p">,</span>
+    <span class="n">comparison_cost</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">hint</span><span class="o">=</span><span class="kc">None</span>
+<span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;InvalidInputError&lt;/span&gt; (&lt;code&gt;skforecast_ai.exceptions.InvalidInputError&lt;/code&gt;)" href="#skforecast_ai.exceptions.InvalidInputError">InvalidInputError</a></code></p>
+
+
+
+        <p>Raised by <code>backtest()</code> and <code>compare()</code> before anything runs when the
+run is above the thresholds of an expensive run (50 estimator fits or
+2000 inference windows of a foundation model; for a comparison, all
+its candidates together) and <code>confirm_cost</code> does not confirm it.</p>
+<p>The message states the cost, what makes it and the changes that lower
+it; <code>hint</code> says how to run it as it is. A subclass of
+<code>InvalidInputError</code>, with the code <code>'invalid_argument'</code> and the field
+<code>'confirm_cost'</code>.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>message</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Error message, returned by <code>str(exc)</code>.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>figure</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Number that confirms the run, see the attribute.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>cost</code>
+            </td>
+            <td>
+                  <code><span title="dict">dict</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Cost of the run, see the attribute.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>description</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Sentence stating the cost, see the attribute.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>comparison_cost</code>
+            </td>
+            <td>
+                  <code><a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;ComparisonCost&lt;/span&gt; (&lt;code&gt;skforecast_ai.schemas.results.ComparisonCost&lt;/code&gt;)" href="schemas/results.html#skforecast_ai.schemas.results.ComparisonCost">ComparisonCost</a></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Cost of each candidate of a comparison.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>hint</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>How to run it as it is.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Attributes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;figure&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-instance-attribute&quot;&gt;&lt;code&gt;instance-attribute&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;skforecast_ai.exceptions.CostNotConfirmedError.figure&lt;/code&gt;)" href="#skforecast_ai.exceptions.CostNotConfirmedError.figure">figure</a></code></td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Number that confirms the run as <code>confirm_cost</code>: its estimator
+fits, or its inference windows when only those are above their
+threshold.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;cost&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-instance-attribute&quot;&gt;&lt;code&gt;instance-attribute&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;skforecast_ai.exceptions.CostNotConfirmedError.cost&lt;/code&gt;)" href="#skforecast_ai.exceptions.CostNotConfirmedError.cost">cost</a></code></td>
+            <td>
+                  <code><span title="dict">dict</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>n_folds</code>, <code>n_fits</code> (trainings), <code>estimator_fits</code> and
+<code>inference_windows</code> of the run; for a comparison, the folds of
+the shared strategy and the totals of its candidates.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;description&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-instance-attribute&quot;&gt;&lt;code&gt;instance-attribute&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;skforecast_ai.exceptions.CostNotConfirmedError.description&lt;/code&gt;)" href="#skforecast_ai.exceptions.CostNotConfirmedError.description">description</a></code></td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Sentence stating the cost and what makes it, without how to lower
+it or how to confirm it.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-attribute-name&quot;&gt;comparison_cost&lt;/span&gt;
+
+
+  &lt;span class=&quot;doc doc-labels&quot;&gt;
+      &lt;small class=&quot;doc doc-label doc-label-instance-attribute&quot;&gt;&lt;code&gt;instance-attribute&lt;/code&gt;&lt;/small&gt;
+  &lt;/span&gt; (&lt;code&gt;skforecast_ai.exceptions.CostNotConfirmedError.comparison_cost&lt;/code&gt;)" href="#skforecast_ai.exceptions.CostNotConfirmedError.comparison_cost">comparison_cost</a></code></td>
+            <td>
+                  <code>(<a class="autorefs autorefs-internal" title="&lt;span class=&quot;doc doc-object-name doc-class-name&quot;&gt;ComparisonCost&lt;/span&gt; (&lt;code&gt;skforecast_ai.schemas.results.ComparisonCost&lt;/code&gt;)" href="schemas/results.html#skforecast_ai.schemas.results.ComparisonCost">ComparisonCost</a>, None)</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Cost of each candidate of a comparison, None for a backtest.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+
+
+                  <details class="mkdocstrings-source">
+                    <summary>Source code in <code>skforecast_ai/exceptions.py</code></summary>
+                    <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">172</span>
+<span class="normal">173</span>
+<span class="normal">174</span>
+<span class="normal">175</span>
+<span class="normal">176</span>
+<span class="normal">177</span>
+<span class="normal">178</span>
+<span class="normal">179</span>
+<span class="normal">180</span>
+<span class="normal">181</span>
+<span class="normal">182</span>
+<span class="normal">183</span>
+<span class="normal">184</span>
+<span class="normal">185</span>
+<span class="normal">186</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+    <span class="bp">self</span><span class="p">,</span>
+    <span class="n">message</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">figure</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">cost</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">],</span>
+    <span class="n">description</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">comparison_cost</span><span class="p">:</span> <span class="n">ComparisonCost</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">hint</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">message</span><span class="p">,</span> <span class="n">field</span><span class="o">=</span><span class="s2">"confirm_cost"</span><span class="p">,</span> <span class="n">hint</span><span class="o">=</span><span class="n">hint</span><span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">figure</span> <span class="o">=</span> <span class="n">figure</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">cost</span> <span class="o">=</span> <span class="n">cost</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">description</span> <span class="o">=</span> <span class="n">description</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">comparison_cost</span> <span class="o">=</span> <span class="n">comparison_cost</span>
+</code></pre></div></td></tr></table></div>
+                  </details>
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+<h5 id="skforecast_ai.exceptions.CostNotConfirmedError-attributes">Attributes<a href="#skforecast_ai.exceptions.CostNotConfirmedError-attributes" class="headerlink" title="Permanent link">&para;</a></h5>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h6 id="skforecast_ai.exceptions.CostNotConfirmedError.figure" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">figure</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+<a href="#skforecast_ai.exceptions.CostNotConfirmedError.figure" class="headerlink" title="Permanent link">&para;</a></h6>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span class="n">figure</span> <span class="o">=</span> <span class="n">figure</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h6 id="skforecast_ai.exceptions.CostNotConfirmedError.cost" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">cost</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+<a href="#skforecast_ai.exceptions.CostNotConfirmedError.cost" class="headerlink" title="Permanent link">&para;</a></h6>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span class="n">cost</span> <span class="o">=</span> <span class="n">cost</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h6 id="skforecast_ai.exceptions.CostNotConfirmedError.description" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">description</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+<a href="#skforecast_ai.exceptions.CostNotConfirmedError.description" class="headerlink" title="Permanent link">&para;</a></h6>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span class="n">description</span> <span class="o">=</span> <span class="n">description</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h6 id="skforecast_ai.exceptions.CostNotConfirmedError.comparison_cost" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">comparison_cost</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-instance-attribute"><code>instance-attribute</code></small>
+  </span>
+
+<a href="#skforecast_ai.exceptions.CostNotConfirmedError.comparison_cost" class="headerlink" title="Permanent link">&para;</a></h6>
+<div class="language-python doc-signature highlight"><pre><span></span><code><span class="n">comparison_cost</span> <span class="o">=</span> <span class="n">comparison_cost</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+    </div>
+
+</div>
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
 <h4 id="skforecast_ai.exceptions.DataNotFoundError" class="doc doc-heading">
             <span class="doc doc-object-name doc-class-name">DataNotFoundError</span>
 
@@ -3570,11 +4093,11 @@ before skforecast-ai had its own hierarchy. The code is
 
                   <details class="mkdocstrings-source">
                     <summary>Source code in <code>skforecast_ai/exceptions.py</code></summary>
-                    <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">188</span>
-<span class="normal">189</span>
-<span class="normal">190</span>
-<span class="normal">191</span>
-<span class="normal">192</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">method_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+                    <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">216</span>
+<span class="normal">217</span>
+<span class="normal">218</span>
+<span class="normal">219</span>
+<span class="normal">220</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">method_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
     <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span>
         <span class="sa">f</span><span class="s2">"`</span><span class="si">{</span><span class="n">method_name</span><span class="si">}</span><span class="s2">()` requires an LLM. "</span>
         <span class="s2">"Pass `llm=...` when creating ForecastingAssistant."</span>
@@ -3758,17 +4281,17 @@ kept as an attribute. The code is <code>'llm_call_failed'</code>.</p>
 
                   <details class="mkdocstrings-source">
                     <summary>Source code in <code>skforecast_ai/exceptions.py</code></summary>
-                    <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">222</span>
-<span class="normal">223</span>
-<span class="normal">224</span>
-<span class="normal">225</span>
-<span class="normal">226</span>
-<span class="normal">227</span>
-<span class="normal">228</span>
-<span class="normal">229</span>
-<span class="normal">230</span>
-<span class="normal">231</span>
-<span class="normal">232</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">llm</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">original_error</span><span class="p">:</span> <span class="ne">Exception</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+                    <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">250</span>
+<span class="normal">251</span>
+<span class="normal">252</span>
+<span class="normal">253</span>
+<span class="normal">254</span>
+<span class="normal">255</span>
+<span class="normal">256</span>
+<span class="normal">257</span>
+<span class="normal">258</span>
+<span class="normal">259</span>
+<span class="normal">260</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">llm</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">original_error</span><span class="p">:</span> <span class="ne">Exception</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
     <span class="bp">self</span><span class="o">.</span><span class="n">llm</span> <span class="o">=</span> <span class="n">llm</span>
     <span class="bp">self</span><span class="o">.</span><span class="n">original_error</span> <span class="o">=</span> <span class="n">original_error</span>
 
@@ -4110,27 +4633,27 @@ when it cannot be located.</p>
 
                   <details class="mkdocstrings-source">
                     <summary>Source code in <code>skforecast_ai/exceptions.py</code></summary>
-                    <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">280</span>
-<span class="normal">281</span>
-<span class="normal">282</span>
-<span class="normal">283</span>
-<span class="normal">284</span>
-<span class="normal">285</span>
-<span class="normal">286</span>
-<span class="normal">287</span>
-<span class="normal">288</span>
-<span class="normal">289</span>
-<span class="normal">290</span>
-<span class="normal">291</span>
-<span class="normal">292</span>
-<span class="normal">293</span>
-<span class="normal">294</span>
-<span class="normal">295</span>
-<span class="normal">296</span>
-<span class="normal">297</span>
-<span class="normal">298</span>
-<span class="normal">299</span>
-<span class="normal">300</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+                    <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">308</span>
+<span class="normal">309</span>
+<span class="normal">310</span>
+<span class="normal">311</span>
+<span class="normal">312</span>
+<span class="normal">313</span>
+<span class="normal">314</span>
+<span class="normal">315</span>
+<span class="normal">316</span>
+<span class="normal">317</span>
+<span class="normal">318</span>
+<span class="normal">319</span>
+<span class="normal">320</span>
+<span class="normal">321</span>
+<span class="normal">322</span>
+<span class="normal">323</span>
+<span class="normal">324</span>
+<span class="normal">325</span>
+<span class="normal">326</span>
+<span class="normal">327</span>
+<span class="normal">328</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">,</span>
     <span class="n">original_error</span><span class="p">:</span> <span class="ne">Exception</span><span class="p">,</span>
     <span class="n">generated_code</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
@@ -4407,15 +4930,15 @@ why it failed, in the order the candidates were evaluated.</p>
 
                   <details class="mkdocstrings-source">
                     <summary>Source code in <code>skforecast_ai/exceptions.py</code></summary>
-                    <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">325</span>
-<span class="normal">326</span>
-<span class="normal">327</span>
-<span class="normal">328</span>
-<span class="normal">329</span>
-<span class="normal">330</span>
-<span class="normal">331</span>
-<span class="normal">332</span>
-<span class="normal">333</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">failures</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">CandidateFailure</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+                    <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">353</span>
+<span class="normal">354</span>
+<span class="normal">355</span>
+<span class="normal">356</span>
+<span class="normal">357</span>
+<span class="normal">358</span>
+<span class="normal">359</span>
+<span class="normal">360</span>
+<span class="normal">361</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">failures</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">CandidateFailure</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
     <span class="bp">self</span><span class="o">.</span><span class="n">failures</span> <span class="o">=</span> <span class="n">failures</span>
 
     <span class="n">message</span> <span class="o">=</span> <span class="p">(</span>
@@ -4556,8 +5079,101 @@ statistics alone. That override is silent otherwise, so a user who set
 <code>send_data_to_llm=False</code> for privacy reasons would still ship values
 off the machine without being told. A result that carries no such
 values (for example a <code>CodeGenerationResult</code>) does not trigger it.</p>
-<p>The input data is not sent: a result holds only the model's output,
-never the data it was fitted on.</p>
+<p>The input data is not sent: the observed values that the predictions
+of a backtest carry (<code>y_true</code>) are left out of the context unless
+<code>send_data_to_llm</code> is True, and a result holds no other value of the
+data it was fitted on.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h4 id="skforecast_ai.exceptions.FoldsLeftOutWarning" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">FoldsLeftOutWarning</span>
+
+
+<a href="#skforecast_ai.exceptions.FoldsLeftOutWarning" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="UserWarning">UserWarning</span></code></p>
+
+
+
+        <p>Warned by <code>backtest()</code> and <code>compare()</code> when the backtest of several
+series did not forecast a series in some test folds where it has
+values to evaluate.</p>
+<p><code>ForecasterRecursiveMultiSeries</code> and a <code>ForecasterFoundation</code> model
+leave a series out of a fold they cannot forecast (one that starts
+late, say) without a warning of skforecast. The folds that forecast
+each series are read from the <code>level</code> and <code>fold</code> of the predictions:
+the metrics of a series left out of some folds, and the average across
+series, are computed on fewer folds than those of the others. The
+warning names the series (in <code>compare()</code>, the candidates) with those
+folds, as the explanation does. A series that no fold forecasts raises
+before running instead.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h4 id="skforecast_ai.exceptions.IntervalCoverageWarning" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">IntervalCoverageWarning</span>
+
+
+<a href="#skforecast_ai.exceptions.IntervalCoverageWarning" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="UserWarning">UserWarning</span></code></p>
+
+
+
+        <p>Warned by <code>backtest()</code> and <code>compare()</code> when the prediction interval
+covers clearly less than its nominal level.</p>
+<p>The backtesting of skforecast measures the share of the actual values
+that fall inside the interval (<code>coverage</code> in the metrics). The warning
+is emitted when, in any series, that share is below the nominal coverage
+(<code>upper - lower</code> of <code>interval</code>) by more than two binomial standard
+errors for the number of predictions, and by at least 5 percentage
+points. It names the series (or, in <code>compare()</code>, the candidates) and
+their coverage: such an interval must not be read at its nominal level.</p>
 
 
 
@@ -4593,13 +5209,19 @@ never the data it was fitted on.</p>
 
 
 
-        <p>Warned by <code>compare()</code> when a foundation model candidate is left out.</p>
+        <p>Warned when a model needs a package that is not installed: by
+<code>compare()</code> when it leaves a candidate out, and by <code>plan()</code> when the
+estimator of the plan is one of them.</p>
 <p><code>compare()</code> without <code>candidates</code> includes <code>ForecasterFoundation</code>, whose
 default model needs a backend package (for Chronos-2,
-<code>chronos-forecasting</code>) that skforecast-ai does not install by default.
-When that package is missing, the candidate is dropped instead of
-failing on every call, and this warning says which package to install.
-The comparison explanation records it as well.</p>
+<code>chronos-forecasting</code>) that skforecast-ai does not install by default,
+and, with several series, <code>XGBRegressor</code>, whose package no extra of
+skforecast-ai installs. When that package is missing, the candidate is
+dropped instead of failing on every call, and this warning says which
+package to install. The comparison explanation records it as well.
+<code>plan()</code> still makes a plan whose estimator is not installed (XGBoost,
+CatBoost), since its script may run on another machine, and warns that
+running it here fails.</p>
 
 
 
@@ -4643,6 +5265,15 @@ hand in the plan (in <code>forecaster_kwargs</code>, the metric, the
 preprocessing steps...) that <code>plan()</code> would not build is therefore
 lost. The warning names those fields; its text is also kept in the
 <code>warnings</code> of the refined plan.</p>
+<p>It is warned too when the refined plan leaves out decisions of the plan
+that its forecaster or its estimator cannot take: the <code>estimator_kwargs</code>
+written for another estimator, or the differentiation, the calendar
+features, the target transformer, the lags refined by the LLM and the
+<code>transformer_exog</code> and <code>categorical_features</code> of an autoregressive plan
+switched to <code>ForecasterStats</code>, <code>ForecasterFoundation</code> or the baseline.
+The warning names each value and whether the user, the LLM or the rules
+chose it. Edits by hand and decisions left out are named in a single
+warning.</p>
 <p><code>compare()</code> without <code>candidates</code> warns it too when the plan of its
 <code>CVResult</code> runs as the row <code>'Strategy plan'</code>, which <code>plan()</code> rebuilds
 in the same way: the edits it would not build do not run.</p>
