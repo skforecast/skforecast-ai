@@ -72,7 +72,7 @@ def save_config(config: dict) -> None:
             else:
                 lines.append(f"{key} = {val}")
         lines.append("")
-    CONFIG_FILE.write_text("\n".join(lines))
+    CONFIG_FILE.write_text("\n".join(lines), encoding="utf-8")
     CONFIG_FILE.chmod(0o600)
 
 

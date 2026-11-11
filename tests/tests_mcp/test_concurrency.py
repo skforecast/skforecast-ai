@@ -195,7 +195,9 @@ def test_get_code_with_cold_distributions_does_not_hold_a_read_during_a_run(
     release = threading.Event()
     running = threading.Event()
     scanning = threading.Event()
-    scanned = []
+    # The order of the two events, not their times: the clock of Windows can
+    # give both the same reading.
+    order = []
     backtest = ForecastingAssistant.backtest
     packages_distributions = server_module.metadata.packages_distributions
 
@@ -207,7 +209,7 @@ def test_get_code_with_cold_distributions_does_not_hold_a_read_during_a_run(
     def cold_packages_distributions():
         scanning.set()
         release.wait(timeout=5)
-        scanned.append(time.monotonic())
+        order.append("scanned")
         return packages_distributions()
 
     monkeypatch.setattr(ForecastingAssistant, "backtest", long_backtest)
@@ -227,13 +229,13 @@ def test_get_code_with_cold_distributions_does_not_hold_a_read_during_a_run(
             group.start_soon(one, "get_code", {"object_id": plan_id})
             await anyio.to_thread.run_sync(scanning.wait, 5)
             listed = content_of(await client.call_tool("list_objects", {}))
-            answered = time.monotonic()
+            order.append("answered")
             release.set()
-        return results, listed, answered
+        return results, listed
 
-    results, listed, answered = run_session(server, steps)
+    results, listed = run_session(server, steps)
 
-    assert answered < scanned[0]
+    assert order == ["answered", "scanned"]
     assert {entry["kind"] for entry in listed["objects"]} == {"profile", "plan", "cv"}
     assert [name.split("==")[0] for name in results["get_code"]["requirements"]] == [
         "pandas", "scikit-learn", "skforecast"

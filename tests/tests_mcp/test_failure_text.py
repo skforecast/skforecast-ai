@@ -17,6 +17,7 @@ from skforecast_ai.mcp._errors import (
 )
 from skforecast_ai.schemas import CandidateFailure
 
+from ..fixtures_assistant import RIDGE_ALPHA_TYPES
 from ..fixtures_datasets import df_h2o
 
 
@@ -148,6 +149,6 @@ def test_error_payload_names_only_the_type_of_a_failure_not_of_skforecast_ai():
     assert comparison_message.endswith(
         "  - lgbm: LightGBMError\n"
         "  - ridge: InvalidInputError: `estimator_kwargs` is not valid for Ridge: "
-        "The 'alpha' parameter of Ridge must be a float in the range [0.0, inf) "
-        "or an array-like. Got -1 instead."
+        f"The 'alpha' parameter of Ridge must be {RIDGE_ALPHA_TYPES}. "
+        "Got -1 instead."
     )

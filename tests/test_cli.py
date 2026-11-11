@@ -439,6 +439,27 @@ class TestGenerateCode:
         code = out_path.read_text()
         ast.parse(code)
 
+    def test_forecast_code_output_to_file_when_target_not_ascii(self, tmp_path):
+        """
+        Test that forecast-code --output writes the script in UTF-8, the
+        encoding Python reads a source file in, whatever the encoding of the
+        system: a target named with a letter outside ASCII ('año') reads back
+        from the bytes of the file. Before, Windows wrote it in cp1252 and the
+        script failed with a SyntaxError.
+        """
+        csv_path = _write_csv(tmp_path, df_single.rename(columns={"sales": "año"}))
+        out_path = tmp_path / "script.py"
+        result = runner.invoke(
+            app,
+            ["forecast-code", csv_path, "--target", "año", "--date-column", "date",
+             "--steps", "10", "--output", str(out_path), "--quiet"],
+        )
+
+        assert result.exit_code == 0
+        code = out_path.read_bytes().decode("utf-8")
+        ast.parse(code)
+        assert "data['año']" in code
+
     def test_forecast_code_syntax_valid(self, tmp_path):
         """
         Generated code is syntactically valid Python.

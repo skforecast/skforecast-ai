@@ -36,7 +36,7 @@ def _run_as_file(code: str, workdir) -> pd.DataFrame:
     `predictions`.
     """
     script = workdir / "script.py"
-    script.write_text(code)
+    script.write_text(code, encoding="utf-8")
     export = workdir / "exported.csv"
     wrapper = workdir / "run.py"
     wrapper.write_text(
