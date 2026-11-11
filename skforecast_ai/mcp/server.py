@@ -15,6 +15,7 @@ import inspect
 import json
 import logging
 import os
+import re
 import sys
 import tempfile
 import threading
@@ -1916,21 +1917,33 @@ def _undeclared_distributions() -> dict[str, list[str]]:
     return distributions
 
 
+# Distribution name and extras at the start of a requirement, before a
+# version specifier: `tfc-t0[torch]>=0.6`, the backend of T0.
+_REQUIREMENT_NAME = re.compile(
+    r"(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)(?P<extras>\[[^\]]*\])?"
+)
+
+
 def _pinned(package: str) -> str:
     """
     A package with the version installed where the server runs
-    (`'pandas==2.3.1'`), or the package alone when it is not installed.
-    A direct reference (`'timestral @ git+https://...'`, the backend of
-    Timestral) is kept as it is: it names its source, and a version after
-    the URL would make the requirement invalid.
+    (`'pandas==2.3.1'`, `'tfc-t0[torch]==0.6.1'` for `'tfc-t0[torch]>=0.6'`:
+    the extras are kept and the specifier gives way to that version), or
+    the requirement as given when it is not installed. A direct reference
+    (`'timestral @ git+https://...'`, the backend of Timestral) is kept as
+    it is: it names its source, and a version after the URL would make the
+    requirement invalid.
     """
 
     if "@" in package:
         return package
+    match = _REQUIREMENT_NAME.match(package.strip())
     try:
-        return f"{package}=={metadata.version(package.split('[', 1)[0])}"
+        installed = metadata.version(match["name"])
     except metadata.PackageNotFoundError:
         return package
+
+    return f"{match['name']}{match['extras'] or ''}=={installed}"
 
 
 def _requirements(code: str, model_id: str | None) -> list[str]:
