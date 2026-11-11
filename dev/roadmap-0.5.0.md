@@ -547,8 +547,9 @@ Hecho en [#126](https://github.com/skforecast/skforecast-ai/pull/126) (D34).
    con haiku) acaban cuando el cliente deniega el comando de shell que
    escribe la copia acordada. Los datos del escenario no ejercitan D38 (los
    tres meses que faltan caen antes del primer fold de test), y ninguna
-   sesión nombra Timestral ni TiRex-2. Dos hallazgos del servidor quedan
-   abiertos, sin arreglar ni aceptar en el log (lo decide el usuario):
+   sesión nombra Timestral ni TiRex-2. Dos hallazgos del servidor, el
+   primero aceptado para la 0.5.0 y apuntado en "A la 0.6.0" (2026-11-11),
+   el segundo para reportar en skforecast:
    - Las frases sobre las fechas de test sin valor (el paso de `plan` y el
      aviso de `create_cv`, de #139) son reglas escritas sin los datos y
      salen también cuando ninguna fecha de test falta: 3 de 9 respuestas de
@@ -2412,6 +2413,31 @@ fechas con valor (y `n_evaluated` en sus métricas), lo que cambia todos los
 scripts de evaluación (esperados byte a byte, tests standalone y
 determinismo). Con varias series, `validate_evaluation_partition` tiene la
 misma regla.
+
+### Las frases sobre las fechas de test sin valor
+
+El paso de `plan` ("a backtest leaves those dates out of its metrics",
+`missing_values_advice`) y el aviso de `create_cv` ("The metrics leave
+out the test dates without a value. ... Impute the target to backtest
+every fold", `backtest_missing_values_messages`), los dos de #139 (D38),
+son reglas generales escritas sin los datos: salen siempre que el objetivo
+tiene valores o fechas que faltan, también cuando ninguna fecha de test
+falta. En `0.5.0-final-haiku`, 3 de 9 respuestas las repiten como algo que
+pasó (se midieron 36 de 36 predicciones); 0 de 2 con sonnet. Aceptado para
+la 0.5.0 (2026-11-11): solo lo muestra el modelo débil, no toca datos del
+usuario y las frases son ciertas como regla.
+
+Precisarlo: `create_cv()` no recibe los datos (el perfil dice cuántos
+valores faltan, no dónde), así que o las frases se escriben como condición
+explícita ("if a test fold holds a missing date, the metrics leave it
+out"), o lo dice quien sí lo sabe, el resumen de `backtest`, que ya cuenta
+las fechas que quedan fuera y podría decir también que no quedó ninguna.
+"Impute the target to backtest every fold" sobra cuando el estimador
+acepta los valores que faltan. Cambia textos que lee el LLM (la explicación
+del plan y el resumen del backtest): goldens y check de pago. De paso, el
+check con agentes necesita un fichero con un mes ausente dentro de los
+folds de test: en `h2o_dirty` los tres caen antes del primero, y ninguna
+sesión ejercita D38.
 
 ### Las métricas por serie en el SKILL.md del servidor
 
