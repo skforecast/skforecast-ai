@@ -2159,7 +2159,7 @@
     },
     "output_schema": {
       "additionalProperties": false,
-      "description": "Script of an object, returned by the `get_code` tool.\n\nAttributes\n----------\nid : str\n    Id of the object.\nkind : str\n    Kind of the object.\ncandidate : str, None\n    Candidate of a comparison whose script it is.\ncode : str\n    Python code, cut to 20,000 characters.\ncode_truncated : bool\n    Whether `code` was cut; the full code is then in `files['code']`.\nrequirements : list of str\n    Packages to install to run the script outside the server: those of\n    the modules it imports and the backend of its foundation model,\n    each with the version installed where the server runs\n    (`'skforecast==0.26.0'`).\nfiles : dict\n    Absolute path of the file with the full code, when it was cut.",
+      "description": "Script of an object, returned by the `get_code` tool.\n\nAttributes\n----------\nid : str\n    Id of the object.\nkind : str\n    Kind of the object.\ncandidate : str, None\n    Candidate of a comparison whose script it is.\ncode : str\n    Python code, cut to 20,000 characters.\ncode_truncated : bool\n    Whether `code` was cut; the full code is then in `files['code']`.\nrequirements : list of str\n    Packages to install to run the script outside the server: those of\n    the modules it imports and the backend of its foundation model,\n    each with the version installed where the server runs\n    (`'skforecast==0.27.0'`).\nfiles : dict\n    Absolute path of the file with the full code, when it was cut.",
       "properties": {
         "id": {
           "title": "Id",

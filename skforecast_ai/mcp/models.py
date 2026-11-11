@@ -500,7 +500,7 @@ class CodeResult(BaseModel):
         Packages to install to run the script outside the server: those of
         the modules it imports and the backend of its foundation model,
         each with the version installed where the server runs
-        (`'skforecast==0.26.0'`).
+        (`'skforecast==0.27.0'`).
     files : dict
         Absolute path of the file with the full code, when it was cut.
     """
