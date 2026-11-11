@@ -184,6 +184,22 @@ de 3), así que solo es precisión del texto: decir que el resumen de
 `compare` da la media y el de un backtest hasta 5 series, y que con más
 se leen las filas del fichero. Cambia el SKILL.md y su copia del plugin.
 
+### El banner de pydantic-ai en la CLI
+
+Desde la 2.62, pydantic-ai imprime en stderr un banner con publicidad de
+Logfire en la primera llamada a un agente de cada proceso, cuando stderr es
+un terminal o detecta un agente de código (`CLAUDECODE`, `CODEX_*`...). Lo
+ve quien usa `skforecast-ai ask` o `ask()` desde un terminal; no sale en
+Jupyter, CI ni pytest. Salió en los notebooks de la 0.5.0 porque el kernel
+heredó las variables de Claude Code, y se quitó a mano de las salidas.
+
+La CLI pone `pydantic_ai.BANNER_ENABLED = False` antes de la primera
+llamada: es el interruptor que pydantic-ai documenta para un programa que
+gestiona su propia salida. En la API de Python no: sería un global de una
+librería del usuario y le quitaría también el banner de sus propios agentes.
+Al volver a ejecutar los notebooks desde una sesión de Claude Code, con
+`PYDANTIC_AI_NO_BANNER=1`. Lleva test y nota de release.
+
 ### Leer Parquet y Excel por ruta
 
 #### Por qué
