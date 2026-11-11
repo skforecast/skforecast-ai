@@ -499,8 +499,15 @@ Hecho en [#126](https://github.com/skforecast/skforecast-ai/pull/126) (D34).
    contextos solo cambian en el último fold incompleto): los informes y la
    fila del log son de esa pasada, en
    [#134](https://github.com/skforecast/skforecast-ai/pull/134).
-   Pendiente al cierre (2026-11-11): una pasada parcial de pago, que lanza
-   el usuario. La última completa es del 2026-11-08; desde entonces
+   Pasada parcial de pago al cierre: hecha (2026-11-11), con los informes
+   empalmados y su fila en el log. 78 respuestas sin errores del LLM; las
+   49 que interpretan el MASE lo leen contra el naive de un paso, ninguna
+   contra la fila del baseline ni con el texto anterior; las 6 preguntas
+   trampa de por qué gana un candidato se declinan; Timestral sale entre
+   los restringidos y TiRex-2 no. Sin hallazgos nuevos. Quedan 6 respuestas
+   guardadas de escenarios que no se repitieron (`backtest_code`, `plan`,
+   `cv_defaults`) con el paréntesis del prompt anterior, "(last training
+   value)". La última completa es del 2026-11-08; desde entonces
    cambiaron el texto de la referencia del MASE (#143, en el prompt de rol
    y en la línea del baseline de una comparación), los valores de MASE de
    todo backtest y comparación (skforecast#1473) y cinco skills
