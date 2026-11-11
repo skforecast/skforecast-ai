@@ -229,7 +229,7 @@ The main changes in this release are:
 
 + An estimator whose package is not installed (XGBoost, CatBoost) was only reported when the plan ran, and the `missing_dependency` error of the MCP server had no hint. [<code>ForecastingAssistant.plan()</code>][assistant] now warns with `MissingBackendWarning` (a notice in the MCP server), and the error says how to install it with pip or uvx, as for a foundation model ([#124](https://github.com/skforecast/skforecast-ai/pull/124)).
 
-+ The first `get_code` of the MCP server held every other call while a long run was going, and the requirements of the script of a strategy for a foundation model listed its backend, which that script does not load ([#124](https://github.com/skforecast/skforecast-ai/pull/124)).
++ The first `get_code` of the MCP server held every other call while a long run was going, and the requirements of the script of a strategy for a foundation model listed its backend, which that script does not load. A backend given with a version (`tabpfn-time-series>=1.3`) is now pinned to the installed version as the other packages are, keeping its extras (`tfc-t0[torch]==0.6.1`) ([#124](https://github.com/skforecast/skforecast-ai/pull/124), [#145](https://github.com/skforecast/skforecast-ai/pull/145)).
 
 + [<code>ForecastingAssistant.forecast()</code>][assistant] of data without dates (a RangeIndex) with future exogenous values from a file (`--exog` of the CLI, `exog_path` of the MCP server) failed, as the first column of the file was read as its dates. The rows of the file are now the steps of the horizon in order, and positions that do not follow the data raise a clear error instead of one of skforecast ([#125](https://github.com/skforecast/skforecast-ai/pull/125)).
 

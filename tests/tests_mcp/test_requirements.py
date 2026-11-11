@@ -1,6 +1,9 @@
 # Unit test _requirements
 
+from importlib import metadata
 from importlib.metadata import version
+
+import pytest
 
 from skforecast_ai.mcp.server import _requirements
 
@@ -88,3 +91,38 @@ def test_requirements_no_backend_when_the_script_loads_no_model():
     requirements = _requirements(code, "autogluon/chronos-2-small")
 
     assert requirements == [f"skforecast=={version('skforecast')}"]
+
+
+@pytest.mark.parametrize(
+    "installed, expected",
+    [("0.6.1", "tfc-t0[torch]==0.6.1"), (None, "tfc-t0[torch]>=0.6")],
+    ids=["installed", "not installed"],
+)
+def test_requirements_backend_with_extras_and_version_specifier(
+    monkeypatch, installed, expected
+):
+    """
+    Test that the backend of T0, which skforecast gives with extras and a
+    version specifier (`tfc-t0[torch]>=0.6`), keeps its extras and is
+    pinned to the version installed where the server runs, instead of
+    getting `==<version>` after the specifier, which pip rejects; when it
+    is not installed, it is the requirement as skforecast gives it.
+    """
+    original = metadata.version
+
+    def fake_version(name):
+        if name != "tfc-t0":
+            return original(name)
+        if installed is None:
+            raise metadata.PackageNotFoundError(name)
+        return installed
+
+    monkeypatch.setattr(metadata, "version", fake_version)
+    code = (
+        "import pandas as pd\n"
+        "from skforecast.foundation import FoundationModel, ForecasterFoundation\n"
+    )
+
+    requirements = _requirements(code, "theforecastingcompany/t0-alpha")
+
+    assert requirements[-1] == expected
