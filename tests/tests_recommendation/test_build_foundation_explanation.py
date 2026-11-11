@@ -81,7 +81,7 @@ def test_build_foundation_explanation_output_when_model_is_gated():
     """
     Test that the explanation states that the weights of a gated model need
     an authenticated Hugging Face account, and says nothing about the exog
-    of a model that accepts covariates. No adapter of skforecast 0.26 is
+    of a model that accepts covariates. No adapter of skforecast 0.27 is
     gated, so the information of t0 is marked as gated.
     """
     info = dataclasses.replace(

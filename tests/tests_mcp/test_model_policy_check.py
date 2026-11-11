@@ -99,7 +99,7 @@ def test_model_policy_check_ServerError_names_the_provider_account():
 def test_model_policy_check_ServerError_names_gated_weights(monkeypatch):
     """
     Test that a model with gated weights says so. No adapter of skforecast
-    0.26 is gated, so the information of t0 is marked as gated.
+    0.27 is gated, so the information of t0 is marked as gated.
     """
     info = dataclasses.replace(
         get_model_info("theforecastingcompany/t0-alpha"), requires_hf_auth=True
