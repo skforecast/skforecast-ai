@@ -25,20 +25,58 @@ de rodearlo aquí (sección "Dependencia de skforecast").
 
 ## Lo que queda de la 0.5.0
 
-1. **Publicar**, con los pasos 2 a 8 de "A release, step by step" de
-   `packages/README.md`. El paso 1 está hecho: la versión es 0.5.0 en
-   todas partes desde que se abrió `0.5.x` (no hace falta
-   `/release-bump`) y la sección de la 0.5.0 de las notas está
-   consolidada y con fecha.
-2. **Tras publicar**:
-   - Que el plugin arranque `skforecast-ai-mcp==0.5.0` de PyPI.
+1. **Publicar**: hecho el 2026-11-11. La primera pasada de CI contra
+   `main` (#147) falló en los 15 jobs de tests: los tests de la rama no
+   corren en CI hasta el PR a `main`. Lo arregló
+   [#148](https://github.com/skforecast/skforecast-ai/pull/148): la CLI
+   escribía los scripts en la codificación del sistema (cp1252 en
+   Windows) y el resto eran tests que dependían de la plataforma o de una
+   versión (python-dateutil 3.0 con pandas 2.3, scikit-learn 1.7, Python
+   3.14). Ensayo en TestPyPI (`0.5.0.dev20261111192811`) y release
+   `v0.5.0` sobre `34da4d9`, los dos con todos sus jobs en verde;
+   `skforecast-ai` y `skforecast-ai-mcp` 0.5.0 en PyPI, la ficha 0.5.0 del
+   registro de MCP como `isLatest`, y el comando del plugin
+   (`uvx skforecast-ai-mcp==0.5.0 --allow-project-dir`) arranca desde PyPI
+   con skforecast 0.27.0. #147 entró en `main` con squash (`0b471b6`);
+   `main` se mergeó de vuelta en `0.5.x` (`90c9c6a`, sin cambiar ningún
+   fichero) para que `0.6.x` tenga una base común con `main`. La próxima
+   vez, el PR de la release a `main` con merge commit.
+2. **El directorio de plugins de Anthropic rechazó la 0.5.0**
+   (`0b471b6`, 2026-11-11), por dos motivos de su política que no
+   existían cuando aceptó la 0.4.x; el plugin solo cambió las dos
+   versiones. Mientras tanto, la ficha sigue sirviendo la 0.4.2; quien
+   instala desde nuestro marketplace, el registro de MCP o PyPI tiene la
+   0.5.0.
+   - **Bloqueo: servidores MCP locales solo de organizaciones
+     verificadas** ("Verified" quiere decir que Anthropic sabe que la
+     organización es una empresa real). `skforecast` no lo es. No se
+     arregla con código.
+   - **Bloqueo: una versión de PyPI no cuenta como fijación.** Pide un
+     wheel dentro del plugin
+     (`uvx --from ${CLAUDE_PLUGIN_ROOT}/vendor/<wheel> <nombre>`), una
+     fuente git con el commit completo de 40 caracteres, o un proyecto uv
+     en el plugin con su `uv.lock` versionado, arrancado con
+     `uv run --locked`. Se arregla cambiando solo `plugin/`, sin otra
+     release en PyPI; el `uv.lock` fijaría además todas las dependencias
+     con su hash.
+   - Avisos que no bloquean: una credencial de la máquina del usuario (la
+     confirma un revisor si no se manda a ningún sitio), 3 campos de
+     `plugin.json` sin reconocer (probablemente `displayName`,
+     `documentationUrl` y `supportUrl`), y que el servidor es local.
+   - Opciones, por decidir con Joaquín: (A) pedir la verificación de la
+     organización y, si la dan, arreglar la fijación con el `uv.lock`;
+     (B) dejar la ficha en la 0.4.2 y distribuir por los demás canales,
+     con la ficha anclada en una versión con fallos conocidos; (C)
+     quitar el servidor del plugin del directorio, que deja un skill sin
+     servidor (no recomendado).
+3. **Tras publicar**:
    - Glama: Deploy y Make Release con el número de la versión del
      paquete; esperar a que recalcule el TDQS y apuntar las notas por
      herramienta en el log de `tools/mcp/README.md`. Criterios del plan de
      descripciones: "cuándo usarla" en 3 o más y ninguna herramienta por
      debajo de B; concisión sin bajar de 4. Sin verificar que Glama lo
      recalcule al hacer la release.
-3. **Comprobaciones a mano sin hacer** (las hechas, el 2026-10-31, están
+4. **Comprobaciones a mano sin hacer** (las hechas, el 2026-10-31, están
    en el plan de la 0.5.0):
    - Cursor y Codex, que no están instalados en la máquina: el formato de
      `~/.codex/config.toml` y de `codex mcp add`, sus timeouts de arranque y
@@ -49,7 +87,7 @@ de rodearlo aquí (sección "Dependencia de skforecast").
      cliente que corte).
    - VS Code: instalar desde la galería con el botón del README y llamar a
      `profile` (el comando que escribe solo está leído en su código).
-4. **Directorios**: el PR de awesome-mcp-servers
+5. **Directorios**: el PR de awesome-mcp-servers
    ([punkpeye/awesome-mcp-servers#16493](https://github.com/punkpeye/awesome-mcp-servers/pull/16493))
    sigue abierto el 2026-11-11, a la espera del bot `glama-check` y de la
    fusión. cursor.directory, opcional, después de probar Cursor. Mirar que
