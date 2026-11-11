@@ -369,8 +369,8 @@ What the script changes, and nothing else:
   of showing a text the session did not produce.
 - **Paths**: the report already writes the temporary workspace of the session
   as `<ws>`; the script shows it as `~/project` and stops if a home directory
-  or a user path is left (section 4 of `dev/roadmap-0.5.0.md`: a
-  report can carry one in the output of a command).
+  or a user path is left (a report can carry one in the output of a
+  command; see [#132](https://github.com/skforecast/skforecast-ai/pull/132)).
 
 The short cut is for a reader of the README, who gives it a few seconds: it
 lasts 24 s instead of 46 and fits in two screens, the calls and the answer,
