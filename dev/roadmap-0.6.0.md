@@ -73,11 +73,36 @@ de rodearlo aquí (sección "Dependencia de skforecast").
    - Glama: Deploy y Make Release hechos el 2026-11-12. Glama no aceptó
      `0.5.0` como versión y publicó la release como `0.1.1` (su
      numeración, no la del paquete; la imagen toma la última de PyPI).
-     Falta esperar a que recalcule el TDQS y apuntar las notas por
-     herramienta en el log de `tools/mcp/README.md`. Criterios del plan de
-     descripciones: "cuándo usarla" en 3 o más y ninguna herramienta por
-     debajo de B; concisión sin bajar de 4. Sin verificar que Glama lo
-     recalcule al hacer la release.
+   - TDQS recalculado por Glama el 2026-11-11 (23:43 UTC) sobre las
+     descripciones de la 0.5.0: se cumplen los tres criterios del plan de
+     descripciones ("cuándo usarla" en 3 o más, ninguna por debajo de B,
+     concisión en 4 o más). Las 11 en A; media 4.2 (antes 3.5), mínima
+     3.6 (antes 2.9). Sacado de los datos incrustados en
+     `/tools/<nombre>` de la ficha; entre paréntesis, la 0.4.2 del
+     2026-10-15 (`git show 056692b:dev/mcp-tool-descriptions-plan.md`):
+
+     | Herramienta | Nota | TDQS | Propósito | Cuándo usarla | Parámetros | Comportamiento | Concisión | Completitud |
+     |:--|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+     | `plan` | A (A) | 4.5 (3.6) | 5 | 5 (2) | 5 | 3 | 5 | 4 |
+     | `forecast` | A (A) | 4.5 (3.7) | 5 | 5 (3) | 3 | 4 | 5 | 5 |
+     | `get_failure` | A (B) | 4.5 (3.2) | 5 | 5 (2) | 3 | 4 | 5 | 5 |
+     | `compare` | A (A) | 4.4 (4.0) | 5 | 5 (3) | 3 | 4 | 5 | 4 |
+     | `refine_plan` | A (A) | 4.4 (3.8) | 5 | 5 (3) | 3 | 4 | 5 | 4 |
+     | `profile` | A (A) | 4.2 (3.7) | 5 | 4 (3) | 3 | 4 | 5 | 4 |
+     | `create_cv` | A (B) | 4.2 (3.2) | 5 | 4 (2) | 3 | 4 | 5 | 4 |
+     | `backtest` | A (A) | 4.1 (3.5) | 5 | 4 (3) | 3 | 4 | 4 | 4 |
+     | `list_objects` | A (C) | 4.1 (2.9) | 4 | 4 (2) | 3 | 5 | 5 | 4 |
+     | `get_code` | A (A) | 3.9 (3.5) | 4 | 4 (3) | 3 | 3 | 5 | 5 |
+     | `describe_object` | A (B) | 3.6 (3.2) | 4 | 3 (2) | 4 | 3 | 4 | 4 |
+
+     Del conjunto (nuevo en la ficha): coherencia A, 4; nombres 3 (mezcla
+     sustantivos, `plan`, con verbo y sustantivo, `get_code`; renombrar
+     rompe la API, no compensa); completitud 4 (no hay forma de borrar
+     objetos ni de cancelar `compare` desde una herramienta). Lo más bajo
+     que queda, por si se toca: `describe_object` no dice cuándo usarla en
+     vez de `get_code` o `get_failure`, ni qué pasa si la respuesta que
+     creó el objeto ya no está; `plan` no dice si llamarla dos veces da
+     dos planes.
 4. **Comprobaciones a mano sin hacer** (las hechas, el 2026-10-31, están
    en el plan de la 0.5.0):
    - Cursor y Codex, que no están instalados en la máquina: el formato de
