@@ -70,8 +70,10 @@ de rodearlo aquí (sección "Dependencia de skforecast").
      quitar el servidor del plugin del directorio, que deja un skill sin
      servidor (no recomendado).
 3. **Tras publicar**:
-   - Glama: Deploy y Make Release con el número de la versión del
-     paquete; esperar a que recalcule el TDQS y apuntar las notas por
+   - Glama: Deploy y Make Release hechos el 2026-11-12. Glama no aceptó
+     `0.5.0` como versión y publicó la release como `0.1.1` (su
+     numeración, no la del paquete; la imagen toma la última de PyPI).
+     Falta esperar a que recalcule el TDQS y apuntar las notas por
      herramienta en el log de `tools/mcp/README.md`. Criterios del plan de
      descripciones: "cuándo usarla" en 3 o más y ninguna herramienta por
      debajo de B; concisión sin bajar de 4. Sin verificar que Glama lo

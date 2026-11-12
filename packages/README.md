@@ -253,7 +253,10 @@ The other fields keep their defaults. Why it is written this way:
 
 A release in Glama is a snapshot of a successful build: **Deploy** builds
 the image and starts the server, then **Make Release** publishes it with a
-version. Repeating it after a release of the package is optional; the
+version. That version is Glama's, not the one of the package: for 0.5.0
+Glama refused `0.5.0` and published the release as `0.1.1`. It does not
+matter, since the image takes the latest package of
+PyPI. Repeating it after a release of the package is optional; the
 listing stays valid without it.
 
 ## Publishing to PyPI by hand
