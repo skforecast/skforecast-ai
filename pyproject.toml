@@ -119,6 +119,10 @@ docs = [
     "pymdown-extensions==12.2",
     "black==26.10.1",
     "mkdocs-typer2[mkdocs]==0.4.1",
+    # mkdocs-typer2 0.4.1 (its latest) fails with typer 0.29 when it builds
+    # the CLI page (`'TyperOption' object has no attribute 'type'`). Only the
+    # docs build is capped: the CLI works with typer 0.29.
+    "typer<0.29",
 ]
 
 test = [
