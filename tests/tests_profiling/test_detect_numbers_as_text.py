@@ -24,6 +24,26 @@ def test_detect_numbers_as_text_output_when_percentages():
     assert result == {"pct": (30, 30, ["numbers with a final '%'"], 30)}
 
 
+@pytest.mark.parametrize(
+    "dtype",
+    [object, None, "string"],
+    ids=["object", "text", "string"],
+)
+def test_detect_numbers_as_text_output_with_every_dtype_of_text(dtype):
+    """
+    Test that numbers written as text are reported whatever the dtype of
+    the text: `object`, the default one (`object` in pandas 2, `str` in
+    pandas 3) and `string`, with its missing values left out.
+    """
+    data = pd.DataFrame(
+        {"pct": pd.Series(["1%", "2%", None, "3%"], dtype=dtype)}
+    )
+
+    result = detect_numbers_as_text(data, ["pct"])
+
+    assert result == {"pct": (3, 3, ["numbers with a final '%'"], 3)}
+
+
 def test_detect_numbers_as_text_output_when_dashes_for_missing_values():
     """
     Test that a column of numbers with a '-' for its missing values is

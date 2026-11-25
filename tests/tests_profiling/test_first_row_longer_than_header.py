@@ -27,3 +27,14 @@ def test_first_row_longer_than_header_output(text, sep, expected):
     longer row.
     """
     assert first_row_longer_than_header(text, sep) is expected
+
+
+def test_first_row_longer_than_header_output_is_False_when_row_cannot_be_split():
+    """
+    Test that a first row that the `csv` module cannot split (a field over
+    its size limit) is not a longer row: the file is left to the checks
+    that read it whole.
+    """
+    text = "y,z\n" + "1" * 140_000 + ",2,3\n"
+
+    assert first_row_longer_than_header(text, ",") is False
