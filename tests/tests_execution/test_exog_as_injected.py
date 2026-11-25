@@ -83,7 +83,7 @@ def test_exog_as_injected_output_when_long_data_has_integer_series_ids(
 
     result = exog_as_injected(exog, profile_long)
 
-    expected = exog_long.assign(series=pd.Series(expected_ids, dtype=object))
+    expected = exog_long.assign(series=pd.Series(expected_ids))
     pd.testing.assert_frame_equal(result, expected)
     pd.testing.assert_frame_equal(exog, exog_copy)
 

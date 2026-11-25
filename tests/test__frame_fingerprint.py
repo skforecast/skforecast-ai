@@ -70,7 +70,8 @@ def test_frame_fingerprint_output_changes_with_int_and_float_columns():
             [[1.0, 2.0]], columns=pd.MultiIndex.from_tuples([("a", 1), ("a", 2)])
         ),
         pd.DataFrame({"a": [[1], [2]]}),
-        pd.DataFrame({"a": ["x", "\ud800"]}),
+        # pandas 3 cannot build a `str` column with a lone surrogate.
+        pd.DataFrame({"a": ["x", "\ud800"]}, dtype=object),
     ],
     ids=[
         "mixed_object", "mixed_categories", "mixed_index", "multiindex",
@@ -103,10 +104,11 @@ def test_frame_fingerprint_output_for_text_and_missing_values():
 def test_frame_fingerprint_output_changes_with_the_missing_marker():
     """
     Test that `None` and `NaN` in an object column, which pandas hashes
-    alike, give different fingerprints.
+    alike, give different fingerprints. A `str` column of pandas 3 turns
+    both into NaN, so the columns are built as objects.
     """
-    with_none = pd.DataFrame({"a": ["x", None, "y"]})
-    with_nan = pd.DataFrame({"a": ["x", np.nan, "y"]})
+    with_none = pd.DataFrame({"a": ["x", None, "y"]}, dtype=object)
+    with_nan = pd.DataFrame({"a": ["x", np.nan, "y"]}, dtype=object)
 
     assert _frame_fingerprint(with_none) != _frame_fingerprint(with_nan)
 

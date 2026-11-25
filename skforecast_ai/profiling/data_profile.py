@@ -3919,13 +3919,16 @@ def detect_categorical_exog(
     Returns
     -------
     categorical_exog : list
-        Subset of `exog_columns` with dtype `object`, `category`, or `bool`.
+        Subset of `exog_columns` with dtype `object`, text (`str`, the
+        default of pandas 3, or `string`), `category`, or `bool`.
     """
     categorical = []
     for col in exog_columns:
         if isinstance(data[col].dtype, pd.CategoricalDtype):
             categorical.append(col)
-        elif pd.api.types.is_object_dtype(data[col]):
+        elif pd.api.types.is_object_dtype(data[col]) or isinstance(
+            data[col].dtype, pd.StringDtype
+        ):
             categorical.append(col)
         elif pd.api.types.is_bool_dtype(data[col]):
             categorical.append(col)
@@ -3968,7 +3971,8 @@ def detect_numbers_as_text(
         Input dataset.
     exog_columns : list
         Names of exogenous columns to check. Only those of dtype `object`
-        are read: a `category` dtype was chosen on purpose.
+        or text (`str`, `string`) are read: a `category` dtype was chosen
+        on purpose.
     decimal : str, default '.'
         Decimal mark of the CSV file, which the values written as text keep.
 
@@ -3995,7 +3999,10 @@ def detect_numbers_as_text(
     found = {}
     for col in exog_columns:
         values = data[col]
-        if not pd.api.types.is_object_dtype(values):
+        if not (
+            pd.api.types.is_object_dtype(values)
+            or isinstance(values.dtype, pd.StringDtype)
+        ):
             continue
         counts = values.dropna().value_counts(sort=False)
         if counts.empty:
@@ -5670,7 +5677,11 @@ def detect_target_dtype(data: pd.DataFrame, target: str) -> str:
         return "numeric"
     if isinstance(dtype, pd.CategoricalDtype):
         return "categorical"
-    if pd.api.types.is_object_dtype(dtype) or pd.api.types.is_bool_dtype(dtype):
+    if (
+        pd.api.types.is_object_dtype(dtype)
+        or isinstance(dtype, pd.StringDtype)
+        or pd.api.types.is_bool_dtype(dtype)
+    ):
         return "categorical"
 
     return "other"

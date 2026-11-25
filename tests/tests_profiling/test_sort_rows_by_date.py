@@ -173,5 +173,6 @@ def test_sort_rows_by_date_puts_rows_without_series_id_last():
     )
 
     assert rows_sorted is True
-    assert result["id"].tolist() == ["a", "a", "b", "b", None]
+    assert result["id"].iloc[:4].tolist() == ["a", "a", "b", "b"]
+    assert pd.isna(result["id"].iloc[4])
     np.testing.assert_array_equal(result["y"].to_numpy(), [1.0, 2.0, 3.0, 4.0, 9.0])

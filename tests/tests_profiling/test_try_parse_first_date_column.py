@@ -174,7 +174,7 @@ def test_try_parse_first_date_column_skips_other_columns_when_date_column():
         parsed, _ = _try_parse_first_date_column(data, date_column="period_end")
 
     assert parsed["date"].isna().sum() == 1
-    assert pd.api.types.is_object_dtype(parsed["date"])
+    assert pd.api.types.is_string_dtype(parsed["date"].dtype)
     assert pd.api.types.is_datetime64_any_dtype(parsed["period_end"])
 
 
@@ -328,7 +328,7 @@ def test_try_parse_first_date_column_skips_text_that_is_not_clearly_dates(values
         warnings.simplefilter("error")
         parsed, _ = _try_parse_first_date_column(data)
 
-    assert parsed["col"].tolist() == values
+    pd.testing.assert_series_equal(parsed["col"], pd.Series(values, name="col"))
 
 
 def test_try_parse_first_date_column_ValueError_when_date_column_after_parsed_column():

@@ -26,23 +26,23 @@ def _long_data(ids) -> pd.DataFrame:
     [
         (
             pd.Series([1, 2, 10, 1]),
-            pd.Series(["1", "2", "10", "1"], dtype=object),
+            pd.Series(["1", "2", "10", "1"]),
         ),
         (
             pd.Series([1, 2, 10, 1], dtype="int32"),
-            pd.Series(["1", "2", "10", "1"], dtype=object),
+            pd.Series(["1", "2", "10", "1"]),
         ),
         (
             pd.Series(["001", 1, 10, "a"], dtype=object),
-            pd.Series(["001", "1", "10", "a"], dtype=object),
+            pd.Series(["001", "1", "10", "a"]),
         ),
         (
             pd.Series([1.0, np.nan, 2.0, 10.0]),
-            pd.Series(["1.0", np.nan, "2.0", "10.0"], dtype=object),
+            pd.Series(["1.0", np.nan, "2.0", "10.0"]),
         ),
         (
             pd.Series(["a", None, 1, 1], dtype=object),
-            pd.Series(["a", None, "1", "1"], dtype=object),
+            pd.Series(["a", None, "1", "1"]),
         ),
     ],
     ids=["integers", "int32", "mixed text and integers", "floats with NaN",
