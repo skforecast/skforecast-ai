@@ -3801,10 +3801,8 @@ def _client_disconnected(exc: BaseException) -> bool:
     client closed its end of the connection.
     """
 
-    # An exception group (anyio's backport before Python 3.11).
-    inner = getattr(exc, "exceptions", None)
-    if isinstance(inner, tuple) and inner:
-        return all(_client_disconnected(item) for item in inner)
+    if isinstance(exc, BaseExceptionGroup):
+        return all(_client_disconnected(item) for item in exc.exceptions)
 
     if isinstance(exc, _DISCONNECTED):
         return True

@@ -12,9 +12,6 @@ from skforecast_ai.mcp import _preload, run_server
 from skforecast_ai.mcp import server as server_module
 from skforecast_ai.mcp._preload import Preload
 
-if sys.version_info < (3, 11):
-    from exceptiongroup import ExceptionGroup
-
 
 def test_run_server_serves_stdio_from_the_output_dir(tmp_path, monkeypatch):
     """
