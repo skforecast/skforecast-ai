@@ -7,14 +7,9 @@
 
 from __future__ import annotations
 import os
-import sys
+import tomllib
 from pathlib import Path
 from .exceptions import InvalidInputError
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib
 
 CONFIG_DIR: Path = (
     Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "skforecast-ai"

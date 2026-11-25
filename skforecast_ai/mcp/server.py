@@ -11,7 +11,6 @@ import copy
 import errno
 import functools
 import hashlib
-import inspect
 import json
 import logging
 import os
@@ -1879,42 +1878,7 @@ def _distributions() -> dict[str, list[str]]:
     from `scikit-learn`), read once: it scans every installed package.
     """
 
-    distributions = dict(metadata.packages_distributions())
-    if sys.version_info < (3, 11):
-        # Python 3.10 reads the modules only from `top_level.txt`, which
-        # packages such as scikit-learn no longer ship, so `sklearn` was
-        # returned as the package to install.
-        for module, names in _undeclared_distributions().items():
-            distributions.setdefault(module, names)
-
-    return distributions
-
-
-def _undeclared_distributions() -> dict[str, list[str]]:
-    """
-    Installed distributions that do not declare their modules in
-    `top_level.txt`, by the module they provide, read from their files as
-    Python 3.11 and later do in `importlib.metadata.packages_distributions`.
-    """
-
-    distributions: dict[str, list[str]] = {}
-    for distribution in metadata.distributions():
-        if distribution.read_text("top_level.txt") is not None:
-            continue
-        name = distribution.metadata["Name"]
-        modules = {
-            file.parts[0] if len(file.parts) > 1 else inspect.getmodulename(file.name)
-            for file in distribution.files or []
-        }
-        for module in modules:
-            # A dot is a metadata directory (`*.dist-info`) or a path
-            # outside the package (`../../bin`).
-            if module and "." not in module and name is not None:
-                names = distributions.setdefault(module, [])
-                if name not in names:
-                    names.append(name)
-
-    return distributions
+    return dict(metadata.packages_distributions())
 
 
 # Distribution name and extras at the start of a requirement, before a
@@ -3837,10 +3801,8 @@ def _client_disconnected(exc: BaseException) -> bool:
     client closed its end of the connection.
     """
 
-    # An exception group (anyio's backport before Python 3.11).
-    inner = getattr(exc, "exceptions", None)
-    if isinstance(inner, tuple) and inner:
-        return all(_client_disconnected(item) for item in inner)
+    if isinstance(exc, BaseExceptionGroup):
+        return all(_client_disconnected(item) for item in exc.exceptions)
 
     if isinstance(exc, _DISCONNECTED):
         return True

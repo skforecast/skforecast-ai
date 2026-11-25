@@ -1,8 +1,8 @@
 # Installation
 
-**skforecast-ai** needs Python 3.10 or newer and is available on PyPI. The core package runs the whole forecasting pipeline offline, with no API key; the LLM reasoning layer and the foundation model backend are optional extras.
+**skforecast-ai** needs Python 3.11 or newer and is available on PyPI. The core package runs the whole forecasting pipeline offline, with no API key; the LLM reasoning layer and the foundation model backend are optional extras.
 
-![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue) [![PyPI](https://img.shields.io/pypi/v/skforecast-ai)](https://pypi.org/project/skforecast-ai)
+![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue) [![PyPI](https://img.shields.io/pypi/v/skforecast-ai)](https://pypi.org/project/skforecast-ai)
 
 To try it before installing anything, open [Your first forecast](first-forecast.ipynb) in Google Colab: its first cell installs the package. [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/skforecast/skforecast-ai/blob/main/docs/quick-start/first-forecast.ipynb)
 

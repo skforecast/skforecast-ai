@@ -180,21 +180,27 @@ Cinco causas, no 339 problemas:
 
 skforecast 0.28.0 y skforecast-ai 0.6.0 se publican a la vez (D41), así
 que la 0.6.0 solo tiene que funcionar con skforecast 0.28: nada de admitir
-también la 0.27. La rama `0.6.x` no se crea todavía (2026-11-25); el
-trabajo sale de ella cuando exista, en este orden:
+también la 0.27. El trabajo sale de la rama `0.6.x` (creada el
+2026-11-25 desde `0.5.x`), en este orden:
 
-1. `0.6.x` desde `0.5.x` y `/release-bump 0.6.0`.
-2. `chore/skforecast-028`: los mínimos de skforecast 0.28 desde el primer
-   día: `skforecast>=0.28.0`, `numpy>=2.0`, `pandas>=2.3`, `scipy>=1.13` y
-   `requires-python = ">=3.11"` (fuera 3.10 de la matriz de CI y de los
-   classifiers, fuera la dependencia de `tomli`). Hasta que skforecast
+1. **Hecho**: `0.6.x` desde `0.5.x` y `/release-bump 0.6.0`
+   ([#149](https://github.com/skforecast/skforecast-ai/pull/149)). `mkdocs build` fallaba con typer 0.29
+   y `mkdocs-typer2` 0.4.1, su última versión: `typer<0.29` en el extra
+   `docs` ([#150](https://github.com/skforecast/skforecast-ai/pull/150)).
+2. **Hecho** ([#151](https://github.com/skforecast/skforecast-ai/pull/151)): `chore/skforecast-028`, los
+   mínimos de skforecast 0.28 desde el primer día: `skforecast>=0.28.0`,
+   `numpy>=2.0`, `pandas>=2.3`, `scipy>=1.13`, `statsmodels>=0.14.6,<0.16`
+   y `requires-python = ">=3.11"` (fuera 3.10 de la matriz de CI y de los
+   classifiers, fuera la dependencia de `tomli` y los apaños de 3.10:
+   `_undeclared_distributions()`, el backport de `ExceptionGroup` y un
+   `QUOTE_NONNUMERIC` en un test). Hasta que skforecast
    publique, `skforecast>=0.28.0` no se resuelve desde PyPI: en local se
    instala antes skforecast desde git
    (`pip install "skforecast @ git+https://github.com/skforecast/skforecast@0.28.x"`),
    y el hook de inicio de las sesiones en la nube ya lo hace solo
    (`skforecast_dev_branch` en `.claude/hooks/session_start.py`). La CI
-   solo corre en el PR a `main`, ya con skforecast publicado. Avisar a
-   skforecast (`REL-skforecast-ai-python311` de su roadmap).
+   solo corre en el PR a `main`, ya con skforecast publicado. Pendiente:
+   avisar a skforecast (`REL-skforecast-ai-python311` de su roadmap).
 3. `feature/pandas3`: las cinco causas de arriba, con la suite en verde con
    pandas 2.3 y con pandas 3 (los dos contra skforecast 0.28), y los dos en
    la matriz de CI.
@@ -219,9 +225,9 @@ release que lo necesita.
 | Qué | Estado | Efecto aquí |
 |:--|:--|:--|
 | `RollingFeatures`: `transform_batch` (entrenamiento) da NaN en toda ventana con un valor que falta (`min_periods = window_sizes`) y `transform` (predicción) lo salta con `np.nanmean` y similares, sin leer `min_periods` | Por reportar (borrador del issue del 2026-11-11). Sigue igual en `0.28.x` (`d42a411`): es `BUG-rollingfeatures-nan` del roadmap de skforecast, P2, sin empezar | Con huecos y un estimador que no acepta NaN, el forecast de Ridge del check con agentes de la 0.5.0 entrenó con 15 de 84 filas; con uno que los acepta, predice con un estadístico que nunca vio |
-| Python 3.10: skforecast 0.27.0 lo depreca y la 0.28.0 pide 3.11 | Hecho en `0.28.x` (skforecast#1496), sin publicar | `requires-python = ">=3.10"` en `pyproject.toml`: subir a 3.11 al abrir la `0.6.x` (sección "Compatibilidad con skforecast 0.28") |
+| Python 3.10: skforecast 0.27.0 lo depreca y la 0.28.0 pide 3.11 | Hecho en `0.28.x` (skforecast#1496), sin publicar | `requires-python = ">=3.11"` en la `0.6.x` ([#151](https://github.com/skforecast/skforecast-ai/pull/151)) |
 | pandas 3: skforecast 0.28 pide `pandas>=2.3, <4.0`, y un entorno nuevo recibe pandas 3 | Hecho en `0.28.x` (skforecast#1501), sin publicar | skforecast-ai falla con pandas 3 (339 tests): es lo primero de la 0.6.0 (sección "Compatibilidad con skforecast 0.28") |
-| Mínimos de skforecast 0.28: `numpy>=2.0`, `pandas>=2.3`, `scipy>=1.13` | Hecho en `0.28.x` (skforecast#1500), sin publicar | Igualar los mínimos de `pyproject.toml` (hoy `numpy>=1.26.1`, `pandas>=2.2`, `scipy>=1.12`) al abrir la `0.6.x`, con `skforecast>=0.28.0` (D41) |
+| Mínimos de skforecast 0.28: `numpy>=2.0`, `pandas>=2.3`, `scipy>=1.13` | Hecho en `0.28.x` (skforecast#1500), sin publicar | Mínimos igualados en la `0.6.x`, con `skforecast>=0.28.0` (D41, [#151](https://github.com/skforecast/skforecast-ai/pull/151)) |
 
 ## Checks de la release
 

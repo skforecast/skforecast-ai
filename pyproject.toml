@@ -40,7 +40,6 @@ classifiers = [
     "Operating System :: Unix",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -53,22 +52,21 @@ classifiers = [
 license = "Apache-2.0"
 license-files = ["LICENSE", "CITATION.cff"]
 
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2.10",
-    "pandas>=2.2",
-    "skforecast>=0.27.0",
+    "pandas>=2.3",
+    "skforecast>=0.28.0",
     "typer>=0.22",
     "rich>=13.9",
-    "tomli>=2.0; python_version < '3.11'",
     "typing-extensions>=4.12; python_version < '3.12'",
-    "statsmodels>=0.13.2,<0.16",
+    "statsmodels>=0.14.6,<0.16",
     "lightgbm>=4.0,<5.0",
     # Imported by the package and by the scripts it generates. skforecast
     # installs them too; the lower bounds are its own.
-    "numpy>=1.26.1",
+    "numpy>=2.0",
     "scikit-learn>=1.6",
-    "scipy>=1.12",
+    "scipy>=1.13",
 ]
 
 [project.optional-dependencies]
