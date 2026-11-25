@@ -48,12 +48,14 @@ from .csv_dialect import (
     SHORT_WHOLE_NUMBER,
     THOUSANDS,
     WHOLE_NUMBER,
+    CsvSample,
     ambiguous_thousands_error,
     check_csv_dialect,
     cp1252_note,
     decimal_in_both_error,
     detect_csv_dialect,
     dotted_values_error,
+    first_row_longer_than_header,
     only_thousands_error,
     read_row_lengths,
     read_sample,
@@ -5257,7 +5259,7 @@ def read_csv_with_dialect(
     def read(sep: str, decimal: str, thousands: str | None = None) -> pd.DataFrame:
         nonlocal encoding
         try:
-            return pd.read_csv(
+            data = pd.read_csv(
                        path,
                        **csv_read_kwargs(
                            sep, decimal, thousands, series_id_column, dates, encoding
@@ -5267,15 +5269,19 @@ def read_csv_with_dialect(
             # A file whose first lines were not sampled is read as before.
             if sample is None or encoding != DEFAULT_CSV_ENCODING:
                 raise
-        # Bytes that are not UTF-8 after the first lines: cp1252, whose
-        # undefined bytes pandas reports.
-        encoding = CP1252
-        return pd.read_csv(
-                   path,
-                   **csv_read_kwargs(
-                       sep, decimal, thousands, series_id_column, dates, encoding
-                   ),
-               )
+            data = None
+        if data is None:
+            # Bytes that are not UTF-8 after the first lines: cp1252, whose
+            # undefined bytes pandas reports.
+            encoding = CP1252
+            data = pd.read_csv(
+                       path,
+                       **csv_read_kwargs(
+                           sep, decimal, thousands, series_id_column, dates, encoding
+                       ),
+                   )
+
+        return _first_fields_as_index(data, sample, sep)
 
     try:
         data = read(sep, decimal, thousands)
@@ -5354,6 +5360,34 @@ def read_csv_with_dialect(
         raise _unreadable_error(path, field, exc) from exc
 
     return data, sep, decimal, thousands, encoding
+
+
+def _first_fields_as_index(
+    data: pd.DataFrame,
+    sample: CsvSample | None,
+    sep: str,
+) -> pd.DataFrame:
+    """
+    Return a CSV file read by `pandas.read_csv` with the first fields of its
+    rows, when pandas read them as the index, in an integer index, as
+    pandas 2 reads them.
+
+    pandas 3 makes that index a RangeIndex when the fields are whole numbers
+    evenly spaced (60, 61, ...), and the checks of the file tell it from
+    the index of a file without one by its type. A RangeIndex that does not
+    start at 0 in steps of 1 is that index; one that does is told apart by
+    the first lines of the file, and is kept when they were not read.
+    """
+    index = data.index
+    if not isinstance(index, pd.RangeIndex):
+        return data
+    if index.start == 0 and index.step == 1 and not (
+        sample is not None and first_row_longer_than_header(sample.text, sep)
+    ):
+        return data
+    data.index = pd.Index(index.to_numpy(), name=index.name)
+
+    return data
 
 
 def _unreadable_error(

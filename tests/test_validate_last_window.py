@@ -990,8 +990,11 @@ def test_validate_last_window_no_error_when_window_feature_huge():
             .drop(columns="date"),
             None, {"target": "y"},
         ),
+        # Uneven steps: pandas 3 makes evenly spaced integers a RangeIndex.
         (
-            data_single.drop(columns="date").set_index(pd.Index(np.arange(0, 120, 2))),
+            data_single.drop(columns="date").set_index(
+                pd.Index(np.r_[np.arange(0, 118, 2), 119])
+            ),
             None, {"target": "y"},
         ),
         (

@@ -211,6 +211,62 @@ def test_read_csv_with_dialect_output_when_header_is_one_field_short(tmp_path):
 
 
 @pytest.mark.parametrize(
+    "start",
+    [60, 0],
+    ids=lambda start: f"positions from {start}",
+)
+def test_read_csv_with_dialect_output_when_header_is_one_field_short_with_positions(
+    tmp_path, start
+):
+    """
+    Test that, with `index_first`, the positions of a file whose header has
+    one field less than its rows are an integer index, as pandas 2 reads
+    them: pandas 3 makes consecutive whole numbers a RangeIndex, the type of
+    the index of a file without one, also when they start at 0.
+    """
+    path = tmp_path / "data.csv"
+    path.write_text(f"y,z\n{start},1.5,10\n{start + 1},2.5,20\n")
+
+    data, _, _, _, _ = read_csv_with_dialect(path, index_first=True)
+
+    expected = pd.DataFrame(
+        {"y": [1.5, 2.5], "z": [10, 20]},
+        index=pd.Index([start, start + 1]),
+    )
+    pd.testing.assert_frame_equal(data, expected, check_index_type=True)
+
+
+@pytest.mark.parametrize(
+    "start",
+    [1, 0],
+    ids=lambda start: f"first column from {start}",
+)
+def test_read_csv_with_dialect_InvalidInputError_when_rows_end_with_separators(
+    tmp_path, start
+):
+    """
+    Test that rows ending with a separator that the header does not have
+    raise with the code 'data_unreadable' when the first column holds
+    consecutive whole numbers, which pandas 3 reads as a RangeIndex.
+    """
+    path = tmp_path / "data.csv"
+    path.write_text(
+        "t,y\n" + "".join(f"{start + i},{10 + i}.5,\n" for i in range(3))
+    )
+
+    err_msg = re.escape(
+        f"The CSV file '{path}' could not be read: its header has 2 fields and "
+        f"its first row 3, so the first column would be read as the row labels "
+        f"and every other column would move one place (the rows end with "
+        f"separators that the header does not have)."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
+        read_csv_with_dialect(path)
+
+    assert exc_info.value.code == "data_unreadable"
+
+
+@pytest.mark.parametrize(
     "text, index_first, fields",
     [
         ("y;z\n2020-01-01;1,5;10\n2020-01-02;2,5;20\n", False, 3),
