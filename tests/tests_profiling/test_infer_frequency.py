@@ -7,7 +7,7 @@ import pytest
 from skforecast_ai.profiling.data_profile import infer_frequency
 from skforecast_ai.recommendation.autoregressive import estimate_seasonality
 
-from tests.fixtures_pandas import QUARTER_START
+from ..fixtures_pandas import QUARTER_START
 
 # A year of days from a Monday, the fixed holidays of a Spanish calendar in
 # it, and the days of a shop closed on Sundays.

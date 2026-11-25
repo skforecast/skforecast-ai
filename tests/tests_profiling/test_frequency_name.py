@@ -5,7 +5,7 @@ import pytest
 
 from skforecast_ai.profiling.data_profile import _frequency_name
 
-from tests.fixtures_pandas import QUARTER_START
+from ..fixtures_pandas import QUARTER_START
 
 _to_offset = pd.tseries.frequencies.to_offset
 

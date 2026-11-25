@@ -9,9 +9,9 @@ from skforecast_ai.profiling.data_profile import (
     _coarser_frequency,
 )
 
-from tests.fixtures_pandas import QUARTER_START
+from ..fixtures_pandas import QUARTER_START
 
-_WEEKLY =pd.date_range("2023-01-01", periods=30, freq="W-SUN")
+_WEEKLY = pd.date_range("2023-01-01", periods=30, freq="W-SUN")
 # 60 Sundays and one Monday after the first 30 dates.
 _WEEKS_AND_MONDAY = pd.date_range("2023-01-01", periods=60, freq="W-SUN")
 _WEEKS_AND_MONDAY = _WEEKS_AND_MONDAY.insert(
