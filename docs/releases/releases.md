@@ -21,7 +21,7 @@ The main changes in this release are:
 
 **Changed**
 
-+ skforecast-ai now requires `skforecast>=0.28.0` and Python 3.11 or later: with Python 3.10, pip keeps installing 0.5.0. The minimum versions of numpy, pandas, scipy and statsmodels rise to those of skforecast 0.28 (2.0, 2.3, 1.13 and 0.14.6), and installing skforecast-ai 0.6.0 upgrades them if they are older.
++ skforecast-ai now requires `skforecast>=0.28.0` and Python 3.11 or later: with Python 3.10, pip keeps installing 0.5.0. The minimum versions of numpy, pandas, scipy and statsmodels rise to those of skforecast 0.28 (2.0, 2.3, 1.13 and 0.14.6), and installing skforecast-ai 0.6.0 upgrades them if they are older ([#151](https://github.com/skforecast/skforecast-ai/pull/151)).
 
 
 **Fixed**
