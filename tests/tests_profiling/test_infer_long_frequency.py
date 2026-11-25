@@ -12,7 +12,10 @@ from skforecast_ai.profiling.data_profile import _infer_long_frequency
 
 def _as_nanoseconds(series_dates: dict) -> dict:
     """Return the dates of each series as nanoseconds since the epoch."""
-    return {name: pd.DatetimeIndex(dates).asi8 for name, dates in series_dates.items()}
+    return {
+        name: pd.DatetimeIndex(dates).as_unit("ns").asi8
+        for name, dates in series_dates.items()
+    }
 
 
 _DAILY = pd.date_range("2023-01-01", periods=21, freq="D")

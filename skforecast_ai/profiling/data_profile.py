@@ -1853,8 +1853,14 @@ def _compact_dates(values: pd.Series) -> pd.Series | None:
     with _warnings.catch_warnings():
         _warnings.simplefilter("ignore")
         parsed = pd.to_datetime(numbers, format=COMPACT_DATE_FORMAT, errors="coerce")
+    if parsed.isna().any():
+        return None
+    # The range of pandas 2 (nanoseconds), so the column reads the same with
+    # every version of pandas.
+    if parsed.min() < pd.Timestamp.min or parsed.max() > pd.Timestamp.max:
+        return None
 
-    return parsed if parsed.notna().all() else None
+    return parsed
 
 
 def _mixed_zones_message(name: str, zones: list[str]) -> tuple[str, str]:

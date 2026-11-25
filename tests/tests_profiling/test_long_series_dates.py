@@ -28,10 +28,11 @@ def test_long_series_dates_output():
     assert list(series_dates) == ["b", "a"]
     np.testing.assert_array_equal(
         series_dates["b"],
-        pd.DatetimeIndex(["2023-01-01", "2023-01-02", "2023-01-03"]).asi8,
+        pd.DatetimeIndex(["2023-01-01", "2023-01-02", "2023-01-03"]).as_unit("ns").asi8,
     )
     np.testing.assert_array_equal(
-        series_dates["a"], pd.DatetimeIndex(["2023-01-01", "2023-01-02"]).asi8
+        series_dates["a"],
+        pd.DatetimeIndex(["2023-01-01", "2023-01-02"]).as_unit("ns").asi8,
     )
 
 
@@ -66,13 +67,13 @@ def test_long_series_dates_output_when_dates_time_zone_aware():
 
     np.testing.assert_array_equal(
         local["a"],
-        pd.DatetimeIndex(["2023-03-25", "2023-03-26", "2023-03-27"]).asi8,
+        pd.DatetimeIndex(["2023-03-25", "2023-03-26", "2023-03-27"]).as_unit("ns").asi8,
     )
     np.testing.assert_array_equal(
         utc["a"],
         pd.DatetimeIndex(
             ["2023-03-24 23:00", "2023-03-25 23:00", "2023-03-26 22:00"]
-        ).asi8,
+        ).as_unit("ns").asi8,
     )
 
 

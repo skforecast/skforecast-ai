@@ -66,10 +66,11 @@ def test_coarser_frequency_output(dates, own_frequency, expected):
     on every sparse series.
     """
     offset = pd.tseries.frequencies.to_offset("D")
-    positions = (dates.asi8 - dates.asi8[0]) // offset.nanos
+    nanoseconds = dates.as_unit("ns").asi8
+    positions = (nanoseconds - nanoseconds[0]) // offset.nanos
 
     result = _coarser_frequency(
-        dates         = dates.asi8,
+        dates         = nanoseconds,
         positions     = positions,
         own_frequency = own_frequency,
         offset        = offset,
