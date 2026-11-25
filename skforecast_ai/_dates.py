@@ -386,11 +386,16 @@ def infer_freq_name(index: pd.DatetimeIndex) -> str | None:
     """
     try:
         with pd.option_context("future.infer_freq_returns_offset", True):
-            offset = pd.infer_freq(index)
+            frequency = pd.infer_freq(index)
     except pd.errors.OptionError:
-        return pd.infer_freq(index)
+        frequency = pd.infer_freq(index)
 
-    return None if offset is None else offset.freqstr
+    # By type, not by version: the options of pandas are shared by every
+    # thread, so another one can restore the option before the call.
+    if frequency is None or isinstance(frequency, str):
+        return frequency
+
+    return frequency.freqstr
 
 
 # A time zone written after the time of a date ('10:00:00+01:00', '10:00 AM
