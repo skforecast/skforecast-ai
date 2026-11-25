@@ -876,6 +876,10 @@ def _try_parse_first_date_column(
             continue
         if parsed is None or parsed.isna().any():
             continue
+        # Dates out of the range of pandas 2 are those of a column that was
+        # named: pandas 3 reads the names of the months as days of the year 1.
+        if col != date_column and not _in_nanosecond_range(parsed):
+            continue
         # A column without a day (times of day) does not take the place of a
         # date column that cannot be used.
         if skipped and not _has_date_part(_first_value(data[col])):
@@ -1947,14 +1951,26 @@ def _compact_dates(values: pd.Series) -> pd.Series | None:
         parsed = pd.to_datetime(
             numbers.astype(str), format=COMPACT_DATE_FORMAT, errors="coerce"
         )
-    if parsed.isna().any():
-        return None
-    # The range of pandas 2 (nanoseconds), so the column reads the same with
-    # every version of pandas.
-    if parsed.min() < pd.Timestamp.min or parsed.max() > pd.Timestamp.max:
+    if parsed.isna().any() or not _in_nanosecond_range(parsed):
         return None
 
     return parsed
+
+
+def _in_nanosecond_range(dates: pd.Series) -> bool:
+    """
+    Tell whether dates without a missing one are all in the range pandas 2
+    holds (nanoseconds, years 1677 to 2262), so that a column reads the same
+    with every version of pandas: pandas 3 also holds the dates out of it,
+    and reads 'Jan' as a day of the year 1.
+    """
+    if dates.empty:
+        return True
+    lowest, highest = dates.min(), dates.max()
+    if lowest.tzinfo is not None:
+        lowest, highest = lowest.tz_localize(None), highest.tz_localize(None)
+
+    return pd.Timestamp.min <= lowest and highest <= pd.Timestamp.max
 
 
 def _mixed_zones_message(name: str, zones: list[str]) -> tuple[str, str]:
@@ -2027,8 +2043,9 @@ def _parses_as_date(values: pd.Series) -> bool:
     """
     Return whether every value parses as a timestamp.
 
-    Only text and date objects count as dates. They are parsed in UTC, so
-    the check passes for mixed time zones, without pandas warnings. The
+    Only text and date objects count as dates, in the range pandas 2 holds
+    (see `_in_nanosecond_range`). They are parsed in UTC, so the check
+    passes for mixed time zones, without pandas warnings. The
     format of the first date is tried first, read month-first and
     day-first, as it is fast; each date is parsed on its own only when
     neither fits.
@@ -2050,7 +2067,7 @@ def _parses_as_date(values: pd.Series) -> bool:
                 parsed = pd.to_datetime(text, utc=True, format=date_format)
             except (ValueError, TypeError, AttributeError, OverflowError):
                 continue
-            if parsed.notna().all():
+            if parsed.notna().all() and _in_nanosecond_range(parsed):
                 return True
 
     return False

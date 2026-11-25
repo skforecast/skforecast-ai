@@ -35,6 +35,25 @@ def test_try_parse_first_date_column_skips_unparseable_columns():
     assert pd.api.types.is_datetime64_any_dtype(parsed["date"])
 
 
+def test_try_parse_first_date_column_skips_names_of_months():
+    """
+    Test that a leading column of names of months is left untouched and the
+    next column is the date column: pandas 3 reads 'Jan' as a day of the
+    year 1, out of the range of dates pandas 2 holds, where a detected date
+    column must be.
+    """
+    data = pd.DataFrame({
+        "month": ["Jan", "Feb", "Mar"],
+        "date": ["2023-01-01", "2023-02-01", "2023-03-01"],
+        "y": [1.0, 2.0, 3.0],
+    })
+
+    parsed, _ = _try_parse_first_date_column(data)
+
+    assert parsed["month"].tolist() == ["Jan", "Feb", "Mar"]
+    assert pd.api.types.is_datetime64_any_dtype(parsed["date"])
+
+
 def test_try_parse_first_date_column_converts_only_the_first_date_column():
     """
     Test that once a column is parsed the remaining text columns are left
