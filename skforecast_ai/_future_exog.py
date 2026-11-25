@@ -842,8 +842,12 @@ def _check_long_dates(
     codes, names = pd.factorize(exog[series_id])
     code_of = {name: code for code, name in enumerate(names)}
     # The reshape of each series fails on repeated dates, predicted or not.
-    repeated = pd.DataFrame({"code": codes, "date": dates}).duplicated().to_numpy()
-    repeated &= codes >= 0
+    # A new array, not `&=`: under Copy-on-Write (pandas 3) the array of
+    # `to_numpy()` is read-only.
+    repeated = (
+        pd.DataFrame({"code": codes, "date": dates}).duplicated().to_numpy()
+        & (codes >= 0)
+    )
     if repeated.any():
         code = codes[np.flatnonzero(repeated)[0]]
         _check_dates(
