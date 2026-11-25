@@ -161,7 +161,7 @@ def test_create_data_profile_output_when_date_column_is_string_dtype():
     object column that parses to datetime.
     """
     df = df_single_daily.reset_index()
-    df.rename(columns={"index": "fecha"}, inplace=True)
+    df = df.rename(columns={"index": "fecha"})
     df["fecha"] = df["fecha"].astype(str)
 
     profile = create_data_profile(data=df, target="y", date_column="fecha")
@@ -243,7 +243,7 @@ def test_create_data_profile_output_when_csv_path_input_string_dtype(tmp_path):
     
     # Export without index
     df = df_single_daily.reset_index()
-    df.rename(columns={"index": "date"}, inplace=True)
+    df = df.rename(columns={"index": "date"})
     df.to_csv(csv_file, index=False)
 
     # We mock pd.read_csv to return a DataFrame where the date column is explicitly 'string' dtype.

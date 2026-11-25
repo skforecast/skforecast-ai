@@ -59,5 +59,7 @@ def test_extract_datetime_index_output_when_first_rows_have_no_series_id():
         data.assign(series_id=None), "date", "datetime", "long", "series_id"
     )
 
-    pd.testing.assert_index_equal(result, pd.DatetimeIndex(_dates[1:], name="date"))
+    pd.testing.assert_index_equal(
+        result, pd.DatetimeIndex(_dates[1:], name="date", freq=None)
+    )
     assert empty is None
