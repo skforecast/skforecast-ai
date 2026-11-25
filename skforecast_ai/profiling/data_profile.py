@@ -20,6 +20,7 @@ from .._dates import (
     date_positions,
     day_month_formats,
     first_date,
+    fixed_step_nanos,
     guess_datetime_format,
     guessed_date_format,
     is_missing_date,
@@ -2762,12 +2763,9 @@ def _finer_than_a_day(frequency: str | None) -> bool:
     """
     if frequency is None:
         return False
-    offset = pd.tseries.frequencies.to_offset(frequency)
+    nanos = fixed_step_nanos(pd.tseries.frequencies.to_offset(frequency))
 
-    return (
-        isinstance(offset, pd.offsets.Tick)
-        and offset.nanos < _DAY_NANOS
-    )
+    return nanos is not None and nanos < _DAY_NANOS
 
 
 @functools.lru_cache(maxsize=256)
@@ -2777,8 +2775,9 @@ def _periods_per_year(frequency: str) -> float:
     frequency from a coarser one.
     """
     offset = pd.tseries.frequencies.to_offset(frequency)
-    if isinstance(offset, pd.offsets.Tick):
-        return 365 * _DAY_NANOS / offset.nanos
+    nanos = fixed_step_nanos(offset)
+    if nanos is not None:
+        return 365 * _DAY_NANOS / nanos
 
     # Forty years, so that steps of several years are counted too.
     return len(pd.date_range("2001-01-01", "2040-12-31", freq=offset)) / 40
@@ -2857,8 +2856,9 @@ def _grid(
     not set the grid.
     """
     offset = pd.tseries.frequencies.to_offset(frequency)
-    if isinstance(offset, pd.offsets.Tick):
-        phases, counts = np.unique(dates % offset.nanos, return_counts=True)
+    step = fixed_step_nanos(offset)
+    if step is not None:
+        phases, counts = np.unique(dates % step, return_counts=True)
         return offset, int(phases[np.argmax(counts)])
 
     day = _DAY_NANOS
@@ -3057,16 +3057,16 @@ def _check_long_frequency(
         than about stray timestamps.
     """
     offset, grid = _grid(all_dates, frequency)
-    tick = isinstance(offset, pd.offsets.Tick)
+    step = fixed_step_nanos(offset)
     evidence = _COARSER_EVIDENCE + np.log(len(series_dates))
 
     n_missing = 0
     other_frequencies: dict[object, str] = {}
     off_grid: dict[object, np.ndarray] = {}
     for name, dates in series_dates.items():
-        if tick:
-            on_grid = dates % offset.nanos == grid
-            positions = (dates - grid) // offset.nanos
+        if step is not None:
+            on_grid = dates % step == grid
+            positions = (dates - grid) // step
         else:
             positions, on_grid = _grid_positions(dates, grid)
         if not on_grid.all():
@@ -3145,12 +3145,11 @@ def _in_hours(frequency: str | None) -> str | None:
         return None
     offset = pd.tseries.frequencies.to_offset(frequency)
     hour = _HOUR_NANOS
-    if isinstance(offset, pd.offsets.Tick):
-        nanos = offset.nanos
-    elif isinstance(offset, pd.offsets.Week):
+    nanos = fixed_step_nanos(offset)
+    if nanos is None:
+        if not isinstance(offset, pd.offsets.Week):
+            return None
         nanos = offset.n * 7 * _DAY_NANOS
-    else:
-        return None
     if nanos % hour:
         return None
 
@@ -5730,7 +5729,9 @@ def _daily_or_finer(frequency: str | None) -> tuple[bool, bool]:
     if isinstance(offset, pd.offsets.BusinessDay) and offset.n == 1:
         return True, True
 
-    return isinstance(offset, pd.offsets.Tick) and offset.nanos <= _DAY_NANOS, False
+    nanos = fixed_step_nanos(offset)
+
+    return nanos is not None and nanos <= _DAY_NANOS, False
 
 
 def _open_every_weekday(dates: pd.DatetimeIndex, business: bool) -> bool:

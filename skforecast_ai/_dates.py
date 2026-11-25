@@ -328,6 +328,33 @@ def date_positions(dates: pd.DatetimeIndex) -> np.ndarray:
     return positions
 
 
+def fixed_step_nanos(offset: pd.DateOffset) -> int | None:
+    """
+    Return the length of a fixed step (hours, minutes, days) in nanoseconds,
+    or None for a calendar step (weeks, months, business days).
+
+    pandas 3 made `Day` a calendar day, no longer a `Tick`: it follows the
+    clock across a change of daylight saving time. The callers read dates as
+    nanoseconds without a time zone (local or UTC time), where a day lasts
+    24 hours, as `Day` did in pandas 2.
+
+    Parameters
+    ----------
+    offset : pandas DateOffset
+        Step of a frequency, as `pandas.tseries.frequencies.to_offset`
+        returns it.
+
+    Returns
+    -------
+    nanos : int, None
+        Length of the step in nanoseconds, or None when it is not fixed.
+    """
+    if isinstance(offset, (pd.offsets.Tick, pd.offsets.Day)):
+        return offset.nanos
+
+    return None
+
+
 # A time zone written after the time of a date ('10:00:00+01:00', '10:00 AM
 # -0500', '10:00 GMT+01:00', 'T100000+0100', '10:00:00 +0100 2012'): 'Z', a
 # UTC offset or a name of UTC that pandas reads ('UTC', 'GMT'). The time

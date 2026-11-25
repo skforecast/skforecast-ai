@@ -17,7 +17,7 @@ from .._constants import (
     FREQUENCY_TO_SEASONAL_PERIOD,
     MAX_UNTABULATED_ARIMA_PERIOD,
 )
-from .._dates import date_positions, row_dates
+from .._dates import date_positions, fixed_step_nanos, row_dates
 from ..schemas import DataProfile, SeriesPacf
 
 
@@ -51,8 +51,8 @@ def estimate_seasonality(frequency: str | None) -> list[int]:
     `'2MS'` (bi-monthly) yields `[6]`.
 
     All other offsets are resolved with
-    `pd.tseries.frequencies.to_offset`. Only `Tick` offsets have a
-    true fixed duration; the interval in seconds is derived via
+    `pd.tseries.frequencies.to_offset`. Only fixed steps (hours, minutes,
+    days) have a constant duration; the interval in seconds is derived via
     `pd.Timedelta` and divided into the standard cycles (hour, day,
     week, 365-day year). The two shortest qualifying cycles (periods
     >= 2) are returned.
@@ -129,7 +129,8 @@ def _seasonal_cycles(frequency: str | None) -> list[tuple[int, bool]]:
         except (ValueError, TypeError):
             return []
 
-    if not isinstance(offset, pd.tseries.offsets.Tick):
+    nanos = fixed_step_nanos(offset)
+    if nanos is None:
         return []
 
     interval_seconds = pd.Timedelta(offset).total_seconds()
@@ -144,7 +145,7 @@ def _seasonal_cycles(frequency: str | None) -> list[tuple[int, bool]]:
     for c in cycle_seconds:
         period = int(c // interval_seconds)
         if period >= 2:
-            steps, remainder = divmod(c * 1_000_000_000, offset.nanos)
+            steps, remainder = divmod(c * 1_000_000_000, nanos)
             seasons.append((period, remainder == 0 and steps == period))
     return seasons[:2]
 
