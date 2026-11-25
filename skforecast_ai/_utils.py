@@ -2941,8 +2941,8 @@ def _check_evaluated_target(
         closed_weekdays(with_value, data_profile.frequency)
         if isinstance(missing, pd.DatetimeIndex) else []
     )
-    if closed and np.isin(missing.dayofweek, closed).all():
-        days = weekday_names(sorted(set(missing.dayofweek)))
+    if closed and np.isin(missing.day_of_week, closed).all():
+        days = weekday_names(sorted(set(missing.day_of_week)))
         backtest_clause = f"; {backtest}" if backtest else ""
         raise DataContentError(
             f"The target has {len(missing)} missing value(s) {where} "

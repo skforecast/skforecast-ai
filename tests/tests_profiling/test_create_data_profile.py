@@ -390,7 +390,7 @@ def test_create_data_profile_output_when_daily_data_closed_on_sundays():
     `create_cv` names. In long format, each shop is read on its own range.
     """
     dates = pd.date_range("2023-01-02", periods=364, freq="D")
-    dates = dates[dates.dayofweek != 6]
+    dates = dates[dates.day_of_week != 6]
     df = pd.DataFrame({"y": np.arange(len(dates), dtype=float)}, index=dates)
 
     profile = create_data_profile(df, target="y")
@@ -941,7 +941,7 @@ _LONG_KWARGS = {"target": "value", "date_column": "date", "series_id_column": "s
 
 def _weekly(data: pd.DataFrame, series: str) -> pd.DataFrame:
     """Keep only the Sundays of one series of `df_items_sales_long`."""
-    return data[(data["series"] != series) | (data["date"].dt.dayofweek == 6)]
+    return data[(data["series"] != series) | (data["date"].dt.day_of_week == 6)]
 
 
 @pytest.mark.parametrize(
@@ -1010,7 +1010,7 @@ def test_create_data_profile_InvalidInputError_when_long_weekly_series_has_gap()
     """
     weekly = df_items_sales_long[
         (df_items_sales_long["series"] == "item_3")
-        & (df_items_sales_long["date"].dt.dayofweek == 6)
+        & (df_items_sales_long["date"].dt.day_of_week == 6)
     ].drop(index=[261])
     data = pd.concat(
         [df_items_sales_long[df_items_sales_long["series"] != "item_3"], weekly]
@@ -1033,7 +1033,7 @@ def test_create_data_profile_InvalidInputError_when_long_aware_weekly_series():
     data = df_items_sales_long.assign(
         date=df_items_sales_long["date"].dt.tz_localize("Europe/Madrid")
     )
-    weekly = data[(data["series"] == "item_3") & (data["date"].dt.dayofweek == 6)]
+    weekly = data[(data["series"] == "item_3") & (data["date"].dt.day_of_week == 6)]
     data = pd.concat([data[data["series"] != "item_3"], weekly])
 
     err_msg = re.escape(

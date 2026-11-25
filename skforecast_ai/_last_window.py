@@ -661,9 +661,9 @@ def _closed_days(missing: dict, closed: dict) -> str | None:
     for name, (dates, _) in missing.items():
         if not isinstance(dates, pd.DatetimeIndex) or not closed.get(name):
             return None
-        if not np.isin(dates.dayofweek, closed[name]).all():
+        if not np.isin(dates.day_of_week, closed[name]).all():
             return None
-        weekdays.update(int(day) for day in dates.dayofweek)
+        weekdays.update(int(day) for day in dates.day_of_week)
 
     return weekday_names(sorted(weekdays))
 
@@ -749,10 +749,10 @@ def _weekends_without_value(
     """
     if profile.frequency != "D" or not isinstance(after, pd.DatetimeIndex):
         return ""
-    if not (after.dayofweek >= 5).all():
+    if not (after.day_of_week >= 5).all():
         return ""
     dates = pd.DatetimeIndex(has_value.index)
-    weekend = np.asarray(dates.dayofweek >= 5)
+    weekend = np.asarray(dates.day_of_week >= 5)
     values = has_value.to_numpy(dtype=bool)
     if weekend.sum() - len(after.unique()) < 2 or values[weekend].any():
         return ""
@@ -1949,11 +1949,11 @@ def _check_multiseries_evaluation(
         # Missing values all on days of the week without any value in their
         # series are those of a business closed on them.
         if all(
-            np.isin(dates.dayofweek, closed[name]).all()
+            np.isin(dates.day_of_week, closed[name]).all()
             for name, dates in missing.items()
         ):
             days = weekday_names(
-                sorted({day for dates in missing.values() for day in dates.dayofweek})
+                sorted({day for dates in missing.values() for day in dates.day_of_week})
             )
             raise DataContentError(
                 f"The target has missing values in the test split ({shown}), "

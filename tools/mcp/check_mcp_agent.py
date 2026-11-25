@@ -207,7 +207,8 @@ def _excel_spanish() -> bytes:
     rng = np.random.default_rng(7)
     index = pd.date_range("2024-01-01", periods=400, freq="D")
     sales = (
-        2500 + 400 * (index.dayofweek >= 5) + 300 * np.sin(2 * np.pi * index.dayofyear / 365)
+        2500 + 400 * (index.day_of_week >= 5)
+        + 300 * np.sin(2 * np.pi * index.dayofyear / 365)
         + rng.normal(0, 60, len(index))
     )
     lines = ["Fecha;Ventas (€);Promoción"]

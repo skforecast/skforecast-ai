@@ -262,7 +262,7 @@ def _weekend_data(last: str) -> pd.DataFrame:
     """
     dates = pd.date_range("2023-01-02", last, freq="D")
     y = 10.0 + np.sin(np.arange(len(dates)))
-    y[dates.dayofweek >= 5] = np.nan
+    y[dates.day_of_week >= 5] = np.nan
     return pd.DataFrame({"date": dates, "y": y})
 
 

@@ -16,7 +16,7 @@ _HOLIDAYS = pd.DatetimeIndex(
         "2023-11-01", "2023-12-06", "2023-12-08", "2023-12-25",
     ]
 )
-_NO_SUNDAYS = _YEAR[_YEAR.dayofweek != 6]
+_NO_SUNDAYS = _YEAR[_YEAR.day_of_week != 6]
 _BUSINESS_YEAR = pd.bdate_range("2023-01-02", periods=260)
 # The daily file of the MCP audit (b_07): 40 of 150 days missing at random.
 _DAYS_150 = pd.date_range("2020-01-01", periods=150, freq="D")
@@ -28,7 +28,7 @@ _RANDOM_GAPS = _DAYS_150[
 _HOURS = pd.date_range("2023-01-02", periods=720, freq="h")
 _OPEN_FROM_EIGHT = _HOURS[_HOURS.hour >= 8]
 _OFFICE_HOURS = _HOURS[
-    (_HOURS.dayofweek < 5) & (_HOURS.hour >= 9) & (_HOURS.hour <= 17)
+    (_HOURS.day_of_week < 5) & (_HOURS.hour >= 9) & (_HOURS.hour <= 17)
 ]
 _MONTHS = pd.date_range("2015-01-01", periods=60, freq="MS")
 # Every other day, with three days in a row every ten days: 60 % of the
@@ -120,13 +120,13 @@ def test_infer_frequency_output_when_gap_free_stretches_give_frequency(
     [
         (_NO_SUNDAYS, "D"),
         (_NO_SUNDAYS.difference(_HOLIDAYS), "D"),
-        (_YEAR[_YEAR.dayofweek != 2], "D"),
+        (_YEAR[_YEAR.day_of_week != 2], "D"),
         (_RANDOM_GAPS, "D"),
         (
             _YEAR[np.sort(np.random.default_rng(0).choice(364, 200, replace=False))],
             "D",
         ),
-        (_YEAR[_YEAR.dayofweek < 4], "B"),
+        (_YEAR[_YEAR.day_of_week < 4], "B"),
         (
             _BUSINESS_YEAR[
                 np.sort(np.random.default_rng(0).choice(260, 143, replace=False))
@@ -166,7 +166,7 @@ def test_infer_frequency_output_when_gaps_leave_no_gap_free_stretch(
         _OFFICE_HOURS,
         _BUSINESS_YEAR.insert(112, pd.Timestamp("2023-06-10")),
         _NO_SUNDAYS.insert(40, pd.Timestamp("2023-02-14 12:00")),
-        _YEAR[_YEAR.dayofweek.isin([0, 2, 4, 5])],
+        _YEAR[_YEAR.day_of_week.isin([0, 2, 4, 5])],
         _EVERY_OTHER_DAY,
         _NO_SUNDAYS.append(
             pd.DatetimeIndex(["2023-06-01 00:00:01", "2023-06-01 00:00:02"])
@@ -209,7 +209,7 @@ def test_infer_frequency_output_when_gaps_leave_no_gap_free_stretch_in_any_unit(
     'B'.
     """
     no_sundays = _NO_SUNDAYS.as_unit(unit)
-    monday_to_thursday = _YEAR[_YEAR.dayofweek < 4].as_unit(unit)
+    monday_to_thursday = _YEAR[_YEAR.day_of_week < 4].as_unit(unit)
 
     assert infer_frequency(no_sundays) == "D"
     assert infer_frequency(no_sundays.tz_localize("Europe/Madrid")) == "D"

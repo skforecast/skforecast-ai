@@ -9,7 +9,7 @@ from skforecast_ai.profiling.data_profile import regular_gap_weekdays
 # A year of days from a Monday (2023-01-02 to 2023-12-31), and the days of a
 # shop closed on Sundays.
 _YEAR = pd.date_range("2023-01-02", periods=364, freq="D")
-_NO_SUNDAYS = _YEAR[_YEAR.dayofweek != 6]
+_NO_SUNDAYS = _YEAR[_YEAR.day_of_week != 6]
 _HOURS = pd.date_range("2023-01-02", periods=24 * 28, freq="h")
 
 
@@ -26,12 +26,12 @@ def _as_nanoseconds(*indexes: pd.DatetimeIndex) -> dict:
     [
         (_NO_SUNDAYS, "D", [6]),
         (_NO_SUNDAYS.as_unit("s").tz_localize("Europe/Madrid"), "D", [6]),
-        (_YEAR[_YEAR.dayofweek != 2], "D", [2]),
-        (_YEAR[_YEAR.dayofweek < 5], "D", [5, 6]),
-        (_YEAR[_YEAR.dayofweek < 4], "B", [4]),
-        (_HOURS[_HOURS.dayofweek != 6], "h", [6]),
+        (_YEAR[_YEAR.day_of_week != 2], "D", [2]),
+        (_YEAR[_YEAR.day_of_week < 5], "D", [5, 6]),
+        (_YEAR[_YEAR.day_of_week < 4], "B", [4]),
+        (_HOURS[_HOURS.day_of_week != 6], "h", [6]),
         (_as_nanoseconds(_NO_SUNDAYS, _NO_SUNDAYS[:100]), "D", [6]),
-        (_as_nanoseconds(_NO_SUNDAYS, _YEAR[_YEAR.dayofweek < 5]), "D", [5, 6]),
+        (_as_nanoseconds(_NO_SUNDAYS, _YEAR[_YEAR.day_of_week < 5]), "D", [5, 6]),
         (_as_nanoseconds(_NO_SUNDAYS, _YEAR), "D", [6]),
     ],
     ids=[
@@ -66,7 +66,7 @@ def test_regular_gap_weekdays_output_when_gaps_fall_on_closed_days(
         (_YEAR.delete([10]), "D"),
         (_YEAR, "D"),
         (_YEAR[:10].delete([6]), "D"),
-        (_HOURS[(_HOURS.dayofweek != 6) & (_HOURS.hour >= 8)], "h"),
+        (_HOURS[(_HOURS.day_of_week != 6) & (_HOURS.hour >= 8)], "h"),
         (pd.date_range("2023-01-01", periods=40, freq="W-SUN").delete([5]), "W-SUN"),
         (_NO_SUNDAYS, None),
         (_as_nanoseconds(_NO_SUNDAYS, _YEAR.delete([10])), "D"),

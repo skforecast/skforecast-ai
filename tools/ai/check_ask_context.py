@@ -150,7 +150,7 @@ def load_data(name: str, tail: int) -> pd.DataFrame:
         rng = np.random.default_rng(123)
         index = pd.date_range("2012-01-01", periods=max(tail, 24 * 60), freq="h")
         hour = index.hour.to_numpy()
-        day = index.dayofweek.to_numpy()
+        day = index.day_of_week.to_numpy()
         users = (
             120
             + 80 * np.sin(2 * np.pi * hour / 24)

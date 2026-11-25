@@ -2829,7 +2829,7 @@ def _own_frequencies(series_dates: dict[object, np.ndarray]) -> dict[object, str
         # day of the first date, and for periods of half a month or more on
         # its day of the month and month.
         first = pd.Timestamp(head[0])
-        key = (steps.tobytes(), first.dayofweek, int(head[0] % day)) + (
+        key = (steps.tobytes(), first.day_of_week, int(head[0] % day)) + (
             (first.day, first.month) if steps.min() >= 13 * day else ()
         )
         if key not in cache:
@@ -5791,7 +5791,7 @@ def _open_every_weekday(dates: pd.DatetimeIndex, business: bool) -> bool:
     to Friday for business days), so that none of them can be closed. It
     spares sorting the dates of most data, whose gaps are not closed days.
     """
-    days = np.asarray(pd.DatetimeIndex(dates).dayofweek, dtype=float)
+    days = np.asarray(pd.DatetimeIndex(dates).day_of_week, dtype=float)
     counts = np.bincount(days[~np.isnan(days)].astype(np.int64), minlength=7)
 
     return bool(counts[:5 if business else 7].all())

@@ -38,10 +38,10 @@ df_categorical_exog = df_single.assign(
 # exog columns carry the names the raw calendar columns would take.
 df_calendar_named_exog = df_single.assign(
     month=df_single["date"].dt.month,
-    weekend=(df_single["date"].dt.dayofweek >= 5).astype(int),
+    weekend=(df_single["date"].dt.day_of_week >= 5).astype(int),
 )
 df_all_calendar_named_exog = df_calendar_named_exog.assign(
-    day_of_week=df_single["date"].dt.dayofweek,
+    day_of_week=df_single["date"].dt.day_of_week,
 )
 
 # --- Single series without exog (100 daily observations) ---
@@ -254,12 +254,12 @@ df_day_first_exog = pd.DataFrame(
 # No ten days are in a row: the frequency is 'D', inferred on windows of three
 # days, with the 51 Sundays from 2023-01-02 to 2023-12-30 missing.
 _dates_no_sundays = pd.date_range("2023-01-02", periods=364, freq="D")
-_dates_no_sundays = _dates_no_sundays[_dates_no_sundays.dayofweek != 6]
+_dates_no_sundays = _dates_no_sundays[_dates_no_sundays.day_of_week != 6]
 df_no_sundays = pd.DataFrame(
     {
         "date": _dates_no_sundays,
         "sales": np.round(
-            100 + 8 * _dates_no_sundays.dayofweek + 0.05 * np.arange(312)
+            100 + 8 * _dates_no_sundays.day_of_week + 0.05 * np.arange(312)
             + 3 * np.sin(np.arange(312) / 5),
             2,
         ),
