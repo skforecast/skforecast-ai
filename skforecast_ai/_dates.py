@@ -187,7 +187,12 @@ def _as_dates(
     with `'%Y%m%d'`), otherwise text with the format of its first date.
     """
     if date_format is not None and not pd.api.types.is_datetime64_any_dtype(values):
-        return pd.DatetimeIndex(pd.to_datetime(pd.Series(values), format=date_format))
+        values = pd.Series(values)
+        if pd.api.types.is_integer_dtype(values):
+            # pandas 3.1 deprecates reading numbers with a format: a future
+            # version reads them as times since the epoch.
+            values = values.astype("string")
+        return pd.DatetimeIndex(pd.to_datetime(values, format=date_format))
     if pd.api.types.is_object_dtype(values) or pd.api.types.is_string_dtype(values):
         values = parse_text_dates(pd.Series(values))
 

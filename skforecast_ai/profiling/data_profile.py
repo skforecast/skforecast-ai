@@ -1855,7 +1855,10 @@ def _compact_dates(values: pd.Series) -> pd.Series | None:
         return None
     with _warnings.catch_warnings():
         _warnings.simplefilter("ignore")
-        parsed = pd.to_datetime(numbers, format=COMPACT_DATE_FORMAT, errors="coerce")
+        # As text: pandas 3.1 deprecates reading numbers with a format.
+        parsed = pd.to_datetime(
+            numbers.astype(str), format=COMPACT_DATE_FORMAT, errors="coerce"
+        )
     if parsed.isna().any():
         return None
     # The range of pandas 2 (nanoseconds), so the column reads the same with
