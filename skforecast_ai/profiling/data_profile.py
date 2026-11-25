@@ -4695,6 +4695,45 @@ def series_ids_as_text(
     return data
 
 
+def compact_dates_as_text(
+    data: pd.DataFrame,
+    date_column: str | None,
+) -> pd.DataFrame:
+    """
+    Return data with its dates of whole numbers of eight digits (20200131)
+    as text, as the generated script turns them (`astype(str)`) after it
+    reads the CSV file (see `_compact_dates`).
+
+    pandas 3.1 deprecates reading numbers as dates with a format, and a
+    future version reads them as times since the epoch. The script turns
+    those of the file it reads, and data passed in memory gets them here.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Input dataset.
+    date_column : str, None
+        Column of the dates. None, or a column that `data` does not hold,
+        returns `data` as it is.
+
+    Returns
+    -------
+    data : pandas DataFrame
+        `data`, or a copy with the dates as text.
+    """
+    if date_column is None or date_column not in data.columns:
+        return data
+    dates = data[date_column]
+    if isinstance(dates, pd.DataFrame):
+        # A repeated column name: left to the checks that report it.
+        return data
+    if _compact_dates(dates) is None:
+        return data
+    data = data.copy()
+    data[date_column] = dates.astype(str)
+    return data
+
+
 def decimal_after_sample(
     data: pd.DataFrame,
     source: str,

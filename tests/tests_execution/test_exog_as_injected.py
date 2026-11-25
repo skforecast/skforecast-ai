@@ -46,6 +46,25 @@ def test_exog_as_injected_output_when_exog_has_date_column():
     assert result is exog
 
 
+def test_exog_as_injected_output_when_dates_are_whole_numbers():
+    """
+    Test that the dates of future exogenous variables written as whole
+    numbers of eight digits become text, as the generated script reads
+    them, and the input is not modified.
+    """
+    exog = pd.DataFrame(
+        {"date": [20230411, 20230412, 20230413], "promo": [0.0, 1.0, 0.0]}
+    )
+
+    result = exog_as_injected(exog, profile_daily)
+
+    expected = pd.DataFrame(
+        {"date": ["20230411", "20230412", "20230413"], "promo": [0.0, 1.0, 0.0]}
+    )
+    pd.testing.assert_frame_equal(result, expected)
+    assert pd.api.types.is_integer_dtype(exog["date"])
+
+
 def test_exog_as_injected_output_when_data_has_no_date_column():
     """
     Test that, when the data is indexed by date (no date column), the future

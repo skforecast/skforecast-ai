@@ -21,6 +21,7 @@ from ..rendering.backtesting import (
     render_backtesting_statistical,
 )
 from .._constants import N_EVALUATED_COLUMN, OBSERVED_COLUMN
+from ..profiling.data_profile import compact_dates_as_text
 from ..schemas import DataProfile, ForecastPlan, RenderedScript
 from ..exceptions import InvalidInputError
 from .comparison import aggregate_metrics
@@ -82,8 +83,12 @@ def run_backtest(
     # Render backtesting code
     rendered = render_backtesting_script(profile, plan, cv)
 
-    # Execute the rendered code with `data` pre-loaded in the namespace
-    namespace = _exec_rendered_code(rendered, data, show_progress)
+    # Execute the rendered code with `data` pre-loaded in the namespace:
+    # dates of whole numbers (20200131) as text, as the script turns them
+    # after reading the CSV file.
+    namespace = _exec_rendered_code(
+        rendered, compact_dates_as_text(data, profile.date_column), show_progress
+    )
 
     # Extract results from namespace
     metrics = namespace.get("metrics")

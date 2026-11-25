@@ -20,6 +20,7 @@ from .._constants import (
 from .._validation import validate_kwarg_names
 from ..recommendation.autoregressive import arima_seasonal_period
 from ..exceptions import InvalidInputError
+from ..profiling.data_profile import COMPACT_DATE_FORMAT
 
 # Render boundary: a value from a plan, a profile or a cross-validation
 # object reaches a script only through `repr()`, as a constant of one of the
@@ -505,7 +506,11 @@ def _emit_data_loading(
     future exogenous variables, as the library reads it: `'001'` keeps its
     zeros and the thousands separator does not touch it. With a thousands
     separator, so is the date column: pandas would read `'15.01.2020'` as
-    the number 15012020.
+    the number 15012020. Dates of whole numbers (20200131, read with the
+    format `'%Y%m%d'`) are turned into text after the file is read: pandas
+    3.1 deprecates reading numbers as dates with a format, and a future
+    version reads them as times since the epoch. pandas reads them as
+    numbers first, so the spaces around them are left out.
 
     Parameters
     ----------
@@ -592,10 +597,21 @@ def _emit_data_loading(
         if exog_file is not None and exog_file.blank_rows else []
     )
     by_position = exog_file is not None and exog_file.by_position
+    # Dates of whole numbers, turned into text unless the file is read with
+    # them as text already. The executed code gets them as text too (see
+    # `compact_dates_as_text`).
+    file_format = profile.date_format if exog_file is None else exog_file.date_format
+    dates_as_text = (
+        [f"{var}[{date_col!r}] = {var}[{date_col!r}].astype(str)"]
+        if date_col and date_col not in text_columns
+        and file_format == COMPACT_DATE_FORMAT
+        else []
+    )
     lines.append(comment)
     if long_format or not index_read or by_position:
         lines.append(f"{var} = pd.read_csv({repr(data_path)}{dialect})")
         lines.extend(blank_rows)
+        lines.extend(dates_as_text)
         if by_position:
             # The rows of the file are the steps of the horizon, in order:
             # they follow the last row of the data, where skforecast starts

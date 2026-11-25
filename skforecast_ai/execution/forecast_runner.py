@@ -11,7 +11,7 @@ from typing import Any, Callable
 import pandas as pd
 
 from ..rendering._helpers import _metric_info
-from ..profiling.data_profile import series_ids_as_text
+from ..profiling.data_profile import compact_dates_as_text, series_ids_as_text
 from ..schemas import DataProfile, ForecastPlan, FutureExogFile, RenderedScript
 
 from ..rendering.single_series import render_forecast_single_series
@@ -136,7 +136,9 @@ def run_forecast(
     # ids as text, as the CSV file of the script reads them), not prepared;
     # the rendered core code prepares it (same steps as `data`, the ids
     # turned into text again), so that preparation is both shown in
-    # `result.code` and actually run.
+    # `result.code` and actually run. Dates of whole numbers (20200131) are
+    # injected as text, as the script turns them after reading the CSV file.
+    data = compact_dates_as_text(data, profile.date_column)
     namespace = _exec_rendered_code(rendered, data, exog)
 
     # Extract standard results from the executed namespace
@@ -192,7 +194,8 @@ def exog_as_injected(exog: pd.DataFrame, profile: DataProfile) -> pd.DataFrame:
     In long format the series ids become text, as the series ids of the
     data (see `series_ids_as_text`): the rendered code turns them too, so
     a CSV file read with them as text and a DataFrame with integer ids
-    name the same series.
+    name the same series. Dates of whole numbers (20200131) become text, as
+    the script turns them (see `compact_dates_as_text`).
 
     Parameters
     ----------
@@ -214,7 +217,7 @@ def exog_as_injected(exog: pd.DataFrame, profile: DataProfile) -> pd.DataFrame:
     if profile.data_format == "long":
         exog = series_ids_as_text(exog, profile.series_id_column)
 
-    return exog
+    return compact_dates_as_text(exog, profile.date_column)
 
 
 def _exec_rendered_code(
