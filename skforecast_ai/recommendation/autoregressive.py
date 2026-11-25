@@ -119,13 +119,16 @@ def _seasonal_cycles(frequency: str | None) -> list[tuple[int, bool]]:
         ]
 
     # Fixed-interval offsets: resolve to an exact timedelta and derive the
-    # periods per standard cycle. Legacy uppercase aliases ("H", "T") still
-    # resolve but emit a deprecation warning, which is intentional and
-    # silenced here.
+    # periods per standard cycle. Legacy uppercase aliases ("H", "T") are
+    # read as their current names, as pandas 3 no longer reads them; the
+    # deprecation warning pandas 2 emits for other old aliases is
+    # intentional and silenced here.
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", FutureWarning)
         try:
-            offset = pd.tseries.frequencies.to_offset(frequency)
+            offset = pd.tseries.frequencies.to_offset(
+                _current_alias(frequency.strip())
+            )
         except (ValueError, TypeError):
             return []
 
@@ -156,6 +159,23 @@ def _seasonal_cycles(frequency: str | None) -> list[tuple[int, bool]]:
 _LEGACY_ALIASES = {
     "M": "ME", "Q": "QE", "A": "YE", "Y": "YE", "AS": "YS", "H": "h", "T": "min",
 }
+
+
+def _current_alias(frequency: str) -> str:
+    """
+    Return a frequency written with an alias pandas 2.1 infers under its
+    current name: `'H'` is `'h'`, `'15T'` is `'15min'` and `'A-DEC'` is
+    `'YE-DEC'` (see `_LEGACY_ALIASES`). Any other frequency is returned as
+    it is.
+    """
+    legacy = re.fullmatch(r"(\d*)([A-Za-z]+)(-.*)?", frequency)
+    if legacy and legacy.group(2) in _LEGACY_ALIASES:
+        return (
+            f"{legacy.group(1)}{_LEGACY_ALIASES[legacy.group(2)]}"
+            f"{legacy.group(3) or ''}"
+        )
+
+    return frequency
 
 
 def tabulated_seasonal_period(frequency: str | None) -> int | None:
@@ -189,10 +209,7 @@ def tabulated_seasonal_period(frequency: str | None) -> int | None:
         return None
     period = FREQUENCY_TO_SEASONAL_PERIOD.get(frequency)
     if period is None:
-        base = frequency.split("-", 1)[0]
-        legacy = re.fullmatch(r"(\d*)([A-Za-z]+)", base)
-        if legacy and legacy.group(2) in _LEGACY_ALIASES:
-            base = f"{legacy.group(1)}{_LEGACY_ALIASES[legacy.group(2)]}"
+        base = _current_alias(frequency.split("-", 1)[0])
         period = FREQUENCY_TO_SEASONAL_PERIOD.get(base)
 
     return period
