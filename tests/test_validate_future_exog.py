@@ -19,6 +19,7 @@ from skforecast_ai.execution.forecast_runner import (
     render_forecast_script,
 )
 
+from tests.fixtures_pandas import at_position
 from tests.fixtures_future_exog import (
     data_bh,
     data_business,
@@ -1424,7 +1425,7 @@ def test_validate_future_exog_DataContentError_when_text_dates_not_in_date_forma
     err_msg = re.escape(
         "The dates of `exog` (column or index 'date') cannot be read as the "
         "generated code reads them: time data \"2021-02-01\" doesn't match "
-        "format \"%d/%m/%Y\", at position 0."
+        f"format \"%d/%m/%Y\"{at_position(0)}."
     )
     with pytest.raises(DataContentError, match=err_msg) as exc_info:
         validate_future_exog(
