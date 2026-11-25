@@ -7,6 +7,8 @@ import pytest
 from skforecast_ai.profiling.data_profile import infer_frequency
 from skforecast_ai.recommendation.autoregressive import estimate_seasonality
 
+from tests.fixtures_pandas import QUARTER_START
+
 # A year of days from a Monday, the fixed holidays of a Spanish calendar in
 # it, and the days of a shop closed on Sundays.
 _YEAR = pd.date_range("2023-01-02", periods=364, freq="D")
@@ -45,14 +47,15 @@ _EVERY_OTHER_DAY = _YEAR[np.isin(np.arange(364) % 10, [0, 1, 2, 4, 6, 8])]
         ("W", "W-SUN"),
         ("MS", "MS"),
         ("ME", "ME"),
-        ("QS", "QS-OCT"),
+        ("QS", QUARTER_START),
     ],
     ids=lambda x: f"{x}",
 )
 def test_infer_frequency_output_when_regular_series(freq, expected):
     """
     Test infer_frequency returns the correct frequency string for a
-    regularly-spaced DatetimeIndex.
+    regularly-spaced DatetimeIndex. Quarters from January are 'QS-OCT' for
+    pandas 2 and 'QS-JAN' for pandas 3.
     """
     index = pd.date_range("2023-01-01", periods=100, freq=freq)
     result = infer_frequency(index)

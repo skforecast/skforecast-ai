@@ -9,7 +9,9 @@ from skforecast_ai.profiling.data_profile import (
     _coarser_frequency,
 )
 
-_WEEKLY = pd.date_range("2023-01-01", periods=30, freq="W-SUN")
+from tests.fixtures_pandas import QUARTER_START
+
+_WEEKLY =pd.date_range("2023-01-01", periods=30, freq="W-SUN")
 # 60 Sundays and one Monday after the first 30 dates.
 _WEEKS_AND_MONDAY = pd.date_range("2023-01-01", periods=60, freq="W-SUN")
 _WEEKS_AND_MONDAY = _WEEKS_AND_MONDAY.insert(
@@ -40,7 +42,7 @@ def _sparse(steps: list[int]) -> pd.DatetimeIndex:
          None, "ME"),
         (_WEEKS_AND_MONDAY, "W-SUN", "W-SUN"),
         (pd.date_range("2016-01-01", periods=30, freq="QS-JAN").delete([3]),
-         None, "QS-OCT"),
+         None, QUARTER_START),
         (pd.date_range("2020-01-01", "2021-12-31", freq="BME").delete([15]),
          None, "BME"),
         (pd.date_range("2020-01-01", "2021-12-31", freq="BME").delete([4, 11, 17]),
@@ -58,7 +60,8 @@ def test_coarser_frequency_output(dates, own_frequency, expected):
     Test the coarser frequency of a single series on a daily grid: none
     with two consecutive days or fewer than 10 dates, its own frequency
     (also with a stray day after a Sunday later on), month starts or month
-    ends with gaps (quarters named as quarters), or the step all its steps
+    ends with gaps (quarters named as quarters, 'QS-OCT' for pandas 2 and
+    'QS-JAN' for pandas 3), or the step all its steps
     are multiples of (whole weeks, named as weeks; even steps only from 21
     dates, as fewer even steps may be chance). Business month ends are
     inferred on their gap-free stretches only: with gaps that leave no ten
