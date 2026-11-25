@@ -178,25 +178,36 @@ Cinco causas, no 339 problemas:
 
 ### Plan
 
-La rama `0.6.x` no se crea todavía (2026-11-25); el trabajo sale de ella
-cuando exista, en este orden:
+skforecast 0.28.0 y skforecast-ai 0.6.0 se publican a la vez (D41), así
+que la 0.6.0 solo tiene que funcionar con skforecast 0.28: nada de admitir
+también la 0.27. La rama `0.6.x` no se crea todavía (2026-11-25); el
+trabajo sale de ella cuando exista, en este orden:
 
 1. `0.6.x` desde `0.5.x` y `/release-bump 0.6.0`.
-2. `feature/pandas3`: las cinco causas de arriba, con la suite en verde con
-   pandas 2.3 y con pandas 3, y los dos en la matriz de CI. Mientras
-   skforecast 0.28 no esté en PyPI, el código admite skforecast 0.27 y 0.28
-   y se prueba en local con la rama `0.28.x` instalada desde git.
-3. `chore/python311`: `requires-python = ">=3.11"`, fuera 3.10 de la matriz
-   y de los classifiers, fuera la dependencia de `tomli`. Puede ir ya: no
-   depende de la publicación de skforecast. Avisar a skforecast
-   (`REL-skforecast-ai-python311` de su roadmap).
-4. Cuando skforecast 0.28 esté en PyPI: `skforecast>=0.28.0`,
-   `numpy>=2.0`, `pandas>=2.3`, `scipy>=1.13`, y la sincronización de
-   `skills/` y `llms-base.txt` (cambian 10 ficheros de 8 skills y
-   `llms-base.txt`, sin skills nuevos ni borrados; en
-   `troubleshooting-common-errors` entran secciones de pandas 3). Es texto
-   que lee el LLM: `/llm-context-change` y check de pago.
+2. `chore/skforecast-028`: los mínimos de skforecast 0.28 desde el primer
+   día: `skforecast>=0.28.0`, `numpy>=2.0`, `pandas>=2.3`, `scipy>=1.13` y
+   `requires-python = ">=3.11"` (fuera 3.10 de la matriz de CI y de los
+   classifiers, fuera la dependencia de `tomli`). Hasta que skforecast
+   publique, `skforecast>=0.28.0` no se resuelve desde PyPI: en local se
+   instala antes skforecast desde git
+   (`pip install "skforecast @ git+https://github.com/skforecast/skforecast@0.28.x"`),
+   y el hook de inicio de las sesiones en la nube ya lo hace solo
+   (`skforecast_dev_branch` en `.claude/hooks/session_start.py`). La CI
+   solo corre en el PR a `main`, ya con skforecast publicado. Avisar a
+   skforecast (`REL-skforecast-ai-python311` de su roadmap).
+3. `feature/pandas3`: las cinco causas de arriba, con la suite en verde con
+   pandas 2.3 y con pandas 3 (los dos contra skforecast 0.28), y los dos en
+   la matriz de CI.
+4. La sincronización de `skills/` y `llms-base.txt` desde `0.28.x`
+   (cambian 10 ficheros de 8 skills y `llms-base.txt`, sin skills nuevos
+   ni borrados; en `troubleshooting-common-errors` entran secciones de
+   pandas 3), y otra vez con la `0.28.x` final. Es texto que lee el LLM:
+   `/llm-context-change` y check de pago.
 5. Las features de "Candidatos".
+6. El día de la publicación, a la vez que skforecast 0.28: `skforecast-ai`
+   y `skforecast-ai-mcp` 0.6.0 en PyPI, la ficha del registro de MCP y el
+   comando del plugin (`uvx skforecast-ai-mcp==0.6.0`) en nuestro
+   marketplace y, si se puede, en el directorio de Anthropic (D41).
 
 Antes de publicar, repetir esta revisión sobre la `0.28.x` final.
 
@@ -208,9 +219,9 @@ release que lo necesita.
 | Qué | Estado | Efecto aquí |
 |:--|:--|:--|
 | `RollingFeatures`: `transform_batch` (entrenamiento) da NaN en toda ventana con un valor que falta (`min_periods = window_sizes`) y `transform` (predicción) lo salta con `np.nanmean` y similares, sin leer `min_periods` | Por reportar (borrador del issue del 2026-11-11). Sigue igual en `0.28.x` (`d42a411`): es `BUG-rollingfeatures-nan` del roadmap de skforecast, P2, sin empezar | Con huecos y un estimador que no acepta NaN, el forecast de Ridge del check con agentes de la 0.5.0 entrenó con 15 de 84 filas; con uno que los acepta, predice con un estadístico que nunca vio |
-| Python 3.10: skforecast 0.27.0 lo depreca y la 0.28.0 pide 3.11 | Hecho en `0.28.x` (skforecast#1496), sin publicar | `requires-python = ">=3.10"` en `pyproject.toml`: subir a 3.11 en la 0.6.0 (sección "Compatibilidad con skforecast 0.28") |
+| Python 3.10: skforecast 0.27.0 lo depreca y la 0.28.0 pide 3.11 | Hecho en `0.28.x` (skforecast#1496), sin publicar | `requires-python = ">=3.10"` en `pyproject.toml`: subir a 3.11 al abrir la `0.6.x` (sección "Compatibilidad con skforecast 0.28") |
 | pandas 3: skforecast 0.28 pide `pandas>=2.3, <4.0`, y un entorno nuevo recibe pandas 3 | Hecho en `0.28.x` (skforecast#1501), sin publicar | skforecast-ai falla con pandas 3 (339 tests): es lo primero de la 0.6.0 (sección "Compatibilidad con skforecast 0.28") |
-| Mínimos de skforecast 0.28: `numpy>=2.0`, `pandas>=2.3`, `scipy>=1.13` | Hecho en `0.28.x` (skforecast#1500), sin publicar | Igualar los mínimos de `pyproject.toml` (hoy `numpy>=1.26.1`, `pandas>=2.2`, `scipy>=1.12`) al pedir skforecast 0.28 |
+| Mínimos de skforecast 0.28: `numpy>=2.0`, `pandas>=2.3`, `scipy>=1.13` | Hecho en `0.28.x` (skforecast#1500), sin publicar | Igualar los mínimos de `pyproject.toml` (hoy `numpy>=1.26.1`, `pandas>=2.2`, `scipy>=1.12`) al abrir la `0.6.x`, con `skforecast>=0.28.0` (D41) |
 
 ## Checks de la release
 
@@ -237,14 +248,29 @@ siguiente check con agentes:
 
 ## Decisiones tomadas
 
-- **D41 (2026-11-25): sin 0.5.1; la 0.6.0 sale con skforecast 0.28.** La
-  0.5.0 pide `pandas>=2.2` y `skforecast>=0.27.0` sin cota superior, así
-  que, cuando salga skforecast 0.28, una instalación nueva (también
-  `uvx skforecast-ai-mcp==0.5.0`) recibirá pandas 3 y fallará. Se descartó
-  una 0.5.1 con `pandas<3` (con pandas 2.3 la suite pasa también con
-  skforecast 0.28): la 0.6.0, compatible con pandas 3, tiene que
-  publicarse a la vez que skforecast 0.28 o justo después. Si skforecast
-  se adelanta, la 0.5.1 con la cota es el plan de reserva.
+- **D41 (2026-11-25): sin 0.5.1; skforecast 0.28.0 y skforecast-ai 0.6.0
+  salen a la vez.** La 0.6.0 pide los mínimos de skforecast 0.28 desde el
+  primer día (plan de la sección "Compatibilidad con skforecast 0.28").
+  Con eso, `pip install skforecast-ai` y `uvx skforecast-ai-mcp` sin
+  versión reciben la 0.6.0, que funciona con pandas 3. Lo que no arregla,
+  aceptado: la 0.4.2 y la 0.5.0 piden `pandas>=2.2` y
+  `skforecast>=0.26.0`/`>=0.27.0` sin cota superior, así que se rompen
+  con pandas 3 (comprobado en la 0.5.0; en la 0.4.2 es el mismo código de
+  detección de categóricas, sin probar):
+  - Las instalaciones nuevas con la versión fijada: `uvx
+    skforecast-ai-mcp==0.5.0` (el plugin de nuestro marketplace y la ficha
+    0.5.0 del registro de MCP hasta que se actualicen) y `uvx
+    skforecast-ai-mcp==0.4.2`, el comando de la ficha del directorio de
+    Anthropic, que sigue en la 0.4.2 hasta que se resuelva el punto 2 de
+    "Lo que queda de la 0.5.0". Mientras no se resuelva, esa ficha queda
+    rota desde el día de la publicación.
+  - Los entornos con skforecast-ai 0.5.0 que actualizan solo skforecast:
+    `pip install -U skforecast` sube a pandas 3 un pandas anterior a 2.3.
+
+  La 0.5.1 con `pandas<3` arreglaría los dos casos de la 0.5.0 (con pandas
+  2.3 la suite pasa también con skforecast 0.28), pero no la ficha de
+  Anthropic: queda como reserva si skforecast se adelanta o si aparecen
+  usuarios afectados.
 
 La siguiente es D42.
 
