@@ -120,6 +120,86 @@ de rodearlo aquí (sección "Dependencia de skforecast").
    fusión. cursor.directory, opcional, después de probar Cursor. Mirar que
    la ficha de mcprush.com siga la versión publicada.
 
+## Compatibilidad con skforecast 0.28
+
+skforecast tiene la rama `0.28.x` como candidata (en desarrollo, sin fecha).
+Revisada el 2026-11-24 sobre su commit `d42a411`: la suite de skforecast-ai
+de `0.5.x` (`3fc58f2`, 7.107 tests, con `filterwarnings = error`), con
+Python 3.13 en Linux:
+
+| skforecast | pandas | Resultado |
+|:--|:--|:--|
+| 0.27.0 | 2.3.3 | Verde (CI de la 0.5.0) |
+| 0.28.0 (`0.28.x`) | 2.3.3 | Verde: 7107 passed, 2 skipped |
+| 0.28.0 (`0.28.x`) | 3.1.1 | 339 fallos; sin rebajar `Pandas4Warning`, 111 errores al recoger los tests |
+
+Los 339 tests pasan con skforecast 0.28 y pandas 2.3, y con skforecast 0.27:
+todo lo que falla es de pandas 3. Lo propio de la 0.28 (`n_jobs=0`, que
+skforecast-ai no usa; `n_jobs='auto'` en paralelo sin refit;
+`reshape_series_wide_to_long`; el `exog` con `RangeIndex` en multiserie;
+`ForecasterRnn`) no rompe nada, y los tests de determinismo siguen en
+verde.
+
+### Lo que falla con pandas 3
+
+Cinco causas, no 339 problemas:
+
+1. **Fechas en microsegundos.** pandas 3 lee las fechas de texto en `[us]`,
+   y varias funciones de `profiling/data_profile.py` leen `.asi8` como
+   nanosegundos (`_DAY_NANOS`, `_HOUR_NANOS`): unos datos diarios salen con
+   frecuencia `'86400ms'` en vez de `'D'`, y con ello fallan los días de
+   cierre (`regular_gap_weekdays`), la frecuencia más gruesa
+   (`'W-SUN'`), las variables de calendario y las window features. Algunas
+   ya hacen `as_unit("ns")` antes (`data_profile.py`, hacia las líneas
+   2637 y 5758): hacerlo en todas, o calcular en la unidad del índice.
+2. **Texto como `str`, no `object`.** `detect_categorical_exog`,
+   `detect_numbers_as_text` y el tipo del objetivo (`data_profile.py`) y el
+   hash de `assistant.py` solo miran `is_object_dtype`: una exógena de
+   texto no es categórica y el script generado falla con `could not
+   convert string to float: 'Cádiz'` (ya visto en
+   [#95](https://github.com/skforecast/skforecast-ai/pull/95)). Los ids de serie y las columnas de
+   texto de las salidas pasan a `str` (tests de `series_ids_as_text`,
+   `exog_as_injected`, `sort_rows_by_date`).
+3. **Copy-on-Write.** `repeated &= codes >= 0` en `_future_exog.py`
+   (`.to_numpy()` de pandas 3 es de solo lectura): `output array is
+   read-only` en `forecast` con exógenas futuras en formato largo (36
+   tests).
+4. **Deprecaciones de pandas 3.1** (`Pandas4Warning`): `.dayofweek`
+   (`_last_window.py`, `_utils.py`, `recommendation/calendar.py`,
+   `data_profile.py` y los fixtures), `pd.infer_freq` que devuelve texto
+   (skforecast lo resuelve con `skforecast/utils/_pandas_compat.py::infer_freq`)
+   y `DataFrame.rename(inplace=...)` en un test.
+5. **Tests atados a pandas 2**: los mensajes de `pd.to_datetime` ya no
+   dicen "at position N" (`parse_text_dates`,
+   `try_parse_first_date_column`), un `FutureWarning` que pandas 3 ya no
+   emite, y dtypes esperados `object`. Los 53 goldens de contexto que
+   fallan (`test_golden_context.py`, `test_describe.py`) son consecuencia
+   de 1 y 2: deberían volver a coincidir sin regenerarlos.
+
+### Plan
+
+La rama `0.6.x` no se crea todavía (2026-11-25); el trabajo sale de ella
+cuando exista, en este orden:
+
+1. `0.6.x` desde `0.5.x` y `/release-bump 0.6.0`.
+2. `feature/pandas3`: las cinco causas de arriba, con la suite en verde con
+   pandas 2.3 y con pandas 3, y los dos en la matriz de CI. Mientras
+   skforecast 0.28 no esté en PyPI, el código admite skforecast 0.27 y 0.28
+   y se prueba en local con la rama `0.28.x` instalada desde git.
+3. `chore/python311`: `requires-python = ">=3.11"`, fuera 3.10 de la matriz
+   y de los classifiers, fuera la dependencia de `tomli`. Puede ir ya: no
+   depende de la publicación de skforecast. Avisar a skforecast
+   (`REL-skforecast-ai-python311` de su roadmap).
+4. Cuando skforecast 0.28 esté en PyPI: `skforecast>=0.28.0`,
+   `numpy>=2.0`, `pandas>=2.3`, `scipy>=1.13`, y la sincronización de
+   `skills/` y `llms-base.txt` (cambian 10 ficheros de 8 skills y
+   `llms-base.txt`, sin skills nuevos ni borrados; en
+   `troubleshooting-common-errors` entran secciones de pandas 3). Es texto
+   que lee el LLM: `/llm-context-change` y check de pago.
+5. Las features de "Candidatos".
+
+Antes de publicar, repetir esta revisión sobre la `0.28.x` final.
+
 ## Dependencia de skforecast
 
 Lo que tiene que estar resuelto en skforecast, y publicado, antes de la
@@ -127,8 +207,10 @@ release que lo necesita.
 
 | Qué | Estado | Efecto aquí |
 |:--|:--|:--|
-| `RollingFeatures`: `transform_batch` (entrenamiento) da NaN en toda ventana con un valor que falta (`min_periods = window_sizes`) y `transform` (predicción) lo salta con `np.nanmean` y similares, sin leer `min_periods` | Por reportar (borrador del issue del 2026-11-11) | Con huecos y un estimador que no acepta NaN, el forecast de Ridge del check con agentes de la 0.5.0 entrenó con 15 de 84 filas; con uno que los acepta, predice con un estadístico que nunca vio |
-| Python 3.10: skforecast 0.27.0 lo depreca y la 0.28.0 pedirá 3.11 | Anunciado | `requires-python = ">=3.10"` en `pyproject.toml`: subir a 3.11 con la release que pida skforecast 0.28 |
+| `RollingFeatures`: `transform_batch` (entrenamiento) da NaN en toda ventana con un valor que falta (`min_periods = window_sizes`) y `transform` (predicción) lo salta con `np.nanmean` y similares, sin leer `min_periods` | Por reportar (borrador del issue del 2026-11-11). Sigue igual en `0.28.x` (`d42a411`): es `BUG-rollingfeatures-nan` del roadmap de skforecast, P2, sin empezar | Con huecos y un estimador que no acepta NaN, el forecast de Ridge del check con agentes de la 0.5.0 entrenó con 15 de 84 filas; con uno que los acepta, predice con un estadístico que nunca vio |
+| Python 3.10: skforecast 0.27.0 lo depreca y la 0.28.0 pide 3.11 | Hecho en `0.28.x` (skforecast#1496), sin publicar | `requires-python = ">=3.10"` en `pyproject.toml`: subir a 3.11 en la 0.6.0 (sección "Compatibilidad con skforecast 0.28") |
+| pandas 3: skforecast 0.28 pide `pandas>=2.3, <4.0`, y un entorno nuevo recibe pandas 3 | Hecho en `0.28.x` (skforecast#1501), sin publicar | skforecast-ai falla con pandas 3 (339 tests): es lo primero de la 0.6.0 (sección "Compatibilidad con skforecast 0.28") |
+| Mínimos de skforecast 0.28: `numpy>=2.0`, `pandas>=2.3`, `scipy>=1.13` | Hecho en `0.28.x` (skforecast#1500), sin publicar | Igualar los mínimos de `pyproject.toml` (hoy `numpy>=1.26.1`, `pandas>=2.2`, `scipy>=1.12`) al pedir skforecast 0.28 |
 
 ## Checks de la release
 
@@ -155,7 +237,16 @@ siguiente check con agentes:
 
 ## Decisiones tomadas
 
-Ninguna todavía. La siguiente es D41.
+- **D41 (2026-11-25): sin 0.5.1; la 0.6.0 sale con skforecast 0.28.** La
+  0.5.0 pide `pandas>=2.2` y `skforecast>=0.27.0` sin cota superior, así
+  que, cuando salga skforecast 0.28, una instalación nueva (también
+  `uvx skforecast-ai-mcp==0.5.0`) recibirá pandas 3 y fallará. Se descartó
+  una 0.5.1 con `pandas<3` (con pandas 2.3 la suite pasa también con
+  skforecast 0.28): la 0.6.0, compatible con pandas 3, tiene que
+  publicarse a la vez que skforecast 0.28 o justo después. Si skforecast
+  se adelanta, la 0.5.1 con la cota es el plan de reserva.
+
+La siguiente es D42.
 
 ## Decisiones abiertas
 
@@ -345,6 +436,10 @@ falta partir los ficheros en skforecast: se lee por secciones.
 
 ### Ajuste de hiperparámetros
 
+Desbloqueado con skforecast 0.27 (los arreglos citados abajo están
+publicados); la 0.28 hace además más rápidas las búsquedas en paralelo
+(skforecast#1503) y rechaza `n_jobs=0` con un `ValueError` (skforecast#1513).
+
 Hoy `compare()` solo ordena configuraciones fijas. Un paso acotado de
 búsqueda con las funciones de skforecast, con su coste en `CostNotice` como
 los backtests. Después de la fase 4, que deja bien contado el coste de
@@ -368,18 +463,6 @@ dentro de muestra (`store_in_sample_residuals`), y la cobertura real queda
 muy por debajo de la nominal (2c-ii la mide y avisa). skforecast admite
 residuos fuera de muestra (`set_out_sample_residuals`), pero hace falta un
 tramo de validación: cambia el coste del backtest y los scripts.
-
-### pandas 3, cuando skforecast lo soporte
-
-skforecast 0.27 declara `pandas<3.0`, así que hoy el resolvedor nunca
-instala pandas 3 junto a skforecast-ai (que pide `pandas>=2.2`, sin cota
-superior). Cuando skforecast lo admita, revisar lo que depende del dtype de
-las columnas de texto, que en pandas 3 es `str` y no `object`:
-`detect_categorical_exog` y `detect_numbers_as_text`
-(`profiling/data_profile.py`) solo miran `object`, `category` y `bool`, así
-que una exógena de texto no se trataría como categórica. Visto en
-[#95](https://github.com/skforecast/skforecast-ai/pull/95). Pasar la suite
-con pandas 3 antes de quitar la cota de skforecast.
 
 ### Días de cierre con `CustomBusinessDay` y `weekmask`
 
