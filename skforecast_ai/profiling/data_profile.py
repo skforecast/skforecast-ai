@@ -1117,7 +1117,8 @@ def _read_dates_one_by_one(
         `_day_first_issue`).
     issue : tuple, None
         Why the column holds dates but cannot be the date column (see
-        `_mixed_formats_issue`), or None.
+        `_mixed_formats_issue`, and `_unread_zones_issue` for the dates
+        pandas does not read for their time zones), or None.
     """
     with _warnings.catch_warnings():
         _warnings.filterwarnings(
@@ -1128,7 +1129,7 @@ def _read_dates_one_by_one(
         try:
             each = pd.to_datetime(values, format="mixed")
         except (ValueError, TypeError, AttributeError, OverflowError):
-            return None, None
+            return None, _unread_zones_issue(name, values, named)
     issue = _mixed_offsets_issue(name, each)
     if issue is None:
         issue = _mixed_formats_issue(name, values, named, each)
@@ -1408,13 +1409,26 @@ def _changing_zone_names(values: pd.Series) -> list[str] | None:
     Return the zone names of dates in one format but for a zone name that
     changes ('CET', then 'CEST'), in order of appearance; None otherwise.
     """
+    zones = _written_zone_names(values, _ZONE_NAME)
+
+    return zones if zones is not None and len(zones) > 1 else None
+
+
+def _written_zone_names(
+    values: pd.Series,
+    pattern: re.Pattern,
+) -> list[str] | None:
+    """
+    Return the zone names written after dates in one format, in order of
+    appearance; None when a value has no zone name or the dates before the
+    names are not in one format. `pattern` splits a value into its date and
+    its zone name.
+    """
     text = values[values.notna()].astype(str)
-    matches = text.str.extract(_ZONE_NAME)
-    if matches.isna().any().any():
+    matches = text.str.extract(pattern)
+    if matches.empty or matches.isna().any().any():
         return None
     zones = list(dict.fromkeys(matches[1]))
-    if len(zones) < 2:
-        return None
     dates = matches[0]
     date_format = guessed_date_format(dates)
     if date_format is None:
@@ -1424,6 +1438,80 @@ def _changing_zone_names(values: pd.Series) -> list[str] | None:
         parsed = pd.to_datetime(dates, format=date_format, errors="coerce")
 
     return zones if parsed.notna().all() else None
+
+
+# A zone name as dateutil reads one: capital letters after a time
+# ('2012-03-24 00:00:00 CET'), not any word after a date ('2020-01-01 open')
+# nor the half of the day ('10:30 PM').
+_ZONE_NAME_AFTER_TIME = re.compile(
+    r"^(.*\d:\d{2}(?:[.,:]\d+)*)\s+(?!(?:AM|PM)$)([A-Z]{2,5})$"
+)
+
+
+def _unread_zones_issue(
+    name: str,
+    values: pd.Series,
+    named: bool,
+) -> tuple[str, str] | None:
+    """
+    Say why dates that pandas cannot read, even one by one, cannot be the
+    date column, when their time zones are what it does not read.
+
+    pandas 3 raises on a zone name it does not know ('CET') and on dates of
+    several UTC offsets; pandas 2 read the first without their zone, with a
+    warning, and the second as a column of objects. The generated script
+    cannot read them either, so the column is reported instead of being
+    left out as a column without dates.
+
+    Parameters
+    ----------
+    name : str
+        Name of the column, for the message.
+    values : pandas Series
+        Values of the column, which pandas cannot read.
+    named : bool
+        Whether the caller named this column as the date column. When
+        False, its first date must clearly be one (see `_is_clearly_date`),
+        as in `_text_dates_issue`.
+
+    Returns
+    -------
+    issue : tuple, None
+        What was found and how to fix it, or None when the time zones are
+        not why pandas cannot read the column.
+    """
+    first = first_date(values)
+    if not isinstance(first, str) or (not named and not _is_clearly_date(first)):
+        return None
+    zones = _written_zone_names(values, _ZONE_NAME_AFTER_TIME)
+    if zones is not None:
+        if len(zones) > 1:
+            return _mixed_zones_message(name, zones)
+        return DateIssue(
+            f"The dates of column {name!r} are written with the time zone "
+            f"name {zones[0]!r}, which pandas does not read",
+            ": write every date with its UTC offset (such as '+01:00'), in "
+            "UTC, or without the time zone.",
+            hint = (
+                "Write every date with its UTC offset (such as '+01:00'), in "
+                "UTC, or without the time zone."
+            ),
+        )
+    present = values[values.notna()]
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("ignore")
+        try:
+            # Dates of several offsets read in UTC, and nothing else does:
+            # only then is each one read on its own, for its offset.
+            pd.to_datetime(present, format="mixed", utc=True)
+            each = pd.Series(
+                [pd.Timestamp(value) for value in pd.unique(present.to_numpy())],
+                dtype=object,
+            )
+        except (ValueError, TypeError, AttributeError, OverflowError):
+            return None
+
+    return _mixed_offsets_issue(name, each)
 
 
 def _shown_date(value: object) -> str:
