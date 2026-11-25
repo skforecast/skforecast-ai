@@ -355,6 +355,39 @@ def fixed_step_nanos(offset: pd.DateOffset) -> int | None:
     return None
 
 
+def infer_freq_name(index: pd.DatetimeIndex) -> str | None:
+    """
+    Return the name of the frequency of a datetime index, as
+    `pandas.infer_freq` gives it.
+
+    pandas 3.1 warns that a future version of `pandas.infer_freq` returns
+    the offset instead of its name, and has an option to get the offset
+    now; pandas 2 has no such option and returns the name.
+
+    Parameters
+    ----------
+    index : pandas DatetimeIndex
+        Dates whose frequency is inferred.
+
+    Returns
+    -------
+    frequency : str, None
+        Name of the frequency (`'D'`, `'W-SUN'`, `'MS'`), or None when
+        pandas infers none.
+
+    Notes
+    -----
+    Raises the errors of `pandas.infer_freq` (`TypeError`, `ValueError`).
+    """
+    try:
+        with pd.option_context("future.infer_freq_returns_offset", True):
+            offset = pd.infer_freq(index)
+    except pd.errors.OptionError:
+        return pd.infer_freq(index)
+
+    return None if offset is None else offset.freqstr
+
+
 # A time zone written after the time of a date ('10:00:00+01:00', '10:00 AM
 # -0500', '10:00 GMT+01:00', 'T100000+0100', '10:00:00 +0100 2012'): 'Z', a
 # UTC offset or a name of UTC that pandas reads ('UTC', 'GMT'). The time

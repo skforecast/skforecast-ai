@@ -2317,7 +2317,7 @@ def _period(frequency: str | None) -> object:
     # 'W-SUN' -> 'W', 'QS-JAN' -> 'QS': the anchor is the stamp, not the
     # period. Then the start and end variants: 'QS' and 'QE' -> 'Q'. The
     # units of time ('s', 'ms') are lower case and stay as they are.
-    name = offset.name.split("-")[0]
+    name = offset.rule_code.split("-")[0]
     if len(name) > 1 and name[-1] in "SE":
         name = name[:-1]
 

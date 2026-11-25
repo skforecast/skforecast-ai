@@ -23,6 +23,7 @@ from .._dates import (
     fixed_step_nanos,
     guess_datetime_format,
     guessed_date_format,
+    infer_freq_name,
     is_missing_date,
     is_text,
     missing_dates,
@@ -157,7 +158,7 @@ def infer_frequency(
         return None
 
     try:
-        freq = pd.infer_freq(index)
+        freq = infer_freq_name(index)
     except (TypeError, ValueError):
         freq = None
     if freq is not None:
@@ -205,7 +206,7 @@ def _infer_frequency_with_gaps(
     candidates: dict[str, int] = {}
     for start in starts:
         try:
-            freq = pd.infer_freq(index[start:start + _FREQUENCY_WINDOW])
+            freq = infer_freq_name(index[start:start + _FREQUENCY_WINDOW])
         except (TypeError, ValueError):
             continue
         if freq is not None:
@@ -262,7 +263,7 @@ def _frequency_with_regular_gaps(index: pd.DatetimeIndex) -> str | None:
     candidates = set()
     for start in starts:
         try:
-            freq = pd.infer_freq(index[start:start + _GAPS_WINDOW])
+            freq = infer_freq_name(index[start:start + _GAPS_WINDOW])
         except (TypeError, ValueError):
             continue
         if freq is not None:
@@ -2833,7 +2834,7 @@ def _own_frequencies(series_dates: dict[object, np.ndarray]) -> dict[object, str
             (first.day, first.month) if steps.min() >= 13 * day else ()
         )
         if key not in cache:
-            cache[key] = pd.infer_freq(pd.DatetimeIndex(head))
+            cache[key] = infer_freq_name(pd.DatetimeIndex(head))
         frequency = cache[key]
         if frequency is None:
             continue
@@ -3016,7 +3017,7 @@ def _frequency_name(start: pd.Timestamp, offset: pd.DateOffset) -> str:
     `offset` (`'W-MON'` for five business days, `'YS-JAN'` for twelve month
     starts), or the name of the offset when pandas gives none.
     """
-    name = pd.infer_freq(pd.date_range(start, periods=3, freq=offset))
+    name = infer_freq_name(pd.date_range(start, periods=3, freq=offset))
 
     return name if name is not None else offset.freqstr
 
