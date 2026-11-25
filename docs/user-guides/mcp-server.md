@@ -14,7 +14,7 @@ Once the server is connected, you ask in plain language:
 - *"Compare the candidate models for `data/demand.csv` and show me the leaderboard."*
 - *"Give me the script that produced that forecast."*
 
-The server needs Python 3.10 or newer. Most of the setups below start it with [uv](https://docs.astral.sh/uv/) (`uvx`), which installs the package for you, so install uv first.
+The server needs Python 3.11 or newer. Most of the setups below start it with [uv](https://docs.astral.sh/uv/) (`uvx`), which installs the package for you, so install uv first.
 
 ---
 

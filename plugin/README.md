@@ -12,7 +12,7 @@ Ask in plain language:
 
 ## Requirements
 
-[uv](https://docs.astral.sh/uv/) must be installed: the plugin starts the server with `uvx`. The server needs Python 3.10 or newer, which `uv` provides.
+[uv](https://docs.astral.sh/uv/) must be installed: the plugin starts the server with `uvx`. The server needs Python 3.11 or newer, which `uv` provides.
 
 ## What the plugin runs
 
