@@ -163,7 +163,8 @@ exog_wide = pd.DataFrame(
 )
 
 # --- Daily time zone aware data ending on a daylight saving time change ---
-# skforecast forecasts from the last date plus 24 hours: 2021-03-29 01:00.
+# skforecast keeps the local time of day: it forecasts from 2021-03-29 at
+# midnight, 23 hours after the last date, not 24 (01:00).
 data_dst = pd.DataFrame(
     {"y": np.arange(60.0) % 5, "x": np.arange(60.0) % 3},
     index=pd.date_range(end="2021-03-28", periods=60, freq="D", tz="Europe/Madrid"),
@@ -171,9 +172,7 @@ data_dst = pd.DataFrame(
 profile_dst, (plan_dst,) = _profile_and_plans(data_dst, ["Ridge"], target="y")
 exog_dst = pd.DataFrame(
     {"x": np.arange(7.0)},
-    index=pd.date_range(
-        data_dst.index[-1] + pd.offsets.Day(), periods=7, freq="D"
-    ),
+    index=pd.date_range("2021-03-29", periods=7, freq="D", tz="Europe/Madrid"),
 )
 
 # --- Business-hour data (last date 2020-02-21 12:00) ---

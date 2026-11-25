@@ -10,6 +10,7 @@ import warnings
 from pathlib import Path
 import numpy as np
 import pandas as pd
+from skforecast.utils import expand_index
 
 from ._constants import (
     AUTOREG_FORECASTERS,
@@ -390,7 +391,9 @@ def validate_future_exog(
         horizon = _check_long_dates(injected, exog_dates, data, profile, plan)
     else:
         last = _last_date(data, profile, by_value=plan.task_type == "multi_series")
-        expected = _forecast_dates(last, plan.steps, profile)
+        expected = _forecast_dates(
+            _first_date(data, profile), last, plan.steps, profile
+        )
         exog_dates, zone = _in_data_zone(last, exog_dates)
         horizon = _check_dates(
             dates      = exog_dates,
@@ -593,6 +596,14 @@ def _last_date(
     return last
 
 
+def _first_date(data: pd.DataFrame, profile: DataProfile) -> pd.Timestamp:
+    """
+    Return the first date of the data passed, whose last date is known (see
+    `_last_date`).
+    """
+    return row_dates(data, profile.date_column, profile.date_format).min()
+
+
 def _in_data_zone(
     last: pd.Timestamp,
     exog_dates: pd.DatetimeIndex,
@@ -628,17 +639,31 @@ def _zone_error(exog_zone: object, data_zone: object) -> DataContentError:
 
 
 def _forecast_dates(
+    first: pd.Timestamp,
     last: pd.Timestamp,
     steps: int,
     profile: DataProfile,
 ) -> pd.DatetimeIndex:
     """
     Return the `steps` dates to forecast that follow `last`, as skforecast
-    builds them (`expand_index`).
+    builds them (`expand_index`) from the dates the generated code gives it:
+    those of the frequency of the data up to `last`.
+
+    skforecast keeps the time of day of dates with a time zone through a
+    daylight saving time change: the local one (a forecast after the day of
+    the change starts at midnight, not 24 hours later), or that of UTC when
+    the dates are at midnight in UTC and not in their zone. It tells one from
+    the other by the dates, so they are built from `first`, the first date
+    of the data.
     """
     offset = pd.tseries.frequencies.to_offset(profile.frequency)
+    periods = 1
+    if last.tz is not None:
+        periods = max(len(pd.date_range(start=first, end=last, freq=offset)), 1)
 
-    return pd.date_range(start=last + offset, periods=steps, freq=offset)
+    return expand_index(
+        pd.date_range(end=last, periods=periods, freq=offset), steps
+    )
 
 
 def _check_dates(
@@ -833,8 +858,9 @@ def _check_long_dates(
     predicted = {
         name: end for name, end in ends.items() if foundation or end == last
     }
+    first = _first_date(data, profile)
     horizons = {
-        end: _forecast_dates(end, plan.steps, profile)
+        end: _forecast_dates(first, end, plan.steps, profile)
         for end in set(predicted.values())
     }
     dates, zone = _in_data_zone(last, dates)

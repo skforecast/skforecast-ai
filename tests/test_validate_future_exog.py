@@ -200,12 +200,14 @@ def test_validate_future_exog_InvalidInputError_when_day_first_dates():
         ),
         (
             exog_dst.set_axis(
-                pd.date_range("2021-03-29", periods=7, freq="D", tz="Europe/Madrid")
+                pd.date_range(
+                    "2021-03-29 01:00", periods=7, freq="D", tz="Europe/Madrid"
+                )
             ),
             data_dst, profile_dst, plan_dst,
-            "`exog` starts at 2021-03-29, before the first date to forecast, "
-            "2021-03-29 01:00:00+02:00 (the date after the last date of the "
-            "data).",
+            "`exog` has no row for 7 of the 7 dates to forecast, such as "
+            "2021-03-29. It must hold the dates from 2021-03-29 to 2021-04-04 "
+            "at frequency 'D'.",
         ),
         (
             exog_dst.set_axis(
@@ -227,8 +229,9 @@ def test_validate_future_exog_InvalidInputError_when_dates_or_values_of_skforeca
     Test the dates as skforecast reads them: ForecasterRecursiveMultiSeries
     forecasts from the last date with a target value (the exog of the last
     row of the data starts two days late), a forecast after a daylight
-    saving time change starts 24 hours after the last date (01:00, not
-    midnight), and daily exog in another time zone across a daylight saving
+    saving time change starts at midnight, the local time of day of the
+    data (not 24 hours after the last date, 01:00), with pandas 2 and with
+    pandas 3, and daily exog in another time zone across a daylight saving
     time change, whose grid of days (asfreq in its own zone) moves by an
     hour after the change.
     """
