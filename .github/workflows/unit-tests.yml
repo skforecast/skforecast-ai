@@ -102,7 +102,7 @@ jobs:
       shell: bash
       run: |
         {
-          echo "### Failed tests: Python ${{ matrix.python-version }}, ${{ matrix.platform }}"
+          echo "### Failed tests: Python ${{ matrix.python-version }}, ${{ matrix.platform }}${{ matrix.pandas && format(', pandas{0}', matrix.pandas) || '' }}"
           echo '```'
           sed -n '/short test summary info/,$p' pytest.log
           echo '```'
