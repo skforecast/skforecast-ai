@@ -674,15 +674,18 @@ def _forecast_dates(
 ) -> pd.DatetimeIndex:
     """
     Return the `steps` dates to forecast that follow `last`, as skforecast
-    builds them (`expand_index`) from the dates the generated code gives it:
-    those of the frequency of the data up to `last`.
+    builds them (`expand_index`) from dates of the frequency of the data up
+    to `last`.
 
     skforecast keeps the time of day of dates with a time zone through a
     daylight saving time change: the local one (a forecast after the day of
     the change starts at midnight, not 24 hours later), or that of UTC when
     the dates are at midnight in UTC and not in their zone. It tells one from
-    the other by the dates, so they are built from `first`, the first date
-    of the data.
+    the other by the dates it predicts from, which for the machine learning
+    forecasters are those of the last window only. Here they are built from
+    `first`, the first date of the data, so the two differ for dates at a
+    local time that is midnight in UTC during part of the year (20:00 in
+    New York in summer) when the horizon crosses a change.
     """
     offset = pd.tseries.frequencies.to_offset(profile.frequency)
     periods = 1
