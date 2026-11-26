@@ -119,9 +119,9 @@ def _seasonal_cycles(frequency: str | None) -> list[tuple[int, bool]]:
         ]
 
     # Fixed-interval offsets: resolve to an exact timedelta and derive the
-    # periods per standard cycle. Legacy uppercase aliases ("H", "T") are
-    # read as their current names, as pandas 3 no longer reads them; the
-    # deprecation warning pandas 2 emits for other old aliases is
+    # periods per standard cycle. Legacy uppercase aliases ("H", "T", "S")
+    # are read as their current names, as pandas 3 no longer reads them;
+    # the deprecation warning pandas 2 emits for other old aliases is
     # intentional and silenced here.
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", FutureWarning)
@@ -153,20 +153,22 @@ def _seasonal_cycles(frequency: str | None) -> list[tuple[int, bool]]:
     return seasons[:2]
 
 
-# Aliases that pandas 2.1 infers and pandas 2.2 renamed, by their name in
-# `FREQUENCY_TO_SEASONAL_PERIOD`: month, quarter and year ends, hours and
-# minutes.
+# Aliases that pandas 2.1 infers and pandas 2.2 renamed, by their current
+# name (that of `FREQUENCY_TO_SEASONAL_PERIOD` for those it holds): month,
+# quarter and year ends, hours, minutes, seconds, milliseconds and
+# microseconds. pandas 3 reads none of them.
 _LEGACY_ALIASES = {
     "M": "ME", "Q": "QE", "A": "YE", "Y": "YE", "AS": "YS", "H": "h", "T": "min",
+    "S": "s", "L": "ms", "U": "us",
 }
 
 
 def _current_alias(frequency: str) -> str:
     """
     Return a frequency written with an alias pandas 2.1 infers under its
-    current name: `'H'` is `'h'`, `'15T'` is `'15min'` and `'A-DEC'` is
-    `'YE-DEC'` (see `_LEGACY_ALIASES`). Any other frequency is returned as
-    it is.
+    current name: `'H'` is `'h'`, `'15T'` is `'15min'`, `'30S'` is `'30s'`
+    and `'A-DEC'` is `'YE-DEC'` (see `_LEGACY_ALIASES`). Any other frequency
+    is returned as it is.
     """
     legacy = re.fullmatch(r"(\d*)([A-Za-z]+)(-.*)?", frequency)
     if legacy and legacy.group(2) in _LEGACY_ALIASES:

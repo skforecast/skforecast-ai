@@ -12,6 +12,10 @@ from skforecast_ai.recommendation.autoregressive import _current_alias
         ("3H", "3h"),
         ("T", "min"),
         ("15T", "15min"),
+        ("S", "s"),
+        ("30S", "30s"),
+        ("L", "ms"),
+        ("U", "us"),
         ("M", "ME"),
         ("Q-DEC", "QE-DEC"),
         ("A-DEC", "YE-DEC"),
@@ -22,8 +26,7 @@ from skforecast_ai.recommendation.autoregressive import _current_alias
 def test_current_alias_output_when_legacy_alias(frequency, expected):
     """
     Test that an alias pandas 2.1 infers is read under its current name,
-    with its multiplier and its anchor: pandas 3 no longer reads those of
-    hours and minutes.
+    with its multiplier and its anchor: pandas 3 no longer reads them.
     """
     assert _current_alias(frequency) == expected
 

@@ -263,8 +263,12 @@ def test_infer_frequency_output_when_too_few_observations():
         ("h",   [24, 168]),
         ("D",   [7, 365]),
         # --- Legacy uppercase aliases ---
+        ("S",   [3_600, 86_400]),
         ("T",   [60, 1_440]),
         ("H",   [24, 168]),
+        # --- Legacy aliases of fractions of a second ---
+        ("L",   [3_599_999, 86_399_999]),  # float division, one step short
+        ("U",   [3_600_000_000, 86_400_000_000]),
         # --- Business day (non-fixed, heuristic table) ---
         ("B",   [5, 252]),
         # --- Weekly (non-fixed, heuristic table) ---
@@ -284,6 +288,7 @@ def test_infer_frequency_output_when_too_few_observations():
         ("15T",   [4, 96]),    # same via legacy alias
         ("30min", [2, 48]),    # 30-min: 2/hour, 48/day
         ("30s",   [120, 2_880]),  # 30-sec: 120/hour, 2880/day
+        ("30S",   [120, 2_880]),  # same via legacy alias
         ("2h",    [12, 84]),   # 2-hour: 12/day, 84/week
         ("2H",    [12, 84]),   # same via legacy alias
         ("6h",    [4, 28]),    # 6-hour: 4/day, 28/week
@@ -301,8 +306,9 @@ def test_infer_frequency_output_when_too_few_observations():
 def test_estimate_seasonality_output(freq, expected_seasonalities):
     """
     Test estimate_seasonality returns correct seasonal periods for base
-    aliases, anchored offsets, legacy uppercase aliases, multiplied
-    variants, and an empty list for unknown or None inputs.
+    aliases, anchored offsets, legacy uppercase aliases (which pandas 3 no
+    longer reads), multiplied variants, and an empty
+    list for unknown or None inputs.
     """
     result = estimate_seasonality(freq)
     assert result == expected_seasonalities
