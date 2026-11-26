@@ -201,9 +201,13 @@ también la 0.27. El trabajo sale de la rama `0.6.x` (creada el
    (`skforecast_dev_branch` en `.claude/hooks/session_start.py`). La CI
    solo corre en el PR a `main`, ya con skforecast publicado. Pendiente:
    avisar a skforecast (`REL-skforecast-ai-python311` de su roadmap).
-3. `feature/pandas3`: las cinco causas de arriba, con la suite en verde con
-   pandas 2.3 y con pandas 3 (los dos contra skforecast 0.28), y los dos en
-   la matriz de CI.
+3. **Hecho**: `feature/pandas3`, las cinco causas de arriba, con la suite
+   en verde con pandas 2.3.3 y con pandas 3.1.1 (los dos contra skforecast
+   0.28) y los dos en la matriz de CI: una celda con `pandas<3` (Python
+   3.11, Linux), el resto instala pandas 3. Por el camino, dos fallos de
+   la 0.5.0 que también se daban con pandas 2.3: las fechas a predecir
+   tras el día de un cambio de hora (ahora las de `expand_index` de
+   skforecast) y las exógenas de texto de dtype `string` en memoria.
 4. La sincronización de `skills/` y `llms-base.txt` desde `0.28.x`
    (cambian 10 ficheros de 8 skills y `llms-base.txt`, sin skills nuevos
    ni borrados; en `troubleshooting-common-errors` entran secciones de
