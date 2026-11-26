@@ -136,7 +136,9 @@ def _seasonal_cycles(frequency: str | None) -> list[tuple[int, bool]]:
     if nanos is None:
         return []
 
-    interval_seconds = pd.Timedelta(offset).total_seconds()
+    # From the nanoseconds of the step, not `pd.Timedelta(offset)`: pandas 2
+    # rounds its seconds to microseconds, so a step of nanoseconds lasted 0.
+    interval_seconds = nanos / 1_000_000_000
     if interval_seconds <= 0:
         return []
 
@@ -155,11 +157,11 @@ def _seasonal_cycles(frequency: str | None) -> list[tuple[int, bool]]:
 
 # Aliases that pandas 2.1 infers and pandas 2.2 renamed, by their current
 # name (that of `FREQUENCY_TO_SEASONAL_PERIOD` for those it holds): month,
-# quarter and year ends, hours, minutes, seconds, milliseconds and
-# microseconds. pandas 3 reads none of them.
+# quarter and year ends, hours, minutes, seconds, milliseconds,
+# microseconds and nanoseconds. pandas 3 reads none of them.
 _LEGACY_ALIASES = {
     "M": "ME", "Q": "QE", "A": "YE", "Y": "YE", "AS": "YS", "H": "h", "T": "min",
-    "S": "s", "L": "ms", "U": "us",
+    "S": "s", "L": "ms", "U": "us", "N": "ns",
 }
 
 

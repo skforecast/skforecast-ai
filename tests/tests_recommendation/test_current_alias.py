@@ -16,6 +16,7 @@ from skforecast_ai.recommendation.autoregressive import _current_alias
         ("30S", "30s"),
         ("L", "ms"),
         ("U", "us"),
+        ("N", "ns"),
         ("M", "ME"),
         ("Q-DEC", "QE-DEC"),
         ("A-DEC", "YE-DEC"),

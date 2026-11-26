@@ -269,6 +269,10 @@ def test_infer_frequency_output_when_too_few_observations():
         # --- Legacy aliases of fractions of a second ---
         ("L",   [3_599_999, 86_399_999]),  # float division, one step short
         ("U",   [3_600_000_000, 86_400_000_000]),
+        ("N",   [3_599_999_999_999, 86_399_999_999_999]),
+        # --- Nanoseconds: pandas 2 rounds their seconds to 0 ---
+        ("ns",    [3_599_999_999_999, 86_399_999_999_999]),
+        ("100ns", [36_000_000_000, 864_000_000_000]),
         # --- Business day (non-fixed, heuristic table) ---
         ("B",   [5, 252]),
         # --- Weekly (non-fixed, heuristic table) ---
@@ -307,7 +311,7 @@ def test_estimate_seasonality_output(freq, expected_seasonalities):
     """
     Test estimate_seasonality returns correct seasonal periods for base
     aliases, anchored offsets, legacy uppercase aliases (which pandas 3 no
-    longer reads), multiplied variants, and an empty
+    longer reads), steps of nanoseconds, multiplied variants, and an empty
     list for unknown or None inputs.
     """
     result = estimate_seasonality(freq)
