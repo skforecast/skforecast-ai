@@ -201,7 +201,7 @@ también la 0.27. El trabajo sale de la rama `0.6.x` (creada el
    (`skforecast_dev_branch` en `.claude/hooks/session_start.py`). La CI
    solo corre en el PR a `main`, ya con skforecast publicado. Pendiente:
    avisar a skforecast (`REL-skforecast-ai-python311` de su roadmap).
-3. **Hecho**: `feature/pandas3`, las cinco causas de arriba, con la suite
+3. **Hecho** ([#152](https://github.com/skforecast/skforecast-ai/pull/152)): `feature/pandas3`, las cinco causas de arriba, con la suite
    en verde con pandas 2.3.3 y con pandas 3.1.1 (los dos contra skforecast
    0.28) y los dos en la matriz de CI: una celda con `pandas<3` (Python
    3.11, Linux), el resto instala pandas 3. Por el camino, dos fallos de
