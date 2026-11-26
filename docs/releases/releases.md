@@ -33,7 +33,7 @@ The main changes in this release are:
 
 **Changed**
 
-+ With pandas 3, three outputs follow pandas: quarterly data that start in January have frequency `'QS-JAN'` instead of `'QS-OCT'` (the plan is the same), a missing `estimator` or `error` in the table of [<code>ForecastingAssistant.compare()</code>][assistant] is `NaN` instead of `None`, and dates written with a time zone name that pandas 3 does not read (`'CET'`) raise `InvalidInputError`, where pandas 2.3 reads them without the time zone.
++ With pandas 3, four outputs follow pandas: quarterly data that start in January have frequency `'QS-JAN'` instead of `'QS-OCT'` (same plan), the predictions of a CSV file are dated in `datetime64[us]` instead of `datetime64[ns]`, a missing `estimator` or `error` in the table of [<code>ForecastingAssistant.compare()</code>][assistant] is `NaN` instead of `None`, and dates with a time zone name pandas 3 does not read (`'CET'`) raise `InvalidInputError`, where pandas 2.3 drops the zone.
 
 + The generated scripts convert dates written as whole numbers (`20200131`) to text before reading them with their format (`data['date'] = data['date'].astype(str)`), since pandas 3.1 deprecates reading whole numbers with a format. The predictions are the same.
 
@@ -45,6 +45,8 @@ The main changes in this release are:
 + Fixed an issue in [<code>ForecastingAssistant.forecast()</code>][assistant] with `exog` where daily data in a time zone with daylight saving time, whose last date is the day of a change, accepted no future values: the dates to forecast were expected 24 hours after the last date (at 01:00 or 23:00) instead of at midnight, as skforecast dates them.
 
 + A text exogenous variable of dtype `string` in data passed in memory was read as numeric, and the run failed with `could not convert string to float`. It is now categorical, as text of dtype `object`.
+
++ Fixed an issue in [<code>ForecastingAssistant.forecast()</code>][assistant] where long-format `exog` passed in memory with its dates as whole numbers (`20200131`) raised an error about rows missing for the dates to forecast. The error now says that the dates are whole numbers and how to convert them.
 
 
 ## 0.5.0 <small>Nov 11, 2026</small> { id="0.5.0" }
