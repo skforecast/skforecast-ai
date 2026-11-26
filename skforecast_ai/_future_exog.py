@@ -386,7 +386,19 @@ def validate_future_exog(
         # Long-format data dated by its index: the generated code cannot read
         # it and fails on its own, so there are no dates to check against.
         return
-    exog_dates = _exog_dates(injected, profile, per_series, date_format)
+    # The dates as they were passed, in their column or in the index, which
+    # `exog_as_injected` moved to that column.
+    given = (
+        exog[profile.date_column] if profile.date_column in exog.columns
+        else exog.index
+    )
+    exog_dates = _exog_dates(
+        exog          = injected,
+        profile       = profile,
+        per_series    = per_series,
+        date_format   = date_format,
+        whole_numbers = per_series and pd.api.types.is_integer_dtype(given),
+    )
     if per_series:
         horizon = _check_long_dates(injected, exog_dates, data, profile, plan)
     else:
@@ -504,10 +516,14 @@ def _exog_dates(
     profile: DataProfile,
     per_series: bool,
     date_format: str | None = None,
+    whole_numbers: bool = False,
 ) -> pd.DatetimeIndex:
     """
     Return the date of every row of the future exogenous variables, read as
     the generated code reads them (with `date_format`, their own format).
+    `whole_numbers` says that the dates read per series were whole numbers
+    (20200131) before `exog_as_injected` turned them into text, so that the
+    error names what the caller passed.
     """
     date_column = profile.date_column
     if per_series:
@@ -517,6 +533,18 @@ def _exog_dates(
         ):
             # The generated code reshapes long-format exog without parsing
             # its dates, which turned every value into a missing one.
+            if whole_numbers:
+                raise DataContentError(
+                    f"The dates of `exog` (column {date_column!r}) are whole "
+                    f"numbers (such as {values.iloc[0]}): convert them to "
+                    f"dates first, with pandas.to_datetime(dates.astype(str), "
+                    f"format={COMPACT_DATE_FORMAT!r}).",
+                    field = "exog",
+                    hint  = (
+                        "Give the future exogenous values dates, not whole "
+                        "numbers."
+                    ),
+                )
             raise DataContentError(
                 f"The dates of `exog` (column {date_column!r}) are text: convert "
                 f"them with pandas.to_datetime first.",

@@ -632,6 +632,14 @@ def test_validate_future_exog_DataContentError_when_data_without_dates_and_posit
             "pandas.to_datetime first.",
         ),
         (
+            exog_long.assign(
+                date=exog_long["date"].dt.strftime("%Y%m%d").astype(int)
+            ),
+            "The dates of `exog` (column 'date') are whole numbers (such as "
+            "20120430): convert them to dates first, with "
+            "pandas.to_datetime(dates.astype(str), format='%Y%m%d').",
+        ),
+        (
             exog_long.drop(columns="series"),
             "`exog` has no column 'series'. The future exogenous variables must "
             "hold the columns ['price'] that the plan uses, with the series id "
@@ -649,16 +657,17 @@ def test_validate_future_exog_DataContentError_when_data_without_dates_and_posit
             "value(s), series 'item_1').",
         ),
     ],
-    ids=["missing_series", "series_with_gap", "text_dates", "no_series_id",
-         "no_date_column", "missing_value"],
+    ids=["missing_series", "series_with_gap", "text_dates", "whole_number_dates",
+         "no_series_id", "no_date_column", "missing_value"],
 )
 def test_validate_future_exog_InvalidInputError_when_long_exog_wrong(exog, err_msg):
     """
     Test that long-format future exogenous variables must hold every series
     of the data with its dates to forecast, dates as dates (the generated
-    code does not parse them), the series id column and the date column (a
-    level named otherwise is not it), and that a missing value names its
-    series.
+    code does not parse them; whole numbers such as 20120430 are named as
+    such, not as the text the executed code gets them as), the series id
+    column and the date column (a level named otherwise is not it), and
+    that a missing value names its series.
     """
     with pytest.raises(InvalidInputError, match=re.escape(err_msg)):
         validate_future_exog(exog, data_long, profile_long, plan_long_ridge)
