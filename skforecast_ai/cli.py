@@ -832,6 +832,26 @@ def _spinner(message: str, quiet: bool):
             yield
 
 
+def _quiet_pydantic_ai_banner() -> None:
+    """
+    Keep the first-run banner of pydantic-ai out of a command that calls
+    the LLM.
+
+    Since 2.62, pydantic-ai prints a banner on stderr at the first agent
+    run of a process, when stderr is a terminal or a coding agent runs it.
+    The CLI owns its output, which is what `pydantic_ai.BANNER_ENABLED` is
+    for. Called only by a command about to run an agent, since importing
+    pydantic-ai takes over a second; the Python API leaves the switch alone,
+    since it is a global of the user's process. Without the `[llm]` extra
+    there is no banner, and the command reports the missing extra itself.
+    """
+    try:
+        import pydantic_ai
+    except ImportError:
+        return
+    pydantic_ai.BANNER_ENABLED = False
+
+
 # Remedy for a failed script: `--output-code` is only written when the
 # command succeeds, so the script comes from the matching `*-code` command.
 EXECUTION_TIP = (
@@ -1313,6 +1333,8 @@ def refine_plan(
             ),
         )
 
+        if prompt is not None:
+            _quiet_pydantic_ai_banner()
         with _spinner("Refining plan...", quiet):
             result = assistant.refine_plan(
                 profile=prof, plan=plan_obj, prompt=prompt, **overrides
@@ -1891,6 +1913,8 @@ def backtest(
                 allow_incomplete_fold=allow_incomplete_fold,
             )
 
+            if prompt is not None:
+                _quiet_pydantic_ai_banner()
             cv = _create_cv_to_backtest(
                 assistant,
                 profile=prof,
@@ -2156,6 +2180,7 @@ def ask(
             api_key=api_key_value,
             send_data_to_llm=send_data_value,
         )
+        _quiet_pydantic_ai_banner()
 
         parsed_skills = [s.strip() for s in skills.split(",")] if skills else None
 
@@ -2224,6 +2249,8 @@ def check_llm(
             api_key=api_key_value,
         )
 
+        if test_call:
+            _quiet_pydantic_ai_banner()
         with _spinner("Checking the LLM configuration...", quiet):
             result = assistant.check_llm(test_call=test_call)
 
