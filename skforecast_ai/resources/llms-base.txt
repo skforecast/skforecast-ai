@@ -2,15 +2,16 @@
 
 > Python library for time series forecasting using scikit-learn compatible models, statistical methods, and foundation models
 
-This document is for skforecast v0.27.0+. If you are using an older version, check the documentation at skforecast.org.
+This document is for skforecast v0.28.0+. If you are using an older version, check the documentation at skforecast.org.
 
 Skforecast is a Python library for time series forecasting using scikit-learn compatible models, statistical methods, and foundation models. It works with any estimator compatible with the scikit-learn API (LightGBM, XGBoost, CatBoost, Keras, etc.).
 
 ## Quick Info
 
-- Version: 0.27.0
+- Version: 0.28.0
 - License: BSD-3-Clause
-- Python: 3.10, 3.11, 3.12, 3.13, 3.14
+- Python: 3.11, 3.12, 3.13, 3.14
+- Dependencies: numpy >= 2.0, pandas >= 2.3, < 4.0 (pandas 2.3 and pandas 3 supported)
 - Repository: https://github.com/skforecast/skforecast
 - Documentation: https://skforecast.org
 - PyPI: https://pypi.org/project/skforecast/
@@ -172,7 +173,7 @@ forecaster.fit(y=y_train, exog=exog_train)
 ```
 
 **`categorical_features` options:**
-- `'auto'` (default): Non-numeric columns (after `transformer_exog`) are automatically detected and encoded using an internal `OrdinalEncoder`. Native categorical support is configured automatically for compatible estimators (LightGBM, CatBoost, XGBoost, HistGradientBoostingRegressor).
+- `'auto'` (default): Non-numeric columns (after `transformer_exog`) are automatically detected and encoded using an internal `OrdinalEncoder`. Native categorical support is configured automatically for compatible estimators (LightGBM, CatBoost, XGBoost, HistGradientBoostingRegressor) when the estimator is passed directly to the forecaster. It is not configured when the estimator is a scikit-learn `Pipeline` (its previous steps may transform the columns): the categorical columns reach its last step with their ordinal encoding, as numeric columns.
 - `list`: Explicit list of column names to treat as categorical (including numeric columns).
 - `None`: No categorical encoding is applied.
 
@@ -457,7 +458,7 @@ forecaster = ForecasterStats(estimator=Ets(m=12, model='AAA'))
 
 ## Foundation Models (Zero-Shot)
 
-Pre-trained time series foundation models that forecast without task-specific training. Each model requires its own backend library installed separately (`chronos-forecasting`, `timesfm`, `uni2ts`, `tabicl`, `tabpfn-time-series`, `tfc-t0[torch]` (>= 0.6), `synthefy-nori`, `tsicl`, `tirex-2` (Python >= 3.11), `timestral`, installed from git with `pip install "timestral @ git+https://github.com/mistralai/timestral.git"`). Models are downloaded from HuggingFace on first use.
+Pre-trained time series foundation models that forecast without task-specific training. Each model requires its own backend library installed separately (`chronos-forecasting`, `timesfm`, `uni2ts` (declares numpy 1.26 and scipy 1.11 but works with numpy 2: `pip install uni2ts "pandas>=2.3"`, then `pip install "numpy>=2" "scipy>=1.13"`), `tabicl`, `tabpfn-time-series`, `tfc-t0[torch]` (>= 0.6), `synthefy-nori`, `tsicl`, `tirex-2` (Python >= 3.11), `timestral`, installed from git with `pip install "timestral @ git+https://github.com/mistralai/timestral.git"`). Models are downloaded from HuggingFace on first use.
 
 `FoundationModel` is the low-level interface; `ForecasterFoundation` wraps it to integrate with the rest of the skforecast ecosystem (backtesting, model selection, uniform `predict` / `predict_interval` / `predict_quantiles` API).
 
@@ -711,7 +712,7 @@ show_datasets_info()
 
 ## Tips for Best Results
 
-1. **Always set frequency**: Use `data.asfreq('h')` or similar, skforecast requires a DatetimeIndex with frequency
+1. **Always set frequency**: Use `data.asfreq('h')` or similar, skforecast requires a DatetimeIndex with frequency. With pandas 3, `tz_convert` drops `'D'`, `'W'` and `'MS'`: create dates converted from UTC with `freq='24h'` (daily) or `freq='168h'` (weekly)
 2. **Handle missing values**: Use `dropna_from_series=True` to drop NaN rows, or `dropna_from_series=False` (default) with NaN-tolerant estimators (LightGBM, CatBoost, HistGradientBoosting)
 3. **Scale data**: Use `transformer_y` for better model performance
 4. **Use backtesting**: Always validate with realistic train/test splits

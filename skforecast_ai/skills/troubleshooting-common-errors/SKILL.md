@@ -79,6 +79,31 @@ data = data.asfreq('MS')      # Monthly start
 data = data.asfreq('QS')      # Quarterly start
 ```
 
+With pandas 3, `tz_convert` drops calendar frequencies (`'D'`, `'W'`, `'MS'`), so an index created in UTC and converted to a local time zone arrives without frequency, and `pd.DatetimeIndex(idx, freq='D')` fails if it crosses a daylight saving time change:
+
+```python
+# ❌ pandas 3: idx.freq is None
+idx = pd.date_range('2021-02-15', periods=90, freq='D', tz='UTC').tz_convert('Europe/Madrid')
+
+# ✅ Same dates, frequency kept and same results with pandas 2 and 3
+idx = pd.date_range('2021-02-15', periods=90, freq='24h', tz='UTC').tz_convert('Europe/Madrid')
+# Weekly: freq='168h'. Dates at local midnight: build the index in local time or use .asfreq('D')
+
+# ✅ Existing data with such an index: data.asfreq('D') would turn the values after a
+# daylight saving time change into NaN
+data = data.asfreq('24h')
+```
+
+### "ValueError: ... the index of `exog` must be aligned with the index of `y`" with identical dates
+
+With pandas 2, indexes with different resolutions (`datetime64[ns]` and `datetime64[us]`, the pandas 3 default for parsed dates) are not considered equal. Give both the same resolution:
+
+```python
+exog.index = exog.index.as_unit('ns')
+```
+
+With pandas 3 they are accepted, and outputs keep the resolution of the input: `pd.testing.assert_index_equal` fails between `[us]` and `[ns]` indexes even if the dates are the same.
+
 ### "ValueError: y contains NaN values"
 
 ```python
@@ -155,6 +180,24 @@ of the `gap` does not matter. If NaN predictions reach the scored dates:
 # If predicting 10 steps ahead, exog_test must have at least 10 rows
 # with dates matching the expected forecast dates
 exog_test = exog.loc[forecast_start:forecast_end]
+predictions = forecaster.predict(steps=10, exog=exog_test)
+```
+
+### "ValueError: `exog` has values before the first step predicted"
+
+`ForecasterRecursiveMultiSeries` with series of `RangeIndex`. It aligns the
+`exog` of the prediction methods with the predictions by the labels of its
+index, not by position, so an `exog` whose index was reset (it starts at 0)
+would use the values of other steps. With a `DatetimeIndex` the dates are
+unambiguous and an `exog` that includes the training period is accepted.
+
+```python
+# Series trained with index 0..99: the first step predicted is 100
+# Fix 1: exog includes previous values, select from the first step
+predictions = forecaster.predict(steps=10, exog=exog.loc[100:])
+
+# Fix 2: the index of exog was reset (0, 1, 2...), make it follow the series
+exog_test.index = pd.RangeIndex(start=100, stop=100 + len(exog_test))
 predictions = forecaster.predict(steps=10, exog=exog_test)
 ```
 
@@ -294,6 +337,8 @@ forecaster = ForecasterRecursive(
 forecaster.fit(y=y_train)
 joblib.dump(forecaster, 'forecaster_v0.22.pkl')
 ```
+
+Forecasters trained with a `DatetimeIndex` and saved with pandas 3 using `joblib`, `pickle` or `cloudpickle` cannot be loaded with pandas 2 (an empty `AssertionError`, with a note from `load_forecaster`); files saved with pandas 2 load with pandas 3, but with those backends pandas 2 stores some time zones as `pytz` objects (named zones such as `'Europe/Madrid'`, and dates with a time zone read from Arrow or Parquet), and the pandas 3 environment needs `pip install pytz` (otherwise `ModuleNotFoundError: No module named 'pytz'`, with a note from `load_forecaster`). To share a forecaster between pandas 2.3 and pandas 3, save it with `backend='skops'`, and get the `trusted` list from each file with `skops.io.get_untrusted_types(file=...)`: the type names depend on the pandas version that saved it.
 
 **Best practices:**
 - Always retrain and re-save forecasters after upgrading skforecast.

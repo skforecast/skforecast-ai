@@ -118,24 +118,24 @@ _SKILL_OVERRIDES: dict[str, set[str]] = {
 _SKILL_TOKEN_ESTIMATES: dict[str, int] = {
     "autocorrelation-and-lag-selection": 2035,
     "backtesting-configuration": 3089,
-    "baseline-forecasting": 1929,
+    "baseline-forecasting": 2080,
     "choosing-a-forecaster": 3055,
-    "complete-api-reference": 12753,
-    "deep-learning-forecasting": 6211,
-    "drift-detection": 1249,
-    "feature-engineering": 11003,
+    "complete-api-reference": 12778,
+    "deep-learning-forecasting": 6301,
+    "drift-detection": 1256,
+    "feature-engineering": 11069,
     "feature-selection": 1734,
-    "forecasting-multiple-series": 2001,
-    "forecasting-single-series": 1505,
-    "foundation-forecasting": 13072,
+    "forecasting-multiple-series": 2094,
+    "forecasting-single-series": 1532,
+    "foundation-forecasting": 13197,
     "hyperparameter-optimization": 6876,
     "metric-selection": 6485,
     "prediction-intervals": 5106,
     "statistical-models": 4363,
-    "troubleshooting-common-errors": 3125,
+    "troubleshooting-common-errors": 3877,
 }
 
-_REFERENCE_TOKEN_ESTIMATE = 10812  # llms-base.txt measured size
+_REFERENCE_TOKEN_ESTIMATE = 10970  # llms-base.txt measured size
 
 # A skill named with this suffix (`'hyperparameter-optimization/SKILL.md'`)
 # is loaded without its `references/`. The budget trimming sends it this
