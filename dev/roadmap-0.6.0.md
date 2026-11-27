@@ -431,6 +431,8 @@ se leen las filas del fichero. Cambia el SKILL.md y su copia del plugin.
 
 ### El banner de pydantic-ai en la CLI
 
+**Hecho** ([#155](https://github.com/skforecast/skforecast-ai/pull/155)): `ask`, `check-llm --test-call`, `refine-plan --prompt` y `backtest --prompt`.
+
 Desde la 2.62, pydantic-ai imprime en stderr un banner con publicidad de
 Logfire en la primera llamada a un agente de cada proceso, cuando stderr es
 un terminal o detecta un agente de código (`CLAUDECODE`, `CODEX_*`...). Lo
