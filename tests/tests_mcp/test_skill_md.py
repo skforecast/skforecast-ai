@@ -187,7 +187,7 @@ def test_skill_md_and_guide_name_the_foundation_models_that_need_allow_model():
         "There is no baseline with several series",
         "`files.best_metrics`",
         "A `mean_absolute_scaled_error` below 1",
-        "the worst series is not in it",
+        "that of a `backtest` the first 5 series: name the worst series",
         "Never change their file",
         "Only if they agree, write a corrected copy inside the allowed directory",
         f"Its default model is Chronos-2 (`{DEFAULT_FOUNDATION_MODEL_ID}`)",
