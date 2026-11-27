@@ -244,6 +244,30 @@ def _dates_without_value(predictions: pd.DataFrame | None) -> int | None:
     return int(predictions.index[predictions[OBSERVED_COLUMN].isna()].nunique())
 
 
+def _fewest_predictions_per_step(predictions: pd.DataFrame | None) -> int | None:
+    """
+    Fewest predictions with an observed value (`y_true`) behind one row of
+    `error_by_step`: per step of the horizon, and per series and step with
+    several. Steps without any are left out, since their error is missing.
+    None when the predictions have no `step` or no `y_true`.
+    """
+    if (
+        predictions is None
+        or OBSERVED_COLUMN not in predictions.columns
+        or "step" not in predictions.columns
+    ):
+        return None
+    by = ["level", "step"] if "level" in predictions.columns else ["step"]
+    counts = (
+        predictions[OBSERVED_COLUMN].notna()
+        .groupby([predictions[column] for column in by])
+        .sum()
+    )
+    counts = counts[counts > 0]
+
+    return int(counts.min()) if not counts.empty else None
+
+
 def _shown_steps(steps: list[int]) -> list[int]:
     """
     Steps of the horizon named in the summary: all of them up to
@@ -356,7 +380,9 @@ def _build_backtest_explanation(
     one counts the test dates without an observed value, which skforecast
     leaves out of the metrics (or says that there is none, when the target
     has missing values elsewhere). Then the mean absolute error by step of
-    the horizon that the script computes (see `_describe_error_by_step`).
+    the horizon that the script computes (see `_describe_error_by_step`),
+    unless a step is measured on a single prediction: its error would give
+    the observed value, so the summary only says where the table is.
 
     Parameters
     ----------
@@ -424,9 +450,18 @@ def _build_backtest_explanation(
                 f"{explanation} Every test date has an observed value of the "
                 f"target: the metrics leave none out."
             )
-        by_step = _describe_error_by_step(error_by_step)
-        if by_step is not None:
-            explanation = f"{explanation} {by_step}"
+        if error_by_step is not None and _fewest_predictions_per_step(predictions) == 1:
+            # The error of a single prediction, next to the prediction,
+            # gives its observed value, which the summary never states.
+            explanation = (
+                f"{explanation} The mean absolute error by step of the horizon "
+                f"(error_by_step) is not stated here: a step measured on a "
+                f"single prediction would give its observed value."
+            )
+        else:
+            by_step = _describe_error_by_step(error_by_step)
+            if by_step is not None:
+                explanation = f"{explanation} {by_step}"
     coverage = describe_interval_coverage(metrics, predictions, interval)
     if coverage is not None:
         explanation = f"{explanation} {coverage}"

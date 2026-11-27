@@ -1437,16 +1437,23 @@ def _baseline_rule(
     if not isinstance(offset, int) or not isinstance(n_offsets, int):
         return None
 
-    if n_offsets == 1:
+    # skforecast repeats the last `offset` observed values in order, so a
+    # step past the first period takes the value of the same point of the
+    # last period, not the one `offset` steps before it.
+    if offset == 1:
         rule = (
-            "repeats the last observed value" if offset == 1
-            else f"repeats the value observed {offset} steps earlier"
+            "repeats the last observed value" if n_offsets == 1
+            else f"averages the last {n_offsets} observed values"
+        )
+    elif n_offsets == 1:
+        rule = (
+            f"repeats, at each step, the last value observed at the same "
+            f"point of a period of {offset} steps"
         )
     else:
-        earlier = [str(offset * k) for k in range(1, n_offsets + 1)]
         rule = (
-            f"averages the values observed {', '.join(earlier[:-1])} and "
-            f"{earlier[-1]} steps earlier"
+            f"averages, at each step, the values observed at the same point "
+            f"of the last {n_offsets} periods of {offset} steps"
         )
 
     # Unnamed: the sentence after it names the baseline.

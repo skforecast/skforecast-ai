@@ -37,22 +37,22 @@ def _ranked_entry(name: str, forecaster_kwargs: dict, value: float = 1.0) -> tup
         ),
         (
             {"offset": 24, "n_offsets": 1},
-            "The baseline repeats the value observed 24 steps earlier.",
+            "The baseline repeats, at each step, the last value observed at the "
+            "same point of a period of 24 steps.",
         ),
         (
             {"offset": 7, "n_offsets": 3},
-            "The baseline averages the values observed 7, 14 and 21 "
-            "steps earlier.",
+            "The baseline averages, at each step, the values observed at the "
+            "same point of the last 3 periods of 7 steps.",
         ),
         (
             {"offset": 12, "n_offsets": 2},
-            "The baseline averages the values observed 12 and 24 "
-            "steps earlier.",
+            "The baseline averages, at each step, the values observed at the "
+            "same point of the last 2 periods of 12 steps.",
         ),
         (
             {"offset": 1, "n_offsets": 3},
-            "The baseline averages the values observed 1, 2 and 3 "
-            "steps earlier.",
+            "The baseline averages the last 3 observed values.",
         ),
     ],
     ids=[
@@ -93,8 +93,8 @@ def test_baseline_rule_names_the_baseline_that_ran_among_the_ranked():
     result = _baseline_rule(ranked, "Baseline (seasonal naive)")
 
     assert result == (
-        "The baseline repeats the value observed "
-        "24 steps earlier."
+        "The baseline repeats, at each step, the last value observed at the "
+        "same point of a period of 24 steps."
     )
 
 

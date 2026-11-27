@@ -80,8 +80,8 @@ def select_baseline_config(
     """
     Select the `ForecasterEquivalentDate` configuration used as baseline.
 
-    The baseline is a seasonal naive forecast: each step repeats the value
-    observed one seasonal period earlier. The offset is the seasonal
+    The baseline is a seasonal naive forecast: each step repeats the last
+    value observed at the same point of the seasonal period. The offset is the seasonal
     period implied by the frequency (see
     `select_baseline_seasonal_period()`). It falls back to a naive
     forecast (`offset=1`, repeat the last value) when the frequency is
@@ -120,8 +120,9 @@ def select_baseline_config(
     if period > 1 and period <= budget:
         offset = period
         explanation = (
-            f"Baseline: seasonal naive, each step repeats the value observed "
-            f"{offset} steps earlier (one seasonal period)."
+            f"Baseline: seasonal naive, each step repeats the last value "
+            f"observed at the same point of the seasonal period ({offset} "
+            f"steps)."
         )
     else:
         offset = 1

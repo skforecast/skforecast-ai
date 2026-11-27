@@ -411,3 +411,108 @@ def test_build_backtest_explanation_target_missing_sentence_precedes_error_by_st
         f"{_measured_target} Every test date has an observed value of the "
         f"target: the metrics leave none out. {by_step_sentence}"
     )
+
+
+# Tests: _build_backtest_explanation: error by step of a single prediction
+
+withheld_sentence = (
+    "The mean absolute error by step of the horizon (error_by_step) is not "
+    "stated here: a step measured on a single prediction would give its "
+    "observed value."
+)
+
+
+def test_build_backtest_explanation_withholds_error_by_step_of_one_fold():
+    """
+    Test that the errors by step are not stated when each step is measured
+    on a single prediction (one fold): the sentence says where the table is
+    instead, since the error next to the prediction gives the observed value.
+    """
+    metrics = pd.DataFrame({"mean_absolute_error": [1.5], "n_evaluated": [2]})
+    predictions = pd.DataFrame(
+        {
+            "fold": [0, 0],
+            "step": [1, 2],
+            "y_true": [1.0, 2.0],
+            "pred": [2.0, 4.0],
+        },
+        index=pd.to_datetime(["2020-01-01", "2020-01-02"]),
+    )
+
+    result = _build_backtest_explanation(
+        cv_explanation = "CV.",
+        metrics        = metrics,
+        predictions    = predictions,
+        error_by_step  = error_by_step_two,
+    )
+
+    assert result == (
+        "CV. Results: mean_absolute_error: 1.5000. They are measured on 2 "
+        f"predictions with an observed value (n_evaluated). {withheld_sentence}"
+    )
+
+
+def test_build_backtest_explanation_states_error_by_step_of_two_folds():
+    """
+    Test that the errors by step are stated when every step is measured on
+    two predictions with an observed value; a step whose only prediction
+    has no observed value does not count.
+    """
+    metrics = pd.DataFrame({"mean_absolute_error": [1.5], "n_evaluated": [4]})
+    predictions = pd.DataFrame(
+        {
+            "fold": [0, 0, 1, 1, 2],
+            "step": [1, 2, 1, 2, 3],
+            "y_true": [1.0, 2.0, 3.0, 4.0, None],
+            "pred": [2.0, 4.0, 4.0, 6.0, 5.0],
+        },
+        index=pd.date_range("2020-01-01", periods=5, freq="D"),
+    )
+
+    result = _build_backtest_explanation(
+        cv_explanation = "CV.",
+        metrics        = metrics,
+        predictions    = predictions,
+        error_by_step  = error_by_step_two,
+    )
+
+    assert result.endswith(by_step_sentence)
+    assert withheld_sentence not in result
+
+
+def test_build_backtest_explanation_withholds_error_by_step_of_one_series():
+    """
+    Test that with several series the errors by step are not stated when a
+    single series has a step measured on one prediction.
+    """
+    metrics = pd.DataFrame({
+        "levels": ["a", "b", "average"],
+        "mean_absolute_error": [1.0, 2.0, 1.5],
+    })
+    predictions = pd.DataFrame(
+        {
+            "level": ["a", "a", "b", "b", "b"],
+            "fold": [0, 1, 0, 1, 1],
+            "step": [1, 1, 1, 1, 2],
+            "y_true": [1.0, 2.0, 3.0, 4.0, 5.0],
+            "pred": [2.0, 3.0, 4.0, 5.0, 7.0],
+        },
+        index=pd.date_range("2020-01-01", periods=5, freq="D"),
+    )
+    error_by_step = pd.DataFrame({
+        "level": ["a", "b", "b"],
+        "step": [1, 1, 2],
+        "mean_absolute_error": [1.0, 1.0, 2.0],
+    })
+
+    result = _build_backtest_explanation(
+        cv_explanation = "CV.",
+        metrics        = metrics,
+        predictions    = predictions,
+        error_by_step  = error_by_step,
+    )
+
+    assert result == (
+        "CV. Results (average across series): mean_absolute_error: 1.5000. "
+        f"{withheld_sentence}"
+    )
