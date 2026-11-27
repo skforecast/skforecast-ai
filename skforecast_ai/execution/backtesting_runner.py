@@ -225,34 +225,23 @@ def _exec_rendered_code(
     return exec_rendered(code_to_exec, {"data": data.copy()}, "<backtesting>")
 
 
-def _dates_without_value(predictions: pd.DataFrame | None) -> int:
+def _dates_without_value(predictions: pd.DataFrame | None) -> int | None:
     """
     Count the test dates of a backtest of a single series whose target has
     no observed value (`y_true` missing), which skforecast leaves out of the
     metrics. A date that overlapping folds predict twice counts once, as in
-    `n_evaluated`. Zero for several series (a `level` column), whose
-    backtest drops them per series, and for predictions without `y_true`.
+    `n_evaluated`. None when they cannot be counted: for several series (a
+    `level` column), whose backtest drops them per series, and for
+    predictions without `y_true`.
     """
     if (
         predictions is None
         or OBSERVED_COLUMN not in predictions.columns
         or "level" in predictions.columns
     ):
-        return 0
+        return None
 
     return int(predictions.index[predictions[OBSERVED_COLUMN].isna()].nunique())
-
-
-def _dates_without_value_known(predictions: pd.DataFrame | None) -> bool:
-    """
-    Whether `_dates_without_value` can count the test dates without an
-    observed value: predictions of a single series with `y_true`.
-    """
-    return (
-        predictions is not None
-        and OBSERVED_COLUMN in predictions.columns
-        and "level" not in predictions.columns
-    )
 
 
 def _shown_steps(steps: list[int]) -> list[int]:
@@ -428,7 +417,7 @@ def _build_backtest_explanation(
                 f"{explanation} The metrics leave out {without_value} {dates} "
                 f"without an observed value of the target."
             )
-        elif target_missing and _dates_without_value_known(predictions):
+        elif target_missing and without_value == 0:
             # The plan and `create_cv()` say what happens to a test date
             # without a value; this says that no test date had one.
             explanation = (

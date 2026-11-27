@@ -32,7 +32,7 @@ The main changes in this release are:
 
 **Added**
 
-+ [<code>ForecastingAssistant.backtest()</code>][assistant] gives the mean absolute error by step of the horizon, by series with several: the script computes it from the predictions, the result carries it in `error_by_step`, the summary states it and the `backtest` tool of the MCP server writes it to a file. See [Results][results].
++ [<code>ForecastingAssistant.backtest()</code>][assistant] gives the mean absolute error by step of the horizon, by series with several: the script computes it from the predictions, the result carries it in `error_by_step`, the summary and the CLI show it, and the `backtest` tool of the MCP server writes it to a file. See [Results][results].
 
 + Compatibility with pandas 3, the version a new environment gets with skforecast 0.28. skforecast-ai 0.5.0 could be installed with it and failed: daily data were profiled with frequency `'86400ms'`, text exogenous variables were read as numbers... pandas 2.3 is still supported, with the same plans and predictions ([#152](https://github.com/skforecast/skforecast-ai/pull/152)).
 

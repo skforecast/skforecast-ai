@@ -145,7 +145,10 @@ observed value that each row is measured on (summed in the aggregated rows
 of several series). Never report it as an error nor rank by it. The
 predictions of a backtest have `fold`, `step` (the step of the horizon)
 and `y_true` (the observed value, from the data of the user) before
-`pred`; the summary never gives the values of `y_true`.
+`pred`; the summary never gives the values of `y_true`. `files.error_by_step`
+holds the mean absolute error of each step of the horizon (by series with
+several); the summary gives up to 12 steps, or the first and the last step
+of the first 5 series, so read the file for the others.
 
 Prediction intervals are estimates: report them as such, and only from the
 rows of `files.predictions` (the bounds of each step). If you have not read

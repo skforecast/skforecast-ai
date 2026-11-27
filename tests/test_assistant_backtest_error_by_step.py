@@ -1,4 +1,4 @@
-# Unit test backtest ForecastingAssistant: error by step of the horizon
+# Unit test backtest (error by step) ForecastingAssistant
 
 import numpy as np
 import pandas as pd
