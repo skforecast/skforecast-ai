@@ -1873,6 +1873,118 @@ class TestCompare:
 
 
 # ---------------------------------------------------------------------------
+# Banner of pydantic-ai
+# ---------------------------------------------------------------------------
+
+
+class TestPydanticAiBanner:
+    """Tests for the banner of pydantic-ai in the commands that call the LLM."""
+
+    @staticmethod
+    def _record_banner(monkeypatch, method):
+        """
+        Replace `ForecastingAssistant.<method>` with one that records the
+        banner switch of pydantic-ai when the command calls it, and stops
+        the command there.
+        """
+        import pydantic_ai
+
+        monkeypatch.setattr(pydantic_ai, "BANNER_ENABLED", True)
+        monkeypatch.delenv("SKFORECAST_AI_LLM", raising=False)
+        monkeypatch.setenv("OPENAI_API_KEY", "key-marker")
+        monkeypatch.setattr("skforecast_ai.cli.load_config", lambda: {})
+        seen = []
+
+        def record(self, *args, **kwargs):
+            seen.append(pydantic_ai.BANNER_ENABLED)
+            raise RuntimeError("stopped by the test")
+
+        monkeypatch.setattr(ForecastingAssistant, method, record)
+        return seen
+
+    @pytest.mark.parametrize(
+        "args, method, enabled",
+        [
+            (["ask", "What is skforecast?"], "ask", False),
+            (["check-llm", "--test-call"], "check_llm", False),
+            (["check-llm"], "check_llm", True),
+        ],
+        ids=["ask", "check-llm with a test call", "check-llm without a call"],
+    )
+    def test_banner_off_before_the_command_calls_the_llm(
+        self, monkeypatch, args, method, enabled
+    ):
+        """
+        `ask` and `check-llm --test-call` turn off the banner of pydantic-ai
+        before they call the LLM; `check-llm` without a call leaves it as it
+        was.
+        """
+        seen = self._record_banner(monkeypatch, method)
+
+        result = runner.invoke(app, [*args, "--llm", "openai:gpt-5.5", "--quiet"])
+
+        assert result.exit_code != 0
+        assert seen == [enabled]
+
+    @pytest.mark.parametrize(
+        "prompt, enabled",
+        [(["--prompt", "Weekly seasonality."], False), ([], True)],
+        ids=["with a prompt", "without a prompt"],
+    )
+    def test_banner_off_when_refine_plan_has_a_prompt(
+        self, tmp_path, monkeypatch, prompt, enabled
+    ):
+        """
+        `refine-plan --prompt` turns off the banner of pydantic-ai before it
+        refines the plan; without a prompt, which calls no LLM, the banner is
+        left as it was.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        planned = runner.invoke(
+            app,
+            ["plan", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", "--format", "json", "--quiet"],
+        )
+        plan_file = tmp_path / "plan.json"
+        plan_file.write_text(planned.output)
+        seen = self._record_banner(monkeypatch, "refine_plan")
+
+        result = runner.invoke(
+            app,
+            ["refine-plan", "--from-plan", str(plan_file), *prompt,
+             "--llm", "openai:gpt-5.5", "--quiet"],
+        )
+
+        assert result.exit_code != 0
+        assert seen == [enabled]
+
+    @pytest.mark.parametrize(
+        "prompt, enabled",
+        [(["--prompt", "Retrain every week."], False), ([], True)],
+        ids=["with a prompt", "without a prompt"],
+    )
+    def test_banner_off_when_backtest_has_a_prompt(
+        self, tmp_path, monkeypatch, prompt, enabled
+    ):
+        """
+        `backtest --prompt` turns off the banner of pydantic-ai before it
+        creates the cross-validation strategy; without a prompt, which calls
+        no LLM, the banner is left as it was.
+        """
+        csv_path = _write_csv(tmp_path, df_single)
+        seen = self._record_banner(monkeypatch, "create_cv")
+
+        result = runner.invoke(
+            app,
+            ["backtest", csv_path, "--target", "sales", "--date-column", "date",
+             "--steps", "5", *prompt, "--llm", "openai:gpt-5.5", "--quiet"],
+        )
+
+        assert result.exit_code != 0
+        assert seen == [enabled]
+
+
+# ---------------------------------------------------------------------------
 # Warnings go to stderr
 # ---------------------------------------------------------------------------
 
