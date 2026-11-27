@@ -70,8 +70,8 @@ EXOG = (
 def _target(what, when):
     return (
         f"The target has {what}, and `backtest()` checks every test fold "
-        f"before running: it raises, naming the dates, when {when}. The "
-        f"metrics leave out the test dates without a value."
+        f"before running: it raises, naming the dates, when {when}. A test "
+        f"date without a value does not raise: the metrics leave it out."
     )
 
 

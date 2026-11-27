@@ -9,6 +9,7 @@
 from __future__ import annotations
 import re
 from typing import Any, Callable
+import numpy as np
 import pandas as pd
 from skforecast.model_selection import TimeSeriesFold
 
@@ -27,6 +28,15 @@ from ..exceptions import InvalidInputError
 from .comparison import aggregate_metrics
 from .interval_coverage import INTERVAL_METRICS, describe_interval_coverage
 from ._exec import exec_rendered
+
+# Column of the mean absolute error in `error_by_step`, the table of the
+# error by step of the horizon that the script computes.
+ERROR_BY_STEP_COLUMN = "mean_absolute_error"
+
+# Steps of the horizon, and series, that the summary names from
+# `error_by_step`; the rest are in the table.
+MAX_SUMMARY_STEPS = 12
+MAX_SUMMARY_SERIES = 5
 
 _RENDER_DISPATCH: dict[
     str, Callable[[ForecastPlan, DataProfile, Any], RenderedScript]
@@ -73,7 +83,9 @@ def run_backtest(
     Returns
     -------
     result : dict
-        Dictionary with keys `'metrics'`, `'predictions'`, `'rendered_code'`,
+        Dictionary with keys `'metrics'`, `'predictions'`, `'error_by_step'`
+        (the mean absolute error by step of the horizon, and by series with
+        several, that the script computes), `'rendered_code'`,
         `'explanation'` and `'left_out_of_folds'`: the text about the series
         that the backtest did not forecast in some test fold where they have
         a value (see `series_left_out_of_folds`), also at the end of the
@@ -93,6 +105,7 @@ def run_backtest(
     # Extract results from namespace
     metrics = namespace.get("metrics")
     predictions = namespace.get("predictions")
+    error_by_step = namespace.get("error_by_step")
 
     # Imported here: `_last_window` imports the execution package.
     from .._last_window import describe_left_out_of_folds, series_left_out_of_folds
@@ -117,6 +130,11 @@ def run_backtest(
         metrics        = metrics,
         predictions    = predictions,
         interval       = plan.interval,
+        error_by_step  = error_by_step,
+        target_missing = (
+            profile.n_series == 1
+            and (bool(profile.missing_target) or profile.has_gaps)
+        ),
     )
     if left_out is not None:
         explanation = f"{explanation} {left_out}"
@@ -124,6 +142,7 @@ def run_backtest(
     return {
         "metrics": metrics,
         "predictions": predictions,
+        "error_by_step": error_by_step,
         "rendered_code": rendered,
         "explanation": explanation,
         "left_out_of_folds": left_out,
@@ -206,22 +225,138 @@ def _exec_rendered_code(
     return exec_rendered(code_to_exec, {"data": data.copy()}, "<backtesting>")
 
 
-def _dates_without_value(predictions: pd.DataFrame | None) -> int:
+def _dates_without_value(predictions: pd.DataFrame | None) -> int | None:
     """
     Count the test dates of a backtest of a single series whose target has
     no observed value (`y_true` missing), which skforecast leaves out of the
     metrics. A date that overlapping folds predict twice counts once, as in
-    `n_evaluated`. Zero for several series (a `level` column), whose
-    backtest drops them per series, and for predictions without `y_true`.
+    `n_evaluated`. None when they cannot be counted: for several series (a
+    `level` column), whose backtest drops them per series, and for
+    predictions without `y_true`.
     """
     if (
         predictions is None
         or OBSERVED_COLUMN not in predictions.columns
         or "level" in predictions.columns
     ):
-        return 0
+        return None
 
     return int(predictions.index[predictions[OBSERVED_COLUMN].isna()].nunique())
+
+
+def _fewest_predictions_per_step(predictions: pd.DataFrame | None) -> int | None:
+    """
+    Fewest predictions with an observed value (`y_true`) behind one row of
+    `error_by_step`: per step of the horizon, and per series and step with
+    several. Steps without any are left out, since their error is missing.
+    None when the predictions have no `step` or no `y_true`.
+    """
+    if (
+        predictions is None
+        or OBSERVED_COLUMN not in predictions.columns
+        or "step" not in predictions.columns
+    ):
+        return None
+    by = ["level", "step"] if "level" in predictions.columns else ["step"]
+    counts = (
+        predictions[OBSERVED_COLUMN].notna()
+        .groupby([predictions[column] for column in by])
+        .sum()
+    )
+    counts = counts[counts > 0]
+
+    return int(counts.min()) if not counts.empty else None
+
+
+def _shown_steps(steps: list[int]) -> list[int]:
+    """
+    Steps of the horizon named in the summary: all of them up to
+    `MAX_SUMMARY_STEPS`, otherwise that many spread evenly from the first
+    to the last.
+    """
+    if len(steps) <= MAX_SUMMARY_STEPS:
+        return steps
+
+    positions = np.linspace(0, len(steps) - 1, MAX_SUMMARY_STEPS).round()
+    return [steps[int(position)] for position in positions]
+
+
+def _describe_error_by_step(error_by_step: pd.DataFrame | None) -> str | None:
+    """
+    Describe the mean absolute error by step of the horizon that the script
+    computes (`error_by_step`), so a reader sees how the error changes with
+    the horizon. With one series, the error of each step (of up to
+    `MAX_SUMMARY_STEPS` steps); with several, that of the first and the
+    last step of the first `MAX_SUMMARY_SERIES` series, since the errors
+    of different series are in different units. None when the table is
+    missing or every error in it is missing.
+    """
+    if error_by_step is None or ERROR_BY_STEP_COLUMN not in error_by_step.columns:
+        return None
+    frame = error_by_step.dropna(subset=[ERROR_BY_STEP_COLUMN])
+    if frame.empty:
+        return None
+
+    if "level" not in frame.columns or frame["level"].nunique() == 1:
+        frame = frame.sort_values("step")
+        steps = [int(step) for step in frame["step"]]
+        errors = dict(zip(steps, frame[ERROR_BY_STEP_COLUMN]))
+        shown = _shown_steps(steps)
+        listed = ", ".join(f"step {step}: {errors[step]:.4f}" for step in shown)
+        count = "" if len(shown) == len(steps) else (
+            f" ({len(shown)} of {len(steps)} steps shown)"
+        )
+        return (
+            f"Mean absolute error by step of the horizon (error_by_step)"
+            f"{count}: {listed}."
+        )
+
+    series = list(dict.fromkeys(frame["level"]))
+    ends = {}
+    for level in series[:MAX_SUMMARY_SERIES]:
+        rows = frame[frame["level"] == level].sort_values("step")
+        ends[level] = (rows.iloc[0], rows.iloc[-1])
+    which = (
+        "each series" if len(series) <= MAX_SUMMARY_SERIES
+        else f"the first {MAX_SUMMARY_SERIES} of {len(series)} series"
+    )
+    steps = {
+        (int(first["step"]), int(last["step"])) for first, last in ends.values()
+    }
+    if len(steps) == 1:
+        # The steps are named once when every series has the same ones,
+        # which keeps the sentence short with many series.
+        first_step, last_step = steps.pop()
+        listed = "; ".join(
+            f"{level}: {first[ERROR_BY_STEP_COLUMN]:.4f}"
+            + (
+                "" if first_step == last_step
+                else f" and {last[ERROR_BY_STEP_COLUMN]:.4f}"
+            )
+            for level, (first, last) in ends.items()
+        )
+        at = (
+            f"at step {first_step}" if first_step == last_step
+            else f"at steps {first_step} and {last_step}"
+        )
+        return (
+            f"Mean absolute error by step of the horizon (error_by_step) of "
+            f"{which}, {at}: {listed}."
+        )
+
+    listed = "; ".join(
+        f"{level}: {first[ERROR_BY_STEP_COLUMN]:.4f} at step {int(first['step'])}"
+        + (
+            "" if first["step"] == last["step"]
+            else f" and {last[ERROR_BY_STEP_COLUMN]:.4f} at step "
+                 f"{int(last['step'])}"
+        )
+        for level, (first, last) in ends.items()
+    )
+    return (
+        f"Mean absolute error by step of the horizon (error_by_step), at the "
+        f"first and the last step of {which}: {listed}."
+    )
 
 
 def _build_backtest_explanation(
@@ -229,6 +364,8 @@ def _build_backtest_explanation(
     metrics: pd.DataFrame,
     predictions: pd.DataFrame | None = None,
     interval: list[float] | None = None,
+    error_by_step: pd.DataFrame | None = None,
+    target_missing: bool = False,
 ) -> str:
     """
     Build the full backtesting explanation.
@@ -241,7 +378,11 @@ def _build_backtest_explanation(
     number of points evaluated (`n_evaluated`), which is not a metric: a
     sentence after the results states it, and with a single series another
     one counts the test dates without an observed value, which skforecast
-    leaves out of the metrics.
+    leaves out of the metrics (or says that there is none, when the target
+    has missing values elsewhere). Then the mean absolute error by step of
+    the horizon that the script computes (see `_describe_error_by_step`),
+    unless a step is measured on a single prediction: its error would give
+    the observed value, so the summary only says where the table is.
 
     Parameters
     ----------
@@ -254,6 +395,12 @@ def _build_backtest_explanation(
         coverage of each series is measured on.
     interval : list of float, default None
         Prediction interval of the plan.
+    error_by_step : pandas DataFrame, default None
+        Mean absolute error by step of the horizon computed by the script.
+    target_missing : bool, default False
+        Whether the target of a single series has missing values or
+        missing timestamps, so the summary also says when no test date is
+        left out of the metrics.
 
     Returns
     -------
@@ -296,6 +443,25 @@ def _build_backtest_explanation(
                 f"{explanation} The metrics leave out {without_value} {dates} "
                 f"without an observed value of the target."
             )
+        elif target_missing and without_value == 0:
+            # The plan and `create_cv()` say what happens to a test date
+            # without a value; this says that no test date had one.
+            explanation = (
+                f"{explanation} Every test date has an observed value of the "
+                f"target: the metrics leave none out."
+            )
+        if error_by_step is not None and _fewest_predictions_per_step(predictions) == 1:
+            # The error of a single prediction, next to the prediction,
+            # gives its observed value, which the summary never states.
+            explanation = (
+                f"{explanation} The mean absolute error by step of the horizon "
+                f"(error_by_step) is not stated here: a step measured on a "
+                f"single prediction would give its observed value."
+            )
+        else:
+            by_step = _describe_error_by_step(error_by_step)
+            if by_step is not None:
+                explanation = f"{explanation} {by_step}"
     coverage = describe_interval_coverage(metrics, predictions, interval)
     if coverage is not None:
         explanation = f"{explanation} {coverage}"

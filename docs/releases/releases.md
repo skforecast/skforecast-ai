@@ -15,6 +15,8 @@ All significant changes to this project are documented in this release file.
 
 The main changes in this release are:
 
++ <span class="badge text-bg-feature">Feature</span> [<code>ForecastingAssistant.backtest()</code>][assistant] gives the mean absolute error by step of the horizon (`error_by_step`, by series with several), computed by its script and stated in its summary, so the growth of the error with the horizon is visible without reading the predictions ([#157](https://github.com/skforecast/skforecast-ai/pull/157)).
+
 + <span class="badge text-bg-enhancement">Enhancement</span> skforecast-ai works with pandas 3, the version a new environment gets with skforecast 0.28, with the same plans and predictions as with pandas 2.3, which is still supported ([#152](https://github.com/skforecast/skforecast-ai/pull/152)).
 
 !!! warning "Before upgrading"
@@ -23,10 +25,14 @@ The main changes in this release are:
 
     + The generated scripts change, with the same predictions: dates written as whole numbers (`20200131`) are converted to text before they are read.
 
+    + The backtest scripts end with the mean absolute error by step of the horizon (`error_by_step`). The metrics and predictions are the same.
+
     See **Changed**.
 
 
 **Added**
+
++ [<code>ForecastingAssistant.backtest()</code>][assistant] gives the mean absolute error by step of the horizon, by series with several: the script computes it from the predictions, the result carries it in `error_by_step`, the summary and the CLI show it, and the `backtest` tool of the MCP server writes it to a file. See [Results][results] ([#157](https://github.com/skforecast/skforecast-ai/pull/157)).
 
 + Compatibility with pandas 3, the version a new environment gets with skforecast 0.28. skforecast-ai 0.5.0 could be installed with it and failed: daily data were profiled with frequency `'86400ms'`, text exogenous variables were read as numbers... pandas 2.3 is still supported, with the same plans and predictions ([#152](https://github.com/skforecast/skforecast-ai/pull/152)).
 
@@ -36,6 +42,8 @@ The main changes in this release are:
 + With pandas 3, four outputs follow pandas: quarterly data that start in January have frequency `'QS-JAN'` instead of `'QS-OCT'` (same plan), the predictions of a CSV file are dated in `datetime64[us]` instead of `datetime64[ns]`, a missing `estimator` or `error` in the table of [<code>ForecastingAssistant.compare()</code>][assistant] is `NaN` instead of `None`, and dates with a time zone name pandas 3 does not read (`'CET'`) raise `InvalidInputError`, where pandas 2.3 drops the zone ([#152](https://github.com/skforecast/skforecast-ai/pull/152)).
 
 + The generated scripts convert dates written as whole numbers (`20200131`) to text before reading them with their format (`data['date'] = data['date'].astype(str)`), since pandas 3.1 deprecates reading whole numbers with a format. The predictions are the same ([#152](https://github.com/skforecast/skforecast-ai/pull/152)).
+
++ The summaries that `ask()` and coding agents read are more precise: that of [<code>ForecastingAssistant.compare()</code>][assistant] says which period the baseline repeats, that of a backtest of one series with missing values says when no test date lacks one, and the plan and `create_cv()` state what happens to a test date without a value as a condition ([#157](https://github.com/skforecast/skforecast-ai/pull/157)).
 
 + skforecast-ai now requires `skforecast>=0.28.0` and Python 3.11 or later: with Python 3.10, pip keeps installing 0.5.0. The minimum versions of numpy, pandas, scipy and statsmodels rise to those of skforecast 0.28 (2.0, 2.3, 1.13 and 0.14.6), and installing skforecast-ai 0.6.0 upgrades them if they are older ([#151](https://github.com/skforecast/skforecast-ai/pull/151)).
 

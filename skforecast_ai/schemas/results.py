@@ -488,6 +488,13 @@ class BacktestResult(SingleRunResult):
         the horizon of each prediction), `y_true` (the observed value, from
         the data), `pred` and the interval bounds. `y_true` reaches the
         LLM of `ask()` only with `send_data_to_llm=True`.
+    error_by_step : pandas DataFrame, None
+        Mean absolute error by step of the horizon, computed by the script
+        from `predictions` (column `mean_absolute_error`, one row per
+        `step`, and per `level` and step with several series). Every
+        prediction with an observed value counts, also a date that
+        overlapping folds predict at two steps. None for a result saved
+        with an earlier version.
     code : str
         Generated Python script reproducing the backtesting workflow.
     explanation : str
@@ -513,6 +520,7 @@ class BacktestResult(SingleRunResult):
 
     cv_config: dict
     explanation: str
+    error_by_step: OptionalJSONFrame = None
     cv_overridden_fields: list[CVOverrideName] | None = None
     cv_fields_without_effect: list[CVOverrideName] = Field(default_factory=list)
     cv_llm_configured: bool = False
@@ -533,6 +541,8 @@ class BacktestResult(SingleRunResult):
         )
         yield render_cv_config(self.cv_config)
         yield render_metrics(self.metrics, title="Backtest Metrics")
+        if self.error_by_step is not None:
+            yield render_dataframe(self.error_by_step, title="Error by Step")
         yield render_dataframe(self.predictions, title="Backtest Predictions")
         yield render_profile(self.profile)
         yield render_plan(self.plan)

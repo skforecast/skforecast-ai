@@ -40,11 +40,11 @@ from .fixtures_mcp import (
 def test_tool_backtest_output_matches_python_api(tmp_path):
     """
     Test that `backtest` runs the plan of the strategy as the Python API
-    does: same summary, predictions and metrics (written to CSV files, not
-    sent), cost, links and script. Its metrics include MASE, so a notice
-    gives the reference it is scaled by, which the summary does not. The
-    default panel has RMSE and not MSE, so the unit notice gives the unit of
-    RMSE and not that of MSE.
+    does: same summary, predictions, metrics and error by step of the horizon
+    (written to CSV files, not sent), cost, links and script. Its metrics
+    include MASE, so a notice gives the reference it is scaled by, which the
+    summary does not. The default panel has RMSE and not MSE, so the unit
+    notice gives the unit of RMSE and not that of MSE.
     """
     server, path = h2o_server(tmp_path)
     profile_id, plan_id, cv_id = cv_of(server, path, cv_arguments={"refit": True})
@@ -71,9 +71,10 @@ def test_tool_backtest_output_matches_python_api(tmp_path):
         "n_folds": 6, "n_fits": 6, "estimator_fits": 6, "inference_windows": 0
     }
     assert result["values_included"] is False
-    assert sorted(result["files"]) == ["metrics", "predictions"]
+    assert sorted(result["files"]) == ["error_by_step", "metrics", "predictions"]
     assert text_of(result["files"]["predictions"]) == csv_of(expected.predictions)
     assert text_of(result["files"]["metrics"]) == csv_of(expected.metrics)
+    assert text_of(result["files"]["error_by_step"]) == csv_of(expected.error_by_step)
     assert code == expected.code
     assert [(n["source"], n["category"]) for n in result["notices"]] == [
         ("runtime", "MetricReferenceNotice"), ("runtime", "MetricUnitNotice")
@@ -444,8 +445,9 @@ def test_tool_backtest_invalid_argument_when_lag_reads_missing_month(tmp_path):
                 "missing values), and `backtest()` checks every test fold before "
                 "running: it raises, naming the dates, when a test fold is "
                 "predicted from one, since ForecasterRecursive with Ridge cannot "
-                "predict from a missing value. The metrics leave out the test dates "
-                "without a value. `dropna_from_series` only drops the training rows "
+                "predict from a missing value. A test date without a value does not "
+                "raise: the metrics leave it out. `dropna_from_series` only drops "
+                "the training rows "
                 "that read one, and a training window left without rows raises too. "
                 "An estimator that accepts missing values (such as "
                 "'RandomForestRegressor') avoids the error of a fold predicted from "
@@ -506,6 +508,7 @@ def test_tool_backtest_output_when_series_ids_are_numbers(tmp_path):
     assert result["summary"] == expected.describe()
     assert text_of(result["files"]["predictions"]) == csv_of(expected.predictions)
     assert text_of(result["files"]["metrics"]) == csv_of(expected.metrics)
+    assert text_of(result["files"]["error_by_step"]) == csv_of(expected.error_by_step)
     assert sorted(predictions["level"].unique()) == ["001", "1", "10"]
     assert f"pd.read_csv({path!r}, dtype={{'series_id': str}})" in code
     assert code == expected.code

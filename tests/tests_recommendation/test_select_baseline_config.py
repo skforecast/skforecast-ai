@@ -48,8 +48,9 @@ def test_select_baseline_config_output_when_seasonal_period_fits(
 
     assert kwargs == {"offset": expected_offset, "n_offsets": 1}
     assert explanation == (
-        f"Baseline: seasonal naive, each step repeats the value observed "
-        f"{expected_offset} steps earlier (one seasonal period)."
+        f"Baseline: seasonal naive, each step repeats the last value "
+        f"observed at the same point of the seasonal period "
+        f"({expected_offset} steps)."
     )
 
 

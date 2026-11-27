@@ -100,7 +100,17 @@ def test_render_backtesting_single_series_output_when_no_exog():
         ")\n"
         "\n"
         "print(metrics)\n"
-        "print(predictions.head())"
+        "print(predictions.head())\n"
+        "\n"
+        "# Mean absolute error by step of the horizon\n"
+        "error_by_step = (\n"
+        "    (predictions['y_true'] - predictions['pred'])\n"
+        "    .abs()\n"
+        "    .groupby(predictions['step'])\n"
+        "    .mean()\n"
+        "    .reset_index(name='mean_absolute_error')\n"
+        ")\n"
+        "print(error_by_step)"
     )
     assert result.full_script == expected
 
@@ -158,7 +168,17 @@ def test_render_backtesting_multi_series_output_when_wide_format():
         ")\n"
         "\n"
         "print(metrics)\n"
-        "print(predictions.head())"
+        "print(predictions.head())\n"
+        "\n"
+        "# Mean absolute error by step of the horizon, per series\n"
+        "error_by_step = (\n"
+        "    (predictions['y_true'] - predictions['pred'])\n"
+        "    .abs()\n"
+        "    .groupby([predictions['level'], predictions['step']])\n"
+        "    .mean()\n"
+        "    .reset_index(name='mean_absolute_error')\n"
+        ")\n"
+        "print(error_by_step)"
     )
     assert result.full_script == expected
 
@@ -218,7 +238,17 @@ def test_render_backtesting_multivariate_output_when_wide_format():
         ")\n"
         "\n"
         "print(metrics)\n"
-        "print(predictions.head())"
+        "print(predictions.head())\n"
+        "\n"
+        "# Mean absolute error by step of the horizon, per series\n"
+        "error_by_step = (\n"
+        "    (predictions['y_true'] - predictions['pred'])\n"
+        "    .abs()\n"
+        "    .groupby([predictions['level'], predictions['step']])\n"
+        "    .mean()\n"
+        "    .reset_index(name='mean_absolute_error')\n"
+        ")\n"
+        "print(error_by_step)"
     )
     assert result.full_script == expected
 
@@ -278,7 +308,17 @@ def test_render_backtesting_statistical_output_when_auto_arima():
         ")\n"
         "\n"
         "print(metrics)\n"
-        "print(predictions.head())"
+        "print(predictions.head())\n"
+        "\n"
+        "# Mean absolute error by step of the horizon\n"
+        "error_by_step = (\n"
+        "    (predictions['y_true'] - predictions['pred'])\n"
+        "    .abs()\n"
+        "    .groupby(predictions['step'])\n"
+        "    .mean()\n"
+        "    .reset_index(name='mean_absolute_error')\n"
+        ")\n"
+        "print(error_by_step)"
     )
     assert result.full_script == expected
 
@@ -360,7 +400,17 @@ def test_render_backtesting_foundation_output_when_chronos():
         ")\n"
         "\n"
         "print(metrics)\n"
-        "print(predictions.head())"
+        "print(predictions.head())\n"
+        "\n"
+        "# Mean absolute error by step of the horizon\n"
+        "error_by_step = (\n"
+        "    (predictions['y_true'] - predictions['pred'])\n"
+        "    .abs()\n"
+        "    .groupby(predictions['step'])\n"
+        "    .mean()\n"
+        "    .reset_index(name='mean_absolute_error')\n"
+        ")\n"
+        "print(error_by_step)"
     )
     assert result.full_script == expected
 
@@ -420,7 +470,17 @@ def test_render_backtesting_foundation_output_when_model_only_accepts_numeric_co
         ")\n"
         "\n"
         "print(metrics)\n"
-        "print(predictions.head())"
+        "print(predictions.head())\n"
+        "\n"
+        "# Mean absolute error by step of the horizon\n"
+        "error_by_step = (\n"
+        "    (predictions['y_true'] - predictions['pred'])\n"
+        "    .abs()\n"
+        "    .groupby(predictions['step'])\n"
+        "    .mean()\n"
+        "    .reset_index(name='mean_absolute_error')\n"
+        ")\n"
+        "print(error_by_step)"
     )
     assert result.full_script == expected
 
@@ -479,7 +539,17 @@ def test_render_backtesting_foundation_output_when_multi_series():
         ")\n"
         "\n"
         "print(metrics)\n"
-        "print(predictions.head())"
+        "print(predictions.head())\n"
+        "\n"
+        "# Mean absolute error by step of the horizon, per series\n"
+        "error_by_step = (\n"
+        "    (predictions['y_true'] - predictions['pred'])\n"
+        "    .abs()\n"
+        "    .groupby([predictions['level'], predictions['step']])\n"
+        "    .mean()\n"
+        "    .reset_index(name='mean_absolute_error')\n"
+        ")\n"
+        "print(error_by_step)"
     )
     assert result.full_script == expected
 
@@ -551,7 +621,17 @@ def test_render_backtesting_foundation_output_when_multi_series_long_format_with
         ")\n"
         "\n"
         "print(metrics)\n"
-        "print(predictions.head())"
+        "print(predictions.head())\n"
+        "\n"
+        "# Mean absolute error by step of the horizon, per series\n"
+        "error_by_step = (\n"
+        "    (predictions['y_true'] - predictions['pred'])\n"
+        "    .abs()\n"
+        "    .groupby([predictions['level'], predictions['step']])\n"
+        "    .mean()\n"
+        "    .reset_index(name='mean_absolute_error')\n"
+        ")\n"
+        "print(error_by_step)"
     )
     assert result.full_script == expected
 
@@ -616,7 +696,17 @@ def test_render_backtesting_multi_series_output_when_long_format():
         ")\n"
         "\n"
         "print(metrics)\n"
-        "print(predictions.head())"
+        "print(predictions.head())\n"
+        "\n"
+        "# Mean absolute error by step of the horizon, per series\n"
+        "error_by_step = (\n"
+        "    (predictions['y_true'] - predictions['pred'])\n"
+        "    .abs()\n"
+        "    .groupby([predictions['level'], predictions['step']])\n"
+        "    .mean()\n"
+        "    .reset_index(name='mean_absolute_error')\n"
+        ")\n"
+        "print(error_by_step)"
     )
     assert result.full_script == expected
 
@@ -677,7 +767,17 @@ def test_render_backtesting_multi_series_output_when_wide_format_with_exog():
         ")\n"
         "\n"
         "print(metrics)\n"
-        "print(predictions.head())"
+        "print(predictions.head())\n"
+        "\n"
+        "# Mean absolute error by step of the horizon, per series\n"
+        "error_by_step = (\n"
+        "    (predictions['y_true'] - predictions['pred'])\n"
+        "    .abs()\n"
+        "    .groupby([predictions['level'], predictions['step']])\n"
+        "    .mean()\n"
+        "    .reset_index(name='mean_absolute_error')\n"
+        ")\n"
+        "print(error_by_step)"
     )
     assert result.full_script == expected
 
@@ -750,7 +850,17 @@ def test_render_backtesting_baseline_output_when_seasonal_naive():
         ")\n"
         "\n"
         "print(metrics)\n"
-        "print(predictions.head())"
+        "print(predictions.head())\n"
+        "\n"
+        "# Mean absolute error by step of the horizon\n"
+        "error_by_step = (\n"
+        "    (predictions['y_true'] - predictions['pred'])\n"
+        "    .abs()\n"
+        "    .groupby(predictions['step'])\n"
+        "    .mean()\n"
+        "    .reset_index(name='mean_absolute_error')\n"
+        ")\n"
+        "print(error_by_step)"
     )
     assert result.full_script == expected
 
@@ -805,7 +915,17 @@ def test_render_backtesting_baseline_output_when_intervals_requested():
         ")\n"
         "\n"
         "print(metrics)\n"
-        "print(predictions.head())"
+        "print(predictions.head())\n"
+        "\n"
+        "# Mean absolute error by step of the horizon\n"
+        "error_by_step = (\n"
+        "    (predictions['y_true'] - predictions['pred'])\n"
+        "    .abs()\n"
+        "    .groupby(predictions['step'])\n"
+        "    .mean()\n"
+        "    .reset_index(name='mean_absolute_error')\n"
+        ")\n"
+        "print(error_by_step)"
     )
     assert result.full_script == expected
 
@@ -913,7 +1033,17 @@ def test_render_backtesting_multi_series_output_when_wide_format_with_intervals(
         ")\n"
         "\n"
         "print(metrics)\n"
-        "print(predictions.head())"
+        "print(predictions.head())\n"
+        "\n"
+        "# Mean absolute error by step of the horizon, per series\n"
+        "error_by_step = (\n"
+        "    (predictions['y_true'] - predictions['pred'])\n"
+        "    .abs()\n"
+        "    .groupby([predictions['level'], predictions['step']])\n"
+        "    .mean()\n"
+        "    .reset_index(name='mean_absolute_error')\n"
+        ")\n"
+        "print(error_by_step)"
     )
     assert result.full_script == expected
 
@@ -980,7 +1110,17 @@ def test_render_backtesting_multi_series_output_when_long_format_with_intervals(
         ")\n"
         "\n"
         "print(metrics)\n"
-        "print(predictions.head())"
+        "print(predictions.head())\n"
+        "\n"
+        "# Mean absolute error by step of the horizon, per series\n"
+        "error_by_step = (\n"
+        "    (predictions['y_true'] - predictions['pred'])\n"
+        "    .abs()\n"
+        "    .groupby([predictions['level'], predictions['step']])\n"
+        "    .mean()\n"
+        "    .reset_index(name='mean_absolute_error')\n"
+        ")\n"
+        "print(error_by_step)"
     )
     assert result.full_script == expected
 
@@ -1038,7 +1178,17 @@ def test_render_backtesting_multivariate_output_when_wide_format_with_intervals(
         ")\n"
         "\n"
         "print(metrics)\n"
-        "print(predictions.head())"
+        "print(predictions.head())\n"
+        "\n"
+        "# Mean absolute error by step of the horizon, per series\n"
+        "error_by_step = (\n"
+        "    (predictions['y_true'] - predictions['pred'])\n"
+        "    .abs()\n"
+        "    .groupby([predictions['level'], predictions['step']])\n"
+        "    .mean()\n"
+        "    .reset_index(name='mean_absolute_error')\n"
+        ")\n"
+        "print(error_by_step)"
     )
     assert result.full_script == expected
 
@@ -1092,7 +1242,17 @@ def test_render_backtesting_single_series_output_when_metric_override():
         ")\n"
         "\n"
         "print(metrics)\n"
-        "print(predictions.head())"
+        "print(predictions.head())\n"
+        "\n"
+        "# Mean absolute error by step of the horizon\n"
+        "error_by_step = (\n"
+        "    (predictions['y_true'] - predictions['pred'])\n"
+        "    .abs()\n"
+        "    .groupby(predictions['step'])\n"
+        "    .mean()\n"
+        "    .reset_index(name='mean_absolute_error')\n"
+        ")\n"
+        "print(error_by_step)"
     )
 
     assert result.full_script == expected
@@ -1147,7 +1307,17 @@ def test_render_backtesting_single_series_output_when_metric_is_rmse():
         ")\n"
         "\n"
         "print(metrics)\n"
-        "print(predictions.head())"
+        "print(predictions.head())\n"
+        "\n"
+        "# Mean absolute error by step of the horizon\n"
+        "error_by_step = (\n"
+        "    (predictions['y_true'] - predictions['pred'])\n"
+        "    .abs()\n"
+        "    .groupby(predictions['step'])\n"
+        "    .mean()\n"
+        "    .reset_index(name='mean_absolute_error')\n"
+        ")\n"
+        "print(error_by_step)"
     )
 
     assert result.full_script == expected
@@ -1205,7 +1375,17 @@ def test_render_backtesting_single_series_output_when_differentiation():
         ")\n"
         "\n"
         "print(metrics)\n"
-        "print(predictions.head())"
+        "print(predictions.head())\n"
+        "\n"
+        "# Mean absolute error by step of the horizon\n"
+        "error_by_step = (\n"
+        "    (predictions['y_true'] - predictions['pred'])\n"
+        "    .abs()\n"
+        "    .groupby(predictions['step'])\n"
+        "    .mean()\n"
+        "    .reset_index(name='mean_absolute_error')\n"
+        ")\n"
+        "print(error_by_step)"
     )
 
     assert result.full_script == expected
@@ -1268,7 +1448,17 @@ def test_render_backtesting_single_series_output_when_feature_overrides():
         ")\n"
         "\n"
         "print(metrics)\n"
-        "print(predictions.head())"
+        "print(predictions.head())\n"
+        "\n"
+        "# Mean absolute error by step of the horizon\n"
+        "error_by_step = (\n"
+        "    (predictions['y_true'] - predictions['pred'])\n"
+        "    .abs()\n"
+        "    .groupby(predictions['step'])\n"
+        "    .mean()\n"
+        "    .reset_index(name='mean_absolute_error')\n"
+        ")\n"
+        "print(error_by_step)"
     )
 
     assert result.full_script == expected

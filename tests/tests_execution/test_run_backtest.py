@@ -99,8 +99,8 @@ def test_run_backtest_ValueError_when_estimator_not_supported():
 def test_run_backtest_single_series_returns_dict_with_expected_keys():
     """
     Test that run_backtest returns a dict with keys 'metrics',
-    'predictions', 'rendered_code', 'explanation' and 'left_out_of_folds'
-    (None for a single series).
+    'predictions', 'error_by_step', 'rendered_code', 'explanation' and
+    'left_out_of_folds' (None for a single series).
     """
     result = run_backtest(
         data=df_single,
@@ -112,8 +112,8 @@ def test_run_backtest_single_series_returns_dict_with_expected_keys():
 
     assert isinstance(result, dict)
     expected_keys = {
-        "metrics", "predictions", "rendered_code", "explanation",
-        "left_out_of_folds",
+        "metrics", "predictions", "error_by_step", "rendered_code",
+        "explanation", "left_out_of_folds",
     }
     assert set(result.keys()) == expected_keys
     assert result["left_out_of_folds"] is None

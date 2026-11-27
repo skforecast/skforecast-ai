@@ -629,8 +629,8 @@ def test_plan_output_when_baseline_forecaster():
         "is interpretable, robust to outliers, and works at any scale. MAPE "
         "is not computed: it divides each error by the actual value, and the "
         "target takes values at or around zero (from 0 to 99). Baseline: "
-        "seasonal naive, each step repeats the value observed 7 steps "
-        "earlier (one seasonal period). Exogenous variables ['promo'] are "
+        "seasonal naive, each step repeats the last value observed at the "
+        "same point of the seasonal period (7 steps). Exogenous variables ['promo'] are "
         "not used: the baseline only repeats past target values."
     )
 

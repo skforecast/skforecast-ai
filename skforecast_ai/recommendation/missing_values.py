@@ -386,8 +386,9 @@ def backtest_missing_values_messages(
         what = _target_missing_phrase(missing_values.values, missing_values.gaps)
         sentences.append(
             f"The target has {what}, and `backtest()` checks every test fold "
-            f"before running: it raises, naming the dates, when {listed}. The "
-            f"metrics leave out the test dates without a value."
+            f"before running: it raises, naming the dates, when {listed}. A "
+            f"test date without a value does not raise: the metrics leave it "
+            f"out."
         )
         if missing_values.cannot_predict is not None and missing_values.estimator:
             sentences.append(
@@ -517,10 +518,12 @@ def missing_values_advice(
     if target:
         what = _target_missing_phrase(bool(profile.missing_target), profile.has_gaps)
         # A backtest leaves them out of its metrics (per series with
-        # several); `test_size` scores every test date.
+        # several); `test_size` scores every test date. Worded as a
+        # condition: where the values are is not known here, and a reader
+        # took the sentence for a date that had been left out.
         scored = (
-            " A missing value on a date that `test_size` scores fails with any "
-            "estimator; a backtest leaves those dates out of its metrics."
+            " If a date that `test_size` scores has no value, any estimator "
+            "fails; a backtest would leave that date out of its metrics."
         )
         if tolerant:
             sentences.append(

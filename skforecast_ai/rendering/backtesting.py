@@ -117,6 +117,43 @@ def _emit_cv_configuration(
     lines.append("")
 
 
+def _emit_error_by_step(
+    lines: list[str],
+    *,
+    per_series: bool,
+    pred_column: str = "pred",
+) -> None:
+    """
+    Append the mean absolute error by step of the horizon, computed from the
+    `step`, `y_true` and point prediction columns of the backtesting
+    predictions (skforecast 0.27 or later).
+
+    Every prediction counts, also a date that overlapping folds predict at
+    two steps, and those without an observed value are skipped, as in the
+    metrics. With several series (a `level` column), there is one row per
+    series and step, since an error averaged across series would mix their
+    scales. `pred_column` is `'q_0.5'` for a foundation model that predicts
+    quantiles, whose median is its point prediction.
+    """
+
+    by = "[predictions['level'], predictions['step']]" if per_series else (
+        "predictions['step']"
+    )
+    title = "# Mean absolute error by step of the horizon"
+    if per_series:
+        title += ", per series"
+    lines.append("")
+    lines.append(title)
+    lines.append("error_by_step = (")
+    lines.append(f"    (predictions['y_true'] - predictions[{pred_column!r}])")
+    lines.append("    .abs()")
+    lines.append(f"    .groupby({by})")
+    lines.append("    .mean()")
+    lines.append("    .reset_index(name='mean_absolute_error')")
+    lines.append(")")
+    lines.append("print(error_by_step)")
+
+
 def _emit_backtesting_call(
     lines: list[str],
     plan: ForecastPlan,
@@ -162,6 +199,7 @@ def _emit_backtesting_call(
     lines.append("")
     lines.append("print(metrics)")
     lines.append("print(predictions.head())")
+    _emit_error_by_step(lines, per_series=False)
 
 
 def _emit_backtesting_call_multiseries(
@@ -207,6 +245,7 @@ def _emit_backtesting_call_multiseries(
     lines.append("")
     lines.append("print(metrics)")
     lines.append("print(predictions.head())")
+    _emit_error_by_step(lines, per_series=True)
 
 
 def render_backtesting_single_series(
@@ -444,6 +483,7 @@ def _emit_backtesting_call_foundation(
     *,
     series_expr: str,
     exog_expr: str | None,
+    per_series: bool,
 ) -> None:
     """Append backtesting_foundation call."""
 
@@ -471,6 +511,11 @@ def _emit_backtesting_call_foundation(
     lines.append("")
     lines.append("print(metrics)")
     lines.append("print(predictions.head())")
+    _emit_error_by_step(
+        lines,
+        per_series  = per_series,
+        pred_column = "pred" if quantiles is None else "q_0.5",
+    )
 
 
 def render_backtesting_foundation(
@@ -542,6 +587,7 @@ def render_backtesting_foundation(
         plan,
         series_expr=series_expr,
         exog_expr=exog_expr,
+        per_series=is_multi_series,
     )
 
     return RenderedScript(
@@ -587,6 +633,7 @@ def _emit_backtesting_call_statistical(
     lines.append("")
     lines.append("print(metrics)")
     lines.append("print(predictions.head())")
+    _emit_error_by_step(lines, per_series=False)
 
 
 def render_backtesting_statistical(
