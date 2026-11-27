@@ -201,9 +201,13 @@ también la 0.27. El trabajo sale de la rama `0.6.x` (creada el
    (`skforecast_dev_branch` en `.claude/hooks/session_start.py`). La CI
    solo corre en el PR a `main`, ya con skforecast publicado. Pendiente:
    avisar a skforecast (`REL-skforecast-ai-python311` de su roadmap).
-3. `feature/pandas3`: las cinco causas de arriba, con la suite en verde con
-   pandas 2.3 y con pandas 3 (los dos contra skforecast 0.28), y los dos en
-   la matriz de CI.
+3. **Hecho** ([#152](https://github.com/skforecast/skforecast-ai/pull/152)): `feature/pandas3`, las cinco causas de arriba, con la suite
+   en verde con pandas 2.3.3 y con pandas 3.1.1 (los dos contra skforecast
+   0.28) y los dos en la matriz de CI: una celda con `pandas<3` (Python
+   3.11, Linux), el resto instala pandas 3. Por el camino, dos fallos de
+   la 0.5.0 que también se daban con pandas 2.3: las fechas a predecir
+   tras el día de un cambio de hora (ahora las de `expand_index` de
+   skforecast) y las exógenas de texto de dtype `string` en memoria.
 4. La sincronización de `skills/` y `llms-base.txt` desde `0.28.x`
    (cambian 10 ficheros de 8 skills y `llms-base.txt`, sin skills nuevos
    ni borrados; en `troubleshooting-common-errors` entran secciones de
@@ -217,6 +221,37 @@ también la 0.27. El trabajo sale de la rama `0.6.x` (creada el
 
 Antes de publicar, repetir esta revisión sobre la `0.28.x` final.
 
+### Lo que queda de pandas 3
+
+De la revisión final de `feature/pandas3` (2026-11-26, con pandas 2.3.3 y
+3.1.1 contra skforecast 0.28). Nada bloquea la release; lo que depende de
+skforecast está en la tabla de la sección siguiente.
+
+- **Decidir antes de publicar: el `astype(str)` de las fechas de enteros,
+  en el código común.** Hoy el script las pasa a texto al leer el CSV
+  (`_emit_data_loading`, que decide por `date_format`) y la ejecución
+  convierte los datos en memoria en tres sitios (`compact_dates_as_text`
+  en `run_forecast`, `run_backtest` y `exog_as_injected`, que decide por
+  el contenido). Un `.astype(str)` dentro de la línea
+  `pd.to_datetime(..., format='%Y%m%d')` del código común quitaría la
+  función y sus tres llamadas. Cambia los scripts generados otra vez:
+  después de publicar la 0.6.0 serían dos cambios para el usuario. Solo
+  razonado, sin probar; obliga a regenerar los scripts esperados byte a
+  byte.
+- **Lecturas de fechas que pandas 3.1 depreca y siguen avisando**
+  (`Pandas4Warning`; una versión futura dejará de leerlas). Los floats
+  con `date_format`, límite ya aceptado, y las fechas trimestrales de
+  texto (`'2005Q1'`): avisan desde `parse_text_dates` en `profile()` y
+  `forecast()`, y con pandas 2.3 no. El arreglo cambia el script generado
+  (pandas propone `pd.Period('2005Q1').to_timestamp()` o un
+  `PeriodIndex`). Sin comprobar si el script también avisa: falla antes
+  por el `UserWarning` "Could not infer format", que ya daba.
+- **El error de los datos diarios anclados a medianoche UTC cuyo
+  horizonte cruza un cambio de hora** (límite ya aceptado) propone un
+  remedio que no se puede seguir: "Drop the rows before ..." con la
+  primera fila del propio `exog`. Un mensaje correcto pide detectar ese
+  caso, que es lógica nueva.
+
 ## Dependencia de skforecast
 
 Lo que tiene que estar resuelto en skforecast, y publicado, antes de la
@@ -226,8 +261,10 @@ release que lo necesita.
 |:--|:--|:--|
 | `RollingFeatures`: `transform_batch` (entrenamiento) da NaN en toda ventana con un valor que falta (`min_periods = window_sizes`) y `transform` (predicción) lo salta con `np.nanmean` y similares, sin leer `min_periods` | Por reportar (borrador del issue del 2026-11-11). Sigue igual en `0.28.x` (`d42a411`): es `BUG-rollingfeatures-nan` del roadmap de skforecast, P2, sin empezar | Con huecos y un estimador que no acepta NaN, el forecast de Ridge del check con agentes de la 0.5.0 entrenó con 15 de 84 filas; con uno que los acepta, predice con un estadístico que nunca vio |
 | Python 3.10: skforecast 0.27.0 lo depreca y la 0.28.0 pide 3.11 | Hecho en `0.28.x` (skforecast#1496), sin publicar | `requires-python = ">=3.11"` en la `0.6.x` ([#151](https://github.com/skforecast/skforecast-ai/pull/151)) |
-| pandas 3: skforecast 0.28 pide `pandas>=2.3, <4.0`, y un entorno nuevo recibe pandas 3 | Hecho en `0.28.x` (skforecast#1501), sin publicar | skforecast-ai falla con pandas 3 (339 tests): es lo primero de la 0.6.0 (sección "Compatibilidad con skforecast 0.28") |
+| pandas 3: skforecast 0.28 pide `pandas>=2.3, <4.0`, y un entorno nuevo recibe pandas 3 | Hecho en `0.28.x` (skforecast#1501), sin publicar | La 0.5.0 fallaba con pandas 3 (339 tests). La `0.6.x` funciona con pandas 3 y con pandas 2.3, con los mismos planes y predicciones, y la CI prueba las dos ([#152](https://github.com/skforecast/skforecast-ai/pull/152); sección "Compatibilidad con skforecast 0.28") |
 | Mínimos de skforecast 0.28: `numpy>=2.0`, `pandas>=2.3`, `scipy>=1.13` | Hecho en `0.28.x` (skforecast#1500), sin publicar | Mínimos igualados en la `0.6.x`, con `skforecast>=0.28.0` (D41, [#151](https://github.com/skforecast/skforecast-ai/pull/151)) |
+| Fechas con zona horaria: skforecast decide si avanzan en hora local o en pasos de UTC (`_is_utc_anchored_index`) con `last_window.index`, solo las filas de la ventana, en los forecasters de ML | Por reportar. Visto el 2026-11-26 con la 0.28.0 de los entornos de prueba | `_forecast_dates` las reconstruye desde la primera fecha de los datos, y difieren con datos a una hora local que es medianoche UTC solo parte del año (diarios a las 20:00 de Nueva York) y un horizonte que cruza un cambio de hora. Con pandas 3.1.1 ningún `exog` pasa las dos comprobaciones; con pandas 2.3 el forecast corre y fecha las predicciones a las 19:00 tras el cambio |
+| `_pandas_compat.infer_freq` pone la opción `future.infer_freq_returns_offset` con `pd.option_context`, que es global y la comparten todos los hilos | Por reportar | `infer_freq_name` usa el mismo patrón y el servidor MCP ejecuta las herramientas en hilos: con dos hilos entrelazados, uno recibe el `Pandas4Warning` y la opción puede quedar en `True` para todo el proceso. Reproducido con el entrelazado en un solo hilo, no con hilos reales. Un lock aquí no cubre las llamadas de skforecast |
 
 ## Checks de la release
 

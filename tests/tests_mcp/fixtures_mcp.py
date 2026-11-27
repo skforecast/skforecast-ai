@@ -118,7 +118,7 @@ df_hourly_two_years = pd.DataFrame(
         "users": np.round(
             100
             + 60 * np.sin(2 * np.pi * _hours.hour / 24)
-            + 20 * (_hours.dayofweek < 5)
+            + 20 * (_hours.day_of_week < 5)
             + np.random.default_rng(42).normal(0, 10, len(_hours)),
             1,
         ),

@@ -8,6 +8,8 @@ import pytest
 
 from skforecast_ai._dates import guessed_date_format
 
+from tests.fixtures_pandas import PANDAS_3
+
 
 @pytest.mark.parametrize(
     "values, expected",
@@ -35,10 +37,30 @@ def test_guessed_date_format_output(values, expected):
     assert guessed_date_format(pd.Series(values, dtype=object)) == expected
 
 
+@pytest.mark.skipif(
+    not PANDAS_3,
+    reason="pandas 2 guesses a format for a zone name it does not know",
+)
+def test_guessed_date_format_output_is_None_when_zone_name_not_read():
+    """
+    Test that a date with a zone name pandas 3 does not read ('CET') has no
+    guessed format, without any warning.
+    """
+    date_format = guessed_date_format(
+        pd.Series(["2012-03-20 00:00:00 CET"], dtype=object)
+    )
+
+    assert date_format is None
+
+
+@pytest.mark.skipif(
+    PANDAS_3,
+    reason="pandas 3 does not read a zone name it does not know",
+)
 def test_guessed_date_format_FutureWarning_when_zone_name():
     """
-    Test that the pandas warning about a zone name it drops ('CET') is not
-    hidden, as the generated script shows it too.
+    Test that the warning of pandas 2 about a zone name it drops ('CET') is
+    not hidden, as the generated script shows it too.
     """
     warn_msg = re.escape(
         'Parsed string "2012-03-20 00:00:00 CET" included an un-recognized '

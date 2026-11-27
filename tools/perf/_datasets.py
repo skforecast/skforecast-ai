@@ -115,7 +115,7 @@ def _synthetic_store_sales() -> pd.DataFrame:
     for store in range(1, 11):
         for item in range(1, 51):
             level = rng.uniform(10, 60)
-            weekly = 1 + 0.2 * np.sin(2 * np.pi * dates.dayofweek / 7)
+            weekly = 1 + 0.2 * np.sin(2 * np.pi * dates.day_of_week / 7)
             sales = rng.poisson(level * weekly)
             frames.append(
                 pd.DataFrame(

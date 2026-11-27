@@ -366,7 +366,7 @@ def constant_calendar_features(
         return []
     step = (grid[1] - grid[0]).to_pytimedelta()
     # Business days step by a day and never reach a weekend.
-    without_weekend = grid.dayofweek.max() < 5
+    without_weekend = grid.day_of_week.max() < 5
 
     return [
         feature for feature in features

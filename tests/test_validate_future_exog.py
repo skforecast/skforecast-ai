@@ -19,6 +19,7 @@ from skforecast_ai.execution.forecast_runner import (
     render_forecast_script,
 )
 
+from tests.fixtures_pandas import at_position
 from tests.fixtures_future_exog import (
     data_bh,
     data_business,
@@ -199,12 +200,14 @@ def test_validate_future_exog_InvalidInputError_when_day_first_dates():
         ),
         (
             exog_dst.set_axis(
-                pd.date_range("2021-03-29", periods=7, freq="D", tz="Europe/Madrid")
+                pd.date_range(
+                    "2021-03-29 01:00", periods=7, freq="D", tz="Europe/Madrid"
+                )
             ),
             data_dst, profile_dst, plan_dst,
-            "`exog` starts at 2021-03-29, before the first date to forecast, "
-            "2021-03-29 01:00:00+02:00 (the date after the last date of the "
-            "data).",
+            "`exog` has no row for 7 of the 7 dates to forecast, such as "
+            "2021-03-29. It must hold the dates from 2021-03-29 to 2021-04-04 "
+            "at frequency 'D'.",
         ),
         (
             exog_dst.set_axis(
@@ -226,8 +229,9 @@ def test_validate_future_exog_InvalidInputError_when_dates_or_values_of_skforeca
     Test the dates as skforecast reads them: ForecasterRecursiveMultiSeries
     forecasts from the last date with a target value (the exog of the last
     row of the data starts two days late), a forecast after a daylight
-    saving time change starts 24 hours after the last date (01:00, not
-    midnight), and daily exog in another time zone across a daylight saving
+    saving time change starts at midnight, the local time of day of the
+    data (not 24 hours after the last date, 01:00), with pandas 2 and with
+    pandas 3, and daily exog in another time zone across a daylight saving
     time change, whose grid of days (asfreq in its own zone) moves by an
     hour after the change.
     """
@@ -628,6 +632,14 @@ def test_validate_future_exog_DataContentError_when_data_without_dates_and_posit
             "pandas.to_datetime first.",
         ),
         (
+            exog_long.assign(
+                date=exog_long["date"].dt.strftime("%Y%m%d").astype(int)
+            ),
+            "The dates of `exog` (column 'date') are whole numbers (such as "
+            "20120430): convert them to dates first, with "
+            "pandas.to_datetime(dates.astype(str), format='%Y%m%d').",
+        ),
+        (
             exog_long.drop(columns="series"),
             "`exog` has no column 'series'. The future exogenous variables must "
             "hold the columns ['price'] that the plan uses, with the series id "
@@ -645,16 +657,17 @@ def test_validate_future_exog_DataContentError_when_data_without_dates_and_posit
             "value(s), series 'item_1').",
         ),
     ],
-    ids=["missing_series", "series_with_gap", "text_dates", "no_series_id",
-         "no_date_column", "missing_value"],
+    ids=["missing_series", "series_with_gap", "text_dates", "whole_number_dates",
+         "no_series_id", "no_date_column", "missing_value"],
 )
 def test_validate_future_exog_InvalidInputError_when_long_exog_wrong(exog, err_msg):
     """
     Test that long-format future exogenous variables must hold every series
     of the data with its dates to forecast, dates as dates (the generated
-    code does not parse them), the series id column and the date column (a
-    level named otherwise is not it), and that a missing value names its
-    series.
+    code does not parse them; whole numbers such as 20120430 are named as
+    such, not as the text the executed code gets them as), the series id
+    column and the date column (a level named otherwise is not it), and
+    that a missing value names its series.
     """
     with pytest.raises(InvalidInputError, match=re.escape(err_msg)):
         validate_future_exog(exog, data_long, profile_long, plan_long_ridge)
@@ -1424,7 +1437,7 @@ def test_validate_future_exog_DataContentError_when_text_dates_not_in_date_forma
     err_msg = re.escape(
         "The dates of `exog` (column or index 'date') cannot be read as the "
         "generated code reads them: time data \"2021-02-01\" doesn't match "
-        "format \"%d/%m/%Y\", at position 0."
+        f"format \"%d/%m/%Y\"{at_position(0)}."
     )
     with pytest.raises(DataContentError, match=err_msg) as exc_info:
         validate_future_exog(

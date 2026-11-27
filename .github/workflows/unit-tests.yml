@@ -39,6 +39,16 @@ jobs:
       matrix:
         python-version: ['3.11', '3.12', '3.13', '3.14']
         platform: [ubuntu-latest, macos-latest, windows-latest]
+        # The cells above get pandas 3. The `pandas` key must be in the matrix:
+        # an `include` with a new key would be merged into the matching cell
+        # (3.11, ubuntu) instead of adding one.
+        pandas: ['']
+        include:
+          # pandas 2.3, the minimum supported, with the minimum Python.
+          - python-version: '3.11'
+            platform: ubuntu-latest
+            pandas: '<3'
+    name: build (${{ matrix.python-version }}, ${{ matrix.platform }}${{ matrix.pandas && format(', pandas{0}', matrix.pandas) || '' }})
     runs-on: ${{ matrix.platform }}
 
     steps:
@@ -66,7 +76,7 @@ jobs:
 
     - name: Install Python dependencies
       run: |
-        uv pip install -e ".[test]"
+        uv pip install -e ".[test]" ${{ matrix.pandas && format('"pandas{0}"', matrix.pandas) || '' }}
 
     - name: Show environment info
       run: |
@@ -92,7 +102,7 @@ jobs:
       shell: bash
       run: |
         {
-          echo "### Failed tests: Python ${{ matrix.python-version }}, ${{ matrix.platform }}"
+          echo "### Failed tests: Python ${{ matrix.python-version }}, ${{ matrix.platform }}${{ matrix.pandas && format(', pandas{0}', matrix.pandas) || '' }}"
           echo '```'
           sed -n '/short test summary info/,$p' pytest.log
           echo '```'

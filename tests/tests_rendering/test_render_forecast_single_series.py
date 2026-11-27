@@ -188,22 +188,27 @@ def test_render_forecast_single_series_output_when_exog():
 
 
 @pytest.mark.parametrize(
-    "exog_date_format, exog_format_arg",
+    "exog_date_format, exog_format_arg, exog_as_text",
     [
-        (None, ""),
-        ("%d/%m/%Y", ", format='%d/%m/%Y'"),
-        ("%Y%m%d", ", format='%Y%m%d'"),
+        (None, "", ""),
+        ("%d/%m/%Y", ", format='%d/%m/%Y'", ""),
+        (
+            "%Y%m%d",
+            ", format='%Y%m%d'",
+            "exog_future['date'] = exog_future['date'].astype(str)\n",
+        ),
     ],
     ids=["exog in iso", "exog day first", "exog as whole numbers"],
 )
 def test_render_forecast_single_series_output_when_date_format(
-    exog_date_format, exog_format_arg
+    exog_date_format, exog_format_arg, exog_as_text
 ):
     """
     Test that the dates of the data are read with the format the profile
     records (day-first dates), those of the future exogenous variables with
     their own format (that of `exog_file`: none for ISO 8601, as `to_csv()`
-    writes them), and that the rest of the prediction script does not
+    writes them; whole numbers such as 20200131 are turned into text after
+    the file is read), and that the rest of the prediction script does not
     change.
     """
     profile = profile_single.model_copy(update={"date_format": "%d/%m/%Y"})
@@ -224,6 +229,7 @@ def test_render_forecast_single_series_output_when_date_format(
         "\n"
         "# Load future exogenous variables covering the forecast horizon\n"
         "exog_future = pd.read_csv('exog_future.csv')\n"
+        f"{exog_as_text}"
         "\n"
         "data['date'] = pd.to_datetime(data['date'], format='%d/%m/%Y')\n"
         "data = data.set_index('date')\n"

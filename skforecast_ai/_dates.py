@@ -187,7 +187,12 @@ def _as_dates(
     with `'%Y%m%d'`), otherwise text with the format of its first date.
     """
     if date_format is not None and not pd.api.types.is_datetime64_any_dtype(values):
-        return pd.DatetimeIndex(pd.to_datetime(pd.Series(values), format=date_format))
+        values = pd.Series(values)
+        if pd.api.types.is_integer_dtype(values):
+            # pandas 3.1 deprecates reading numbers with a format: a future
+            # version reads them as times since the epoch.
+            values = values.astype("string")
+        return pd.DatetimeIndex(pd.to_datetime(values, format=date_format))
     if pd.api.types.is_object_dtype(values) or pd.api.types.is_string_dtype(values):
         values = parse_text_dates(pd.Series(values))
 
@@ -326,6 +331,71 @@ def date_positions(dates: pd.DatetimeIndex) -> np.ndarray:
     positions[np.asarray(dates.isna())] = np.iinfo(np.int64).max
 
     return positions
+
+
+def fixed_step_nanos(offset: pd.DateOffset) -> int | None:
+    """
+    Return the length of a fixed step (hours, minutes, days) in nanoseconds,
+    or None for a calendar step (weeks, months, business days).
+
+    pandas 3 made `Day` a calendar day, no longer a `Tick`: it follows the
+    clock across a change of daylight saving time. The callers read dates as
+    nanoseconds without a time zone (local or UTC time), where a day lasts
+    24 hours, as `Day` did in pandas 2.
+
+    Parameters
+    ----------
+    offset : pandas DateOffset
+        Step of a frequency, as `pandas.tseries.frequencies.to_offset`
+        returns it.
+
+    Returns
+    -------
+    nanos : int, None
+        Length of the step in nanoseconds, or None when it is not fixed.
+    """
+    if isinstance(offset, (pd.offsets.Tick, pd.offsets.Day)):
+        return offset.nanos
+
+    return None
+
+
+def infer_freq_name(index: pd.DatetimeIndex) -> str | None:
+    """
+    Return the name of the frequency of a datetime index, as
+    `pandas.infer_freq` gives it.
+
+    pandas 3.1 warns that a future version of `pandas.infer_freq` returns
+    the offset instead of its name, and has an option to get the offset
+    now; pandas 2 has no such option and returns the name.
+
+    Parameters
+    ----------
+    index : pandas DatetimeIndex
+        Dates whose frequency is inferred.
+
+    Returns
+    -------
+    frequency : str, None
+        Name of the frequency (`'D'`, `'W-SUN'`, `'MS'`), or None when
+        pandas infers none.
+
+    Notes
+    -----
+    Raises the errors of `pandas.infer_freq` (`TypeError`, `ValueError`).
+    """
+    try:
+        with pd.option_context("future.infer_freq_returns_offset", True):
+            frequency = pd.infer_freq(index)
+    except pd.errors.OptionError:
+        frequency = pd.infer_freq(index)
+
+    # By type, not by version: the options of pandas are shared by every
+    # thread, so another one can restore the option before the call.
+    if frequency is None or isinstance(frequency, str):
+        return frequency
+
+    return frequency.freqstr
 
 
 # A time zone written after the time of a date ('10:00:00+01:00', '10:00 AM

@@ -9,6 +9,8 @@ import pytest
 
 from skforecast_ai._dates import parse_text_dates
 
+from tests.fixtures_pandas import at_position
+
 
 @pytest.mark.parametrize(
     "values, expected",
@@ -46,8 +48,8 @@ def test_parse_text_dates_ValueError_when_date_does_not_follow_format():
     values = pd.Series(["2012-01-01", "2012-01-02 10:30", "2012-01-03"])
 
     err_msg = re.escape(
-        'unconverted data remains when parsing with format "%Y-%m-%d": " 10:30", '
-        "at position 1."
+        'unconverted data remains when parsing with format "%Y-%m-%d": " 10:30"'
+        f"{at_position(1)}."
     )
     with pytest.raises(ValueError, match=err_msg):
         parse_text_dates(values)
@@ -124,23 +126,22 @@ def test_parse_text_dates_output_when_date_format(values, date_format, expected)
     [
         (
             ["01/02/2020", "2020-02-02"],
-            'time data "2020-02-02" doesn\'t match format "%d/%m/%Y", at '
-            "position 1.",
+            'time data "2020-02-02" doesn\'t match format "%d/%m/%Y"'
+            f"{at_position(1)}.",
         ),
         (
             ["01/02/2020", "31/02/2020"],
             # Python 3.14 names the day, the month and the year.
             (
-                "day 31 must be in range 1..29 for month 2 in year 2020, at "
-                "position 1."
+                "day 31 must be in range 1..29 for month 2 in year 2020"
                 if sys.version_info >= (3, 14)
-                else "day is out of range for month, at position 1."
-            ),
+                else "day is out of range for month"
+            ) + f"{at_position(1)}.",
         ),
         (
             ["01/02/2020", "13/02/2020 10:30"],
             'unconverted data remains when parsing with format "%d/%m/%Y": '
-            '" 10:30", at position 1.',
+            f'" 10:30"{at_position(1)}.',
         ),
     ],
     ids=["other_format", "day_out_of_range", "unconverted_data"],

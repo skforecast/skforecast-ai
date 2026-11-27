@@ -451,3 +451,66 @@ def test_emit_data_loading_output_when_exog_file_and_data_have_other_dialects():
         "exog_future = pd.read_csv('futuro.csv', sep='\\t', decimal='.', "
         "dtype={'store': str})"
     )
+
+
+@pytest.mark.parametrize(
+    "long_format",
+    [False, True],
+    ids=["single series", "long format"],
+)
+def test_emit_data_loading_output_when_dates_are_whole_numbers(long_format):
+    """
+    Test that dates of whole numbers such as 20200131 (the format
+    `'%Y%m%d'`) are turned into text after the file is read, in the data and
+    in the future exogenous variables, each with the format of its own file:
+    pandas 3.1 deprecates reading numbers as dates with a format.
+    """
+    profile = profile_single.model_copy(update={"date_format": "%Y%m%d"})
+    iso = profile_single.model_copy(update={"date_format": None})
+
+    data = _lines(profile, long_format=long_format)
+    exog = _lines(
+        iso,
+        long_format = long_format,
+        var         = "exog_future",
+        exog_file   = FutureExogFile(date_format="%Y%m%d"),
+    )
+
+    assert data == [
+        "# Load data",
+        "data = pd.read_csv('data.csv')",
+        "data['date'] = data['date'].astype(str)",
+    ]
+    assert exog == [
+        "# Load data",
+        "exog_future = pd.read_csv('exog_future.csv')",
+        "exog_future['date'] = exog_future['date'].astype(str)",
+    ]
+
+
+def test_emit_data_loading_output_when_whole_number_dates_are_read_as_text():
+    """
+    Test that dates of whole numbers are not turned into text again when
+    the file is read with its date column as text already (a file with a
+    thousands separator), and that the future exogenous variables follow the
+    format of their own file, not that of the data.
+    """
+    profile = profile_single.model_copy(
+        update={
+            "data_path": "eu.csv",
+            "csv_sep": ";",
+            "csv_decimal": ",",
+            "csv_thousands": ".",
+            "date_format": "%Y%m%d",
+        }
+    )
+
+    data = _lines(profile)
+    exog = _lines(profile, var="exog_future", exog_file=FutureExogFile())
+
+    assert data == [
+        "# Load data",
+        "data = pd.read_csv('eu.csv', sep=';', decimal=',', thousands='.', "
+        "dtype={'date': str})",
+    ]
+    assert exog == ["# Load data", "exog_future = pd.read_csv('exog_future.csv')"]

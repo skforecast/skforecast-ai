@@ -12,7 +12,10 @@ from skforecast_ai.profiling.data_profile import _infer_long_frequency
 
 def _as_nanoseconds(series_dates: dict) -> dict:
     """Return the dates of each series as nanoseconds since the epoch."""
-    return {name: pd.DatetimeIndex(dates).asi8 for name, dates in series_dates.items()}
+    return {
+        name: pd.DatetimeIndex(dates).as_unit("ns").asi8
+        for name, dates in series_dates.items()
+    }
 
 
 _DAILY = pd.date_range("2023-01-01", periods=21, freq="D")
@@ -35,7 +38,7 @@ _WEEKS_AND_MONDAY = _WEEKS_AND_MONDAY.insert(
 )
 # A shop open from Monday to Saturday over 13 weeks.
 _MON_SAT = pd.date_range("2023-01-02", "2023-03-31", freq="D")
-_MON_SAT = _MON_SAT[_MON_SAT.dayofweek != 6]
+_MON_SAT = _MON_SAT[_MON_SAT.day_of_week != 6]
 # 11 series of two days out of five, each on other days, so that only the
 # dates of every series together give the frequency.
 _MANY_SPARSE = {
@@ -284,8 +287,8 @@ def test_infer_long_frequency_InvalidInputError_when_timestamps_off_grid(
             ("h", 42),
         ),
         ({"shop": _MON_SAT, "shop_2": _MON_SAT}, ("D", 24)),
-        ({"shop": _MON_SAT, "office": _MON_SAT[_MON_SAT.dayofweek < 5]}, ("D", 36)),
-        ({"office": _MON_SAT[_MON_SAT.dayofweek < 5], "shop": _MON_SAT}, ("D", 36)),
+        ({"shop": _MON_SAT, "office": _MON_SAT[_MON_SAT.day_of_week < 5]}, ("D", 36)),
+        ({"office": _MON_SAT[_MON_SAT.day_of_week < 5], "shop": _MON_SAT}, ("D", 36)),
     ],
     ids=[
         "same", "gaps_summed", "same_gap_in_every_series", "short_series_on_grid",

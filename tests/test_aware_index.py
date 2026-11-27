@@ -17,6 +17,7 @@ def test_aware_index_output_with_time_zone():
         ["2023-03-25 23:00", "2023-03-26 00:00", "2023-03-26 01:00",
          "2023-03-26 02:00"],
         tz="UTC",
+        freq="h",
     ).tz_convert("Europe/Madrid")
     pd.testing.assert_index_equal(result, expected, exact=False)
     assert [str(date) for date in result] == [

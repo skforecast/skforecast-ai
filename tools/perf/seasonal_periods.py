@@ -35,6 +35,7 @@ import warnings
 
 import pandas as pd
 
+from skforecast_ai._dates import infer_freq_name
 from skforecast_ai.recommendation.autoregressive import (
     arima_seasonal_period,
     estimate_seasonality,
@@ -67,7 +68,7 @@ def inferred_frequencies() -> list[str]:
                 index = pd.date_range("2023-01-02", periods=40, freq=alias)
             except ValueError:
                 continue
-            frequency = pd.infer_freq(index)
+            frequency = infer_freq_name(index)
             if frequency is not None:
                 found.add(frequency)
     return sorted(found, key=lambda f: (f.lstrip("0123456789"), len(f), f))

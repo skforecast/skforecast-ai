@@ -11,13 +11,13 @@ _YEAR = pd.date_range("2023-01-02", periods=364, freq="D")
 @pytest.mark.parametrize(
     "dates, frequency, expected",
     [
-        (_YEAR[_YEAR.dayofweek != 6], "D", [6]),
-        (_YEAR[_YEAR.dayofweek < 5].delete([3, 40]), "D", [5, 6]),
-        (_YEAR[_YEAR.dayofweek < 4], "B", [4]),
+        (_YEAR[_YEAR.day_of_week != 6], "D", [6]),
+        (_YEAR[_YEAR.day_of_week < 5].delete([3, 40]), "D", [5, 6]),
+        (_YEAR[_YEAR.day_of_week < 4], "B", [4]),
         (_YEAR, "D", []),
         (_YEAR[:10].delete([6]), "D", []),
-        (_YEAR[_YEAR.dayofweek != 6], "W-MON", []),
-        (_YEAR[_YEAR.dayofweek != 6], None, []),
+        (_YEAR[_YEAR.day_of_week != 6], "W-MON", []),
+        (_YEAR[_YEAR.day_of_week != 6], None, []),
     ],
     ids=[
         "closed on sundays", "weekends and gaps on other days",

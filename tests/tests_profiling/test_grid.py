@@ -15,7 +15,7 @@ def test_grid_output_when_fixed_frequency():
     dates = pd.DatetimeIndex([
         "2023-01-01 00:30", "2023-01-01 01:30", "2023-01-01 02:00",
         "2023-01-01 02:30",
-    ]).asi8
+    ]).as_unit("ns").asi8
 
     offset, grid = _grid(dates, "h")
 
@@ -28,7 +28,9 @@ def test_grid_output_when_business_days():
     Test that the grid of business days runs from the first to the last
     date, without the weekend.
     """
-    dates = pd.DatetimeIndex(["2023-01-02", "2023-01-04", "2023-01-09"]).asi8
+    dates = pd.DatetimeIndex(
+        ["2023-01-02", "2023-01-04", "2023-01-09"]
+    ).as_unit("ns").asi8
 
     offset, grid = _grid(dates, "B")
 
@@ -38,7 +40,7 @@ def test_grid_output_when_business_days():
         pd.DatetimeIndex([
             "2023-01-02", "2023-01-03", "2023-01-04", "2023-01-05",
             "2023-01-06", "2023-01-09",
-        ]).asi8,
+        ]).as_unit("ns").asi8,
     )
 
 
@@ -50,7 +52,7 @@ def test_grid_output_when_business_hours():
     """
     dates = pd.DatetimeIndex([
         "2023-01-02 13:00", "2023-01-02 16:00", "2023-01-03 09:00",
-    ]).asi8
+    ]).as_unit("ns").asi8
 
     offset, grid = _grid(dates, "bh")
 
@@ -61,7 +63,7 @@ def test_grid_output_when_business_hours():
             "2023-01-02 09:00", "2023-01-02 10:00", "2023-01-02 11:00",
             "2023-01-02 12:00", "2023-01-02 13:00", "2023-01-02 14:00",
             "2023-01-02 15:00", "2023-01-02 16:00", "2023-01-03 09:00",
-        ]).asi8,
+        ]).as_unit("ns").asi8,
     )
 
 
@@ -71,9 +73,9 @@ def test_grid_output_when_multiple_of_calendar_frequency():
     grids that most dates lie on, not the one of the first date.
     """
     dates = np.concatenate([
-        pd.date_range("2020-01-05", periods=3, freq="2W-SUN").asi8,
-        pd.date_range("2020-01-12", periods=4, freq="2W-SUN").asi8,
-        pd.date_range("2020-01-12", periods=4, freq="2W-SUN").asi8,
+        pd.date_range("2020-01-05", periods=3, freq="2W-SUN").as_unit("ns").asi8,
+        pd.date_range("2020-01-12", periods=4, freq="2W-SUN").as_unit("ns").asi8,
+        pd.date_range("2020-01-12", periods=4, freq="2W-SUN").as_unit("ns").asi8,
     ])
 
     offset, grid = _grid(dates, "2W-SUN")
@@ -83,7 +85,7 @@ def test_grid_output_when_multiple_of_calendar_frequency():
         grid,
         pd.DatetimeIndex(
             ["2020-01-12", "2020-01-26", "2020-02-09", "2020-02-23"]
-        ).asi8,
+        ).as_unit("ns").asi8,
     )
 
 
@@ -95,7 +97,7 @@ def test_grid_output_when_first_date_before_time_of_most_dates():
     """
     dates = pd.DatetimeIndex(
         ["2023-01-02 08:00", "2023-01-03 09:00", "2023-01-04 09:00"]
-    ).asi8
+    ).as_unit("ns").asi8
 
     _, grid = _grid(dates, "B")
 
@@ -103,7 +105,7 @@ def test_grid_output_when_first_date_before_time_of_most_dates():
         grid,
         pd.DatetimeIndex(
             ["2023-01-02 09:00", "2023-01-03 09:00", "2023-01-04 09:00"]
-        ).asi8,
+        ).as_unit("ns").asi8,
     )
 
 
@@ -112,10 +114,10 @@ def test_grid_output_when_no_date_on_multiple_of_calendar_frequency():
     Test that the grid of every second month start keeps every month start
     when no date lies on it (dates in the middle of the month).
     """
-    dates = pd.DatetimeIndex(["2023-01-15", "2023-03-15"]).asi8
+    dates = pd.DatetimeIndex(["2023-01-15", "2023-03-15"]).as_unit("ns").asi8
 
     _, grid = _grid(dates, "2MS")
 
     np.testing.assert_array_equal(
-        grid, pd.DatetimeIndex(["2023-02-01", "2023-03-01"]).asi8
+        grid, pd.DatetimeIndex(["2023-02-01", "2023-03-01"]).as_unit("ns").asi8
     )

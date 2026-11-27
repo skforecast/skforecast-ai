@@ -25,8 +25,8 @@ The ranking is a deterministic ascending sort of the MAE column (lower is better
 <leaderboard>
 Candidates listed: 3 (all shown below).
    rank          name           forecaster      estimator  MAE n_evaluated                                    error
-0     1  candidate_01  ForecasterRecursive          Ridge  1.5          30                                     None
-1     2  candidate_02  ForecasterRecursive          Ridge  2.5          30                                     None
+0     1  candidate_01  ForecasterRecursive          Ridge  1.5          30                                      NaN
+1     2  candidate_02  ForecasterRecursive          Ridge  2.5          30                                      NaN
 2     3        broken  ForecasterRecursive  LGBMRegressor  NaN         NaN  ImportError: No module named 'lightgbm'
 </leaderboard>
 <failed_candidates>

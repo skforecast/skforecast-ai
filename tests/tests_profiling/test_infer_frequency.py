@@ -7,6 +7,8 @@ import pytest
 from skforecast_ai.profiling.data_profile import infer_frequency
 from skforecast_ai.recommendation.autoregressive import estimate_seasonality
 
+from ..fixtures_pandas import QUARTER_START
+
 # A year of days from a Monday, the fixed holidays of a Spanish calendar in
 # it, and the days of a shop closed on Sundays.
 _YEAR = pd.date_range("2023-01-02", periods=364, freq="D")
@@ -16,7 +18,7 @@ _HOLIDAYS = pd.DatetimeIndex(
         "2023-11-01", "2023-12-06", "2023-12-08", "2023-12-25",
     ]
 )
-_NO_SUNDAYS = _YEAR[_YEAR.dayofweek != 6]
+_NO_SUNDAYS = _YEAR[_YEAR.day_of_week != 6]
 _BUSINESS_YEAR = pd.bdate_range("2023-01-02", periods=260)
 # The daily file of the MCP audit (b_07): 40 of 150 days missing at random.
 _DAYS_150 = pd.date_range("2020-01-01", periods=150, freq="D")
@@ -28,7 +30,7 @@ _RANDOM_GAPS = _DAYS_150[
 _HOURS = pd.date_range("2023-01-02", periods=720, freq="h")
 _OPEN_FROM_EIGHT = _HOURS[_HOURS.hour >= 8]
 _OFFICE_HOURS = _HOURS[
-    (_HOURS.dayofweek < 5) & (_HOURS.hour >= 9) & (_HOURS.hour <= 17)
+    (_HOURS.day_of_week < 5) & (_HOURS.hour >= 9) & (_HOURS.hour <= 17)
 ]
 _MONTHS = pd.date_range("2015-01-01", periods=60, freq="MS")
 # Every other day, with three days in a row every ten days: 60 % of the
@@ -45,14 +47,15 @@ _EVERY_OTHER_DAY = _YEAR[np.isin(np.arange(364) % 10, [0, 1, 2, 4, 6, 8])]
         ("W", "W-SUN"),
         ("MS", "MS"),
         ("ME", "ME"),
-        ("QS", "QS-OCT"),
+        ("QS", QUARTER_START),
     ],
     ids=lambda x: f"{x}",
 )
 def test_infer_frequency_output_when_regular_series(freq, expected):
     """
     Test infer_frequency returns the correct frequency string for a
-    regularly-spaced DatetimeIndex.
+    regularly-spaced DatetimeIndex. Quarters from January are 'QS-OCT' for
+    pandas 2 and 'QS-JAN' for pandas 3.
     """
     index = pd.date_range("2023-01-01", periods=100, freq=freq)
     result = infer_frequency(index)
@@ -120,13 +123,13 @@ def test_infer_frequency_output_when_gap_free_stretches_give_frequency(
     [
         (_NO_SUNDAYS, "D"),
         (_NO_SUNDAYS.difference(_HOLIDAYS), "D"),
-        (_YEAR[_YEAR.dayofweek != 2], "D"),
+        (_YEAR[_YEAR.day_of_week != 2], "D"),
         (_RANDOM_GAPS, "D"),
         (
             _YEAR[np.sort(np.random.default_rng(0).choice(364, 200, replace=False))],
             "D",
         ),
-        (_YEAR[_YEAR.dayofweek < 4], "B"),
+        (_YEAR[_YEAR.day_of_week < 4], "B"),
         (
             _BUSINESS_YEAR[
                 np.sort(np.random.default_rng(0).choice(260, 143, replace=False))
@@ -166,7 +169,7 @@ def test_infer_frequency_output_when_gaps_leave_no_gap_free_stretch(
         _OFFICE_HOURS,
         _BUSINESS_YEAR.insert(112, pd.Timestamp("2023-06-10")),
         _NO_SUNDAYS.insert(40, pd.Timestamp("2023-02-14 12:00")),
-        _YEAR[_YEAR.dayofweek.isin([0, 2, 4, 5])],
+        _YEAR[_YEAR.day_of_week.isin([0, 2, 4, 5])],
         _EVERY_OTHER_DAY,
         _NO_SUNDAYS.append(
             pd.DatetimeIndex(["2023-06-01 00:00:01", "2023-06-01 00:00:02"])
@@ -209,7 +212,7 @@ def test_infer_frequency_output_when_gaps_leave_no_gap_free_stretch_in_any_unit(
     'B'.
     """
     no_sundays = _NO_SUNDAYS.as_unit(unit)
-    monday_to_thursday = _YEAR[_YEAR.dayofweek < 4].as_unit(unit)
+    monday_to_thursday = _YEAR[_YEAR.day_of_week < 4].as_unit(unit)
 
     assert infer_frequency(no_sundays) == "D"
     assert infer_frequency(no_sundays.tz_localize("Europe/Madrid")) == "D"
@@ -260,8 +263,16 @@ def test_infer_frequency_output_when_too_few_observations():
         ("h",   [24, 168]),
         ("D",   [7, 365]),
         # --- Legacy uppercase aliases ---
+        ("S",   [3_600, 86_400]),
         ("T",   [60, 1_440]),
         ("H",   [24, 168]),
+        # --- Legacy aliases of fractions of a second ---
+        ("L",   [3_599_999, 86_399_999]),  # float division, one step short
+        ("U",   [3_600_000_000, 86_400_000_000]),
+        ("N",   [3_599_999_999_999, 86_399_999_999_999]),
+        # --- Nanoseconds: pandas 2 rounds their seconds to 0 ---
+        ("ns",    [3_599_999_999_999, 86_399_999_999_999]),
+        ("100ns", [36_000_000_000, 864_000_000_000]),
         # --- Business day (non-fixed, heuristic table) ---
         ("B",   [5, 252]),
         # --- Weekly (non-fixed, heuristic table) ---
@@ -281,6 +292,7 @@ def test_infer_frequency_output_when_too_few_observations():
         ("15T",   [4, 96]),    # same via legacy alias
         ("30min", [2, 48]),    # 30-min: 2/hour, 48/day
         ("30s",   [120, 2_880]),  # 30-sec: 120/hour, 2880/day
+        ("30S",   [120, 2_880]),  # same via legacy alias
         ("2h",    [12, 84]),   # 2-hour: 12/day, 84/week
         ("2H",    [12, 84]),   # same via legacy alias
         ("6h",    [4, 28]),    # 6-hour: 4/day, 28/week
@@ -298,8 +310,9 @@ def test_infer_frequency_output_when_too_few_observations():
 def test_estimate_seasonality_output(freq, expected_seasonalities):
     """
     Test estimate_seasonality returns correct seasonal periods for base
-    aliases, anchored offsets, legacy uppercase aliases, multiplied
-    variants, and an empty list for unknown or None inputs.
+    aliases, anchored offsets, legacy uppercase aliases (which pandas 3 no
+    longer reads), steps of nanoseconds, multiplied variants, and an empty
+    list for unknown or None inputs.
     """
     result = estimate_seasonality(freq)
     assert result == expected_seasonalities

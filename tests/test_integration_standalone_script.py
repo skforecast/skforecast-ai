@@ -561,7 +561,21 @@ _monthly = pd.DataFrame(
             ).to_csv(path, index=False),
             {},
             "%Y%m%d",
-            "data = pd.read_csv({path!r})\n",
+            "data = pd.read_csv({path!r})\n"
+            "data['date'] = data['date'].astype(str)\n",
+        ),
+        (
+            _daily,
+            lambda path, frame: path.write_text(
+                "date,y\n" + "".join(
+                    f"{date:%Y%m%d} ,{value}\n"
+                    for date, value in zip(frame["date"], frame["y"])
+                )
+            ),
+            {},
+            "%Y%m%d",
+            "data = pd.read_csv({path!r})\n"
+            "data['date'] = data['date'].astype(str)\n",
         ),
         (
             _daily,
@@ -578,6 +592,7 @@ _monthly = pd.DataFrame(
         "day first monthly told from regularity",
         "us monthly told from regularity",
         "whole numbers yyyymmdd",
+        "whole numbers before a space",
         "German Excel with thousands",
     ],
 )
@@ -589,10 +604,11 @@ def test_standalone_script_matches_forecast_when_csv_dates_need_a_format(
     format (day first after a first date that reads month first, monthly
     dates that read both ways with `dayfirst` or in the only order in which
     they are regular, day first or month first as a US file writes them,
-    whole numbers such as 20200131, and the German Excel with '15.01.2020'
-    and '1.234,56') is read with that format by forecast() and by the
-    script run as a file, with the predictions of the same data written in
-    ISO 8601 by `to_csv()`.
+    whole numbers such as 20200131, which the script turns into text, also
+    with a space before the separator, and the German Excel with
+    '15.01.2020' and '1.234,56') is read with that format by forecast() and
+    by the script run as a file, with the predictions of the same data
+    written in ISO 8601 by `to_csv()`.
     """
     csv_path = tmp_path / "data.csv"
     write(csv_path, frame)

@@ -843,7 +843,7 @@ def test_compare_records_error_and_sorts_failed_candidate_last():
     bad_row = result.results[result.results["name"] == "bad"].iloc[0]
     assert good_row["rank"] == 1
     assert bad_row["rank"] == 2
-    assert good_row["error"] is None
+    assert pd.isna(good_row["error"])
     assert isinstance(bad_row["error"], str) and bad_row["error"]
     assert np.isnan(bad_row["mean_absolute_error"])
 
@@ -2118,7 +2118,7 @@ def test_compare_output_when_baseline_added_by_default():
     ]
     baseline_row = result.results.iloc[2]
     assert baseline_row["forecaster"] == "ForecasterEquivalentDate"
-    assert baseline_row["estimator"] is None
+    assert pd.isna(baseline_row["estimator"])
     assert baseline_row["mean_absolute_error"] == 7.0
     assert baseline_row["root_mean_squared_error"] == 7.0
     assert baseline_row["mean_absolute_scaled_error"] == 7.0
@@ -3866,9 +3866,12 @@ def test_compare_strategy_plan_row_when_plan_was_refined(monkeypatch):
         "ForecasterDirect",
         "Strategy plan",
     ]
-    assert list(result.results["estimator"]) == [
-        "Arima", "Ridge", None, "Ridge", "LGBMRegressor"
-    ]
+    pd.testing.assert_series_equal(
+        result.results["estimator"],
+        pd.Series(
+            ["Arima", "Ridge", None, "Ridge", "LGBMRegressor"], name="estimator"
+        ),
+    )
     # The Arima fit of ForecasterStats ends where its optimizer stops, which
     # moves in the fifth decimal from one machine to another; the other rows
     # are exact to six decimals. Since skforecast 0.27, `freeze_params=True`

@@ -366,7 +366,7 @@ with warnings.catch_warnings():
 # data_single without its 8 Sundays: frequency 'D' with 8 missing timestamps,
 # all of them on Sundays, the closed days of D9.
 data_single_closed_sundays = (
-    data_single.loc[data_single["date"].dt.dayofweek != 6].reset_index(drop=True)
+    data_single.loc[data_single["date"].dt.day_of_week != 6].reset_index(drop=True)
 )
 _profile_single_closed = _assistant.profile(
     data_single_closed_sundays, target="y", date_column="date"

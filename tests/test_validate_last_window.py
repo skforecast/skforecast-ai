@@ -262,7 +262,7 @@ def _weekend_data(last: str) -> pd.DataFrame:
     """
     dates = pd.date_range("2023-01-02", last, freq="D")
     y = 10.0 + np.sin(np.arange(len(dates)))
-    y[dates.dayofweek >= 5] = np.nan
+    y[dates.day_of_week >= 5] = np.nan
     return pd.DataFrame({"date": dates, "y": y})
 
 
@@ -990,8 +990,11 @@ def test_validate_last_window_no_error_when_window_feature_huge():
             .drop(columns="date"),
             None, {"target": "y"},
         ),
+        # Uneven steps: pandas 3 makes evenly spaced integers a RangeIndex.
         (
-            data_single.drop(columns="date").set_index(pd.Index(np.arange(0, 120, 2))),
+            data_single.drop(columns="date").set_index(
+                pd.Index(np.r_[np.arange(0, 118, 2), 119])
+            ),
             None, {"target": "y"},
         ),
         (

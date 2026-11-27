@@ -31,7 +31,7 @@ def test_own_frequencies_output():
     }
 
     own = _own_frequencies(
-        {name: dates.asi8 for name, dates in series_dates.items()}
+        {name: dates.as_unit("ns").asi8 for name, dates in series_dates.items()}
     )
 
     assert own == {"daily": "D", "daily_later": "D", "months": "MS"}

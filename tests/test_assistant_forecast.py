@@ -578,6 +578,43 @@ def test_forecast_prediction_mode_with_exog_returns_no_metrics():
     assert len(result.predictions) == 5
 
 
+def test_forecast_output_when_dates_are_whole_numbers_in_memory():
+    """
+    Test that data and future exogenous variables passed in memory with
+    their dates as whole numbers such as 20230101 give the predictions of
+    the same data with dates, without the warning of pandas 3.1 about
+    reading numbers as dates with a format (warnings are errors in the
+    suite).
+    """
+    future_dates = pd.date_range("2023-04-11", periods=5, freq="D")
+    exog = pd.DataFrame(
+        {"date": future_dates, "promo": np.tile([0.0, 1.0], 3)[:5]}
+    )
+    assistant = ForecastingAssistant()
+
+    result = assistant.forecast(
+        data        = df_single.assign(
+            date=df_single["date"].dt.strftime("%Y%m%d").astype(int)
+        ),
+        target      = "sales",
+        date_column = "date",
+        steps       = 5,
+        exog        = exog.assign(
+            date=exog["date"].dt.strftime("%Y%m%d").astype(int)
+        ),
+    )
+    expected = assistant.forecast(
+        data        = df_single,
+        target      = "sales",
+        date_column = "date",
+        steps       = 5,
+        exog        = exog,
+    )
+
+    assert result.profile.data_profile.date_format == "%Y%m%d"
+    pd.testing.assert_frame_equal(result.predictions, expected.predictions)
+
+
 def test_forecast_InvalidInputError_when_future_exog_has_gap():
     """
     Test that forecast() with future `exog` missing a date to forecast

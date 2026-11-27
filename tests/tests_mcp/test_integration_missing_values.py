@@ -464,7 +464,7 @@ def test_server_create_cv_names_closed_days_of_the_profile(tmp_path):
     """
     dates = pd.date_range("2023-01-02", periods=140, freq="D")
     data = pd.DataFrame({"date": dates, "y": 10 + np.sin(np.arange(140))})
-    data = data.loc[data["date"].dt.dayofweek != 6]
+    data = data.loc[data["date"].dt.day_of_week != 6]
     path = write_csv(tmp_path, "shop.csv", data)
     server = create_server(allow_dir=tmp_path, output_dir=tmp_path / "out")
 

@@ -20,8 +20,10 @@ from .._dates import (
     date_positions,
     day_month_formats,
     first_date,
+    fixed_step_nanos,
     guess_datetime_format,
     guessed_date_format,
+    infer_freq_name,
     is_missing_date,
     is_text,
     missing_dates,
@@ -47,12 +49,14 @@ from .csv_dialect import (
     SHORT_WHOLE_NUMBER,
     THOUSANDS,
     WHOLE_NUMBER,
+    CsvSample,
     ambiguous_thousands_error,
     check_csv_dialect,
     cp1252_note,
     decimal_in_both_error,
     detect_csv_dialect,
     dotted_values_error,
+    first_row_longer_than_header,
     only_thousands_error,
     read_row_lengths,
     read_sample,
@@ -154,7 +158,7 @@ def infer_frequency(
         return None
 
     try:
-        freq = pd.infer_freq(index)
+        freq = infer_freq_name(index)
     except (TypeError, ValueError):
         freq = None
     if freq is not None:
@@ -202,7 +206,7 @@ def _infer_frequency_with_gaps(
     candidates: dict[str, int] = {}
     for start in starts:
         try:
-            freq = pd.infer_freq(index[start:start + _FREQUENCY_WINDOW])
+            freq = infer_freq_name(index[start:start + _FREQUENCY_WINDOW])
         except (TypeError, ValueError):
             continue
         if freq is not None:
@@ -259,7 +263,7 @@ def _frequency_with_regular_gaps(index: pd.DatetimeIndex) -> str | None:
     candidates = set()
     for start in starts:
         try:
-            freq = pd.infer_freq(index[start:start + _GAPS_WINDOW])
+            freq = infer_freq_name(index[start:start + _GAPS_WINDOW])
         except (TypeError, ValueError):
             continue
         if freq is not None:
@@ -872,6 +876,10 @@ def _try_parse_first_date_column(
             continue
         if parsed is None or parsed.isna().any():
             continue
+        # Dates out of the range of pandas 2 are those of a column that was
+        # named: pandas 3 reads the names of the months as days of the year 1.
+        if col != date_column and not _in_nanosecond_range(parsed):
+            continue
         # A column without a day (times of day) does not take the place of a
         # date column that cannot be used.
         if skipped and not _has_date_part(_first_value(data[col])):
@@ -1113,7 +1121,8 @@ def _read_dates_one_by_one(
         `_day_first_issue`).
     issue : tuple, None
         Why the column holds dates but cannot be the date column (see
-        `_mixed_formats_issue`), or None.
+        `_mixed_formats_issue`, and `_unread_zones_issue` for the dates
+        pandas does not read for their time zones), or None.
     """
     with _warnings.catch_warnings():
         _warnings.filterwarnings(
@@ -1124,7 +1133,7 @@ def _read_dates_one_by_one(
         try:
             each = pd.to_datetime(values, format="mixed")
         except (ValueError, TypeError, AttributeError, OverflowError):
-            return None, None
+            return None, _unread_zones_issue(name, values, named)
     issue = _mixed_offsets_issue(name, each)
     if issue is None:
         issue = _mixed_formats_issue(name, values, named, each)
@@ -1404,13 +1413,26 @@ def _changing_zone_names(values: pd.Series) -> list[str] | None:
     Return the zone names of dates in one format but for a zone name that
     changes ('CET', then 'CEST'), in order of appearance; None otherwise.
     """
+    zones = _written_zone_names(values, _ZONE_NAME)
+
+    return zones if zones is not None and len(zones) > 1 else None
+
+
+def _written_zone_names(
+    values: pd.Series,
+    pattern: re.Pattern,
+) -> list[str] | None:
+    """
+    Return the zone names written after dates in one format, in order of
+    appearance; None when a value has no zone name or the dates before the
+    names are not in one format. `pattern` splits a value into its date and
+    its zone name.
+    """
     text = values[values.notna()].astype(str)
-    matches = text.str.extract(_ZONE_NAME)
-    if matches.isna().any().any():
+    matches = text.str.extract(pattern)
+    if matches.empty or matches.isna().any().any():
         return None
     zones = list(dict.fromkeys(matches[1]))
-    if len(zones) < 2:
-        return None
     dates = matches[0]
     date_format = guessed_date_format(dates)
     if date_format is None:
@@ -1420,6 +1442,80 @@ def _changing_zone_names(values: pd.Series) -> list[str] | None:
         parsed = pd.to_datetime(dates, format=date_format, errors="coerce")
 
     return zones if parsed.notna().all() else None
+
+
+# A zone name as dateutil reads one: capital letters after a time
+# ('2012-03-24 00:00:00 CET'), not any word after a date ('2020-01-01 open')
+# nor the half of the day ('10:30 PM').
+_ZONE_NAME_AFTER_TIME = re.compile(
+    r"^(.*\d:\d{2}(?:[.,:]\d+)*)\s+(?!(?:AM|PM)$)([A-Z]{2,5})$"
+)
+
+
+def _unread_zones_issue(
+    name: str,
+    values: pd.Series,
+    named: bool,
+) -> tuple[str, str] | None:
+    """
+    Say why dates that pandas cannot read, even one by one, cannot be the
+    date column, when their time zones are what it does not read.
+
+    pandas 3 raises on a zone name it does not know ('CET') and on dates of
+    several UTC offsets; pandas 2 read the first without their zone, with a
+    warning, and the second as a column of objects. The generated script
+    cannot read them either, so the column is reported instead of being
+    left out as a column without dates.
+
+    Parameters
+    ----------
+    name : str
+        Name of the column, for the message.
+    values : pandas Series
+        Values of the column, which pandas cannot read.
+    named : bool
+        Whether the caller named this column as the date column. When
+        False, its first date must clearly be one (see `_is_clearly_date`),
+        as in `_text_dates_issue`.
+
+    Returns
+    -------
+    issue : tuple, None
+        What was found and how to fix it, or None when the time zones are
+        not why pandas cannot read the column.
+    """
+    first = first_date(values)
+    if not isinstance(first, str) or (not named and not _is_clearly_date(first)):
+        return None
+    zones = _written_zone_names(values, _ZONE_NAME_AFTER_TIME)
+    if zones is not None:
+        if len(zones) > 1:
+            return _mixed_zones_message(name, zones)
+        return DateIssue(
+            f"The dates of column {name!r} are written with the time zone "
+            f"name {zones[0]!r}, which pandas does not read",
+            ": write every date with its UTC offset (such as '+01:00'), in "
+            "UTC, or without the time zone.",
+            hint = (
+                "Write every date with its UTC offset (such as '+01:00'), in "
+                "UTC, or without the time zone."
+            ),
+        )
+    present = values[values.notna()]
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("ignore")
+        try:
+            # Dates of several offsets read in UTC, and nothing else does:
+            # only then is each one read on its own, for its offset.
+            pd.to_datetime(present, format="mixed", utc=True)
+            each = pd.Series(
+                [pd.Timestamp(value) for value in pd.unique(present.to_numpy())],
+                dtype=object,
+            )
+        except (ValueError, TypeError, AttributeError, OverflowError):
+            return None
+
+    return _mixed_offsets_issue(name, each)
 
 
 def _shown_date(value: object) -> str:
@@ -1851,9 +1947,30 @@ def _compact_dates(values: pd.Series) -> pd.Series | None:
         return None
     with _warnings.catch_warnings():
         _warnings.simplefilter("ignore")
-        parsed = pd.to_datetime(numbers, format=COMPACT_DATE_FORMAT, errors="coerce")
+        # As text: pandas 3.1 deprecates reading numbers with a format.
+        parsed = pd.to_datetime(
+            numbers.astype(str), format=COMPACT_DATE_FORMAT, errors="coerce"
+        )
+    if parsed.isna().any() or not _in_nanosecond_range(parsed):
+        return None
 
-    return parsed if parsed.notna().all() else None
+    return parsed
+
+
+def _in_nanosecond_range(dates: pd.Series) -> bool:
+    """
+    Tell whether dates without a missing one are all in the range pandas 2
+    holds (nanoseconds, years 1677 to 2262), so that a column reads the same
+    with every version of pandas: pandas 3 also holds the dates out of it,
+    and reads 'Jan' as a day of the year 1.
+    """
+    if dates.empty:
+        return True
+    lowest, highest = dates.min(), dates.max()
+    if lowest.tzinfo is not None:
+        lowest, highest = lowest.tz_localize(None), highest.tz_localize(None)
+
+    return pd.Timestamp.min <= lowest and highest <= pd.Timestamp.max
 
 
 def _mixed_zones_message(name: str, zones: list[str]) -> tuple[str, str]:
@@ -1926,8 +2043,9 @@ def _parses_as_date(values: pd.Series) -> bool:
     """
     Return whether every value parses as a timestamp.
 
-    Only text and date objects count as dates. They are parsed in UTC, so
-    the check passes for mixed time zones, without pandas warnings. The
+    Only text and date objects count as dates, in the range pandas 2 holds
+    (see `_in_nanosecond_range`). They are parsed in UTC, so the check
+    passes for mixed time zones, without pandas warnings. The
     format of the first date is tried first, read month-first and
     day-first, as it is fast; each date is parsed on its own only when
     neither fits.
@@ -1949,7 +2067,7 @@ def _parses_as_date(values: pd.Series) -> bool:
                 parsed = pd.to_datetime(text, utc=True, format=date_format)
             except (ValueError, TypeError, AttributeError, OverflowError):
                 continue
-            if parsed.notna().all():
+            if parsed.notna().all() and _in_nanosecond_range(parsed):
                 return True
 
     return False
@@ -2762,12 +2880,9 @@ def _finer_than_a_day(frequency: str | None) -> bool:
     """
     if frequency is None:
         return False
-    offset = pd.tseries.frequencies.to_offset(frequency)
+    nanos = fixed_step_nanos(pd.tseries.frequencies.to_offset(frequency))
 
-    return (
-        isinstance(offset, pd.offsets.Tick)
-        and offset.nanos < _DAY_NANOS
-    )
+    return nanos is not None and nanos < _DAY_NANOS
 
 
 @functools.lru_cache(maxsize=256)
@@ -2777,8 +2892,9 @@ def _periods_per_year(frequency: str) -> float:
     frequency from a coarser one.
     """
     offset = pd.tseries.frequencies.to_offset(frequency)
-    if isinstance(offset, pd.offsets.Tick):
-        return 365 * _DAY_NANOS / offset.nanos
+    nanos = fixed_step_nanos(offset)
+    if nanos is not None:
+        return 365 * _DAY_NANOS / nanos
 
     # Forty years, so that steps of several years are counted too.
     return len(pd.date_range("2001-01-01", "2040-12-31", freq=offset)) / 40
@@ -2822,11 +2938,11 @@ def _own_frequencies(series_dates: dict[object, np.ndarray]) -> dict[object, str
         # day of the first date, and for periods of half a month or more on
         # its day of the month and month.
         first = pd.Timestamp(head[0])
-        key = (steps.tobytes(), first.dayofweek, int(head[0] % day)) + (
+        key = (steps.tobytes(), first.day_of_week, int(head[0] % day)) + (
             (first.day, first.month) if steps.min() >= 13 * day else ()
         )
         if key not in cache:
-            cache[key] = pd.infer_freq(pd.DatetimeIndex(head))
+            cache[key] = infer_freq_name(pd.DatetimeIndex(head))
         frequency = cache[key]
         if frequency is None:
             continue
@@ -2857,8 +2973,9 @@ def _grid(
     not set the grid.
     """
     offset = pd.tseries.frequencies.to_offset(frequency)
-    if isinstance(offset, pd.offsets.Tick):
-        phases, counts = np.unique(dates % offset.nanos, return_counts=True)
+    step = fixed_step_nanos(offset)
+    if step is not None:
+        phases, counts = np.unique(dates % step, return_counts=True)
         return offset, int(phases[np.argmax(counts)])
 
     day = _DAY_NANOS
@@ -3008,7 +3125,7 @@ def _frequency_name(start: pd.Timestamp, offset: pd.DateOffset) -> str:
     `offset` (`'W-MON'` for five business days, `'YS-JAN'` for twelve month
     starts), or the name of the offset when pandas gives none.
     """
-    name = pd.infer_freq(pd.date_range(start, periods=3, freq=offset))
+    name = infer_freq_name(pd.date_range(start, periods=3, freq=offset))
 
     return name if name is not None else offset.freqstr
 
@@ -3057,16 +3174,16 @@ def _check_long_frequency(
         than about stray timestamps.
     """
     offset, grid = _grid(all_dates, frequency)
-    tick = isinstance(offset, pd.offsets.Tick)
+    step = fixed_step_nanos(offset)
     evidence = _COARSER_EVIDENCE + np.log(len(series_dates))
 
     n_missing = 0
     other_frequencies: dict[object, str] = {}
     off_grid: dict[object, np.ndarray] = {}
     for name, dates in series_dates.items():
-        if tick:
-            on_grid = dates % offset.nanos == grid
-            positions = (dates - grid) // offset.nanos
+        if step is not None:
+            on_grid = dates % step == grid
+            positions = (dates - grid) // step
         else:
             positions, on_grid = _grid_positions(dates, grid)
         if not on_grid.all():
@@ -3145,12 +3262,11 @@ def _in_hours(frequency: str | None) -> str | None:
         return None
     offset = pd.tseries.frequencies.to_offset(frequency)
     hour = _HOUR_NANOS
-    if isinstance(offset, pd.offsets.Tick):
-        nanos = offset.nanos
-    elif isinstance(offset, pd.offsets.Week):
+    nanos = fixed_step_nanos(offset)
+    if nanos is None:
+        if not isinstance(offset, pd.offsets.Week):
+            return None
         nanos = offset.n * 7 * _DAY_NANOS
-    else:
-        return None
     if nanos % hour:
         return None
 
@@ -3914,13 +4030,16 @@ def detect_categorical_exog(
     Returns
     -------
     categorical_exog : list
-        Subset of `exog_columns` with dtype `object`, `category`, or `bool`.
+        Subset of `exog_columns` with dtype `object`, text (`str`, the
+        default of pandas 3, or `string`), `category`, or `bool`.
     """
     categorical = []
     for col in exog_columns:
         if isinstance(data[col].dtype, pd.CategoricalDtype):
             categorical.append(col)
-        elif pd.api.types.is_object_dtype(data[col]):
+        elif pd.api.types.is_object_dtype(data[col]) or isinstance(
+            data[col].dtype, pd.StringDtype
+        ):
             categorical.append(col)
         elif pd.api.types.is_bool_dtype(data[col]):
             categorical.append(col)
@@ -3963,7 +4082,8 @@ def detect_numbers_as_text(
         Input dataset.
     exog_columns : list
         Names of exogenous columns to check. Only those of dtype `object`
-        are read: a `category` dtype was chosen on purpose.
+        or text (`str`, `string`) are read: a `category` dtype was chosen
+        on purpose.
     decimal : str, default '.'
         Decimal mark of the CSV file, which the values written as text keep.
 
@@ -3990,7 +4110,10 @@ def detect_numbers_as_text(
     found = {}
     for col in exog_columns:
         values = data[col]
-        if not pd.api.types.is_object_dtype(values):
+        if not (
+            pd.api.types.is_object_dtype(values)
+            or isinstance(values.dtype, pd.StringDtype)
+        ):
             continue
         counts = values.dropna().value_counts(sort=False)
         if counts.empty:
@@ -4677,6 +4800,45 @@ def series_ids_as_text(
     return data
 
 
+def compact_dates_as_text(
+    data: pd.DataFrame,
+    date_column: str | None,
+) -> pd.DataFrame:
+    """
+    Return data with its dates of whole numbers of eight digits (20200131)
+    as text, as the generated script turns them (`astype(str)`) after it
+    reads the CSV file (see `_compact_dates`).
+
+    pandas 3.1 deprecates reading numbers as dates with a format, and a
+    future version reads them as times since the epoch. The script turns
+    those of the file it reads, and data passed in memory gets them here.
+
+    Parameters
+    ----------
+    data : pandas DataFrame
+        Input dataset.
+    date_column : str, None
+        Column of the dates. None, or a column that `data` does not hold,
+        returns `data` as it is.
+
+    Returns
+    -------
+    data : pandas DataFrame
+        `data`, or a copy with the dates as text.
+    """
+    if date_column is None or date_column not in data.columns:
+        return data
+    dates = data[date_column]
+    if isinstance(dates, pd.DataFrame):
+        # A repeated column name: left to the checks that report it.
+        return data
+    if _compact_dates(dates) is None:
+        return data
+    data = data.copy()
+    data[date_column] = dates.astype(str)
+    return data
+
+
 def decimal_after_sample(
     data: pd.DataFrame,
     source: str,
@@ -5245,7 +5407,7 @@ def read_csv_with_dialect(
     def read(sep: str, decimal: str, thousands: str | None = None) -> pd.DataFrame:
         nonlocal encoding
         try:
-            return pd.read_csv(
+            data = pd.read_csv(
                        path,
                        **csv_read_kwargs(
                            sep, decimal, thousands, series_id_column, dates, encoding
@@ -5255,15 +5417,19 @@ def read_csv_with_dialect(
             # A file whose first lines were not sampled is read as before.
             if sample is None or encoding != DEFAULT_CSV_ENCODING:
                 raise
-        # Bytes that are not UTF-8 after the first lines: cp1252, whose
-        # undefined bytes pandas reports.
-        encoding = CP1252
-        return pd.read_csv(
-                   path,
-                   **csv_read_kwargs(
-                       sep, decimal, thousands, series_id_column, dates, encoding
-                   ),
-               )
+            data = None
+        if data is None:
+            # Bytes that are not UTF-8 after the first lines: cp1252, whose
+            # undefined bytes pandas reports.
+            encoding = CP1252
+            data = pd.read_csv(
+                       path,
+                       **csv_read_kwargs(
+                           sep, decimal, thousands, series_id_column, dates, encoding
+                       ),
+                   )
+
+        return _first_fields_as_index(data, sample, sep)
 
     try:
         data = read(sep, decimal, thousands)
@@ -5342,6 +5508,34 @@ def read_csv_with_dialect(
         raise _unreadable_error(path, field, exc) from exc
 
     return data, sep, decimal, thousands, encoding
+
+
+def _first_fields_as_index(
+    data: pd.DataFrame,
+    sample: CsvSample | None,
+    sep: str,
+) -> pd.DataFrame:
+    """
+    Return a CSV file read by `pandas.read_csv` with the first fields of its
+    rows, when pandas read them as the index, in an integer index, as
+    pandas 2 reads them.
+
+    pandas 3 makes that index a RangeIndex when the fields are whole numbers
+    evenly spaced (60, 61, ...), and the checks of the file tell it from
+    the index of a file without one by its type. A RangeIndex that does not
+    start at 0 in steps of 1 is that index; one that does is told apart by
+    the first lines of the file, and is kept when they were not read.
+    """
+    index = data.index
+    if not isinstance(index, pd.RangeIndex):
+        return data
+    if index.start == 0 and index.step == 1 and not (
+        sample is not None and first_row_longer_than_header(sample.text, sep)
+    ):
+        return data
+    data.index = pd.Index(index.to_numpy(), name=index.name)
+
+    return data
 
 
 def _unreadable_error(
@@ -5665,7 +5859,11 @@ def detect_target_dtype(data: pd.DataFrame, target: str) -> str:
         return "numeric"
     if isinstance(dtype, pd.CategoricalDtype):
         return "categorical"
-    if pd.api.types.is_object_dtype(dtype) or pd.api.types.is_bool_dtype(dtype):
+    if (
+        pd.api.types.is_object_dtype(dtype)
+        or isinstance(dtype, pd.StringDtype)
+        or pd.api.types.is_bool_dtype(dtype)
+    ):
         return "categorical"
 
     return "other"
@@ -5730,7 +5928,9 @@ def _daily_or_finer(frequency: str | None) -> tuple[bool, bool]:
     if isinstance(offset, pd.offsets.BusinessDay) and offset.n == 1:
         return True, True
 
-    return isinstance(offset, pd.offsets.Tick) and offset.nanos <= _DAY_NANOS, False
+    nanos = fixed_step_nanos(offset)
+
+    return nanos is not None and nanos <= _DAY_NANOS, False
 
 
 def _open_every_weekday(dates: pd.DatetimeIndex, business: bool) -> bool:
@@ -5739,7 +5939,7 @@ def _open_every_weekday(dates: pd.DatetimeIndex, business: bool) -> bool:
     to Friday for business days), so that none of them can be closed. It
     spares sorting the dates of most data, whose gaps are not closed days.
     """
-    days = np.asarray(pd.DatetimeIndex(dates).dayofweek, dtype=float)
+    days = np.asarray(pd.DatetimeIndex(dates).day_of_week, dtype=float)
     counts = np.bincount(days[~np.isnan(days)].astype(np.int64), minlength=7)
 
     return bool(counts[:5 if business else 7].all())

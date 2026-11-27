@@ -445,6 +445,38 @@ def read_row_lengths(
         return None
 
 
+def first_row_longer_than_header(text: str, sep: str) -> bool:
+    """
+    Tell whether the first row after the header of a CSV file has more
+    fields than the header, as `pandas.read_csv` splits them: pandas then
+    reads the first fields of every row as the index.
+
+    Parameters
+    ----------
+    text : str
+        First lines of the file (see `read_sample`).
+    sep : str
+        Separator of the fields.
+
+    Returns
+    -------
+    longer : bool
+        Whether the first row has more fields than the header. False when
+        `text` holds no row after the header or cannot be split.
+    """
+    # Blank lines left out, as pandas leaves them out.
+    rows = (
+        row for row in csv.reader(io.StringIO(text), delimiter=sep)
+        if len(row) > 1 or (row and row[0].strip())
+    )
+    try:
+        header, first = next(rows, None), next(rows, None)
+    except csv.Error:
+        return False
+
+    return header is not None and first is not None and len(first) > len(header)
+
+
 def read_url_sample(url: str, field: str = "data") -> CsvSample | None:
     """
     Read the start of a CSV file served at a URL, as `read_sample` reads

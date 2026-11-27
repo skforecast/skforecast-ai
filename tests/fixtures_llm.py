@@ -704,7 +704,9 @@ def make_comparison_result(
             "rank":        n_candidates + 1,
             "name":        baseline_name,
             "forecaster":  "ForecasterEquivalentDate",
-            "estimator":   None,
+            # NaN, as in the `str` column of pandas 3, so that the table
+            # reads the same with every version of pandas.
+            "estimator":   np.nan,
             "MAE":         mae,
             "n_evaluated": 30,
         })
@@ -763,7 +765,7 @@ def make_comparison_result(
             generated_code = "# broken code",
         )
         for row in rows:
-            row["error"] = None
+            row["error"] = np.nan
         rows.append({
             "rank":       n_candidates + 1,
             "name":       "broken",

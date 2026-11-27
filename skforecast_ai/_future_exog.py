@@ -10,6 +10,7 @@ import warnings
 from pathlib import Path
 import numpy as np
 import pandas as pd
+from skforecast.utils import expand_index
 
 from ._constants import (
     AUTOREG_FORECASTERS,
@@ -385,12 +386,26 @@ def validate_future_exog(
         # Long-format data dated by its index: the generated code cannot read
         # it and fails on its own, so there are no dates to check against.
         return
-    exog_dates = _exog_dates(injected, profile, per_series, date_format)
+    # The dates as they were passed, in their column or in the index, which
+    # `exog_as_injected` moved to that column.
+    given = (
+        exog[profile.date_column] if profile.date_column in exog.columns
+        else exog.index
+    )
+    exog_dates = _exog_dates(
+        exog          = injected,
+        profile       = profile,
+        per_series    = per_series,
+        date_format   = date_format,
+        whole_numbers = per_series and pd.api.types.is_integer_dtype(given),
+    )
     if per_series:
         horizon = _check_long_dates(injected, exog_dates, data, profile, plan)
     else:
         last = _last_date(data, profile, by_value=plan.task_type == "multi_series")
-        expected = _forecast_dates(last, plan.steps, profile)
+        expected = _forecast_dates(
+            _first_date(data, profile), last, plan.steps, profile
+        )
         exog_dates, zone = _in_data_zone(last, exog_dates)
         horizon = _check_dates(
             dates      = exog_dates,
@@ -501,10 +516,14 @@ def _exog_dates(
     profile: DataProfile,
     per_series: bool,
     date_format: str | None = None,
+    whole_numbers: bool = False,
 ) -> pd.DatetimeIndex:
     """
     Return the date of every row of the future exogenous variables, read as
     the generated code reads them (with `date_format`, their own format).
+    `whole_numbers` says that the dates read per series were whole numbers
+    (20200131) before `exog_as_injected` turned them into text, so that the
+    error names what the caller passed.
     """
     date_column = profile.date_column
     if per_series:
@@ -514,6 +533,18 @@ def _exog_dates(
         ):
             # The generated code reshapes long-format exog without parsing
             # its dates, which turned every value into a missing one.
+            if whole_numbers:
+                raise DataContentError(
+                    f"The dates of `exog` (column {date_column!r}) are whole "
+                    f"numbers (such as {values.iloc[0]}): convert them to "
+                    f"dates first, with pandas.to_datetime(dates.astype(str), "
+                    f"format={COMPACT_DATE_FORMAT!r}).",
+                    field = "exog",
+                    hint  = (
+                        "Give the future exogenous values dates, not whole "
+                        "numbers."
+                    ),
+                )
             raise DataContentError(
                 f"The dates of `exog` (column {date_column!r}) are text: convert "
                 f"them with pandas.to_datetime first.",
@@ -593,6 +624,14 @@ def _last_date(
     return last
 
 
+def _first_date(data: pd.DataFrame, profile: DataProfile) -> pd.Timestamp:
+    """
+    Return the first date of the data passed, whose last date is known (see
+    `_last_date`).
+    """
+    return row_dates(data, profile.date_column, profile.date_format).min()
+
+
 def _in_data_zone(
     last: pd.Timestamp,
     exog_dates: pd.DatetimeIndex,
@@ -628,17 +667,34 @@ def _zone_error(exog_zone: object, data_zone: object) -> DataContentError:
 
 
 def _forecast_dates(
+    first: pd.Timestamp,
     last: pd.Timestamp,
     steps: int,
     profile: DataProfile,
 ) -> pd.DatetimeIndex:
     """
     Return the `steps` dates to forecast that follow `last`, as skforecast
-    builds them (`expand_index`).
+    builds them (`expand_index`) from dates of the frequency of the data up
+    to `last`.
+
+    skforecast keeps the time of day of dates with a time zone through a
+    daylight saving time change: the local one (a forecast after the day of
+    the change starts at midnight, not 24 hours later), or that of UTC when
+    the dates are at midnight in UTC and not in their zone. It tells one from
+    the other by the dates it predicts from, which for the machine learning
+    forecasters are those of the last window only. Here they are built from
+    `first`, the first date of the data, so the two differ for dates at a
+    local time that is midnight in UTC during part of the year (20:00 in
+    New York in summer) when the horizon crosses a change.
     """
     offset = pd.tseries.frequencies.to_offset(profile.frequency)
+    periods = 1
+    if last.tz is not None:
+        periods = max(len(pd.date_range(start=first, end=last, freq=offset)), 1)
 
-    return pd.date_range(start=last + offset, periods=steps, freq=offset)
+    return expand_index(
+        pd.date_range(end=last, periods=periods, freq=offset), steps
+    )
 
 
 def _check_dates(
@@ -833,8 +889,9 @@ def _check_long_dates(
     predicted = {
         name: end for name, end in ends.items() if foundation or end == last
     }
+    first = _first_date(data, profile)
     horizons = {
-        end: _forecast_dates(end, plan.steps, profile)
+        end: _forecast_dates(first, end, plan.steps, profile)
         for end in set(predicted.values())
     }
     dates, zone = _in_data_zone(last, dates)
@@ -842,8 +899,12 @@ def _check_long_dates(
     codes, names = pd.factorize(exog[series_id])
     code_of = {name: code for code, name in enumerate(names)}
     # The reshape of each series fails on repeated dates, predicted or not.
-    repeated = pd.DataFrame({"code": codes, "date": dates}).duplicated().to_numpy()
-    repeated &= codes >= 0
+    # A new array, not `&=`: under Copy-on-Write (pandas 3) the array of
+    # `to_numpy()` is read-only.
+    repeated = (
+        pd.DataFrame({"code": codes, "date": dates}).duplicated().to_numpy()
+        & (codes >= 0)
+    )
     if repeated.any():
         code = codes[np.flatnonzero(repeated)[0]]
         _check_dates(

@@ -14,7 +14,9 @@ _DAILY = pd.date_range("2023-01-02", periods=26)
 
 def _check(series_dates: dict, frequency: str) -> tuple:
     """Run the check on the dates of each series, as nanoseconds."""
-    series_dates = {name: dates.asi8 for name, dates in series_dates.items()}
+    series_dates = {
+        name: dates.as_unit("ns").asi8 for name, dates in series_dates.items()
+    }
     return _check_long_frequency(
         series_dates = series_dates,
         all_dates    = np.concatenate(list(series_dates.values())),

@@ -15,16 +15,38 @@ All significant changes to this project are documented in this release file.
 
 The main changes in this release are:
 
++ <span class="badge text-bg-enhancement">Enhancement</span> skforecast-ai works with pandas 3, the version a new environment gets with skforecast 0.28, with the same plans and predictions as with pandas 2.3, which is still supported ([#152](https://github.com/skforecast/skforecast-ai/pull/152)).
+
+!!! warning "Before upgrading"
+
+    Some results change with this version, without any change in your code:
+
+    + The generated scripts change, with the same predictions: dates written as whole numbers (`20200131`) are converted to text before they are read.
+
+    See **Changed**.
+
 
 **Added**
 
++ Compatibility with pandas 3, the version a new environment gets with skforecast 0.28. skforecast-ai 0.5.0 could be installed with it and failed: daily data were profiled with frequency `'86400ms'`, text exogenous variables were read as numbers... pandas 2.3 is still supported, with the same plans and predictions ([#152](https://github.com/skforecast/skforecast-ai/pull/152)).
+
 
 **Changed**
+
++ With pandas 3, four outputs follow pandas: quarterly data that start in January have frequency `'QS-JAN'` instead of `'QS-OCT'` (same plan), the predictions of a CSV file are dated in `datetime64[us]` instead of `datetime64[ns]`, a missing `estimator` or `error` in the table of [<code>ForecastingAssistant.compare()</code>][assistant] is `NaN` instead of `None`, and dates with a time zone name pandas 3 does not read (`'CET'`) raise `InvalidInputError`, where pandas 2.3 drops the zone ([#152](https://github.com/skforecast/skforecast-ai/pull/152)).
+
++ The generated scripts convert dates written as whole numbers (`20200131`) to text before reading them with their format (`data['date'] = data['date'].astype(str)`), since pandas 3.1 deprecates reading whole numbers with a format. The predictions are the same ([#152](https://github.com/skforecast/skforecast-ai/pull/152)).
 
 + skforecast-ai now requires `skforecast>=0.28.0` and Python 3.11 or later: with Python 3.10, pip keeps installing 0.5.0. The minimum versions of numpy, pandas, scipy and statsmodels rise to those of skforecast 0.28 (2.0, 2.3, 1.13 and 0.14.6), and installing skforecast-ai 0.6.0 upgrades them if they are older ([#151](https://github.com/skforecast/skforecast-ai/pull/151)).
 
 
 **Fixed**
+
++ Fixed an issue in [<code>ForecastingAssistant.forecast()</code>][assistant] with `exog` where daily data in a time zone with daylight saving time, whose last date is the day of a change, accepted no future values: the dates to forecast were expected 24 hours after the last date (at 01:00 or 23:00) instead of at midnight, as skforecast dates them ([#152](https://github.com/skforecast/skforecast-ai/pull/152)).
+
++ A text exogenous variable of dtype `string` in data passed in memory was read as numeric, and the run failed with `could not convert string to float`. It is now categorical, as text of dtype `object` ([#152](https://github.com/skforecast/skforecast-ai/pull/152)).
+
++ Fixed an issue in [<code>ForecastingAssistant.forecast()</code>][assistant] where long-format `exog` passed in memory with its dates as whole numbers (`20200131`) raised an error about rows missing for the dates to forecast. The error now says that the dates are whole numbers and how to convert them ([#152](https://github.com/skforecast/skforecast-ai/pull/152)).
 
 
 ## 0.5.0 <small>Nov 11, 2026</small> { id="0.5.0" }

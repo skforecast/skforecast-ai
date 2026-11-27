@@ -29,7 +29,7 @@ def test_date_positions_output_when_time_zone_aware():
             pd.Timestamp("2023-01-01 02:00", tz="Europe/Madrid"),
             pd.Timestamp("2023-01-01 00:30", tz="Europe/Madrid"),
         ]
-    ).tz_convert("UTC")
+    ).tz_convert("UTC").as_unit("ns")
 
     positions = date_positions(dates)
 

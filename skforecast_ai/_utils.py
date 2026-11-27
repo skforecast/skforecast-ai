@@ -2317,7 +2317,7 @@ def _period(frequency: str | None) -> object:
     # 'W-SUN' -> 'W', 'QS-JAN' -> 'QS': the anchor is the stamp, not the
     # period. Then the start and end variants: 'QS' and 'QE' -> 'Q'. The
     # units of time ('s', 'ms') are lower case and stay as they are.
-    name = offset.name.split("-")[0]
+    name = offset.rule_code.split("-")[0]
     if len(name) > 1 and name[-1] in "SE":
         name = name[:-1]
 
@@ -2941,8 +2941,8 @@ def _check_evaluated_target(
         closed_weekdays(with_value, data_profile.frequency)
         if isinstance(missing, pd.DatetimeIndex) else []
     )
-    if closed and np.isin(missing.dayofweek, closed).all():
-        days = weekday_names(sorted(set(missing.dayofweek)))
+    if closed and np.isin(missing.day_of_week, closed).all():
+        days = weekday_names(sorted(set(missing.day_of_week)))
         backtest_clause = f"; {backtest}" if backtest else ""
         raise DataContentError(
             f"The target has {len(missing)} missing value(s) {where} "

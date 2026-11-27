@@ -274,7 +274,7 @@ def test_resolve_data_and_target_passes_date_column_to_csv_loader(tmp_path):
                        )
 
     for data in (data_without, data_with):
-        assert pd.api.types.is_object_dtype(data["contract_end"])
+        assert pd.api.types.is_string_dtype(data["contract_end"].dtype)
         assert pd.api.types.is_datetime64_any_dtype(data["date"])
 
 
@@ -1453,7 +1453,7 @@ def test_resolve_inputs_with_profile_passes_date_column_when_no_profile(tmp_path
         )
 
     assert date_column == "date"
-    assert pd.api.types.is_object_dtype(data["contract_end"])
+    assert pd.api.types.is_string_dtype(data["contract_end"].dtype)
     assert pd.api.types.is_datetime64_any_dtype(data["date"])
 
 

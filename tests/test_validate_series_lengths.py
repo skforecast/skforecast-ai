@@ -630,7 +630,7 @@ def test_validate_series_lengths_DataContentError_names_closed_days_of_last_wind
     (D9): fill them with 0 after asking the user.
     """
     data = data_wide.copy()
-    data.loc[data.index.dayofweek == 6, "item_1"] = np.nan
+    data.loc[data.index.day_of_week == 6, "item_1"] = np.nan
     plan = plan_wide_ridge.model_copy(
         update={"forecaster_kwargs": {**plan_wide_ridge.forecaster_kwargs, "lags": [1, 7]}},
         deep=True,

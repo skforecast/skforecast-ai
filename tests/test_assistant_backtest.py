@@ -347,6 +347,35 @@ def test_backtest_output_when_no_exog():
     assert len(result.predictions) > 0
 
 
+def test_backtest_output_when_dates_are_whole_numbers_in_memory():
+    """
+    Test that data passed in memory with their dates as whole numbers such
+    as 20230101 give the metrics and predictions of the same data with
+    dates, without the warning of pandas 3.1 about reading numbers as dates
+    with a format (warnings are errors in the suite).
+    """
+    cv = TimeSeriesFold(steps=5, initial_train_size=70, verbose=False)
+
+    result = assistant.backtest(
+        data        = df_no_exog.assign(
+            date=df_no_exog["date"].dt.strftime("%Y%m%d").astype(int)
+        ),
+        target      = "sales",
+        date_column = "date",
+        cv          = cv,
+    )
+    expected = assistant.backtest(
+        data        = df_no_exog,
+        target      = "sales",
+        date_column = "date",
+        cv          = cv,
+    )
+
+    assert result.profile.data_profile.date_format == "%Y%m%d"
+    pd.testing.assert_frame_equal(result.metrics, expected.metrics)
+    pd.testing.assert_frame_equal(result.predictions, expected.predictions)
+
+
 def test_backtest_output_when_profile_given_without_target():
     """
     Test that a supplied profile makes `target` and `date_column`

@@ -1,5 +1,6 @@
 # Unit test _try_parse_first_date_column
 
+import contextlib
 import re
 import warnings
 
@@ -14,6 +15,7 @@ from skforecast_ai.profiling.data_profile import (
 )
 
 from ..fixtures_datasets import df_h2o_text, df_madrid_hourly_text
+from ..fixtures_pandas import PANDAS_3
 
 
 def test_try_parse_first_date_column_skips_unparseable_columns():
@@ -30,6 +32,25 @@ def test_try_parse_first_date_column_skips_unparseable_columns():
     parsed, _ = _try_parse_first_date_column(data)
 
     assert parsed["name"].tolist() == ["a", "b", "c"]
+    assert pd.api.types.is_datetime64_any_dtype(parsed["date"])
+
+
+def test_try_parse_first_date_column_skips_names_of_months():
+    """
+    Test that a leading column of names of months is left untouched and the
+    next column is the date column: pandas 3 reads 'Jan' as a day of the
+    year 1, out of the range of dates pandas 2 holds, where a detected date
+    column must be.
+    """
+    data = pd.DataFrame({
+        "month": ["Jan", "Feb", "Mar"],
+        "date": ["2023-01-01", "2023-02-01", "2023-03-01"],
+        "y": [1.0, 2.0, 3.0],
+    })
+
+    parsed, _ = _try_parse_first_date_column(data)
+
+    assert parsed["month"].tolist() == ["Jan", "Feb", "Mar"]
     assert pd.api.types.is_datetime64_any_dtype(parsed["date"])
 
 
@@ -174,7 +195,7 @@ def test_try_parse_first_date_column_skips_other_columns_when_date_column():
         parsed, _ = _try_parse_first_date_column(data, date_column="period_end")
 
     assert parsed["date"].isna().sum() == 1
-    assert pd.api.types.is_object_dtype(parsed["date"])
+    assert pd.api.types.is_string_dtype(parsed["date"].dtype)
     assert pd.api.types.is_datetime64_any_dtype(parsed["period_end"])
 
 
@@ -328,7 +349,7 @@ def test_try_parse_first_date_column_skips_text_that_is_not_clearly_dates(values
         warnings.simplefilter("error")
         parsed, _ = _try_parse_first_date_column(data)
 
-    assert parsed["col"].tolist() == values
+    pd.testing.assert_series_equal(parsed["col"], pd.Series(values, name="col"))
 
 
 def test_try_parse_first_date_column_ValueError_when_date_column_after_parsed_column():
@@ -377,8 +398,8 @@ def test_try_parse_first_date_column_InvalidInputError_when_zone_names_change(
     change (CET then CEST) raise the error of dates in several time zones,
     detected or named: the generated script reads every date with the
     format of the first one, which holds 'CET', and fails on the others,
-    which were read one by one before. pandas still warns that it does not
-    recognize the zone names.
+    which were read one by one before. pandas 2 still warns that it does
+    not recognize the zone names; pandas 3 does not read them at all.
     """
     dates = pd.date_range("2012-03-24", periods=72, freq="h", tz="Europe/Madrid")
     data = pd.DataFrame({
@@ -394,10 +415,42 @@ def test_try_parse_first_date_column_InvalidInputError_when_zone_names_change(
         "coarser data."
     )
     warn_msg = re.escape("included an un-recognized timezone")
-    with (
-        pytest.raises(InvalidInputError, match=err_msg) as exc_info,
-        pytest.warns(FutureWarning, match=warn_msg),
-    ):
+    pandas_warning = (
+        contextlib.nullcontext() if PANDAS_3
+        else pytest.warns(FutureWarning, match=warn_msg)
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info, pandas_warning:
+        _try_parse_first_date_column(data, date_column=date_column)
+
+    assert exc_info.value.field == "data"
+
+
+@pytest.mark.skipif(
+    not PANDAS_3,
+    reason="pandas 2 reads a zone name it does not know, without the zone",
+)
+@pytest.mark.parametrize("date_column", [None, "date"], ids=["detected", "named"])
+def test_try_parse_first_date_column_InvalidInputError_when_zone_name_not_read(
+    date_column
+):
+    """
+    Test that dates written with a zone name pandas 3 does not read ('CET')
+    raise an error that names it, detected or named, instead of being left
+    out as a column without dates: the generated script cannot read them
+    either.
+    """
+    dates = pd.date_range("2012-01-10", periods=72, freq="h", tz="Europe/Madrid")
+    data = pd.DataFrame({
+        "date": dates.strftime("%Y-%m-%d %H:%M:%S %Z"),
+        "y": range(72),
+    })
+
+    err_msg = re.escape(
+        "The dates of column 'date' are written with the time zone name 'CET', "
+        "which pandas does not read: write every date with its UTC offset "
+        "(such as '+01:00'), in UTC, or without the time zone."
+    )
+    with pytest.raises(InvalidInputError, match=err_msg) as exc_info:
         _try_parse_first_date_column(data, date_column=date_column)
 
     assert exc_info.value.field == "data"

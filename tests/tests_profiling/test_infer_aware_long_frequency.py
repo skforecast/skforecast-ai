@@ -20,7 +20,9 @@ def _local_and_utc(dates: pd.DatetimeIndex) -> tuple[dict, dict]:
 
 def _series_local_and_utc(series: dict) -> tuple[dict, dict]:
     """Return the dates of each series in local time and in UTC."""
-    dates = pd.DatetimeIndex(np.concatenate([index.asi8 for index in series.values()]))
+    dates = pd.DatetimeIndex(
+        np.concatenate([index.as_unit("ns").asi8 for index in series.values()])
+    )
     dates = dates.tz_localize("UTC").tz_convert("Europe/Madrid")
     ids = pd.Series(np.repeat(list(series), [len(index) for index in series.values()]))
     local = _long_series_dates(dates, ids)
@@ -140,8 +142,8 @@ def test_infer_aware_long_frequency_output_when_no_utc_dates_or_too_few():
     local reading decides, and that two dates per series, too few for any
     reading, have no frequency.
     """
-    daily = pd.date_range("2023-01-01", periods=40).asi8
-    two = pd.DatetimeIndex(["2023-01-01", "2023-01-05"]).asi8
+    daily = pd.date_range("2023-01-01", periods=40).as_unit("ns").asi8
+    two = pd.DatetimeIndex(["2023-01-01", "2023-01-05"]).as_unit("ns").asi8
 
     assert _infer_aware_long_frequency({"a": daily}, None) == ("D", 0)
     assert _infer_aware_long_frequency({"a": two}, {"a": two}) == (None, 0)
