@@ -115,7 +115,9 @@ From most to least reliable:
    then read the rows per series of `files.best_metrics` (`files.metrics`
    of a backtest). A `mean_absolute_scaled_error` below 1 beats the
    one-step naive forecast of that series, above 1 does worse. The summary
-   only gives the average, so the worst series is not in it: name it.
+   of a `compare` only gives the average, and that of a `backtest` the
+   first 5 series: name the worst series, from every row of the file
+   when there are more.
 2. A `backtest`: measured over the same folds, but without a reference.
 3. A `forecast` with `test_size`: one window of `steps` observations. It
    can be lucky or unlucky; do not present it as the accuracy of the model,

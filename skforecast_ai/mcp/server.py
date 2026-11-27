@@ -251,7 +251,8 @@ Rules (the skforecast-ai-forecasting skill has the rest):
 `forecast` with `test_size` (one window) > a `forecast` of the future (no \
 error measure). Without a baseline (several series, or a target with gaps), \
 judge each series by `mean_absolute_scaled_error` in the CSV of metrics and \
-name the worst one: the summary only has the average. Below 1 it beats the \
+name the worst one: the summary of a `compare` only has the average, and that \
+of a `backtest` the first 5 series. Below 1 it beats the \
 one-step naive forecast (repeat the previous value) over the observations \
 known when each prediction is made, which is not a seasonal naive forecast nor the baseline of `compare`. Never \
 invent a number, nor derive one: no percentage, ratio or difference that a \
