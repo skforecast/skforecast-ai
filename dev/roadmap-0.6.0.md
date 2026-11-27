@@ -421,6 +421,10 @@ sesión ejercita D38.
 
 ### Las métricas por serie en el SKILL.md del servidor
 
+**Hecho** ([#156](https://github.com/skforecast/skforecast-ai/pull/156)): el
+SKILL.md, su copia del plugin y la misma frase de las instrucciones del
+servidor.
+
 El paso 1 de la lectura de resultados dice "The summary only gives the
 average, so the worst series is not in it": vale para el leaderboard de
 `compare`, pero el resumen de un `backtest` lista hasta 5 series (con su
