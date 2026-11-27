@@ -227,17 +227,37 @@ De la revisión final de `feature/pandas3` (2026-11-26, con pandas 2.3.3 y
 3.1.1 contra skforecast 0.28). Nada bloquea la release; lo que depende de
 skforecast está en la tabla de la sección siguiente.
 
-- **Decidir antes de publicar: el `astype(str)` de las fechas de enteros,
-  en el código común.** Hoy el script las pasa a texto al leer el CSV
+- **Decidido (2026-11-27): el `astype(str)` de las fechas de enteros se
+  queda en la lectura del CSV.** El script las pasa a texto al leer el CSV
   (`_emit_data_loading`, que decide por `date_format`) y la ejecución
-  convierte los datos en memoria en tres sitios (`compact_dates_as_text`
-  en `run_forecast`, `run_backtest` y `exog_as_injected`, que decide por
-  el contenido). Un `.astype(str)` dentro de la línea
-  `pd.to_datetime(..., format='%Y%m%d')` del código común quitaría la
-  función y sus tres llamadas. Cambia los scripts generados otra vez:
-  después de publicar la 0.6.0 serían dos cambios para el usuario. Solo
-  razonado, sin probar; obliga a regenerar los scripts esperados byte a
-  byte.
+  convierte los datos en memoria (`compact_dates_as_text` en
+  `run_forecast`, `run_backtest` y `exog_as_injected`), como hace
+  `series_ids_as_text` con los ids: la ejecución recibe lo que daría el
+  preámbulo. La alternativa, un `.astype(str)` dentro de
+  `pd.to_datetime(..., format='%Y%m%d')` del código común, se probó con un
+  prototipo en los dos entornos (22 escenarios con CSV reales) y no sirve:
+  con datos leídos de un fichero, la ejecución inyecta las fechas ya
+  leídas como fechas por el cargador (`load_data`, `load_exog`), el
+  `astype(str)` las vuelve `'2020-01-01'` y `format='%Y%m%d'` falla (15 de
+  22 escenarios: todo dato o exógena leído de un CSV, en ancho y en
+  largo). Además perdía el mensaje de c48630f: sin la conversión, los
+  enteros llegan a `_exog_dates`, que los lee como nanosegundos, y el
+  error decía que faltaban las 7 fechas. Rescatarla pedía una línea que
+  mirase el dtype en el script o inyectar el CSV sin leer las fechas.
+  Con el código actual pasan los 20 escenarios esperados, sin avisos con
+  pandas 3.1 y con las mismas predicciones en los dos entornos (las
+  exógenas largas en memoria con enteros se rechazan con el mensaje de
+  c48630f, como está previsto). Los scripts no cambian.
+- **Dos divergencias entre `forecast()` y el script, con espacios
+  alrededor de fechas leídas como texto** (vistas al probar lo anterior;
+  ya estaban, con pandas 2.3 y 3.1). `forecast()` funciona y el script
+  ejecutado como fichero falla: (1) con separador de miles, la fecha se
+  lee con `dtype={'date': str}` y conserva los espacios (`time data
+  " 20200101 " doesn't match format "%Y%m%d"`); (2) datos fechados por el
+  índice y un CSV de exógenas futuras con `" 20200501 "`: `read_csv(...,
+  index_col='fecha', date_format=...)` no las lee como fechas, y
+  skforecast dice que `exog` no cubre los pasos. Casos raros; no bloquean
+  la release.
 - **Lecturas de fechas que pandas 3.1 depreca y siguen avisando**
   (`Pandas4Warning`; una versión futura dejará de leerlas). Los floats
   con `date_format`, límite ya aceptado, y las fechas trimestrales de
