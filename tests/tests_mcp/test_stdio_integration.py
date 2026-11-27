@@ -184,7 +184,7 @@ def test_stdio_server_runs_executes_reports_progress_and_cancels(tmp_path):
 
     backtest, comparison, events, cancelled, objects = anyio.run(main)
 
-    assert sorted(backtest["files"]) == ["metrics", "predictions"]
+    assert sorted(backtest["files"]) == ["error_by_step", "metrics", "predictions"]
     assert comparison["kind"] == "comparison"
     assert events == [
         (1.0, 6.0),

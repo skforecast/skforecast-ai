@@ -27,8 +27,8 @@ def _profile(**kwargs):
 
 
 _SCORED = (
-    " A missing value on a date that `test_size` scores fails with any "
-    "estimator; a backtest leaves those dates out of its metrics."
+    " If a date that `test_size` scores has no value, any estimator fails; a "
+    "backtest would leave that date out of its metrics."
 )
 _IMPUTE = " Imputing the target, after asking the user, avoids these errors."
 _SNIPPET_RIDGE = (

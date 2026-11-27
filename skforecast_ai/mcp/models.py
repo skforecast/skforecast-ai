@@ -434,8 +434,10 @@ class ToolResult(BaseModel):
     files : dict
         Absolute paths of the files written for the object, by role:
         `predictions` and `metrics` (CSV with the index) of a backtest or a
-        forecast, `leaderboard`, `best_predictions` and `best_metrics` of a
-        comparison, and `summary` when the summary was cut.
+        forecast, `error_by_step` (mean absolute error by step of the
+        horizon, and by series) of a backtest, `leaderboard`,
+        `best_predictions` and `best_metrics` of a comparison, and
+        `summary` when the summary was cut.
     values_included : bool
         Always False: the response holds no rows of the data or of the
         predictions. The summary carries statistics of the predictions, the

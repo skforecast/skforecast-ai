@@ -2133,7 +2133,8 @@ def test_compare_output_when_baseline_added_by_default():
         f"(n_evaluated in the table: a count, not a metric, and it does not "
         f"change the ranking). Best: "
         f"'recursive_default' (ForecasterRecursive / Ridge) = 0.3652, 22.5% "
-        f"ahead of 'direct_ridge' (0.4711). Both configurations beat the "
+        f"ahead of 'direct_ridge' (0.4711). The baseline repeats the value "
+        f"observed 7 steps earlier. Both configurations beat the "
         f"baseline 'Baseline (seasonal naive)' (7.0000). The best, "
         f"'recursive_default', beats it by 94.8%."
     )
@@ -2345,8 +2346,16 @@ def test_compare_baseline_name_is_serialized():
 
 def _ranked_entry(name: str, forecaster: str, value: float) -> tuple:
     """Build a `(name, backtest, value)` entry with the attributes the explanation reads."""
+    # The naive baseline, as `select_baseline_config` gives it without a
+    # seasonal period.
+    kwargs = (
+        {"offset": 1, "n_offsets": 1}
+        if forecaster == "ForecasterEquivalentDate" else {}
+    )
     backtest = SimpleNamespace(
-        plan=SimpleNamespace(forecaster=forecaster, estimator=None),
+        plan=SimpleNamespace(
+            forecaster=forecaster, estimator=None, forecaster_kwargs=kwargs
+        ),
         metrics=None,
     )
     return (name, backtest, value)
@@ -3914,7 +3923,8 @@ def test_compare_strategy_plan_row_when_plan_was_refined(monkeypatch):
         "(n_evaluated in the table: a count, not a metric, and it does not "
         "change the ranking). Best: "
         "'ForecasterStats' (ForecasterStats / Arima) = 0.0607, 2.1% ahead of "
-        "'ForecasterRecursive' (0.0620). 2 of 4 configurations beat the "
+        "'ForecasterRecursive' (0.0620). The baseline repeats the value "
+        "observed 12 steps earlier. 2 of 4 configurations beat the "
         "baseline 'Baseline (seasonal naive)' (0.0661): 'ForecasterStats' and "
         "'ForecasterRecursive'. The best, 'ForecasterStats', beats it by "
         "8.2%. " + _MISSING_BACKEND_NOTE
@@ -4071,7 +4081,8 @@ def test_compare_strategy_plan_row_is_in_the_explanation_when_it_ran_last():
         "count, not a metric, and it does not change the ranking). Best: "
         "'ForecasterDirect' "
         "(ForecasterDirect / Ridge) = 0.3163, 13.4% ahead of "
-        "'ForecasterRecursive' (0.3652). 2 of 3 configurations beat the "
+        "'ForecasterRecursive' (0.3652). The baseline repeats the value "
+        "observed 7 steps earlier. 2 of 3 configurations beat the "
         "baseline 'Baseline (seasonal naive)' (7.0000); 'Strategy plan' does "
         "not. The best, 'ForecasterDirect', beats it by 95.5%."
     )
@@ -4446,7 +4457,8 @@ def test_build_comparison_explanation_names_the_row_of_the_strategy_plan():
         "(ForecasterRecursive / LGBMRegressor), ranked 3 of 3 (3.0000); the "
         "rows named after a forecaster run the configurations the profile "
         "recommends, not that plan. Shared cross-validation strategy: Folds. "
-        "Best: 'model' (ForecasterRecursive) = 1.0000. 1 of 2 configurations "
+        "Best: 'model' (ForecasterRecursive) = 1.0000. The baseline repeats "
+        "the last observed value. 1 of 2 configurations "
         "beats the baseline 'Baseline (naive)' (2.0000): 'model', by 50.0%. "
         "Edited values."
     )

@@ -43,7 +43,7 @@ Note: A validated Python script implementing this plan is generated separately. 
 - Files read: data.csv
 - Variables defined: metrics (one column per metric: mean_absolute_error, root_mean_squared_error, mean_absolute_scaled_error; one row per series when there are several; then `n_evaluated`, the number of points each row is measured on, which is not a metric), and predictions of every fold with the columns `fold`, `step` (the step of the horizon), `y_true` (the observed value) and the point forecast `pred`
 - Packages imported: pandas, skforecast, sklearn
-- Length: 57 lines
+- Length: 67 lines
 The script is available to the user as `result.code`; describe it from this summary and the plan, do not reproduce it. It has not been run: for its metrics, the user runs it or calls `assistant.backtest()`.
 </script>
 </forecast_context>

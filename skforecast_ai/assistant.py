@@ -3613,6 +3613,9 @@ class ForecastingAssistant:
             - predictions: full backtest predictions across all folds, with
             the `fold`, the `step` of the horizon and the observed value
             (`y_true`) of each prediction.
+            - error_by_step: mean absolute error by step of the horizon
+            (`mean_absolute_error` by `step`, and by `level` with several
+            series), computed by the script from the predictions.
             - code: generated Python script reproducing the workflow.
             - explanation: human-readable summary of the configuration
             and results, with the coverage and the width of the interval
@@ -3760,13 +3763,14 @@ class ForecastingAssistant:
             )
 
         return BacktestResult(
-            profile     = profile,
-            plan        = plan,
-            cv_config   = cv_config,
-            metrics     = result["metrics"],
-            predictions = result["predictions"],
-            code        = result["rendered_code"].full_script,
-            explanation = result["explanation"],
+            profile       = profile,
+            plan          = plan,
+            cv_config     = cv_config,
+            metrics       = result["metrics"],
+            predictions   = result["predictions"],
+            error_by_step = result["error_by_step"],
+            code          = result["rendered_code"].full_script,
+            explanation   = result["explanation"],
             **_cv_provenance_fields(cv_result, cv, cv_config, plan, profile),
         )
 

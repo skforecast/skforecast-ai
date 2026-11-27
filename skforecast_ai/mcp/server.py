@@ -3060,7 +3060,11 @@ def _build_tools(state: _ServerState) -> list[Tool]:
                 _keep_failure(exc)
                 raise
             _inputs.check_unchanged(path, cv_entry.data_sha256, "data_path")
-            frames = {"predictions": result.predictions, "metrics": result.metrics}
+            frames = {
+                "predictions": result.predictions,
+                "metrics": result.metrics,
+                "error_by_step": result.error_by_step,
+            }
             return result, *_finish_run(control, "backtest", result, frames)
 
         outcome = await run_call(

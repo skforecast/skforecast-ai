@@ -1760,7 +1760,8 @@ def forecast(
 
 def _render_backtest_results(result) -> None:
     """
-    Print Rich tables summarizing backtest metrics and predictions.
+    Print Rich tables summarizing backtest metrics, the error by step of
+    the horizon and the predictions.
 
     Parameters
     ----------
@@ -1776,6 +1777,9 @@ def _render_backtest_results(result) -> None:
     console.print()
     console.print(render_metrics(result.metrics, title="Backtest Metrics"))
     console.print()
+    if result.error_by_step is not None:
+        console.print(render_dataframe(result.error_by_step, title="Error by Step"))
+        console.print()
     console.print(render_dataframe(result.predictions, title="Backtest Predictions"))
 
 

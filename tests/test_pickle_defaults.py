@@ -48,6 +48,7 @@ def _saved_without(obj, names):
              "cv_llm_configured", "cv_defaults_explanation"],
             [None, [], False, ""],
         ),
+        (backtest_result, ["error_by_step"], [None]),
         (plan, ["overridden_fields", "exog_columns"], [[], None]),
         (profile.data_profile, ["time_zone", "unused_columns"], [None, []]),
         (
@@ -61,6 +62,7 @@ def _saved_without(obj, names):
     ids=[
         "CVResult",
         "BacktestResult",
+        "BacktestResult error by step",
         "ForecastPlan",
         "DataProfile",
         "DataProfile CSV dialect",

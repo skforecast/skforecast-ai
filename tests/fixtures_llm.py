@@ -334,11 +334,23 @@ metrics_interval_single = pd.DataFrame({
     "interval_width":             [40.0],
     "n_evaluated":                [40],
 })
+# The mean absolute error by step of the horizon that the script computes
+# from the predictions: every one misses by 3.125.
+error_by_step_single = pd.DataFrame({
+    "step":                [1, 2, 3, 4, 5],
+    "mean_absolute_error": [3.125] * 5,
+})
+error_by_step_multi = pd.DataFrame({
+    "level":               ["store_a"] * 5 + ["store_b"] * 5,
+    "step":                [1, 2, 3, 4, 5] * 2,
+    "mean_absolute_error": [3.125] * 10,
+})
 explanation_interval_single = _build_backtest_explanation(
     cv_explanation = explanation_backtest,
     metrics        = metrics_interval_single,
     predictions    = predictions_backtest_interval,
     interval       = plan_interval_single.interval,
+    error_by_step  = error_by_step_single,
 )
 _half_widths = np.repeat([20.0, 30.0], 20)
 predictions_backtest_multi_interval = predictions_backtest_multi.assign(
@@ -359,6 +371,7 @@ explanation_interval_multi = _build_backtest_explanation(
     metrics        = metrics_interval_multi,
     predictions    = predictions_backtest_multi_interval,
     interval       = plan_interval_multi.interval,
+    error_by_step  = error_by_step_multi,
 )
 
 # Long-format data of 3 series with a numeric and a categorical exogenous
@@ -566,12 +579,13 @@ def make_forecast_result(
 
 def make_backtest_result(
     *,
-    profile      = profile_single,
-    plan         = plan_single,
-    predictions  = predictions_backtest,
-    metrics      = metrics_backtest_single,
-    cv_config    = cv_config,
-    explanation  = explanation_backtest,
+    profile       = profile_single,
+    plan          = plan_single,
+    predictions   = predictions_backtest,
+    metrics       = metrics_backtest_single,
+    cv_config     = cv_config,
+    explanation   = explanation_backtest,
+    error_by_step = None,
 ) -> BacktestResult:
     """
     Build a `BacktestResult` without running a backtest.
@@ -590,6 +604,8 @@ def make_backtest_result(
         Resolved strategy carried by the result.
     explanation : str, default `explanation_backtest`
         Deterministic summary carried by the result.
+    error_by_step : pandas DataFrame, default None
+        Mean absolute error by step of the horizon carried by the result.
 
     Returns
     -------
@@ -598,13 +614,14 @@ def make_backtest_result(
     """
 
     return BacktestResult(
-        profile     = profile,
-        plan        = plan,
-        code        = code_backtest,
-        predictions = predictions,
-        metrics     = metrics,
-        cv_config   = cv_config,
-        explanation = explanation,
+        profile       = profile,
+        plan          = plan,
+        code          = code_backtest,
+        predictions   = predictions,
+        metrics       = metrics,
+        cv_config     = cv_config,
+        explanation   = explanation,
+        error_by_step = error_by_step,
     )
 
 
@@ -874,17 +891,19 @@ GOLDEN_SCENARIOS = {
         metrics     = metrics_backtest_multi,
     ),
     "backtest_single_series_interval": lambda: make_backtest_result(
-        plan        = plan_interval_single,
-        predictions = predictions_backtest_interval,
-        metrics     = metrics_interval_single,
-        explanation = explanation_interval_single,
+        plan          = plan_interval_single,
+        predictions   = predictions_backtest_interval,
+        metrics       = metrics_interval_single,
+        explanation   = explanation_interval_single,
+        error_by_step = error_by_step_single,
     ),
     "backtest_multi_series_interval": lambda: make_backtest_result(
-        profile     = profile_multi,
-        plan        = plan_interval_multi,
-        predictions = predictions_backtest_multi_interval,
-        metrics     = metrics_interval_multi,
-        explanation = explanation_interval_multi,
+        profile       = profile_multi,
+        plan          = plan_interval_multi,
+        predictions   = predictions_backtest_multi_interval,
+        metrics       = metrics_interval_multi,
+        explanation   = explanation_interval_multi,
+        error_by_step = error_by_step_multi,
     ),
     "comparison_all_succeeded": lambda: make_comparison_result(),
     "comparison_with_failures": lambda: make_comparison_result(

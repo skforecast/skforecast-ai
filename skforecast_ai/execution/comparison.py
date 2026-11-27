@@ -1201,9 +1201,10 @@ def build_comparison_explanation(
     cv_explanation : str
         Description of the shared cross-validation strategy.
     baseline_name : str, default None
-        Name of the baseline candidate. When given, the summary says how
-        many configurations beat it, which ones, and by how much the best
-        one does (see `_baseline_sentence()`).
+        Name of the baseline candidate. When given, the summary says what
+        it predicts (see `_baseline_rule()`), how many configurations beat
+        it, which ones, and by how much the best one does (see
+        `_baseline_sentence()`).
     baseline_note : str, default None
         Sentence explaining why no baseline was added, appended as is.
     backend_note : str, default None
@@ -1364,6 +1365,9 @@ def build_comparison_explanation(
             )
     parts.append(best_sentence)
     if baseline_name is not None:
+        rule = _baseline_rule(ranked, baseline_name)
+        if rule is not None:
+            parts.append(rule)
         parts.append(_baseline_sentence(ranked, baseline_name, ranking_metric))
     if interval is not None:
         across = " (averaged across series)" if averaged else ""
@@ -1396,6 +1400,57 @@ def build_comparison_explanation(
                 f"last."
             )
     return " ".join(parts)
+
+
+def _baseline_rule(
+    ranked: list[tuple[str, BacktestResult, float]],
+    baseline_name: str,
+) -> str | None:
+    """
+    Say what the baseline predicts, from the `offset` and `n_offsets` of the
+    `ForecasterEquivalentDate` that ran: its name says naive or seasonal
+    naive, not the period it repeats (24 with hourly data, 12 with
+    monthly data, see `select_baseline_config()`).
+
+    Parameters
+    ----------
+    ranked : list of tuple of (str, BacktestResult, float)
+        Successful candidates ordered best to worst.
+    baseline_name : str
+        Name of the baseline candidate.
+
+    Returns
+    -------
+    sentence : str, None
+        One sentence, or None when the baseline did not run or its offset
+        is not a number of steps.
+    """
+
+    result = next(
+        (result for name, result, _ in ranked if name == baseline_name), None
+    )
+    if result is None:
+        return None
+    kwargs = result.plan.forecaster_kwargs
+    offset = kwargs.get("offset", 1)
+    n_offsets = kwargs.get("n_offsets", 1)
+    if not isinstance(offset, int) or not isinstance(n_offsets, int):
+        return None
+
+    if n_offsets == 1:
+        rule = (
+            "repeats the last observed value" if offset == 1
+            else f"repeats the value observed {offset} steps earlier"
+        )
+    else:
+        earlier = [str(offset * k) for k in range(1, n_offsets + 1)]
+        rule = (
+            f"averages the values observed {', '.join(earlier[:-1])} and "
+            f"{earlier[-1]} steps earlier"
+        )
+
+    # Unnamed: the sentence after it names the baseline.
+    return f"The baseline {rule}."
 
 
 def _baseline_sentence(

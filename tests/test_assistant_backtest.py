@@ -1276,7 +1276,8 @@ def test_backtest_output_when_target_missing_in_test_folds():
     Test that backtest() of a single series runs when a test fold holds a
     missing timestamp that no lag reads: skforecast (0.27) leaves that date
     out of the metrics, the predictions keep it with `y_true` missing, and
-    the explanation counts it after the points evaluated.
+    the explanation counts it after the points evaluated, before the error
+    by step of the horizon.
     """
     dates = pd.date_range("2023-01-01", periods=100, freq="D")
     data = pd.DataFrame(
@@ -1296,7 +1297,9 @@ def test_backtest_output_when_target_missing_in_test_folds():
     assert result.explanation.endswith(
         "They are measured on 29 predictions with an observed value "
         "(n_evaluated). The metrics leave out 1 test date without an observed "
-        "value of the target."
+        "value of the target. Mean absolute error by step of the horizon "
+        "(error_by_step): step 1: 0.4444, step 2: 0.4703, step 3: 0.4750, "
+        "step 4: 0.4844, step 5: 0.4874."
     )
 
 
