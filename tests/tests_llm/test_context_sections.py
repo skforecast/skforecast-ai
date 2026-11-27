@@ -403,9 +403,11 @@ def test_render_script_section_describes_backtesting_script(
         "mean_absolute_error, root_mean_squared_error, "
         "mean_absolute_scaled_error; one row per series when there are "
         "several; then `n_evaluated`, the number of points each row is "
-        "measured on, which is not a metric), and predictions of every fold "
+        "measured on, which is not a metric), predictions of every fold "
         "with the columns `fold`, `step` (the step of the horizon), "
-        "`y_true` (the observed value) and the point forecast `pred`\n"
+        "`y_true` (the observed value) and the point forecast `pred`, and "
+        "error_by_step (the mean absolute error of each step of the horizon, "
+        "per series and step when there are several)\n"
     ) in section
     assert "prediction: trains on all the data" not in section
 
@@ -450,7 +452,7 @@ def test_render_script_section_names_the_prediction_columns_of_a_backtest(
 
     section = render_script_section(backtest_plan, _BACKTEST_CODE, cv_config=cv_config)
 
-    assert f"`y_true` (the observed value) and {expected}\n" in section
+    assert f"`y_true` (the observed value) and {expected}, and error_by_step" in section
 
 
 def test_render_script_section_backtesting_script_says_how_to_get_its_metrics():

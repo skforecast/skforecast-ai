@@ -81,8 +81,8 @@ def select_baseline_config(
     Select the `ForecasterEquivalentDate` configuration used as baseline.
 
     The baseline is a seasonal naive forecast: each step repeats the last
-    value observed at the same point of the seasonal period. The offset is the seasonal
-    period implied by the frequency (see
+    value observed at the same point of the seasonal period. The offset is
+    the seasonal period implied by the frequency (see
     `select_baseline_seasonal_period()`). It falls back to a naive
     forecast (`offset=1`, repeat the last value) when the frequency is
     unknown, has no sub-period cycle, or when one seasonal period spans

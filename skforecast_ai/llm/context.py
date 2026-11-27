@@ -1042,7 +1042,8 @@ def render_script_section(
         # count is not read as one more metric. The columns of the forecast
         # are named too: with the identifiers alone, the point forecast and
         # the bounds of the interval of the plan were taken as absent (0.5.0
-        # check after skforecast 0.27).
+        # check after skforecast 0.27). `error_by_step` is named for the
+        # same reason as the metrics.
         quantiles = (
             _get_quantiles_from_plan(plan) if plan.task_type == "foundation"
             else None
@@ -1063,10 +1064,11 @@ def render_script_section(
         outputs = (
             f"metrics (one column per metric: {metric_names}; one row per "
             f"series when there are several; then `n_evaluated`, the number "
-            f"of points each row is measured on, which is not a metric), and "
+            f"of points each row is measured on, which is not a metric), "
             f"predictions of every fold with the columns `fold`, `step` (the "
             f"step of the horizon), `y_true` (the observed value) and "
-            f"{predicted}"
+            f"{predicted}, and error_by_step (the mean absolute error of each "
+            f"step of the horizon, per series and step when there are several)"
         )
     elif plan.end_train is not None:
         mode = (
