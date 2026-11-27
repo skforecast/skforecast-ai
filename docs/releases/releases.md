@@ -44,7 +44,7 @@ The main changes in this release are:
 
 + Fixed an issue in [<code>ForecastingAssistant.forecast()</code>][assistant] with `exog` where daily data in a time zone with daylight saving time, whose last date is the day of a change, accepted no future values: the dates to forecast were expected 24 hours after the last date (at 01:00 or 23:00) instead of at midnight, as skforecast dates them ([#152](https://github.com/skforecast/skforecast-ai/pull/152)).
 
-+ Fixed an issue in the [CLI][cli] where `ask`, `check-llm --test-call`, `refine-plan --prompt` and `backtest --prompt` printed the Logfire banner of pydantic-ai 2.62 or later on stderr, in a terminal or under a coding agent. The Python API leaves it to `pydantic_ai.BANNER_ENABLED`.
++ Fixed an issue in the [CLI][cli] where `ask`, `check-llm --test-call`, `refine-plan --prompt` and `backtest --prompt` printed the Logfire banner of pydantic-ai 2.62 or later on stderr, in a terminal or under a coding agent. The Python API leaves it to `pydantic_ai.BANNER_ENABLED` ([#155](https://github.com/skforecast/skforecast-ai/pull/155)).
 
 + A text exogenous variable of dtype `string` in data passed in memory was read as numeric, and the run failed with `could not convert string to float`. It is now categorical, as text of dtype `object` ([#152](https://github.com/skforecast/skforecast-ai/pull/152)).
 
